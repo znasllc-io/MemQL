@@ -248,7 +248,7 @@ func (i *Integration) writeTierCWikipediaChunks(
 	if len(articles) == 0 {
 		return 0, fmt.Errorf("writeTierCWikipediaChunks: no articles configured for %q", d.ID)
 	}
-	provider, err := i.embeddingProvider(defaultProvider)
+	provider, err := i.embeddingProvider(ctx, defaultProvider)
 	if err != nil {
 		return 0, fmt.Errorf("resolve embedding provider %q: %w", defaultProvider, err)
 	}

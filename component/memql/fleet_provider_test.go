@@ -16,6 +16,7 @@ type stubFleet struct {
 	lastReq   FleetCallRequest
 	lastActor string
 	answer    string
+	toolCalls []common.ToolCall
 	err       error
 }
 
@@ -34,6 +35,7 @@ func (s *stubFleet) Call(_ context.Context, req FleetCallRequest) (FleetCallResu
 	}
 	return FleetCallResult{
 		Content:          s.answer,
+		ToolCalls:        s.toolCalls,
 		Usage:            FleetUsage{InputTokens: 3, OutputTokens: 5, Known: true, Model: req.ModelId},
 		ExecutionSurface: "fleet:laptop",
 		MachineLabel:     "Laptop",
@@ -97,7 +99,7 @@ func TestAnOfflineFleetModelIsUnavailableRatherThanMissing(t *testing.T) {
 	}
 	// The existing accessors must see it as unusable, exactly as they see a
 	// disabled provider.
-	if p := r.ChatStructuredProviderByName("fleet:llama3.1:8b"); p != nil {
+	if p := r.ChatStructuredProviderByName(userCtx("alice"), "fleet:llama3.1:8b"); p != nil {
 		t.Fatal("an unavailable fleet entry must not be handed out by the by-name accessor")
 	}
 }

@@ -91,7 +91,7 @@ type Integration struct {
 	Logger *slog.Logger
 
 	dbGetter          func() *sql.DB
-	embeddingProvider func(name string) (memql.EmbeddingAIProvider, error)
+	embeddingProvider func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)
 	stagedConcept     func(conceptId string) bool
 }
 
@@ -114,7 +114,7 @@ func (i *Integration) SetDBGetter(f func() *sql.DB) { i.dbGetter = f }
 func (i *Integration) SetStagedConceptPredicate(f func(conceptId string) bool) { i.stagedConcept = f }
 
 // SetEmbeddingProvider injects the provider registry lookup.
-func (i *Integration) SetEmbeddingProvider(f func(name string) (memql.EmbeddingAIProvider, error)) {
+func (i *Integration) SetEmbeddingProvider(f func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)) {
 	i.embeddingProvider = f
 }
 
@@ -214,7 +214,7 @@ func (i *Integration) recallHandler(ctx context.Context, args map[string]any, ta
 		return nil, fmt.Errorf("harnessRecall.recall: embedding provider not configured")
 	}
 
-	provider, err := i.embeddingProvider(p.provider)
+	provider, err := i.embeddingProvider(ctx, p.provider)
 	if err != nil {
 		return nil, fmt.Errorf("harnessRecall.recall: resolve provider %q: %w", p.provider, err)
 	}

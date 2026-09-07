@@ -319,6 +319,19 @@ type ProviderConfigEntry struct {
 	err       error
 }
 
+// Err reports why an entry is unavailable, or nil when it is not.
+//
+// The field is unexported so nothing outside this package can SET it; the
+// reason is worth reading, because "no machine offering llama3.1:8b is
+// online" and "this node has no fleet inference installed" are the same
+// Available=false with entirely different fixes.
+func (e *ProviderConfigEntry) Err() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
 func newProviderRegistry(defaultName string) *ProviderRegistry {
 	pinned := strings.TrimSpace(defaultName) != ""
 	return &ProviderRegistry{
@@ -584,9 +597,22 @@ func (r *ProviderRegistry) EntryForUser(ctx context.Context, actingUserId, name 
 // zero-form covers every "no fit" path: name missing, entry
 // unavailable, predicate rejected, or type assertion failed. Used by
 // every *ProviderByName accessor.
+//
+// It resolves through Entry, i.e. against the SYSTEM catalog for a dynamic
+// name. Use providerByNameForContext when the caller has one: a `fleet:` or
+// `app:` entry resolved without the acting user reports a live machine as
+// unavailable, and an unavailable primary with any fallback is a silent cloud
+// call for somebody whose laptop was awake the whole time.
 func providerByName[T any](r *ProviderRegistry, name string, extra func(*ProviderConfigEntry) bool) (T, bool) {
+	return providerByNameForContext[T](context.Background(), r, name, extra)
+}
+
+// providerByNameForContext is providerByName with the caller's context, which
+// is what a dynamic (`fleet:` / `app:`) name needs to resolve against the
+// right machines.
+func providerByNameForContext[T any](ctx context.Context, r *ProviderRegistry, name string, extra func(*ProviderConfigEntry) bool) (T, bool) {
 	var zero T
-	entry, ok := r.Entry(name)
+	entry, ok := r.EntryForContext(ctx, name)
 	if !ok || !entry.Available {
 		return zero, false
 	}
@@ -744,11 +770,11 @@ func (r *ProviderRegistry) ChatStructuredProvider(defaultName string) common.Cha
 // this does NOT fall back to other providers -- caller gets exactly
 // the named one or nil. Used when a prompt declares a specific
 // structured model.
-func (r *ProviderRegistry) ChatStructuredProviderByName(name string) common.ChatStructuredProvider {
+func (r *ProviderRegistry) ChatStructuredProviderByName(ctx context.Context, name string) common.ChatStructuredProvider {
 	if r == nil {
 		return nil
 	}
-	cp, _ := providerByName[common.ChatStructuredProvider](r, strings.TrimSpace(name), func(e *ProviderConfigEntry) bool {
+	cp, _ := providerByNameForContext[common.ChatStructuredProvider](ctx, r, strings.TrimSpace(name), func(e *ProviderConfigEntry) bool {
 		return isNonStreamingType(e.Config.Type)
 	})
 	return cp
@@ -777,11 +803,28 @@ func (r *ProviderRegistry) SuggestChatProvider() common.ChatAIProvider {
 	return r.ChatProvider("")
 }
 
-// isNonStreamingType returns true for provider types that use synchronous (non-streaming)
-// chat completions. These are safe for suggest/non-streaming AI calls.
+// isNonStreamingType returns true for provider types that use synchronous
+// (non-streaming) chat completions. These are safe for suggest/non-streaming
+// AI calls.
+//
+// FLEET BELONGS HERE, and its absence was a silent cloud call
+// (epic memql#5096, task memql#5098). The gate exists because a STREAMING
+// build may target an endpoint that refuses synchronous completions -- that is
+// a fact about two vendor SDKs, not a property of "provider". A fleet call is
+// one request and one response over a stream this side already holds; it has
+// no streaming-only endpoint to be wrong about.
+//
+// While they were excluded, `ChatStructuredProviderByName("fleet:...")`
+// answered nil, and InvokeAIStructured's next step is a registry-wide scan for
+// anything structured-capable -- which found a cloud provider the policy never
+// named. So a structured prompt with a fleet default was answered by a paid
+// API even when the machine was awake. `TestStructuredCallWithAFleetDefault-
+// MakesNoCloudCall` is the control that failed before this line changed.
 func isNonStreamingType(providerType string) bool {
 	switch strings.ToLower(providerType) {
 	case "openai", "openaichat", "anthropic", "anthropicchat":
+		return true
+	case strings.ToLower(FleetProviderType):
 		return true
 	default:
 		return false
@@ -836,17 +879,30 @@ func (r *ProviderRegistry) VisionProvider(providerName string) common.VisionAIPr
 // available one if name is empty. The named-lookup path preserves the
 // legacy distinction between "not found" and "found but wrong type"
 // errors -- callers grep on the error message in a few places.
-func (r *ProviderRegistry) EmbeddingProvider(name string) (EmbeddingAIProvider, error) {
+//
+// IT TAKES A CONTEXT because a `fleet:` name resolves against the ACTING
+// USER'S machines (epic memql#5096, task memql#5098, design D6). It used to
+// read r.byName directly, which is the one map a dynamic name is deliberately
+// absent from -- so `fleet:nomic-embed-text` answered "not found" and the
+// seeded local embeddings policy had no consumer that could ever have worked.
+// The registry lookup below is EntryForContext for exactly that reason, and
+// the "not found" branch now also reports whether the fleet said why.
+func (r *ProviderRegistry) EmbeddingProvider(ctx context.Context, name string) (EmbeddingAIProvider, error) {
 	if r == nil {
 		return nil, fmt.Errorf("provider registry is nil")
 	}
 
 	if name != "" {
-		r.mu.RLock()
-		entry, ok := r.byName[name]
-		r.mu.RUnlock()
-		if !ok {
+		entry, ok := r.EntryForContext(ctx, name)
+		if !ok || entry == nil {
 			return nil, fmt.Errorf("embedding provider %q not found", name)
+		}
+		if !entry.Available {
+			// A dynamic entry that resolved but cannot serve. Reported as
+			// UNAVAILABLE rather than as "not found": the difference is
+			// "your machine is asleep" versus "you spelled it wrong", and
+			// they have entirely different fixes.
+			return nil, fmt.Errorf("embedding provider %q is unavailable: %v", name, entry.Err())
 		}
 		ep, ok := entry.Client.(EmbeddingAIProvider)
 		if !ok {

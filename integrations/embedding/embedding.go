@@ -19,7 +19,7 @@ import (
 )
 
 // EmbeddingProviderFunc resolves an EmbeddingAIProvider by name from the engine.
-type EmbeddingProviderFunc func(name string) (memql.EmbeddingAIProvider, error)
+type EmbeddingProviderFunc func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)
 
 // PartitionFunc returns the active partition for the current request context.
 type PartitionFunc func(ctx context.Context) string
@@ -131,7 +131,7 @@ func (i *Integration) Embed(ctx context.Context, text, providerName string) ([]f
 	}
 
 	// Resolve provider and compute embedding.
-	provider, err := i.embeddingProvider(providerName)
+	provider, err := i.embeddingProvider(ctx, providerName)
 	if err != nil {
 		return nil, fmt.Errorf("embed: resolve provider %q: %w", providerName, err)
 	}

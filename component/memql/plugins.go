@@ -79,7 +79,12 @@ type PluginContext struct {
 
 	// EmbeddingProviderByName returns a named embedding provider, or an
 	// error if no provider by that name is registered.
-	EmbeddingProviderByName func(name string) (EmbeddingAIProvider, error)
+	//
+	// It takes the CALLER'S CONTEXT because a `fleet:<modelId>` name
+	// resolves against the acting user's own machines (epic memql#5096):
+	// resolved without one it would answer against the shared-inference
+	// set, which reports a live laptop as absent.
+	EmbeddingProviderByName func(ctx context.Context, name string) (EmbeddingAIProvider, error)
 
 	// ResolvePartitionFromContext returns the active partition for the
 	// given request context; "default" if none is set.

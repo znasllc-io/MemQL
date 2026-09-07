@@ -1,6 +1,7 @@
 package memql
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"testing"
@@ -93,14 +94,14 @@ func TestPromptDefaultProviderFallsBackWhenDisabled(t *testing.T) {
 
 	// The disabled provider (and its propagated child) resolve to nil --
 	// the caller (generateStructured) treats nil as "fall back to default".
-	if got := reg.ChatStructuredProviderByName("acme"); got != nil {
+	if got := reg.ChatStructuredProviderByName(context.Background(), "acme"); got != nil {
 		t.Error("ChatStructuredProviderByName(disabled 'acme') should be nil so the prompt falls back")
 	}
-	if got := reg.ChatStructuredProviderByName("acmeMini"); got != nil {
+	if got := reg.ChatStructuredProviderByName(context.Background(), "acmeMini"); got != nil {
 		t.Error("ChatStructuredProviderByName('acmeMini', child of disabled base) should be nil")
 	}
 	// An unknown name is equally graceful (no panic, nil result).
-	if got := reg.ChatStructuredProviderByName("doesNotExist"); got != nil {
+	if got := reg.ChatStructuredProviderByName(context.Background(), "doesNotExist"); got != nil {
 		t.Error("ChatStructuredProviderByName(unknown) should be nil, not panic")
 	}
 }

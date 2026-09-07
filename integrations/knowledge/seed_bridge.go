@@ -351,7 +351,7 @@ func (i *Integration) generateBridgeContent(
 		return 0, fmt.Errorf("seedDomainBridge JSON parse: %w", err)
 	}
 
-	provider, err := i.embeddingProvider(defaultProvider)
+	provider, err := i.embeddingProvider(ctx, defaultProvider)
 	if err != nil {
 		return 0, fmt.Errorf("resolve embedding provider %q: %w", defaultProvider, err)
 	}

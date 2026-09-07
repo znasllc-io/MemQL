@@ -45,7 +45,7 @@ type Integration struct {
 	Logger            *slog.Logger
 	engine            memql.IntegrationEngineAccess
 	dbGetter          func() *sql.DB
-	embeddingProvider func(name string) (memql.EmbeddingAIProvider, error)
+	embeddingProvider func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)
 	stagedConcept     func(conceptId string) bool
 }
 
@@ -73,7 +73,7 @@ func (i *Integration) SetDBGetter(fn func() *sql.DB) { i.dbGetter = fn }
 // SetEmbeddingProvider wires the embedding provider resolver. The knowledge
 // integration embeds chunks at ingest time and the query at lookup time;
 // both go through the caller-named provider (default: embedding3Small).
-func (i *Integration) SetEmbeddingProvider(fn func(name string) (memql.EmbeddingAIProvider, error)) {
+func (i *Integration) SetEmbeddingProvider(fn func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)) {
 	i.embeddingProvider = fn
 }
 
@@ -327,7 +327,7 @@ func (i *Integration) ingestHandler(ctx context.Context, args map[string]any, _ 
 		return nil, fmt.Errorf("knowledge.ingest: chunker produced no chunks (empty text?)")
 	}
 
-	provider, err := i.embeddingProvider(providerName)
+	provider, err := i.embeddingProvider(ctx, providerName)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge.ingest: resolve provider %q: %w", providerName, err)
 	}

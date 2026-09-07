@@ -96,7 +96,7 @@ func (a *App) buildSafetyClassifier() safety.Classifier {
 			"component", "safety")
 		return safety.NewChainClassifier(rules, safety.NoopClassifier{})
 	}
-	provider := a.engine.StructuredChatProviderByName(providerName)
+	provider := a.engine.StructuredChatProviderByName(context.Background(), providerName)
 	if provider == nil {
 		a.Logger.Warn("safety classifier: provider not registered; LLM layer disabled",
 			"component", "safety",

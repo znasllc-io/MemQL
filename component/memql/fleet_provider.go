@@ -91,7 +91,13 @@ type FleetModel struct {
 	ContextWindow    int
 	StructuredOutput bool
 	Embeddings       bool
-	Machines         []FleetMachine
+	// Tools reports that at least one machine behind this model can carry a
+	// tool-calling turn. FALSE IS THE DEFAULT and it is a gate, not a
+	// downgrade: a runtime handed tools it cannot honour answers prose,
+	// which surfaces three layers away as an agent that stopped using its
+	// tools for no reason a reader can see.
+	Tools    bool
+	Machines []FleetMachine
 }
 
 // Online reports whether at least one machine behind this model is reachable.
@@ -110,6 +116,7 @@ func (m FleetModel) Online() bool {
 type FleetNeeds struct {
 	StructuredOutput bool
 	Embeddings       bool
+	Tools            bool
 	MinContextWindow int
 }
 
@@ -125,10 +132,14 @@ type FleetCallRequest struct {
 	Messages     []common.ChatMessage
 	// Schema is set for a structured call; its presence is also what makes
 	// the call require a structured-output-capable model.
-	Schema         *common.StructuredSchema
+	Schema *common.StructuredSchema
+	// Tools are the functions this turn offers the model. Their presence is
+	// also what makes the call require a tool-capable model, the same way
+	// Schema's presence requires a structured-output one.
+	Tools          []common.ToolDefinition
 	EmbeddingInput []string
 	Purpose        string
-	RunId         string
+	RunId          string
 	StepId         string
 	// OnDelta, when set, receives streamed content as it arrives.
 	OnDelta func(string)
@@ -141,6 +152,7 @@ func (r FleetCallRequest) Needs() FleetNeeds {
 	return FleetNeeds{
 		StructuredOutput: r.Schema != nil,
 		Embeddings:       r.Kind == FleetKindEmbedding,
+		Tools:            len(r.Tools) > 0,
 	}
 }
 
@@ -157,7 +169,10 @@ type FleetUsage struct {
 type FleetCallResult struct {
 	Content    string
 	Embeddings [][]float32
-	Usage      FleetUsage
+	// ToolCalls are the calls the model made this turn, empty when it
+	// answered in prose.
+	ToolCalls []common.ToolCall
+	Usage     FleetUsage
 	// ExecutionSurface names the machine that served the call, in the
 	// `fleet:<registrationId>` form the ledger stores (memql#4681).
 	ExecutionSurface string
@@ -408,6 +423,91 @@ func (p *fleetProvider) CallChatStructured(ctx context.Context, messages []commo
 	return res.Content, nil
 }
 
+// CallChatWithTools implements common.ToolCallingChatAIProvider -- the
+// non-streaming tool-calling surface the background execution lane uses
+// (design D11).
+//
+// The tool schemas are sent to the RUNTIME rather than described in the
+// prompt. A machine reaches this method only because it advertised `tools=1`
+// for the model (the router's capability gate), so a runtime that quietly
+// answers prose here has broken its own advertisement -- and the caller is
+// about to look for tool calls, so failing to find them is the honest result
+// rather than something to paper over with a prose parser.
+//
+// InputSchema is marshalled ONCE here rather than at each hop: the wire
+// carries the schema as a string, and re-encoding it per machine would give
+// two candidates for the same call two different schema bytes.
+func (p *fleetProvider) CallChatWithTools(
+	ctx context.Context,
+	messages []common.ChatMessage,
+	tools []common.ToolDefinition,
+) (*common.ToolCallingChatResult, error) {
+	res, err := p.call(ctx, FleetCallRequest{
+		Kind:     FleetKindChat,
+		Messages: messages,
+		Tools:    tools,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &common.ToolCallingChatResult{
+		AssistantText: res.Content,
+		ToolCalls:     res.ToolCalls,
+	}, nil
+}
+
+// CallChatStreamWithTools implements common.ChatStreamWithToolsProvider.
+//
+// The stream carries TEXT incrementally and the tool calls at the END, which
+// is what the two runtimes actually do: an OpenAI-compatible endpoint streams
+// tool arguments in fragments the worker reassembles, and Ollama emits its
+// tool-call list complete on the final message. Rather than inventing a
+// synthetic per-fragment delta that only one runtime could ever produce
+// faithfully, the assembled calls are emitted once, on the closing chunk --
+// the same list CallChatWithTools would have returned.
+func (p *fleetProvider) CallChatStreamWithTools(
+	ctx context.Context,
+	messages []common.ChatMessage,
+	tools []common.ToolDefinition,
+) (<-chan common.StreamToolChunk, error) {
+	out := make(chan common.StreamToolChunk, 32)
+	go func() {
+		defer close(out)
+		res, err := p.call(ctx, FleetCallRequest{
+			Kind:     FleetKindChat,
+			Messages: messages,
+			Tools:    tools,
+			OnDelta: func(s string) {
+				select {
+				case out <- common.StreamToolChunk{Content: s}:
+				case <-ctx.Done():
+				}
+			},
+		})
+		if err != nil {
+			select {
+			case out <- common.StreamToolChunk{Error: err, Done: true}:
+			case <-ctx.Done():
+			}
+			return
+		}
+		final := common.StreamToolChunk{Done: true}
+		for i, c := range res.ToolCalls {
+			final.ToolCalls = append(final.ToolCalls, common.ToolCallDelta{
+				Index:     i,
+				ID:        c.ID,
+				Name:      c.Name,
+				Arguments: c.Arguments,
+			})
+		}
+		select {
+		case out <- final:
+		case <-ctx.Done():
+		}
+	}()
+	return out, nil
+}
+
 // CallChatStream implements common.ChatStreamProvider.
 func (p *fleetProvider) CallChatStream(ctx context.Context, messages []common.ChatMessage) (<-chan common.StreamChunk, error) {
 	out := make(chan common.StreamChunk, 32)
@@ -475,9 +575,11 @@ func (p *fleetProvider) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 func (p *fleetProvider) Dimensions() int { return 0 }
 
 var (
-	_ AIProvider                    = (*fleetProvider)(nil)
-	_ common.ChatAIProvider         = (*fleetProvider)(nil)
-	_ common.ChatStructuredProvider = (*fleetProvider)(nil)
-	_ common.ChatStreamProvider     = (*fleetProvider)(nil)
-	_ EmbeddingAIProvider           = (*fleetProvider)(nil)
+	_ AIProvider                         = (*fleetProvider)(nil)
+	_ common.ChatAIProvider              = (*fleetProvider)(nil)
+	_ common.ChatStructuredProvider      = (*fleetProvider)(nil)
+	_ common.ChatStreamProvider          = (*fleetProvider)(nil)
+	_ common.ToolCallingChatAIProvider   = (*fleetProvider)(nil)
+	_ common.ChatStreamWithToolsProvider = (*fleetProvider)(nil)
+	_ EmbeddingAIProvider                = (*fleetProvider)(nil)
 )

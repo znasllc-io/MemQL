@@ -22,6 +22,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -32,6 +33,7 @@ import (
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 	workerservice "github.com/znasllc-io/memql/component/worker"
+	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 )
 
@@ -137,6 +139,7 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 			}
 			entry.StructuredOutput = entry.StructuredOutput || attrs.StructuredOutput
 			entry.Embeddings = entry.Embeddings || attrs.Embeddings
+			entry.Tools = entry.Tools || attrs.Tools
 			entry.Machines = append(entry.Machines, memqlengine.FleetMachine{
 				RegistrationId: m.RegistrationId,
 				Name:           m.Name,
@@ -166,9 +169,11 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 		return memqlengine.FleetCallResult{},
 			fmt.Errorf("%w: no fleet router on this node", memqlengine.ErrFleetUnavailable)
 	}
+	want := req.Needs()
 	needs := ModelNeeds{
-		StructuredOutput: req.Needs().StructuredOutput,
-		Embeddings:       req.Needs().Embeddings,
+		StructuredOutput: want.StructuredOutput,
+		Embeddings:       want.Embeddings,
+		Tools:            want.Tools,
 	}
 
 	var (
@@ -242,12 +247,69 @@ func (f *FleetInference) buildStart(req memqlengine.FleetCallRequest) *memqlv1.M
 		start.Kind = workerservice.ModelCallKindChat
 	}
 	for _, m := range req.Messages {
-		start.Messages = append(start.Messages, &memqlv1.ModelCallMessage{Role: m.Role, Content: m.Content})
+		start.Messages = append(start.Messages, &memqlv1.ModelCallMessage{
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCallId: m.ToolCallId,
+			Name:       m.Name,
+			ToolCalls:  toolCallsOut(m.ToolCalls),
+		})
 	}
 	if req.Schema != nil {
 		start.ResponseFormatSchema = req.Schema.Schema
 	}
+	for _, t := range req.Tools {
+		start.Tools = append(start.Tools, &memqlv1.ModelCallTool{
+			Name:           t.Name,
+			Description:    t.Description,
+			ParametersJson: toolSchemaJSON(t.InputSchema),
+		})
+	}
 	return start
+}
+
+// toolSchemaJSON renders a tool's InputSchema for the wire.
+//
+// The wire wants the JSON Schema as a STRING, and this is the ONE place it is
+// produced -- buildStart runs once per call, before any candidate is tried, so
+// two machines offered the same turn are offered byte-identical schemas. A
+// schema that will not marshal becomes the empty object rather than being
+// dropped: a tool with no parameters block is a tool the model can still call
+// with no arguments, where a tool absent from the list is one it cannot see
+// and will describe as unavailable.
+func toolSchemaJSON(schema any) string {
+	if schema == nil {
+		return "{}"
+	}
+	if s, ok := schema.(string); ok {
+		return s
+	}
+	if raw, ok := schema.(json.RawMessage); ok {
+		return string(raw)
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+// toolCallsOut renders the assistant turn's own calls back into the
+// conversation, so the model sees what it already asked for.
+func toolCallsOut(in []common.ToolCall) []*memqlv1.ModelCallToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*memqlv1.ModelCallToolCall, 0, len(in))
+	for i, c := range in {
+		out = append(out, &memqlv1.ModelCallToolCall{
+			Id:            c.ID,
+			Name:          c.Name,
+			ArgumentsJson: c.Arguments,
+			Index:         int32(i),
+		})
+	}
+	return out
 }
 
 // attempt runs the call on one machine, locally or across the hop.
@@ -338,9 +400,14 @@ func (f *FleetInference) attemptLocal(
 		return memqlengine.FleetCallResult{}, ForwardCompleted,
 			fmt.Errorf("%s: %s", cand.Label(), outcome.Error)
 	}
+	toolCalls := make([]common.ToolCall, 0, len(outcome.ToolCalls))
+	for _, c := range outcome.ToolCalls {
+		toolCalls = append(toolCalls, common.ToolCall{ID: c.Id, Name: c.Name, Arguments: c.ArgumentsJSON})
+	}
 	return memqlengine.FleetCallResult{
 		Content:          outcome.Content,
 		Embeddings:       outcome.Embeddings,
+		ToolCalls:        toolCalls,
 		Usage:            usageFrom(outcome.Usage),
 		ExecutionSurface: FleetSurfacePrefix + cand.RegistrationId,
 		MachineLabel:     cand.Label(),
@@ -371,6 +438,11 @@ func resultFromEnd(cand Candidate, end *memqlv1.ModelCallEnd) memqlengine.FleetC
 		return res
 	}
 	res.Content = end.GetContent()
+	for _, c := range end.GetToolCalls() {
+		res.ToolCalls = append(res.ToolCalls, common.ToolCall{
+			ID: c.GetId(), Name: c.GetName(), Arguments: c.GetArgumentsJson(),
+		})
+	}
 	for _, e := range end.GetEmbeddings() {
 		res.Embeddings = append(res.Embeddings, e.GetValues())
 	}

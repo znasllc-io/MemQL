@@ -61,6 +61,8 @@ type ModelNeeds struct {
 	StructuredOutput bool
 	// Embeddings is set for embedding calls.
 	Embeddings bool
+	// Tools is set for a turn that offers the model functions to call.
+	Tools bool
 	// MinContextWindow is the floor in tokens. Zero means no floor.
 	MinContextWindow int
 }
@@ -88,6 +90,14 @@ type ModelAttributes struct {
 	StructuredOutput bool
 	// Embeddings reports that the model produces vectors.
 	Embeddings bool
+	// Tools reports that the runtime can carry a tool-calling turn for this
+	// model -- pass tool schemas in and surface tool calls back out.
+	//
+	// It is a RUNTIME capability as much as a model one: the same weights
+	// behind an endpoint that does not implement the tools field cannot do
+	// this, which is why it is advertised per machine rather than inferred
+	// from the model id.
+	Tools bool
 	// MaxConcurrent is the per-model ceiling. Zero means the machine
 	// declared none, which the load ordering reads as unlimited -- the
 	// convention loadRatio already uses.
@@ -99,6 +109,7 @@ const (
 	attrContext    = "ctx"
 	attrStructured = "structured"
 	attrEmbeddings = "embeddings"
+	attrTools      = "tools"
 	attrMax        = "max"
 )
 
@@ -127,6 +138,8 @@ func ParseModelAttributes(value string) ModelAttributes {
 			a.StructuredOutput = parseAdvertisedBool(v)
 		case attrEmbeddings:
 			a.Embeddings = parseAdvertisedBool(v)
+		case attrTools:
+			a.Tools = parseAdvertisedBool(v)
 		case attrMax:
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				a.MaxConcurrent = uint32(n)
@@ -150,7 +163,7 @@ func parseAdvertisedBool(v string) bool {
 // String renders attributes back to the label value, so the cockpit contract
 // and the engine's reading of it have exactly one definition.
 func (a ModelAttributes) String() string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 5)
 	if a.ContextWindow > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrContext, a.ContextWindow))
 	}
@@ -159,6 +172,9 @@ func (a ModelAttributes) String() string {
 	}
 	if a.Embeddings {
 		parts = append(parts, attrEmbeddings+"=1")
+	}
+	if a.Tools {
+		parts = append(parts, attrTools+"=1")
 	}
 	if a.MaxConcurrent > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrMax, a.MaxConcurrent))
@@ -176,6 +192,9 @@ func (a ModelAttributes) Satisfies(n ModelNeeds) (bool, string) {
 	}
 	if n.Embeddings && !a.Embeddings {
 		return false, "model does not advertise embeddings"
+	}
+	if n.Tools && !a.Tools {
+		return false, "model does not advertise tool calling"
 	}
 	if n.MinContextWindow > 0 && a.ContextWindow < n.MinContextWindow {
 		if a.ContextWindow == 0 {
