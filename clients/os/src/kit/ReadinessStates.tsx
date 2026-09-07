@@ -135,10 +135,16 @@ export function canConfigure(clusterRole: string): boolean {
  * needed the same one (epic memql#5106). The two surfaces draw it
  * differently -- the group as a cell in a three-column row, the wizard as
  * the body of a rail stop -- so what is shared is the DECISION and not the
- * chrome. A second copy of "providers is owner-only, so a developer gets
- * words" is a copy that drifts, and the drift is silent: a button that
- * navigates to a section `sectionsForRole` does not return goes nowhere and
- * says nothing.
+ * chrome. A second copy of any section's role rule is a copy that drifts, and
+ * the drift is silent: a button that navigates to a section `sectionsForRole`
+ * does not return goes nowhere and says nothing.
+ *
+ * THE EXAMPLE THAT MOTIVATED THIS ALREADY MOVED, which is the argument for
+ * the lookup rather than against it. It was "providers is owner-only, so a
+ * developer gets words"; epic memql#5088's D7 widened that section to
+ * owner-or-developer, and because both surfaces ask the registry, the
+ * developer got the button with no edit to either of them. A restated rule
+ * would have had two places to miss.
  */
 export type ModuleAct =
   | { kind: "none" }

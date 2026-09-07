@@ -37,7 +37,7 @@
       },
       "dependsOn": [
         "detect",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "none",
@@ -57,7 +57,7 @@
       },
       "dependsOn": [
         "detect",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "none",
@@ -77,7 +77,7 @@
       },
       "dependsOn": [
         "detect",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "none",
@@ -98,7 +98,7 @@
       },
       "dependsOn": [
         "detect",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "sudo",
@@ -118,7 +118,7 @@
       },
       "dependsOn": [
         "detect",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "sudo",
@@ -154,7 +154,7 @@
       "description": "Downloading the MemQL release you chose.",
       "dependsOn": [
         "detect",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "none",
@@ -166,9 +166,9 @@
       }
     },
     {
-      "id": "providerKey",
+      "id": "providerFederation",
       "script": "install.verifyProviderKey",
-      "description": "Checking that your AI provider key is accepted, before the cluster is built around it. Skipped when you supplied none: installing spends no AI credit, and providers are set up afterwards in the portal.",
+      "description": "Checking that this cluster's AI provider credential is accepted, before the cluster is built around it. Skipped when no federation ids were supplied: installing spends no AI credit, and providers are set up afterwards in MemQL OS.",
       "dependsOn": [
         "detect"
       ],
@@ -190,7 +190,7 @@
         "hostsBlock",
         "localCA",
         "stackCheckout",
-        "providerKey",
+        "providerFederation",
         "dockerAccess"
       ],
       "elevation": "none",

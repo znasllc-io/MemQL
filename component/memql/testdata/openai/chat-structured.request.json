@@ -1,0 +1,34 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "answer in json",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.4-mini",
+    "response_format": {
+      "json_schema": {
+        "description": "the recorded answer",
+        "name": "recordedAnswer",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    },
+    "stream": false
+  },
+  "method": "POST",
+  "path": "/v1/chat/completions"
+}

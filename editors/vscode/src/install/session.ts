@@ -138,16 +138,13 @@ export interface SessionOptions {
    * install never reached `clusterUp`.
    */
   imageTag?: string;
-  /**
-   * A PATH, never the key itself.
-   *
-   * argv is world-readable in `ps`, so a flag carrying the key would publish it
-   * to every process listing on the machine for the length of the install. The
-   * webview inherits that constraint unchanged -- it may collect a key, but
-   * what it hands this module is a file.
-   */
-  providerKeyFile?: string;
-  provider: string;
+  // NO VENDOR CREDENTIAL FIELDS (epic memql#5088). `providerKeyFile` carried a
+  // PATH -- never the key, because argv is world-readable in `ps` -- and
+  // `provider` named the vendor it belonged to. Both are gone with the key
+  // itself: every cloud vendor MemQL calls is reached by workload identity
+  // federation, and no script in the install graph declares a flag for either
+  // one. A capability script exits 2 on an undeclared flag, so a field kept
+  // "just in case" here would not be inert, it would be a way to fail a step.
   domain?: string;
   ownerEmail?: string;
   ownerFirstName?: string;
@@ -226,9 +223,6 @@ export interface SessionOptions {
 export interface WizardAnswers {
   root: string;
   receiptFile: string;
-  provider: string;
-  /** A PATH, never the key. See SessionOptions.providerKeyFile. */
-  providerKeyFile: string;
   domain: string;
   ownerEmail: string;
   ownerFirstName: string;
@@ -280,8 +274,6 @@ export function installSessionOptions(answers: WizardAnswers): SessionOptions {
     root: answers.root,
     receiptFile: answers.receiptFile,
     skip: new Set<string>(),
-    provider: answers.provider,
-    providerKeyFile: answers.providerKeyFile,
     domain: answers.domain,
     ownerEmail: answers.ownerEmail,
     ownerFirstName: answers.ownerFirstName,
@@ -439,36 +431,36 @@ export function installPlan(opts: SessionOptions): (step: Step) => StepPlan {
     if (opts.skip.has(step.id)) {
       return { action: "skip", reason: `skipped: ${step.id}` };
     }
-    // NO KEY, NO VENDOR CALL (epic memql#4440).
+    // NO CREDENTIAL, NO VENDOR CALL (epic memql#4440, epic memql#5088).
     //
-    // `providerKey` runs an authenticated `GET /v1/models` against the vendor.
-    // It spends no tokens, but it is a call to an AI vendor and it needs a
-    // credential -- so with no key supplied there is nothing to verify and
-    // nothing that could be verified. The step is SKIPPED rather than deleted:
-    // an operator who did supply a key keeps the fail-fast verification
-    // exactly where memql#3473 put it, ahead of every mutating step.
+    // `providerFederation` asks a running pod whether the cluster's federated
+    // credential is accepted. A cluster this wizard builds is a local one, and
+    // a local cluster CANNOT federate: k3d's OIDC issuer is not publicly
+    // reachable, so neither vendor can verify a token minted by it. There is
+    // no key arm left either -- both vendors are federation-only now. So on
+    // this lane there is never anything to check, and the step is always
+    // skipped. A developer reaches cloud models through a fleet machine or a
+    // local model instead.
+    //
+    // The step is SKIPPED rather than deleted from the graph: the same
+    // document drives cloud installs, where the check is exactly the fail-fast
+    // verification memql#3473 put ahead of every mutating step.
     //
     // `satisfied: true` IS THE WHOLE THING, and getting it wrong removes the
-    // install. Every mutating step declares `dependsOn: [..., providerKey]`,
+    // install. Every mutating step declares `dependsOn: [..., providerFederation]`,
     // and `runStep` blocks a step whose dependency "was skipped without
     // satisfying what it was there to establish". A bare skip would therefore
     // cascade through toolK3d, hostsBlock, stackCheckout, clusterUp and
     // everything below them, and the run would report a tidy list of skips
     // having installed nothing -- which is exactly how install-e2e's header
     // records the gate first failing that lane. What the gate establishes is
-    // "no unverified key is about to be seeded into this cluster", and with no
-    // key at all that condition holds already. So it is satisfied, in the
-    // precise sense the field means.
-    //
-    // Nothing downstream needs patching to match: `seedBootstrap` passes
-    // `provider` only when a key file was given and `present()` drops empty
-    // values, so it receives no provider args at all -- and
-    // `stage_provider_key` returns cleanly when handed neither
-    // (scripts/install/seed-bootstrap.sh).
-    if (step.id === "providerKey" && (opts.providerKeyFile ?? "").trim() === "") {
+    // "no unverified credential is about to be relied on by this cluster", and
+    // with no credential at all that condition holds already. So it is
+    // satisfied, in the precise sense the field means.
+    if (step.id === "providerFederation") {
       return {
         action: "skip",
-        reason: "no key supplied -- configure AI providers in the portal",
+        reason: "no federation ids supplied -- installing spends no AI credit",
         satisfied: true,
       };
     }
@@ -663,9 +655,6 @@ export function installPlan(opts: SessionOptions): (step: Step) => StepPlan {
         // broken installer for a cluster that was fine (memql#3590).
         params = present({ hosts: frontDoor?.probeHosts.join(",") });
         break;
-      case "providerKey":
-        params = present({ "key-file": opts.providerKeyFile, provider: opts.provider });
-        break;
       case "buildImages":
         // THE FROM-SOURCE LANE'S ONE EXTRA STEP (memql#4430), and it is the same
         // `k3d.dev` invocation "Rebuild from checkout" runs -- deliberately, so
@@ -705,8 +694,13 @@ export function installPlan(opts: SessionOptions): (step: Step) => StepPlan {
           // on the operator's own machine. `open` would let anyone who can reach it register.
           // An operator who wants otherwise passes --registration-mode.
           "registration-mode": opts.registrationMode || DEFAULT_REGISTRATION_MODE,
-          provider: opts.providerKeyFile ? opts.provider : undefined,
-          "provider-key-file": opts.providerKeyFile,
+          // NO VENDOR CREDENTIAL (epic memql#5088). seed-bootstrap.sh declares
+          // neither --provider nor --provider-key-file any more, and a
+          // capability script exits 2 on an undeclared flag -- so passing
+          // either would fail the seed step outright rather than being
+          // ignored. There is nothing to pass: both AI vendors are reached by
+          // workload identity federation, whose credential is a projected
+          // token inside the pod.
         });
         break;
       case "enrolmentLink":

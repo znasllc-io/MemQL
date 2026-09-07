@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"time"
 	"testing"
+	"time"
 )
 
 func TestAuthRejectIncrements(t *testing.T) {
@@ -167,28 +167,45 @@ func TestSetIdentitySigningKey(t *testing.T) {
 // to exist before the first denial, or it evaluates to no data on exactly the
 // cluster it is watching.
 func TestFederationExchangeSeriesExistFromBoot(t *testing.T) {
-	for _, outcome := range []string{
-		FederationExchangeOK, FederationExchangeDenied, FederationExchangeError,
-	} {
-		families, err := Registry().Gather()
-		if err != nil {
-			t.Fatalf("gather: %v", err)
+	// EVERY (vendor, outcome) PAIR, not every outcome. The counter gained a
+	// vendor label in memql#5088, and checking outcomes alone would pass while
+	// only ONE vendor's series existed -- which is the exact failure this test
+	// is about, one vendor further on: an operator alerting on
+	// {vendor="openai",outcome="denied"} would get no data, and "openai has
+	// never been denied" and "openai is not scraped" would look identical.
+	families, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, f := range families {
+		if f.GetName() != "memql_ai_federation_exchanges_total" {
+			continue
 		}
-		var found bool
-		for _, f := range families {
-			if f.GetName() != "memql_ai_federation_exchanges_total" {
-				continue
-			}
-			for _, m := range f.GetMetric() {
-				for _, l := range m.GetLabel() {
-					if l.GetName() == "outcome" && l.GetValue() == outcome {
-						found = true
-					}
+		for _, m := range f.GetMetric() {
+			var vendor, outcome string
+			for _, l := range m.GetLabel() {
+				switch l.GetName() {
+				case "vendor":
+					vendor = l.GetValue()
+				case "outcome":
+					outcome = l.GetValue()
 				}
 			}
+			seen[vendor+"/"+outcome] = true
 		}
-		if !found {
-			t.Errorf("memql_ai_federation_exchanges_total{outcome=%q} does not exist before the first exchange; an alert over it would evaluate to no data", outcome)
+	}
+
+	for _, vendor := range []string{FederationVendorAnthropic, FederationVendorOpenAI} {
+		for _, outcome := range []string{
+			FederationExchangeOK, FederationExchangeDenied, FederationExchangeError,
+		} {
+			if !seen[vendor+"/"+outcome] {
+				t.Errorf("memql_ai_federation_exchanges_total{vendor=%q,outcome=%q} does not exist "+
+					"before the first exchange; an alert over it would evaluate to no data",
+					vendor, outcome)
+			}
 		}
 	}
 }

@@ -475,57 +475,31 @@ function recordedTarget(
   return typeof invoked === "string" && invoked.trim() !== "" ? invoked : "";
 }
 
-/**
- * The provider-key PATH a previous run recorded, if there is one (memql#3512).
- *
- * WHY THIS EXISTS. memql#3473 made `providerKey` a gate: every mutating step
- * declares `dependsOn: [..., providerKey]`, so nothing runs until the key
- * verifies. A REPAIR collects only the domain -- deliberately, since a repair
- * re-runs a graph over a machine that already recorded these answers -- which
- * left the step with no `--key-file` and failed it with exit 2 before anything
- * else could start. Every repair, every time.
- *
- * The answer is the receipt, which is precisely the record of what the install
- * did. `executor.ts` writes an entry for every step that returns an envelope,
- * `params` included, and `providerKey` returns one even though it is
- * `readOnly` and leaves no artifact -- so the path the operator gave the
- * install is on disk, and a repair can use it without asking again.
- *
- * Returns "" when there is nothing to go on: no receipt, no `providerKey`
- * entry, or an entry that recorded no `key-file`. The caller must treat that
- * as "ask" rather than as "proceed" -- starting a run that cannot pass wave 2
- * is the bug this exists to fix.
- */
-export function recordedProviderKeyFile(receipt: Receipt | null): string {
-  return recordedProviderParam(receipt, "key-file");
-}
-
-/**
- * The VENDOR a previous run verified its key against (memql#3473).
- *
- * Travels with the path above, and has to: the wizard now collects the provider
- * rather than pinning `anthropic`, so a repair that read the key file back and
- * re-asserted the DEFAULT vendor would verify an OpenAI key against Anthropic's
- * API. That is an exit 3 -- REFUSED, "the provider rejected the key" -- about a
- * key that is perfectly good, which is the most misleading answer available.
- *
- * Empty means the same thing it means above: nothing to go on, so ask.
- */
-export function recordedProvider(receipt: Receipt | null): string {
-  return recordedProviderParam(receipt, "provider");
-}
-
-function recordedProviderParam(receipt: Receipt | null, name: string): string {
-  if (receipt === null) return "";
-  const entry = entryFor(receipt, "providerKey");
-  const recorded = entry?.params[name];
-  return typeof recorded === "string" ? recorded : "";
-}
+// `recordedProviderKeyFile` AND `recordedProvider` ARE GONE (epic memql#5088).
+//
+// They read a `key-file` and a `provider` param back off the `providerFederation`
+// receipt entry, so that a REPAIR -- which collects only the domain and the
+// owner -- could re-supply them without asking. That existed because memql#3473
+// made the provider check a GATE: every mutating step declares
+// `dependsOn: [..., providerFederation]`, and a repair reaching it with no
+// `--key-file` failed it with exit 2 before anything else could start.
+//
+// Nothing records either param now. `verify-provider-key.sh` no longer declares
+// `--key-file` at all -- workload identity federation is the only door, and its
+// credential is a projected token inside the pod, so the check is an exec into
+// a Deployment rather than a call with a secret. And on the wizard's own lane
+// the step never runs: `installPlan` skips it satisfied, because a k3d cluster's
+// OIDC issuer is not publicly reachable and no vendor could verify a token it
+// minted.
+//
+// A reader that always returns "" is worse than no reader: its callers keep the
+// shape of a decision that has only one outcome, and the next person to read
+// them cannot tell that from a decision that is merely usually one way.
 
 /**
  * The release tag a previous run CHECKED OUT (memql#3605).
  *
- * Travels with the provider and the key path above, and for a sharper reason: a
+ * A repair replays what the receipt recorded, and for a sharp reason: a
  * repair that supplied no tag fell through to `DEFAULT_STACK_TAG`, so repairing
  * a v0.16.1 cluster from a v0.17.0 extension SILENTLY UPGRADED it -- new
  * manifests reconciled over old binaries, which is exactly the skew memql#3602

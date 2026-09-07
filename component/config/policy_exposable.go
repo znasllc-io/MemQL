@@ -25,7 +25,7 @@ type PolicyConfigField struct {
 	// convention.
 	Key string
 	// FieldName — the matching field on busv1.ConfigSnapshot
-	// (e.g. "SiOpenaiApiKey").
+	// (e.g. "SiDefaultProvider").
 	FieldName string
 	// Sensitive — when true, the ctx surface exposes only a boolean
 	// indicating presence (`ctx.config.openaiApiKey == true`); the
@@ -42,12 +42,6 @@ type PolicyConfigField struct {
 // engine's "config schema" debug marker so policies broken by the
 // change fail with a clear "unknown config key" at registration.
 var PolicyExposableConfig = []PolicyConfigField{
-	{
-		Key:         "openaiApiKey",
-		FieldName:   "SiOpenaiApiKey",
-		Sensitive:   true,
-		Description: "Presence-only: is the OpenAI API key configured for this node?",
-	},
 	{
 		Key:         "defaultProvider",
 		FieldName:   "SiDefaultProvider",
@@ -163,13 +157,20 @@ func BuildPolicyConfigCtx(snapshot *busv1.ConfigSnapshot) map[string]any {
 // Extend this switch alongside readConfigField each time
 // PolicyExposableConfig gains a Sensitive entry. An unknown name returns
 // false, matching the old `default: value != nil` for a nil read.
+// NOTE: there is NO Sensitive entry today. SiOpenaiApiKey was the only one and
+// went with the vendor keys (epic memql#5088). This reader stays anyway, and
+// deleting it would be the mistake: the property it enforces -- a sensitive
+// field's raw value never reaches readConfigField's `any` return -- is a
+// property of the SIGNATURE, and it has to already exist when the next
+// Sensitive entry is added. Removing it would leave the next author with an
+// allow-list flag whose enforcement mechanism they would have to rediscover
+// from a CodeQL report of 492 alerts.
 func readSensitivePresence(snapshot *busv1.ConfigSnapshot, name string) bool {
 	if snapshot == nil {
 		return false
 	}
 	switch name {
-	case "SiOpenaiApiKey":
-		return strings.TrimSpace(snapshot.SiOpenaiApiKey) != ""
+	// Add a case here whenever PolicyExposableConfig gains a Sensitive entry.
 	}
 	return false
 }
@@ -183,11 +184,12 @@ func readConfigField(snapshot *busv1.ConfigSnapshot, name string) any {
 		return nil
 	}
 	switch name {
-	// SiOpenaiApiKey is deliberately ABSENT (memql#3188). It is a
-	// Sensitive allow-list entry, so it is read through
-	// readSensitivePresence, which returns bool. Adding it back here
-	// would put the raw key into this function's `any` return and
-	// re-open the taint path that produced 492 CodeQL alerts.
+	// A Sensitive allow-list entry is deliberately ABSENT from this switch
+	// (memql#3188): such a field is read through readSensitivePresence, which
+	// returns bool. Adding one here would put a raw secret into this
+	// function's `any` return and re-open the taint path that produced 492
+	// CodeQL alerts. There is no Sensitive entry at present -- SiOpenaiApiKey
+	// was the only one and went with the vendor keys in memql#5088.
 	case "SiDefaultProvider":
 		return snapshot.SiDefaultProvider
 	case "SttProvider":

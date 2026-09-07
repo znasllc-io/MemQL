@@ -19,12 +19,12 @@ import (
 // this a code bug rather than a documentation one:
 //
 //   - the function's own doc comment, which said the prefix was `MEMQL_SI_`
-//     and then gave `MEMQL_AI_OPENAI_API_KEY` as the example of it;
-//   - the comment at the OS-env fallback, "`MEMQL_OPENAI_API_KEY` in env wins
-//     for `MEMQL_AI_OPENAI_API_KEY`-referencing providers";
+//     and then gave `MEMQL_AI_OPENAI_PROJECT_ID` as the example of it;
+//   - the comment at the OS-env fallback, "`MEMQL_OPENAI_PROJECT_ID` in env wins
+//     for `MEMQL_AI_OPENAI_PROJECT_ID`-referencing providers";
 //   - docs/public/operate/env-vars.md, which spells the mapping out as
-//     `authConceptLookupNames("MEMQL_AI_OPENAI_API_KEY")
-//     -> ["MEMQL_AI_OPENAI_API_KEY", "MEMQL_OPENAI_API_KEY"]`.
+//     `authConceptLookupNames("MEMQL_AI_OPENAI_PROJECT_ID")
+//     -> ["MEMQL_AI_OPENAI_PROJECT_ID", "MEMQL_OPENAI_PROJECT_ID"]`.
 //
 // # Why both prefixes
 //
@@ -42,13 +42,13 @@ func TestAuthConceptLookupNamesElidesTheProviderPrefix(t *testing.T) {
 		{
 			// THE BUG. Every provider in the tree asks in this shape.
 			name: "MEMQL_AI_ falls back to the seal-floor name",
-			in:   "MEMQL_AI_ANTHROPIC_API_KEY",
-			want: []string{"MEMQL_AI_ANTHROPIC_API_KEY", "MEMQL_ANTHROPIC_API_KEY"},
+			in:   "MEMQL_AI_ANTHROPIC_ORGANIZATION_ID",
+			want: []string{"MEMQL_AI_ANTHROPIC_ORGANIZATION_ID", "MEMQL_ANTHROPIC_ORGANIZATION_ID"},
 		},
 		{
 			name: "MEMQL_AI_ openai, the example the docs use",
-			in:   "MEMQL_AI_OPENAI_API_KEY",
-			want: []string{"MEMQL_AI_OPENAI_API_KEY", "MEMQL_OPENAI_API_KEY"},
+			in:   "MEMQL_AI_OPENAI_PROJECT_ID",
+			want: []string{"MEMQL_AI_OPENAI_PROJECT_ID", "MEMQL_OPENAI_PROJECT_ID"},
 		},
 		{
 			// Retained: a product bundle may still declare the old prefix.
@@ -64,8 +64,8 @@ func TestAuthConceptLookupNamesElidesTheProviderPrefix(t *testing.T) {
 			// A non-AI placeholder must NOT grow a synthesized fallback --
 			// that would widen the search to a name nobody declared.
 			name: "an unprefixed name is looked up verbatim",
-			in:   "MEMQL_ANTHROPIC_API_KEY",
-			want: []string{"MEMQL_ANTHROPIC_API_KEY"},
+			in:   "MEMQL_ANTHROPIC_ORGANIZATION_ID",
+			want: []string{"MEMQL_ANTHROPIC_ORGANIZATION_ID"},
 		},
 		{
 			name: "an unrelated name is looked up verbatim",
@@ -94,8 +94,8 @@ func TestAuthConceptLookupNamesElidesTheProviderPrefix(t *testing.T) {
 // provider registration path calls.
 func TestSealFloorSecretResolvesForAnMemqlAIPlaceholder(t *testing.T) {
 	const (
-		placeholder = "MEMQL_AI_ANTHROPIC_API_KEY" // what the provider asks for
-		sealFloor   = "MEMQL_ANTHROPIC_API_KEY"    // what the operator seeded
+		placeholder = "MEMQL_AI_ANTHROPIC_ORGANIZATION_ID" // what the provider asks for
+		sealFloor   = "MEMQL_ANTHROPIC_ORGANIZATION_ID"    // what the operator seeded
 		value       = "sk-ant-seeded-under-the-documented-name"
 	)
 
@@ -137,9 +137,9 @@ func TestSealFloorSecretResolvesForAnMemqlAIPlaceholder(t *testing.T) {
 // names that were tried, so "seed it under X" is answerable from the message
 // alone.
 func TestUnresolvedAuthErrorNamesTheCandidates(t *testing.T) {
-	names := authConceptLookupNames("MEMQL_AI_ANTHROPIC_API_KEY")
+	names := authConceptLookupNames("MEMQL_AI_ANTHROPIC_ORGANIZATION_ID")
 	joined := strings.Join(names, ", ")
-	for _, want := range []string{"MEMQL_AI_ANTHROPIC_API_KEY", "MEMQL_ANTHROPIC_API_KEY"} {
+	for _, want := range []string{"MEMQL_AI_ANTHROPIC_ORGANIZATION_ID", "MEMQL_ANTHROPIC_ORGANIZATION_ID"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("candidate list %q does not name %q, so the unresolved-auth error cannot "+
 				"tell an operator which names were searched", joined, want)

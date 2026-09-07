@@ -56,8 +56,10 @@ import {
 // the SHIPPED scripts/install/graph/install.json, not a fixture that agrees.
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "memql-elevation-"));
-const KEY_FILE = path.join(HOME, "provider.key");
-fs.writeFileSync(KEY_FILE, "sk-test\n");
+// `KEY_FILE` IS GONE (epic memql#5088). It wrote an `sk-`-prefixed fixture to
+// disk so `beginInstall` could fill the wizard's provider-key box; there is no
+// such box, and a credential-shaped literal in a test file is exactly what
+// secret scanners judge like production.
 
 // -----------------------------------------------------------------------------
 // the probe
@@ -214,8 +216,6 @@ function beginInstall(panel: StubWebviewPanel): void {
   panel.send({ type: "input", value: { field: "ownerFirstName", text: "Ada" } });
   panel.send({ type: "input", value: { field: "ownerLastName", text: "Lovelace" } });
   panel.send({ type: "input", value: { field: "ownerEmail", text: "ada@example.com" } });
-  panel.send({ type: "input", value: { field: "provider", text: "anthropic" } });
-  panel.send({ type: "input", value: { field: "providerKeyFile", text: KEY_FILE } });
   panel.send({ type: "begin" });
 }
 

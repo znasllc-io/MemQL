@@ -2078,10 +2078,8 @@ type ConfigSnapshot struct {
 	DbMaxOpenConns int32  `protobuf:"varint,2,opt,name=db_max_open_conns,json=dbMaxOpenConns,proto3" json:"db_max_open_conns,omitempty"`
 	DbMaxIdleConns int32  `protobuf:"varint,3,opt,name=db_max_idle_conns,json=dbMaxIdleConns,proto3" json:"db_max_idle_conns,omitempty"`
 	// Engine
-	EngineMaxResults int32 `protobuf:"varint,10,opt,name=engine_max_results,json=engineMaxResults,proto3" json:"engine_max_results,omitempty"`
-	EngineMaxWindow  int32 `protobuf:"varint,11,opt,name=engine_max_window,json=engineMaxWindow,proto3" json:"engine_max_window,omitempty"`
-	// AI
-	SiOpenaiApiKey    string `protobuf:"bytes,20,opt,name=si_openai_api_key,json=siOpenaiApiKey,proto3" json:"si_openai_api_key,omitempty"`
+	EngineMaxResults  int32  `protobuf:"varint,10,opt,name=engine_max_results,json=engineMaxResults,proto3" json:"engine_max_results,omitempty"`
+	EngineMaxWindow   int32  `protobuf:"varint,11,opt,name=engine_max_window,json=engineMaxWindow,proto3" json:"engine_max_window,omitempty"`
 	SiOpenaiProjectId string `protobuf:"bytes,21,opt,name=si_openai_project_id,json=siOpenaiProjectId,proto3" json:"si_openai_project_id,omitempty"`
 	SiDefaultProvider string `protobuf:"bytes,22,opt,name=si_default_provider,json=siDefaultProvider,proto3" json:"si_default_provider,omitempty"`
 	// Server
@@ -2184,13 +2182,6 @@ func (x *ConfigSnapshot) GetEngineMaxWindow() int32 {
 		return x.EngineMaxWindow
 	}
 	return 0
-}
-
-func (x *ConfigSnapshot) GetSiOpenaiApiKey() string {
-	if x != nil {
-		return x.SiOpenaiApiKey
-	}
-	return ""
 }
 
 func (x *ConfigSnapshot) GetSiOpenaiProjectId() string {
@@ -2889,7 +2880,7 @@ const file_bus_proto_rawDesc = "" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\"u\n" +
 	"\vEventNotify\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12=\n" +
-	"\x05event\x18\x02 \x01(\v2'.znasllc.memql.internal.v1.EventPublishR\x05event\"\xee\n" +
+	"\x05event\x18\x02 \x01(\v2'.znasllc.memql.internal.v1.EventPublishR\x05event\"\xc9\n" +
 	"\n" +
 	"\x0eConfigSnapshot\x12\x15\n" +
 	"\x06db_dsn\x18\x01 \x01(\tR\x05dbDsn\x12)\n" +
@@ -2897,8 +2888,7 @@ const file_bus_proto_rawDesc = "" +
 	"\x11db_max_idle_conns\x18\x03 \x01(\x05R\x0edbMaxIdleConns\x12,\n" +
 	"\x12engine_max_results\x18\n" +
 	" \x01(\x05R\x10engineMaxResults\x12*\n" +
-	"\x11engine_max_window\x18\v \x01(\x05R\x0fengineMaxWindow\x12)\n" +
-	"\x11si_openai_api_key\x18\x14 \x01(\tR\x0esiOpenaiApiKey\x12/\n" +
+	"\x11engine_max_window\x18\v \x01(\x05R\x0fengineMaxWindow\x12/\n" +
 	"\x14si_openai_project_id\x18\x15 \x01(\tR\x11siOpenaiProjectId\x12.\n" +
 	"\x13si_default_provider\x18\x16 \x01(\tR\x11siDefaultProvider\x12!\n" +
 	"\fgrpc_address\x18\x1e \x01(\tR\vgrpcAddress\x12!\n" +
@@ -2925,7 +2915,7 @@ const file_bus_proto_rawDesc = "" +
 	"\x17cognition_fit_threshold\x18n \x01(\x01R\x15cognitionFitThreshold\x1a?\n" +
 	"\x11FeatureFlagsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\f\x10\rJ\x04\b<\x10=J\x04\b=\x10>J\x04\b?\x10@J\x04\b@\x10AR\x19engine_step_cache_enabledR\x19polyphon_bridge_agent_urlR\x17polyphon_voice_providerR\x19polyphon_openai_tts_modelR\x19polyphon_openai_tts_voice\"R\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\f\x10\rJ\x04\b<\x10=J\x04\b=\x10>J\x04\b?\x10@J\x04\b@\x10AJ\x04\b\x14\x10\x15R\x19engine_step_cache_enabledR\x19polyphon_bridge_agent_urlR\x17polyphon_voice_providerR\x19polyphon_openai_tts_modelR\x19polyphon_openai_tts_voice\"R\n" +
 	"\fConfigUpdate\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12,\n" +
 	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value\"\x82\x02\n" +

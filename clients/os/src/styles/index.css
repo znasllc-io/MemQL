@@ -11331,3 +11331,105 @@ a.os-button {
 .os-setup-widget .os-choice-stack {
   gap: 4px;
 }
+
+/* ---------------------------------------------------------------------------
+ * THE DOORS (epic memql#5088) -- Settings -> AI providers.
+ *
+ * The design idea in CSS terms: THE STATE IS A COLUMN, AND AN UNSET DOOR IS
+ * THE QUIETEST THING ON THE SCREEN. Three panels share one 104px state column,
+ * so the words stack down the page and the whole cluster is read by scanning
+ * that column rather than by opening three cards. The generic treatment is a
+ * status pill in each card's corner, and it fails this surface precisely: its
+ * palette has no way to say "nothing here, and that is correct", so the state
+ * every fresh cluster and every local cluster is in comes out looking degraded.
+ * That state is the one an operator meets first, and reading it as a fault is
+ * how somebody concludes the install broke.
+ *
+ * THREE CHANNELS, AND THE WORD IS THE ONE THAT ALWAYS SURVIVES. Rule colour and
+ * ground are the other two, and both are gone in greyscale, at 8% deuteranopia,
+ * and in a screenshot pasted into an issue. So the state word (`Open` /
+ * `Not set up` / `Closed` / `Half set up`) is the primary encoding, at ink
+ * weight, first in the reading order, in its own column.
+ *
+ * ONE HUE PER MEANING, AND THEY ARE THE SHELL'S EXISTING ONES. Accent is the
+ * only status colour a working door gets; warn is reserved for `half`, which is
+ * the one state that is genuinely wrong -- the engine REFUSES BOOT on a partial
+ * federation set. `unset` takes `--os-line`, the hairline every panel edge
+ * already uses, because a normal state should not have a colour at all.
+ * `unknown` takes the same hairline: a reading we could not take is not a door
+ * we found shut, and painting it would answer a question nobody asked.
+ *
+ * NOT HERE, deliberately: the panel, the subhead, the field, the input and the
+ * button. Every one of those comes from `kit/controls.tsx`, and this block is
+ * only what is genuinely about THIS subject -- a door and its state.
+ * ------------------------------------------------------------------------- */
+
+/* The grouping the panel wraps, so the door line, its detail and the form read
+ * as one thing. A `Panel` is already a flex column at 12px; the door's own
+ * parts sit closer than that, because the state and the sentence explaining it
+ * are one statement. */
+.os-door-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* state | what it means. The state column is FIXED so the three panels agree
+ * mark for mark -- a column that sized to its content would put `Open` and
+ * `Half set up` in different places and there would be no column to scan. At
+ * 104px the longest word (`Not set up`, 13px at 600) sits on one line with
+ * room, and the sentence beside it takes about 66 characters inside the
+ * section's 560px measure, which is the readable width DESIGN.md rule 9 asks
+ * for. */
+.os-door {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-left: 1px solid var(--os-line);
+  border-radius: 0 var(--os-radius-xs) var(--os-radius-xs) 0;
+}
+
+/* An OPEN door is the only block on this screen with a filled ground, which is
+ * what makes it findable in one glance and what keeps every other state from
+ * having to shout to be noticed. The rule triples to 3px with it: weight is the
+ * half of this that reaches a reader who sees no colour. */
+.os-door[data-os-door="open"] {
+  border-left: 3px solid var(--os-accent);
+  background: var(--os-accent-soft);
+}
+
+/* The dangerous one. Warn on the rule only, never on the text -- the shell
+ * paints status on edges and says the rest in words, and warn-coloured prose
+ * would be the one place in the OS where a sentence carries a status colour. */
+.os-door[data-os-door="half"] {
+  border-left: 3px solid var(--os-warn);
+}
+
+.os-door-state {
+  margin: 0;
+  font-size: var(--os-text-base);
+  font-weight: 600;
+  color: var(--os-ink);
+}
+
+.os-door-said {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  line-height: 1.5;
+}
+
+/* The engine's own sentence, and the ids inside it are opaque vendor strings
+ * (`fdrl_...`, `svac_...`). `anywhere` rather than an ellipsis or a scroller:
+ * a truncated id reads as a DIFFERENT id, and the whole job of this line is to
+ * say which one is missing. It is deliberately not `break-all`, which would
+ * split the prose around them too. */
+.os-door-detail {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}

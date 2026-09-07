@@ -87,8 +87,6 @@ import {
   recordedCheckout,
   recordedStackBranch,
   recordedDomain,
-  recordedProvider,
-  recordedProviderKeyFile,
   readReceipt,
 } from "../install/receipt.js";
 import { rebuiltMessage, updatedMessage } from "../state/imageLane.js";
@@ -826,11 +824,9 @@ export class DeploymentPanel {
    * failure screen are the ones `startDeploy` already gets. What differs is the
    * graph document, three params, and the wording.
    *
-   * NO RECEIPT-DERIVED ANSWERS TO COLLECT. A deployment needs the provider key,
-   * the domain and the owner because it re-runs the install graph; a rebuild
-   * runs one step that takes a directory, an Application name and a node list.
-   * So there is no `providerKeyFile` refusal here -- there is nothing it could
-   * be missing for.
+   * NO RECEIPT-DERIVED ANSWERS TO COLLECT. A deployment needs the domain and
+   * the owner because it re-runs the install graph; a rebuild runs one step
+   * that takes a directory, an Application name and a node list.
    */
   private async startRebuild(): Promise<void> {
     if (this.runAbort !== undefined) return;
@@ -874,10 +870,6 @@ export class DeploymentPanel {
           root: this.deps.installRoot,
           receiptFile: this.deps.receiptFile,
           skip: new Set<string>(),
-          // Not read by `rebuildPlan`, and required by the type: a rebuild
-          // touches no AI provider, so naming one would be an assertion about
-          // this machine that this run has no business making.
-          provider: "",
           stepParams: {},
           stackDir: checkout,
           nodes: this.rebuildNodes,
@@ -1041,7 +1033,6 @@ export class DeploymentPanel {
           root: this.deps.installRoot,
           receiptFile: this.deps.receiptFile,
           skip: new Set<string>(),
-          provider: "",
           stepParams: {},
           stackDir: checkout,
           nodes: this.rebuildNodes,
@@ -1121,20 +1112,18 @@ export class DeploymentPanel {
     this.render();
 
     const receipt = await readReceipt(this.deps.receiptFile).catch(() => null);
-    const providerKeyFile = recordedProviderKeyFile(receipt);
-    if (providerKeyFile === "") {
-      // REFUSE RATHER THAN START, the same call the repair path makes: without
-      // a key path the run cannot pass the providerKey gate, and the failure it
-      // would produce is exit 2 -- whose guidance says "a fault in MemQL rather
-      // than in your machine", which would be a lie here.
-      this.error =
-        "MemQL has no record of an AI provider key for this machine, so it cannot re-run the install graph. " +
-        "Repair or reinstall from the Clusters page, where the key can be collected and verified.";
-      this.screen = "overview";
-      this.render();
-      return;
-    }
-
+    // NO KEY-PATH REFUSAL HERE ANY MORE (epic memql#5088).
+    //
+    // This used to read `recordedProviderKeyFile` and, finding nothing, refuse
+    // to start: without a key path the run could not pass the `providerKey`
+    // gate, and the failure it would have produced is an exit 2 whose guidance
+    // reads "a fault in MemQL rather than in your machine".
+    //
+    // No receipt records a key path now -- there is no vendor API key in the
+    // product, and the wizard collects none -- so the refusal would fire on
+    // EVERY deployment of EVERY cluster, making the page's whole purpose
+    // unreachable while blaming a credential nothing has ever asked for.
+    // `providerFederation` skips satisfied, and every step behind it proceeds.
     const from = this.instance?.version ?? "";
     const recorder = await RunRecorder.begin({
       dir: this.deps.runsDir ?? defaultRunsDir(),
@@ -1158,12 +1147,10 @@ export class DeploymentPanel {
         installSessionOptions({
           root: this.deps.installRoot,
           receiptFile: this.deps.receiptFile,
-          provider: recordedProvider(receipt) || DEFAULT_INPUTS.provider,
           domain: recordedDomain(receipt) || DEFAULT_LOCAL_DOMAIN,
           ownerEmail: DEFAULT_INPUTS.ownerEmail,
           ownerFirstName: DEFAULT_INPUTS.ownerFirstName,
           ownerLastName: DEFAULT_INPUTS.ownerLastName,
-          providerKeyFile,
           // THE ONE VALUE THAT IS NOT THE RECORDED ONE.
           tag: target,
           timeoutMs: STEP_TIMEOUT_MS,

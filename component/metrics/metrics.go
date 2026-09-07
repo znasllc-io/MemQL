@@ -155,9 +155,9 @@ var (
 			Namespace: namespace,
 			Subsystem: "ai",
 			Name:      "federation_exchanges_total",
-			Help:      "Anthropic workload identity federation token exchanges (POST /v1/oauth/token), labelled by outcome: ok, denied (Anthropic refused the assertion -- 4xx; the reason is in the warn log and in the Console's authentication-events tab), error (the exchange never got an answer, or got a 5xx). This is NOT an LLM call: it is deliberately outside the guard's fingerprint, so it counts toward no rate ceiling and no cost budget (memql#4335). A steady low rate of `ok` is the healthy shape -- the SDK re-exchanges as a one-hour token nears expiry, so roughly one per token lifetime per client. ANY sustained `denied` means the cluster is running on a credential Anthropic will not renew: alert on it, because the last good token keeps working until it expires and the outage arrives up to an hour after the cause.",
+			Help:      "Workload identity federation token exchanges, labelled by vendor (anthropic, openai) and outcome: ok, denied (the vendor refused the assertion -- 4xx; the reason is in the warn log and in that vendor's console), error (the exchange never got an answer, or got a 5xx). This is NOT an LLM call: it is deliberately outside the guard's fingerprint, so it counts toward no rate ceiling and no cost budget (memql#4335, made per-vendor by memql#5088). A steady low rate of `ok` is the healthy shape -- a one-hour token is re-exchanged as it nears expiry, so roughly one per token lifetime per client. ANY sustained `denied` means the cluster is running on a credential that vendor will not renew: alert on it, because the last good token keeps working until it expires and the outage arrives up to an hour after the cause. READ IT BY VENDOR: with two federating vendors, a sum across both hides one of them failing entirely while the other carries the rate.",
 		},
-		[]string{"outcome"},
+		[]string{"vendor", "outcome"},
 	)
 
 	siteTrafficWritten = prometheus.NewCounter(prometheus.CounterOpts{
@@ -276,9 +276,15 @@ func init() {
 	// is silently unarmed, which is precisely the state it is meant to watch
 	// for. A CounterVec creates a child only on first Inc, so without these
 	// three lines `denied` first appears at the moment it is too late.
-	aiFederationExchanges.WithLabelValues(FederationExchangeOK).Add(0)
-	aiFederationExchanges.WithLabelValues(FederationExchangeDenied).Add(0)
-	aiFederationExchanges.WithLabelValues(FederationExchangeError).Add(0)
+	// Explicit zeros for both vendors: an alert on a missing series is harder
+	// to reason about than one on a stable 0, and with two vendors a series
+	// that only appears on first use makes "openai has never exchanged" and
+	// "openai is not scraped" the same picture.
+	for _, vendor := range []string{FederationVendorAnthropic, FederationVendorOpenAI} {
+		aiFederationExchanges.WithLabelValues(vendor, FederationExchangeOK).Add(0)
+		aiFederationExchanges.WithLabelValues(vendor, FederationExchangeDenied).Add(0)
+		aiFederationExchanges.WithLabelValues(vendor, FederationExchangeError).Add(0)
+	}
 	// The log store's four series exist at 0 from boot, for the reason the
 	// federation outcomes do: the Help strings tell an operator to alert on a
 	// flat zero and on reason="db", and a rule over a series that does not
@@ -540,25 +546,31 @@ const (
 	FederationExchangeOK     = "ok"
 	FederationExchangeDenied = "denied"
 	FederationExchangeError  = "error"
+
+	// The vendors that federate. A closed set: an unrecognised value would
+	// create a new series rather than fail, which is how a typo becomes a
+	// permanent zero next to a real one.
+	FederationVendorAnthropic = "anthropic"
+	FederationVendorOpenAI    = "openai"
 )
 
-// AIFederationExchange records one Anthropic federation token exchange.
+// AIFederationExchange records one federation token exchange for one vendor.
 //
-// Labelled by OUTCOME and by nothing else. The tempting extra labels -- the
-// federation rule id, the service account, the HTTP status -- are all either
-// unbounded or an identifier of a credential, and this series is scraped into
-// a store that is usually read more widely than the config is. The reason a
-// denial happened belongs in the warn log beside it, which carries Anthropic's
-// own error body.
-func AIFederationExchange(outcome string) {
-	aiFederationExchanges.WithLabelValues(outcome).Inc()
+// Labelled by VENDOR and OUTCOME and by nothing else. The tempting extra
+// labels -- the federation rule id, the identity provider id, the service
+// account, the HTTP status -- are all either unbounded or an identifier of a
+// credential, and this series is scraped into a store that is usually read
+// more widely than the config is. The reason a denial happened belongs in the
+// warn log beside it, which carries the vendor's own error body.
+func AIFederationExchange(vendor, outcome string) {
+	aiFederationExchanges.WithLabelValues(vendor, outcome).Inc()
 }
 
 // AIFederationExchangesValue returns the current count for one outcome, for
 // tests.
-func AIFederationExchangesValue(outcome string) float64 {
+func AIFederationExchangesValue(vendor, outcome string) float64 {
 	var m dto.Metric
-	c, err := aiFederationExchanges.GetMetricWithLabelValues(outcome)
+	c, err := aiFederationExchanges.GetMetricWithLabelValues(vendor, outcome)
 	if err != nil {
 		return 0
 	}

@@ -1,0 +1,14 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "hello",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.4-mini",
+    "stream": false
+  },
+  "method": "POST",
+  "path": "/v1/chat/completions"
+}

@@ -58,28 +58,39 @@ func TestProviderAuthReportFederationPath(t *testing.T) {
 	}
 }
 
-func TestProviderAuthReportAPIKeyPath(t *testing.T) {
+// TestProviderAuthReportUnavailablePath replaces TestProviderAuthReportAPIKeyPath.
+//
+// The api-key path is gone (epic memql#5088): there is no manually entered
+// vendor key anywhere, so a node has either federation or nothing. Reporting
+// "unavailable" is what the command must do on a cluster whose runbook is
+// unfinished and on EVERY local cluster, and it is the most likely reading the
+// command ever produces -- so the sentence has to be right and has to not read
+// as a fault.
+func TestProviderAuthReportUnavailablePath(t *testing.T) {
 	var buf bytes.Buffer
 	writeProviderAuthReport(&buf, memql.ProviderAuthReport{
-		Provider:       "streamClaudeSonnet",
-		Type:           "AnthropicStream",
-		CredentialPath: "api-key",
-		ModelsListed:   12,
+		Provider:       "chat54Mini",
+		Vendor:         "openai",
+		Type:           "OpenAI",
+		CredentialPath: "unavailable",
 	})
 	out := buf.String()
 
-	if !strings.Contains(out, "api-key") {
+	if !strings.Contains(out, "unavailable") {
 		t.Errorf("the report does not name the credential path:\n%s", out)
 	}
-	// Saying so is the point of running it after step 5 of the cutover: a
-	// cluster that still reports api-key has something leaning on the key.
-	if !strings.Contains(out, "long-lived API key") {
-		t.Errorf("the api-key report does not say the credential is long-lived:\n%s", out)
+	if !strings.Contains(out, "federation is not configured") {
+		t.Errorf("the report does not say WHY there is no credential:\n%s", out)
+	}
+	// It must not read as a fault: a local cluster is in this state
+	// permanently and by design.
+	if !strings.Contains(out, "normal state of a local cluster") {
+		t.Errorf("the report does not say this state is normal:\n%s", out)
 	}
 	// Federation-only rows must not appear as empty labels.
-	for _, absent := range []string{"federationRuleId", "tokenSubject", "exchange:"} {
+	for _, absent := range []string{"federationRuleId", "tokenSubject", "exchange:", "workspaceId"} {
 		if strings.Contains(out, absent) {
-			t.Errorf("the api-key report carries the federation-only row %q:\n%s", absent, out)
+			t.Errorf("the unavailable report carries the federation-only row %q:\n%s", absent, out)
 		}
 	}
 }

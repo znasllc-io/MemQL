@@ -126,10 +126,13 @@ func TestProvidersReloadPropagation_CrossNode(t *testing.T) {
 			engA.providers.AvailableCount(), engB.providers.AvailableCount())
 	}
 
-	// THE PORTAL WRITE. A globalSecret row appears while both nodes are up
+	// THE SETTINGS WRITE. globalVariable rows appear while both nodes are up
 	// with their providers already resolved (that is, unresolved).
-	resolver.seed("MEMQL_AI_OPENAI_API_KEY", "sk-test-seeded-through-the-portal")
-	resolver.seed("MEMQL_AI_ANTHROPIC_API_KEY", "sk-ant-test-seeded-through-the-portal")
+	//
+	// What is seeded is a full FEDERATION SET, not a key: there is no key any
+	// more (epic memql#5088), and a partial set would be refused rather than
+	// applied, which would make this test pass for the wrong reason.
+	seedOpenAIFederation(t, resolver)
 	if engA.providers.AvailableCount() != 0 {
 		t.Fatal("seeding a row must not by itself change a running node -- auth resolves at boot, " +
 			"which is the entire reason this reload seam exists")
@@ -144,7 +147,7 @@ func TestProvidersReloadPropagation_CrossNode(t *testing.T) {
 
 	availableOnA := engA.providers.AvailableCount()
 	if availableOnA == 0 {
-		t.Fatal("engine A did not pick up the seeded keys")
+		t.Fatal("engine A did not pick up the seeded federation ids")
 	}
 
 	// THE HOP. B never handled the Apply and was never restarted.
@@ -152,7 +155,7 @@ func TestProvidersReloadPropagation_CrossNode(t *testing.T) {
 		return engB.providers.AvailableCount() == availableOnA
 	}) {
 		t.Fatalf("CROSS-NODE FAILURE: engine B has %d callable providers, engine A has %d -- "+
-			"the providers.reload broadcast did not propagate, so a key seeded through the portal "+
+			"the providers.reload broadcast did not propagate, so ids applied through Settings "+
 			"works on whichever replica handled the Apply and on no other. This is the asymmetry "+
 			"that presents to a user as an assistant that works on every other message.",
 			engB.providers.AvailableCount(), availableOnA)
@@ -231,21 +234,37 @@ func TestProviderVerifyIsOwnerOnly(t *testing.T) {
 
 // TestProviderAuthStatusNamesTheTierNotTheValue is the security-shaped
 // assertion: the projection describes a credential without ever carrying one.
+//
+// The credential it describes is a FEDERATION SET now, not a key, and the
+// planted secret is the projected token itself -- the one piece of credential
+// material a federated provider holds. It is a signed assertion of the pod's
+// identity, and a copy of it in a rendered status row is a copy that outlives
+// the exchange and sits on a page.
 func TestProviderAuthStatusNamesTheTierNotTheValue(t *testing.T) {
-	const secret = "sk-test-this-must-never-be-rendered"
+	tokenFile := validOpenAIIdentityToken(t)
+	subject, err := readFileTrimmed(tokenFile)
+	if err != nil {
+		t.Fatalf("read the fixture token: %v", err)
+	}
+
 	resolver := newSeededResolver()
-	resolver.seed("MEMQL_AI_OPENAI_API_KEY", secret)
+	resolver.seed(envOpenAIIdentityProviderID, "idp_test")
+	resolver.seed(envOpenAIServiceAccountID, "svc_test")
+	resolver.seed(envOpenAIIdentityTokenFile, tokenFile)
 	installSeededResolver(t, resolver)
 
 	e := engineWithProviders(t, events.NewBus())
+	federatedAuth := map[string]string{
+		"identityProviderId": "${" + envOpenAIIdentityProviderID + "}",
+		"serviceAccountId":   "${" + envOpenAIServiceAccountID + "}",
+		"identityTokenFile":  "${" + envOpenAIIdentityTokenFile + "}",
+	}
 	registerParsedProviders(nil, e.providers, []parsedProviderConfig{
 		{cfg: &ProviderConfig{
-			Name: "openai", Type: "OpenAI", Base: true,
-			Auth: map[string]string{"apiKey": "${MEMQL_AI_OPENAI_API_KEY}"},
+			Name: "openai", Type: "OpenAI", Base: true, Auth: federatedAuth,
 		}, origin: "test:openai"},
 		{cfg: &ProviderConfig{
-			Name: "chatTest", Extends: "openai", Model: "gpt-test",
-			Auth: map[string]string{"apiKey": "${MEMQL_AI_OPENAI_API_KEY}"},
+			Name: "chatTest", Extends: "openai", Model: "gpt-test", Auth: federatedAuth,
 		}, origin: "test:chatTest"},
 	})
 
@@ -257,16 +276,17 @@ func TestProviderAuthStatusNamesTheTierNotTheValue(t *testing.T) {
 		t.Fatalf("expected one row (the base is metadata and must not be listed), got %d", len(nodes))
 	}
 	payload := string(nodes[0].Payload)
-	if strings.Contains(payload, secret) {
-		t.Fatal("the projection rendered the credential itself")
+
+	if strings.Contains(payload, subject) {
+		t.Fatal("the projection rendered the projected identity token itself")
 	}
-	// The reachable positive: it DID resolve, so a test finding no secret is
-	// not simply describing an empty row.
+	// The reachable positive: it DID resolve, so a test finding no credential
+	// is not simply describing an empty row.
 	if !strings.Contains(payload, `"available":true`) {
-		t.Fatalf("the provider should be available with a seeded key: %s", payload)
+		t.Fatalf("the provider should be available with a complete federation set: %s", payload)
 	}
-	if !strings.Contains(payload, `"authSource":"globalSecret"`) {
-		t.Fatalf("the tier should be reported as globalSecret: %s", payload)
+	if !strings.Contains(payload, `"authSource":"federation"`) {
+		t.Fatalf("the tier should be reported as federation: %s", payload)
 	}
 }
 
@@ -275,7 +295,7 @@ func TestProviderAuthSourceReportsUnresolvedWhenKeyless(t *testing.T) {
 	installSeededResolver(t, resolver)
 	// Blank the env tier too, or a developer machine with a real key exported
 	// turns this green for the wrong reason.
-	for _, name := range []string{"MEMQL_AI_OPENAI_API_KEY", "MEMQL_OPENAI_API_KEY", "OPENAI_API_KEY", "MEMQL_SI_OPENAI_API_KEY"} {
+	for _, name := range []string{"MEMQL_AI_OPENAI_PROJECT_ID", "MEMQL_OPENAI_PROJECT_ID", "OPENAI_PROJECT_ID", "MEMQL_SI_OPENAI_PROJECT_ID"} {
 		t.Setenv(name, "")
 	}
 
@@ -283,7 +303,7 @@ func TestProviderAuthSourceReportsUnresolvedWhenKeyless(t *testing.T) {
 	registerParsedProviders(nil, e.providers, []parsedProviderConfig{
 		{cfg: &ProviderConfig{
 			Name: "chatTest", Type: "OpenAI", Model: "gpt-test",
-			Auth: map[string]string{"apiKey": "${MEMQL_AI_OPENAI_API_KEY}"},
+			Auth: map[string]string{"apiKey": "${MEMQL_AI_OPENAI_PROJECT_ID}"},
 		}, origin: "test:chatTest"},
 	})
 
@@ -379,7 +399,7 @@ func TestReloadIsAtomicUnderConcurrentReads(t *testing.T) {
 // WHY IT IS WORTH A TEST OF ITS OWN. registerFunctionTools already skips every
 // builtin -- "the MCP connector surface is a curated @mcp opt-in on TOOLS", and
 // its comment says so. That exclusion is general and it is not new. What IS
-// new is the consequence of it lapsing: `providerKeySet` seals a vendor
+// new is the consequence of it lapsing: `the retired key-sealing builtin` seals a vendor
 // credential into the graph and `providersReload` rotates what an entire fleet
 // authenticates with. Before this epic the worst an auto-registered builtin
 // could do was read something; these are the first that write a credential.
@@ -394,7 +414,7 @@ func TestProviderBuiltinsAreNotAICallable(t *testing.T) {
 
 	names := []string{
 		"providerAuthStatus", "providersReload", "providerVerify",
-		"providerKeySet", "providerFederationSet",
+		"providerFederationSet",
 	}
 	for _, name := range names {
 		if err := functions.Upsert(&Function{
@@ -460,7 +480,7 @@ func TestProviderBuiltinsAreNotAICallable(t *testing.T) {
 func TestProviderAuthStatusReasonNeverCarriesTheCredential(t *testing.T) {
 	const secret = "sk-test-must-never-reach-a-browser-4440"
 	resolver := newSeededResolver()
-	resolver.seed("MEMQL_AI_OPENAI_API_KEY", secret)
+	resolver.seed("MEMQL_AI_OPENAI_PROJECT_ID", secret)
 	installSeededResolver(t, resolver)
 
 	e := engineWithProviders(t, events.NewBus())
@@ -472,7 +492,7 @@ func TestProviderAuthStatusReasonNeverCarriesTheCredential(t *testing.T) {
 			// whole point of the fixture.
 			Type:  "NoSuchVendor",
 			Model: "m",
-			Auth:  map[string]string{"apiKey": "${MEMQL_AI_OPENAI_API_KEY}"},
+			Auth:  map[string]string{"apiKey": "${MEMQL_AI_OPENAI_PROJECT_ID}"},
 		}, origin: "test:brokenButKeyed"},
 	})
 
@@ -507,4 +527,17 @@ func TestProviderAuthStatusReasonNeverCarriesTheCredential(t *testing.T) {
 	if strings.Contains(payload, secret) {
 		t.Fatalf("the credential reached the projection's payload: %s", payload)
 	}
+}
+
+// seedOpenAIFederation seeds a COMPLETE OpenAI federation set into a test
+// resolver, including a projected token file that passes preflight.
+//
+// All three or nothing: openaiCredential refuses a partial set, so seeding two
+// of them would leave the provider unavailable for a reason that has nothing
+// to do with what the calling test is measuring.
+func seedOpenAIFederation(t *testing.T, resolver interface{ seed(name, value string) }) {
+	t.Helper()
+	resolver.seed(envOpenAIIdentityProviderID, "idp_test")
+	resolver.seed(envOpenAIServiceAccountID, "svc_test")
+	resolver.seed(envOpenAIIdentityTokenFile, validOpenAIIdentityToken(t))
 }

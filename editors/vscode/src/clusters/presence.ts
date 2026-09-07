@@ -141,8 +141,8 @@ async function receiptEvidence(
     if (receipt === null) return { present: false, receipt: null };
     // AN ARTIFACT, not an entry (memql#3544). `receipt` on an entry names the
     // artifact CLASS that step left behind, and the read-only steps -- `detect`,
-    // which only inspects the machine, and `providerKey`, which verifies a
-    // credential -- carry "" because they leave nothing.
+    // which only inspects the machine, and `providerFederation`, which verifies
+    // a cluster's federated credential -- carry "" because they leave nothing.
     //
     // Counting entries therefore called a failed install an installed cluster:
     // a run that died at its first mutating step still recorded the read-only

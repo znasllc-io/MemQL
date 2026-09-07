@@ -96,14 +96,21 @@ const settings: OsAppManifest = {
     // capability's own `statusAuthorized` remains the authority on.
     { id: "integrations", name: "Integrations", roles: { any: ["owner", "developer"] } },
     // The three that arrived when the portal's admin console was retired
-    // (epic memql#4984). Each floor is the one the ENGINE will actually
-    // apply, not a rounder number: `providerAuthStatus` and the two
-    // provider writes are owner-gated, so offering Providers to an admin
-    // would be a section whose every control answers with a refusal, while
-    // the Tokens reads and the revokes are owner-or-admin and Keys reads a
-    // PUBLIC feed that needs no role at all -- floored at admin because
-    // knowing which keys a cluster signs with is operator business.
-    { id: "providers", name: "AI providers", roles: { min: "owner" } },
+    // (epic memql#4984). Each requirement is the one the ENGINE will
+    // actually apply, not a rounder number: the Tokens reads and the revokes
+    // are owner-or-admin, and Keys reads a PUBLIC feed that needs no role at
+    // all -- floored at admin because knowing which keys a cluster signs with
+    // is operator business.
+    //
+    // AI providers is the shell's THIRD non-monotonic gate (epic memql#5088,
+    // D7), beside Settings -> Integrations and Cluster -> Modules, and it is
+    // a SET for the same reason they are. The four provider builtins move to
+    // owner-or-developer because a developer helps an owner through setup;
+    // admin is deliberately left out, since an admin's concern is user
+    // administration. `{ min: "developer" }` cannot express that -- the
+    // ladder ranks developer 300 ABOVE admin 200, so a floor there admits
+    // exactly the role the engine refuses.
+    { id: "providers", name: "AI providers", roles: { any: ["owner", "developer"] } },
     { id: "tokens", name: "Tokens", roles: { min: "admin" } },
     { id: "keys", name: "Keys", roles: { min: "admin" } },
     // The shell's own lines (epic memql#4895): what the OS front end

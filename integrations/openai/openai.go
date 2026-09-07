@@ -18,14 +18,26 @@
 package openai
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 )
 
 // Config holds the configuration for the OpenAI ASR provider.
 type Config struct {
-	// APIKey is the OpenAI API key (MEMQL_AI_OPENAI_API_KEY).
-	APIKey string `json:"apiKey"`
+	// Bearer returns the credential to present at dial time (epic memql#5088).
+	//
+	// A FUNCTION, NOT A STRING, and that is the whole change. The Realtime
+	// WebSocket sets Authorization once, at dial, and a long-lived connection
+	// outlives the one-hour federated bearer that opened it -- but a
+	// reconnection minutes later must NOT reuse the token the first dial
+	// captured. Holding the string would have made every reconnect after the
+	// first hour fail with a 401 that named nothing, on a path nobody watches.
+	// Taking a function means each dial asks the engine's exchanger for
+	// whatever is current, and the caching lives in one place.
+	//
+	// There is no API-key field any more: federation is the only door.
+	Bearer func(ctx context.Context) (string, error) `json:"-"`
 
 	// ASRModel is the transcription model used by the Realtime API in
 	// transcription-only mode. Defaults to whisper-1 -- the only
@@ -60,8 +72,8 @@ func DefaultConfig() Config {
 
 // validate checks that required fields are set and applies defaults.
 func (c *Config) validate() error {
-	if c.APIKey == "" {
-		return fmt.Errorf("openai: API key is required")
+	if c.Bearer == nil {
+		return fmt.Errorf("openai: a bearer source is required -- the Realtime WebSocket authenticates with a federated token, and this cluster supplied none")
 	}
 	if c.ASRModel == "" {
 		c.ASRModel = defaultASRModel

@@ -25,7 +25,6 @@ import {
   webSocketUrlFor,
 } from "../connection/endpoint.js";
 import type { HandoffResult } from "../install/handoff.js";
-import { looksLikeProviderKey } from "../install/secrets.js";
 import { installDomainProblem, DEFAULT_LOCAL_DOMAIN, DEFAULT_STACK_TAG } from "../install/stackPin.js";
 
 /** Where the operator is. */
@@ -84,37 +83,21 @@ export interface StepProgress {
 }
 
 /**
- * The AI providers an install can seed a key for (memql#3473).
+ * What an install asks for. Collected once, before anything runs.
  *
- * DERIVED FROM WHAT THE SCRIPT ACCEPTS, not from what the wizard felt like
- * offering: `scripts/install/verify-provider-key.sh` supports exactly these
- * two and exits 2 on anything else, which is a fault in MemQL rather than in
- * the operator's answer -- so the field is a CHOICE and this list is what it
- * chooses from.
+ * NO AI CREDENTIAL IS AMONG THEM (epic memql#5088). There is no vendor API key
+ * anywhere in the product: both cloud vendors are reached by workload identity
+ * federation, whose credential is a projected token inside a pod. And a
+ * cluster THIS wizard builds could not use federation even if it were offered
+ * one, because a k3d cluster's OIDC issuer is not publicly reachable and
+ * neither vendor can verify a token minted by it. So the wizard collects no
+ * vendor field at all, and `providerFederation` skips.
  */
-export const SUPPORTED_PROVIDERS = ["anthropic", "openai"] as const;
-
-export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
-
-/** What an install asks for. Collected once, before anything runs. */
 export interface Inputs {
   domain: string;
   ownerFirstName: string;
   ownerLastName: string;
   ownerEmail: string;
-  /**
-   * Which vendor the key below belongs to.
-   *
-   * COLLECTED, not pinned. It was hardcoded `anthropic` in the panel AND in
-   * `install.json`, where graph params win -- so an operator holding an OpenAI
-   * key had no route through this wizard at all, while every test enumerated
-   * the other five fields and the criterion read as satisfied at a glance.
-   * Which vendor a key belongs to is a fact about the OPERATOR'S KEY, which is
-   * run input like the path beside it, not policy the graph pins.
-   */
-  provider: string;
-  /** A PATH. The key itself never enters this module -- see SessionOptions. */
-  providerKeyFile: string;
   /**
    * The release tag to install (memql#3882, re-defaulted by memql#4429).
    *
@@ -173,11 +156,11 @@ export interface FieldError {
  * domain now reaches the cluster, through the memql-domain ConfigMap and two
  * patches on the ArgoCD Application.
  *
- * THE OTHER FOUR ARE DELIBERATELY BLANK. A person's name, their email and
- * where they keep an API key are facts about them, and a wizard that guessed
- * would either be wrong or would prefill somebody else's details on a shared
- * machine. `seed-bootstrap.sh` agrees -- it defaults every owner field to the
- * empty string and exits 2 naming what is missing.
+ * THE OWNER FIELDS ARE DELIBERATELY BLANK. A person's name and their email are
+ * facts about them, and a wizard that guessed would either be wrong or would
+ * prefill somebody else's details on a shared machine. `seed-bootstrap.sh`
+ * agrees -- it defaults every owner field to the empty string and exits 2
+ * naming what is missing.
  */
 export const DEFAULT_INPUTS: Inputs = {
   // The constant, not a copy of it (memql#3590): the form's offer and the
@@ -187,11 +170,6 @@ export const DEFAULT_INPUTS: Inputs = {
   ownerFirstName: "",
   ownerLastName: "",
   ownerEmail: "",
-  // The provider DOES get a default, unlike the four personal fields: it is a
-  // choice from a closed set rather than a fact about the operator, so a
-  // pre-selection is an answer they can accept rather than a guess about them.
-  provider: "anthropic",
-  providerKeyFile: "",
   // The OFFLINE FALLBACK, and only that (memql#4429). The listing overwrites it
   // with the newest release as soon as it lands; this is what the field holds
   // until then, and what it keeps on a machine that cannot list at all.
@@ -498,20 +476,13 @@ function endpointProblem(name: string, endpoint: string): string | undefined {
  * it is how the cluster is addressed, and a repair pointed at the wrong one is
  * not a repair.
  *
- * NO AI PROVIDER KEY IS REQUIRED BY ANY ACTION (epic memql#4440). This list is
- * where that requirement lived, and it is the ONLY place it ever lived -- the
- * engine has always booted keyless (a provider whose key does not resolve
- * registers as unavailable and is skipped at selection; nothing refuses boot
- * over it), and `seed-bootstrap.sh` has always returned cleanly when handed
- * neither `--provider` nor `--provider-key-file`. So a wizard that demanded
- * one was demanding it on its own authority, for a cluster that did not need
- * it, and the answer to "why does installing MemQL need an LLM key" was
- * "it does not".
- *
- * The fields did not go away -- see `optionalFields`. Supplied, they behave
- * exactly as before: verified by the `providerKey` step, then seeded. Left
- * empty, nothing is verified and nothing is seeded, and provider
- * configuration happens in the portal at Settings -> AI providers.
+ * NO AI CREDENTIAL IS COLLECTED BY ANY ACTION (epic memql#4440, then epic
+ * memql#5088). memql#4440 made the vendor fields optional, on the ground that
+ * installing a cluster spends no inference; memql#5088 removed them, because
+ * there is no longer any such thing as a vendor API key in this product.
+ * `seed-bootstrap.sh` no longer declares `--provider` or `--provider-key-file`,
+ * and a capability script exits 2 on an undeclared flag -- so the fields are
+ * not merely unneeded, they are unpassable.
  */
 /**
  * The remedy a capability declared, or "" (memql#3551).
@@ -537,10 +508,6 @@ export function requiredFields(action: AddClusterAction): InputField[] {
         "ownerFirstName",
         "ownerLastName",
         "ownerEmail",
-        // NO PROVIDER, NO KEY FILE (epic memql#4440). They are collected --
-        // see optionalFields -- but nothing waits on them: installing a
-        // cluster spends no inference, so a vendor key is not a thing the
-        // machine needs before it can be built. See the block comment above.
         // Asked for LAST, and pre-filled: it is the one field with a house
         // answer, so it reads as a confirmation rather than a question.
         // A REPAIR does not collect it -- the receipt replays the version the
@@ -549,42 +516,22 @@ export function requiredFields(action: AddClusterAction): InputField[] {
         "version",
       ];
     case "repair":
-      // THE KEY FIELDS ARE COLLECTED, and the receipt supplies their DEFAULTS
-      // (memql#3544). This used to be `["domain"]` alone, on the reasoning that
-      // a repair re-runs a graph over a machine that has already answered these
-      // questions -- and memql#3512 made it read the answers back off the
-      // receipt so wave 2 could pass.
-      //
-      // That reasoning inverts the moment the RECORDED answer is the thing that
-      // is wrong. A repair then re-runs with the same bad value, fails at the
-      // same step, and offers no field in which to correct it -- which is the
-      // state an operator who fumbled the key file is left in permanently, with
-      // Uninstall reporting nothing to remove because nothing was installed.
-      //
-      // Nobody retypes a good path: the panel pre-fills both from the receipt.
-      // What changes is that the value is now in a box that can be edited.
-      //
-      // THE OWNER FIELDS ARE HERE FOR THE SAME REASON, and their absence was a
-      // hard failure rather than a missing convenience (znasllc-io#3888).
-      // `seedBootstrap` refuses a partial bootstrap set on purpose -- a partial
-      // seed writes a Secret that looks healthy and leaves the operator at a
-      // login page for an account that was never created -- so a repair that
-      // collected none of them and pre-filled none of them died at `exit 2`
-      // naming three values the wizard offered no way to supply. Every other
-      // param on that step reached it: `domain` was collected, and
+      // THE OWNER FIELDS ARE COLLECTED, and the receipt supplies their DEFAULTS
+      // (znasllc-io#3888). This used to be `["domain"]` alone, on the reasoning
+      // that a repair re-runs a graph over a machine that has already answered
+      // these questions. Their absence was a hard failure rather than a missing
+      // convenience: `seedBootstrap` refuses a partial bootstrap set on purpose
+      // -- a partial seed writes a Secret that looks healthy and leaves the
+      // operator at a login page for an account that was never created -- so a
+      // repair that collected none of them and pre-filled none of them died at
+      // `exit 2` naming three values the wizard offered no way to supply. Every
+      // other param on that step reached it: `domain` was collected, and
       // `registration-mode` has a default. Only the owner had neither.
       //
-      // THE KEY FIELDS ARE NO LONGER AMONG THEM (epic memql#4440), and that is
-      // the one part of the paragraph above that has changed rather than been
-      // abandoned. memql#3544's reasoning was about an answer the machine
-      // ALREADY HAS and got wrong; it never contemplated the case where the
-      // recorded answer is that there was never a key -- which is now the
-      // ordinary case, because an install no longer asks for one. A repair
-      // that demanded a key would then be demanding a value that never
-      // existed, on a cluster that is working, and leaving the operator with
-      // no way past a form. The fields are still COLLECTED (optionalFields)
-      // and still PRE-FILLED from the receipt, so the editable-box remedy
-      // memql#3544 built is intact; what is gone is the requirement.
+      // Nobody retypes a good answer: the panel pre-fills each from the
+      // receipt. What the box buys is that a RECORDED answer which is itself
+      // wrong can be corrected here, rather than re-running into the same
+      // failure with no field to edit (memql#3544).
       return [
         "domain",
         "ownerFirstName",
@@ -603,42 +550,19 @@ export function requiredFields(action: AddClusterAction): InputField[] {
   }
 }
 
-/**
- * What each action COLLECTS but never waits for (epic memql#4440).
- *
- * A separate list rather than a flag on the fields, because the two questions
- * a screen asks are genuinely different: `requiredFields` answers "may this
- * run start", and this answers "what else is worth offering while we are
- * here". Merging them into one annotated list is what would let a future edit
- * make an optional field block a run by touching one character.
- *
- * The collect screen renders these in a collapsed disclosure, below the
- * required ones. An empty value is not an error; a MALFORMED one still is --
- * `validate()` shape-checks these exactly as it does the required fields, so
- * the paste-the-key-into-the-path-box refusal (memql#3545) survives the
- * demotion. That is the trap in making a required field optional: the
- * validation that protected it usually hung off the requirement.
- */
-export function optionalFields(action: AddClusterAction): InputField[] {
-  switch (action) {
-    case "install":
-    case "installGuided":
-    case "repair":
-      return ["provider", "providerKeyFile"];
-    case "uninstall":
-    case "connect":
-    case "reconnect":
-      return [];
-  }
-}
+// `optionalFields` IS GONE, with the only two fields it ever held (epic
+// memql#5088). It answered "what else is worth offering while we are here",
+// and the answer was the AI-provider pair; with no vendor credential anywhere
+// in the product there is nothing this wizard collects but does not wait for.
+// A function returning [] for every action, a second validation pass over an
+// empty list and a disclosure renderer with nothing to render would be three
+// pieces of machinery describing a feature that no longer exists.
 
 const LABELS: Record<InputField, string> = {
   domain: "domain",
   ownerFirstName: "first name",
   ownerLastName: "last name",
   ownerEmail: "email address",
-  provider: "AI provider",
-  providerKeyFile: "provider key file",
   version: "version",
 };
 
@@ -1004,35 +928,23 @@ export class AddClusterState {
     return handoff.canSignIn ? "signIn" : "none";
   }
 
-  /**
-   * Where to send an operator whose cluster was built without an AI provider
-   * (epic memql#4440), or "" when there is nothing to say.
-   *
-   * OFFERED ONLY WHEN NOTHING WAS SEEDED. An install that supplied a key
-   * configured its providers as part of the run, and a link inviting the
-   * operator to go and configure them again would read as though the key had
-   * not taken. The empty string means "render no line", which is what the
-   * whole keyed path gets.
-   *
-   * A GETTER HERE, not an HTML string in the panel, for the same reason
-   * `primaryHandoffAction` is (memql#3884): `addClusterPanel.ts` imports
-   * `vscode`, so nothing under `node --test` can render it, and a decision
-   * written into a template is a decision no test can reach.
-   *
-   * The address is composed from the domain the operator gave the installer,
-   * by the same single-label-under-the-domain convention every other host
-   * follows -- `portal.<domain>` is the platform's own site, front-door rule
-   * #1. Requires a successful hand-off, because a run that did not register a
-   * cluster has no domain worth linking into.
-   */
-  get providerSetupUrl(): string {
-    const handoff = this.handoffResult;
-    if (handoff === undefined || !handoff.ok) return "";
-    if (this.values.providerKeyFile.trim() !== "") return "";
-    const domain = handoff.cluster.domain?.trim() ?? "";
-    if (domain === "") return "";
-    return `https://portal.${domain}/settings/providers`;
-  }
+  // `providerSetupUrl` IS GONE (epic memql#5088), and both halves of it were
+  // wrong by the time it was removed.
+  //
+  // Its GATE read `providerKeyFile`, a field that no longer exists: it
+  // suppressed the line for an install that had supplied a key, and no install
+  // can.
+  //
+  // Its ADDRESS was `https://portal.<domain>/settings/providers`, and epic
+  // memql#4984 retired the portal -- `clusters/consoleUrl.ts` in this same tree
+  // records that host as one nothing serves, having been caught by it twice.
+  //
+  // Nothing replaces it, because the sentence it accompanied was an invitation
+  // to go and configure a vendor provider, and THIS cluster cannot use one: a
+  // k3d cluster's OIDC issuer is not publicly reachable, so no vendor can
+  // verify a token minted by it, and federation is the only door left. What the
+  // done screen says instead is where a local cluster's models actually come
+  // from -- see `installScreens.ts`.
 
   // ---------------------------------------------------------------------------
   // routing
@@ -1149,18 +1061,13 @@ export class AddClusterState {
   /**
    * Every problem with what has been entered so far, for the action chosen.
    *
-   * TWO PASSES, because the two lists fail differently (epic memql#4440). A
-   * required field that is empty is an error and its shape is checked when it
-   * is not; an optional field that is empty is the ordinary case and only its
-   * SHAPE is ever checked.
-   *
-   * The optional pass is not a nicety. Making `providerKeyFile` optional moved
-   * it out of the only loop that ran `problemWith` over it -- so the
-   * paste-the-key refusal (memql#3545), which exists because the value would
-   * otherwise reach a command line every process on the machine can read and
-   * then be written verbatim into the install receipt, would have silently
-   * stopped running. `problemWith` already returns undefined for an empty
-   * value, so the pass costs nothing when the disclosure was never opened.
+   * ONE PASS AGAIN (epic memql#5088). memql#4440 added a second, over
+   * `optionalFields`, because demoting `providerKeyFile` out of the required
+   * list would otherwise have moved it out of the only loop that ran
+   * `problemWith` over it -- silently stopping the paste-the-key refusal that
+   * kept a credential off a world-readable command line. Both fields are gone
+   * now, so the second pass has nothing to iterate and the trap it guarded
+   * against no longer has a subject.
    */
   validate(): FieldError[] {
     const action = this.chosen;
@@ -1170,10 +1077,6 @@ export class AddClusterState {
       const value = this.values[field];
       const problem =
         value.trim() === "" ? `A ${LABELS[field]} is required.` : this.problemWith(field, value);
-      if (problem !== undefined) errors.push({ field, message: problem });
-    }
-    for (const field of optionalFields(action)) {
-      const problem = this.problemWith(field, this.values[field]);
       if (problem !== undefined) errors.push({ field, message: problem });
     }
     return errors;
@@ -1198,31 +1101,18 @@ export class AddClusterState {
       const problem = installDomainProblem(trimmed);
       if (problem !== undefined) return problem;
     }
-    // The refusal is HERE rather than at the script, which would report exit 2
-    // -- correctly worded as a fault in MemQL rather than in the operator's
-    // answer, and therefore the wrong sentence for a value they chose.
-    if (field === "provider" && !SUPPORTED_PROVIDERS.some((p) => p === trimmed)) {
-      return `MemQL can verify a key for ${SUPPORTED_PROVIDERS.join(" or ")}.`;
-    }
-    // THE KEY ITSELF, PASTED WHERE THE PATH GOES (memql#3545).
+    // THE PASTE-THE-KEY REFUSAL IS GONE WITH THE FIELD IT GUARDED (epic
+    // memql#5088). memql#3545 refused a value beginning `sk-` in the
+    // `providerKeyFile` box, because the alternative was handing it to a
+    // capability script as `--key-file=sk-ant-...` -- argv, which `ps` shows to
+    // every process on the machine -- and then writing it verbatim into the
+    // install receipt. There is no box, no flag and no vendor key now.
     //
-    // The field's hint has always said "A PATH to a file holding the key, never
-    // the key itself", and for a long time the hint was the whole enforcement.
-    // What an operator who pasted the key actually got: the value handed to the
-    // capability script as `--key-file=sk-ant-...`, where `ps` shows it to every
-    // process on the machine, and then written verbatim into the install
-    // receipt, where it stayed.
-    //
-    // The message must not quote the value back. It is a secret, it is rendered
-    // into HTML, and a validation message is exactly the sort of thing that ends
-    // up in a screenshot attached to a bug report.
-    if (field === "providerKeyFile" && looksLikeProviderKey(trimmed)) {
-      return (
-        "That is the key itself. This field takes the PATH to a file holding it -- " +
-        "a command line is readable by every process on this machine, so the key " +
-        "must never be one. Save it to a file (e.g. ~/.memql/key) and give that path."
-      );
-    }
+    // `install/secrets.ts` KEEPS its half of that pair, and deliberately.
+    // memql#3545 built two walls: this one, where a person can be told what to
+    // do instead, and `redactSecrets` on the receipt WRITE, which covers every
+    // other way a param can reach the file -- the CLI, a graph-pinned param, a
+    // surface nobody has written yet. Only the first had a subject to lose.
     return undefined;
   }
 

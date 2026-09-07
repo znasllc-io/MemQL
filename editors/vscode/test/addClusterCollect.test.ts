@@ -15,7 +15,6 @@ import assert from "node:assert/strict";
 import {
   AddClusterState,
   DEFAULT_INPUTS,
-  optionalFields,
   requiredFields,
   type InputField,
 } from "../src/state/addCluster.js";
@@ -51,24 +50,24 @@ test("a repair can be started without typing anything, once the receipt is in", 
   // three values the panel pre-fills from the receipt. A repair that reached
   // `seedBootstrap` without them died at `exit 2` naming values no box offered.
   //
-  // THE KEY PATH IS NO LONGER IN THAT LIST (epic memql#4440). It used to be
-  // the one thing standing between a fresh state and a startable repair, on
-  // the reasoning that the run could not pass wave 2 without it. It can now:
-  // `providerKey` skips, satisfied, when no key was supplied. Keeping it
-  // required would have made repair unreachable for every cluster installed
-  // the way this product now recommends -- with no key at all.
+  // THE KEY PATH IS NO LONGER IN THAT LIST (epic memql#4440, removed outright
+  // by epic memql#5088). It used to be the one thing standing between a fresh
+  // state and a startable repair, on the reasoning that the run could not pass
+  // wave 2 without it. It can now: `providerFederation` skips satisfied, always,
+  // because a local cluster cannot federate. Keeping it required would have
+  // made repair unreachable for every cluster there now is.
   const state = new AddClusterState();
   state.chooseAction("repair");
   assert.deepEqual(
     state.validate().map((e) => e.field),
     ["ownerFirstName", "ownerLastName", "ownerEmail"],
-    "the domain and the vendor are defaulted; the owner is not",
+    "the domain is defaulted; the owner is not",
   );
 
   state.setInput("ownerFirstName", "Ada");
   state.setInput("ownerLastName", "Lovelace");
   state.setInput("ownerEmail", "owner@example.com");
-  assert.deepEqual(state.validate(), [], "a repair still wants a key path");
+  assert.deepEqual(state.validate(), [], "the owner is all a repair asks for");
   assert.equal(state.beginRun(), true);
   assert.equal(state.screen, "running");
 });
@@ -85,23 +84,25 @@ test("an install still refuses to start on the fields only a person can supply",
   for (const field of ["ownerFirstName", "ownerLastName", "ownerEmail"] as const) {
     assert.ok(missing.has(field), `${field} was not required`);
   }
-  // AND THE KEY PATH IS NOT ONE OF THEM (epic memql#4440). The three above
-  // genuinely cannot be guessed and seed-bootstrap.sh genuinely refuses
-  // without them; a vendor key is neither -- nothing in install, start,
-  // repair, upgrade or uninstall reads it.
-  assert.ok(
-    !missing.has("providerKeyFile"),
-    "an install refused to start over an AI provider key it does not need",
+  // AND NOTHING ELSE IS REQUIRED, which is where a vendor key would reappear
+  // (epic memql#4440, epic memql#5088). The three above genuinely cannot be
+  // guessed and seed-bootstrap.sh genuinely refuses without them. Asserted as a
+  // SET rather than as the absence of one field name, so a credential re-added
+  // under any name fails here.
+  assert.deepEqual(
+    [...missing].sort(),
+    ["ownerEmail", "ownerFirstName", "ownerLastName"],
+    "an install refused to start over a field it does not need",
   );
 });
 
-test("the four personal fields are deliberately blank", () => {
-  // Guessing a name, an email or where somebody keeps an API key is either
-  // wrong or -- on a shared machine -- somebody else's details.
+test("the three personal fields are deliberately blank", () => {
+  // Guessing a name or an email is either wrong or -- on a shared machine --
+  // somebody else's details. (It was FOUR until epic memql#5088; the fourth
+  // was where somebody keeps an API key, and there is no such key now.)
   assert.equal(DEFAULT_INPUTS.ownerFirstName, "");
   assert.equal(DEFAULT_INPUTS.ownerLastName, "");
   assert.equal(DEFAULT_INPUTS.ownerEmail, "");
-  assert.equal(DEFAULT_INPUTS.providerKeyFile, "");
 });
 
 test("the default is a starting value, not a floor -- it can be replaced or cleared", () => {
@@ -123,10 +124,12 @@ test("the default is a starting value, not a floor -- it can be replaced or clea
 // ---------------------------------------------------------------------------
 
 test("no validation message ever quotes the value it rejected", () => {
-  // THE ONE THAT MATTERS. providerKeyFile is a path today, but it is the field
-  // that sits next to an API key, and the natural way to write a friendlier
-  // error -- `That path (${value}) does not exist` -- is exactly how a value
-  // reaches a log, a telemetry payload or a screenshot. Refusing to interpolate
+  // THE RULE OUTLIVES THE FIELD THAT MOTIVATED IT. It was written for
+  // `providerKeyFile`, the box that sat next to an API key, where the natural
+  // friendlier error -- `That path (${value}) does not exist` -- is exactly how
+  // a value reaches a log, a telemetry payload or a screenshot. That field is
+  // gone (epic memql#5088) and the rule is not: an owner email is a personal
+  // detail and a domain can carry a company name. Refusing to interpolate
   // values at all is a rule that cannot be got wrong by degrees.
   //
   // BOTH MESSAGE SOURCES ARE DRIVEN, and separately, because filling every
@@ -175,90 +178,50 @@ test("a rejected email is refused without repeating the address", () => {
   assert.ok(!error.message.includes("not-an-address"));
 });
 
-test("the provider key field carries a PATH, and the schema says so", () => {
-  // The structural half of "the key never reaches a log, an error message or
-  // the receipt": nothing in this module ever holds the key. SessionOptions
-  // documents the same constraint for the same reason -- argv is world-readable
-  // in `ps`.
-  // COLLECTED, not required (epic memql#4440) -- the structural claim is
-  // about what this module HOLDS, which is unchanged by the demotion. If
-  // anything the claim got stronger: the field is now one an operator can
-  // leave empty entirely.
-  assert.ok(optionalFields("install").includes("providerKeyFile"));
-  assert.ok(!Object.keys(DEFAULT_INPUTS).some((k) => /secret|token|apiKey|password/i.test(k)));
+test("no collected field is an AI credential, and the schema says so", () => {
+  // THE STRUCTURAL CLAIM, WIDENED (epic memql#4440 -> epic memql#5088).
+  //
+  // It used to be "the key field carries a PATH, never the key" -- nothing in
+  // this module ever holds a secret, because argv is world-readable in `ps`.
+  // There is no key field now, so the claim it becomes is stronger and simpler:
+  // this module holds no AI credential of any kind, under any name.
+  //
+  // ASSERTED OVER `Inputs` ITSELF rather than over a list of banned field
+  // names. `DEFAULT_INPUTS` has a key for every field the wizard collects, so a
+  // field re-added tomorrow is caught whatever it is called -- which a
+  // hard-coded absence check (`!includes("providerKeyFile")`) would not be.
+  const fields = Object.keys(DEFAULT_INPUTS);
+  assert.ok(!fields.some((k) => /secret|token|apiKey|password|provider|vendor|key/i.test(k)),
+    `a collected field looks like an AI credential: ${fields.join(", ")}`);
+  // And the same over the two lists a screen actually renders from, since a
+  // field could be offered without a default.
+  for (const action of ["install", "installGuided", "repair"] as const) {
+    assert.ok(!requiredFields(action).some((f) => /provider|key|vendor|secret/i.test(f)),
+      `${action} requires a field that looks like an AI credential`);
+  }
 });
 
 // -----------------------------------------------------------------------------
-// The key FILE field must hold a path, and a repair must be able to fix it
-// (memql#3544 / memql#3545)
+// THE KEY-FILE SECTION IS DELETED (epic memql#5088)
 // -----------------------------------------------------------------------------
-
-test("pasting the provider key itself into the key-FILE box is refused", () => {
-  // WHAT ACTUALLY HAPPENED. The field's hint says "A PATH to a file holding the
-  // key, never the key itself", and nothing enforced it -- so an operator who
-  // pasted their Anthropic key had it accepted, passed to the script as
-  // `--key-file=sk-ant-...` (argv, which `ps` shows to every process on the
-  // machine) and then RECORDED IN THE INSTALL RECEIPT, where it sat in
-  // plaintext afterwards.
-  //
-  // A hint is not a control. The value that cannot be allowed to reach argv is
-  // refused where it is typed.
-  const state = new AddClusterState();
-  state.chooseAction("install");
-  state.setInput("providerKeyFile", "sk-ant-api03-EXAMPLE-not-a-real-key-aaaaaaaaaaaaaaaaaaaa");
-
-  const problem = state.errors.find((e) => e.field === "providerKeyFile");
-  assert.ok(problem !== undefined, "a pasted key must be refused, not accepted");
-  assert.match(problem.message, /path/i, "and the refusal must say what is wanted instead");
-  // The message must not quote the value back: this whole test is about a
-  // secret, and a validation message is rendered into HTML and is the kind of
-  // thing that ends up in a screenshot.
-  assert.doesNotMatch(problem.message, /sk-ant/, "the refusal must not echo the secret");
-});
-
-test("an OpenAI key pasted into the same box is refused too", () => {
-  // The vendor is collected separately, so the refusal cannot key off it. Both
-  // supported vendors' key formats are recognised.
-  const state = new AddClusterState();
-  state.chooseAction("install");
-  state.setInput("providerKeyFile", "sk-proj-EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE");
-  assert.ok(state.errors.some((e) => e.field === "providerKeyFile"));
-});
-
-test("an ordinary path is accepted", () => {
-  const state = new AddClusterState();
-  state.chooseAction("install");
-  state.setInput("providerKeyFile", "/home/someone/.memql/key");
-  assert.deepEqual(state.errors, []);
-});
-
-test("a repair collects the provider key again, so a bad one can be corrected", () => {
-  // THE DEAD END. `requiredFields("repair")` was `["domain"]`, on the reasoning
-  // that a repair re-runs a graph over a machine that already answered these
-  // questions -- and the answer it reads back is the one on the receipt. When
-  // the recorded answer is the thing that is WRONG, that reasoning inverts: the
-  // repair re-runs with the same bad value, fails at the same step, and offers
-  // the operator no field in which to fix it. Every repair, forever.
-  //
-  // The receipt still supplies the DEFAULT (memql#3512's point stands -- nobody
-  // should retype a good path), but it is now a starting value in a box rather
-  // than a locked-in one.
-  // COLLECTED, NOT REQUIRED (epic memql#4440). memql#3544's dead end was
-  // "the box is not there to fix a bad value", and an OPTIONAL box fixes that
-  // just as completely as a required one -- the operator can still edit the
-  // pre-filled path. What a REQUIREMENT would additionally do is refuse a
-  // repair on every cluster that was installed with no key at all, which
-  // after this epic is most of them.
-  assert.ok(
-    optionalFields("repair").includes("providerKeyFile"),
-    "a repair must be able to correct the key path it is about to reuse",
-  );
-  assert.ok(
-    optionalFields("repair").includes("provider"),
-    "and the vendor that path is verified against",
-  );
-  assert.ok(
-    !requiredFields("repair").includes("providerKeyFile"),
-    "a repair must not demand a key the install was never asked for",
-  );
-});
+//
+// Four cases lived here and all four were about one field, `providerKeyFile`:
+// that pasting an Anthropic key into it was refused, that an OpenAI key was
+// refused too, that an ordinary path was accepted, and that a repair collected
+// the field again so a bad recorded value could be corrected (memql#3544,
+// memql#3545).
+//
+// There is no such field. Both cloud vendors are reached by workload identity
+// federation, and a cluster this wizard builds could not use even that -- a k3d
+// cluster's OIDC issuer is not publicly reachable, so no vendor can verify a
+// token minted by it.
+//
+// THE REFUSAL THEY TESTED IS NOT ENTIRELY GONE, and it is worth knowing where
+// it went. memql#3545 built two walls: the validator here, which could tell a
+// person what to do instead, and `redactSecrets` on the receipt and run-log
+// WRITE, which covers every other way a param can reach a file. The second
+// stands, and `receiptSecrets.test.ts` and `runLogSecrets.test.ts` still hold
+// it. Only the wall with a field behind it has been removed.
+//
+// What replaces the structural half is the case above: no collected field is
+// an AI credential, asserted over `Inputs` rather than over a name.

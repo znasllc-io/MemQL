@@ -171,67 +171,55 @@ func TestAnthropicCredentialRefusesPartialFederation(t *testing.T) {
 	}
 }
 
-func TestAnthropicCredentialPartialFederationRefusesEvenWithAKey(t *testing.T) {
-	// The regression this guards: falling back to the key when federation is
-	// half-configured. It would pass every test, boot every node, and fail the
-	// hour the cutover removed the key.
+func TestAnthropicCredentialPartialFederationRefuses(t *testing.T) {
+	// The regression this guards used to be "falls back to the key". There is
+	// no key any more (epic memql#5088), so the regression it guards now is
+	// the OTHER cheap wrong answer: reading a partial set as "not configured"
+	// and registering the providers as unavailable. That would leave an
+	// operator who is halfway through the runbook -- and believes they are
+	// ENABLING Anthropic -- with a silently disabled vendor.
 	cfg := ProviderConfig{Name: "claudeTest", Auth: map[string]string{
-		authKeyAPIKey:           "sk-ant-test",
 		authKeyFederationRuleID: "fdrl_test",
 	}}
-	_, _, err := anthropicCredential(cfg, guardedHTTPClient(nil))
+	_, path, err := anthropicCredential(cfg, guardedHTTPClient(nil))
 	if err == nil {
-		t.Fatal("half-configured federation fell back to the API key; it must refuse")
+		t.Fatalf("half-configured federation was accepted with path %q; it must refuse", path)
+	}
+	if path == credentialPathUnavailable {
+		t.Fatal("half-configured federation was read as 'not configured'")
 	}
 }
 
-func TestAnthropicCredentialFederationWinsOverKey(t *testing.T) {
-	tokenFile := validIdentityToken(t)
-	auth := federatedAuth(tokenFile)
-	auth[authKeyAPIKey] = "sk-ant-test"
-	cfg := ProviderConfig{Name: "claudeTest", Auth: auth}
-
-	_, path, err := anthropicCredential(cfg, guardedHTTPClient(nil))
+// TestAnthropicCredentialHasNoKeyArm is the removal, asserted.
+//
+// An auth map carrying nothing but an apiKey -- the exact shape every cluster
+// used before this epic -- must now resolve to unavailable rather than to a
+// key-authenticated client. Asserting the ABSENCE this way rather than by
+// grepping for option.WithAPIKey means the test still holds if the key arm
+// comes back under another name.
+func TestAnthropicCredentialHasNoKeyArm(t *testing.T) {
+	cfg := ProviderConfig{Name: "claudeTest", Auth: map[string]string{"apiKey": "sk-ant-test"}}
+	opts, path, err := anthropicCredential(cfg, guardedHTTPClient(nil))
 	if err != nil {
 		t.Fatalf("anthropicCredential: %v", err)
 	}
-	if path != credentialPathFederation {
-		t.Fatalf("with both configured the path is %q, want %q", path, credentialPathFederation)
+	if path != credentialPathUnavailable {
+		t.Fatalf("an apiKey-only provider resolved to %q, want %q", path, credentialPathUnavailable)
+	}
+	if len(opts) != 0 {
+		t.Fatalf("an apiKey-only provider produced %d request option(s); it must produce none", len(opts))
 	}
 }
 
-func TestAnthropicCredentialUsesTheKeyWhenNoFederation(t *testing.T) {
-	cfg := ProviderConfig{Name: "claudeTest", Auth: map[string]string{authKeyAPIKey: "sk-ant-test"}}
-	_, path, err := anthropicCredential(cfg, guardedHTTPClient(nil))
-	if err != nil {
-		t.Fatalf("anthropicCredential: %v", err)
-	}
-	if path != credentialPathAPIKey {
-		t.Fatalf("credential path = %q, want %q", path, credentialPathAPIKey)
-	}
-}
-
-func TestAnthropicCredentialRefusesWithNoCredentialAtAll(t *testing.T) {
+func TestAnthropicCredentialIsUnavailableWithNoCredentialAtAll(t *testing.T) {
 	cfg := ProviderConfig{Name: "claudeTest", Auth: map[string]string{}}
-	_, _, err := anthropicCredential(cfg, guardedHTTPClient(nil))
-	if err == nil {
-		t.Fatal("a provider with no credential was accepted")
+	_, path, err := anthropicCredential(cfg, guardedHTTPClient(nil))
+	if err != nil {
+		t.Fatalf("an unconfigured provider errored rather than reporting unavailable: %v", err)
 	}
-	// The seeding hint the auth resolver used to print has to survive here,
-	// because the resolver no longer errors on this name.
-	//
-	// Asserted as a PROPERTY -- names the variable, names a real destination,
-	// and directs the operator at no make target that does not exist -- rather
-	// than as a literal, which is what let this assertion keep passing while
-	// pointing operators at a target the Makefile has never had (memql#4338,
-	// generalised in memql#4405).
-	if !strings.Contains(err.Error(), envAnthropicAPIKey) {
-		t.Fatalf("no-credential error does not name the variable to seed: %v", err)
+	if path != credentialPathUnavailable {
+		t.Fatalf("credential path = %q, want %q", path, credentialPathUnavailable)
 	}
-	if !strings.Contains(err.Error(), "globalSecret") {
-		t.Fatalf("no-credential error lost the seeding hint: %v", err)
-	}
-	citesNoDeadMakeTarget(t, "the no-credential error", err.Error())
 }
 
 // TestAnthropicConstructorsAttachTheGuardedClient covers spec 6.1's last
@@ -245,7 +233,6 @@ func TestAnthropicConstructorsAttachTheGuardedClient(t *testing.T) {
 		auth map[string]string
 	}{
 		{"federation", federatedAuth(tokenFile)},
-		{"apiKey", map[string]string{authKeyAPIKey: "sk-ant-test"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := ProviderConfig{Name: "claudeTest", Model: "claude-test", Auth: tc.auth}
@@ -275,7 +262,7 @@ func TestAnthropicConstructorsAttachTheGuardedClient(t *testing.T) {
 // --- preflight (spec 6.3) --------------------------------------------------
 
 func TestPreflightIdentityTokenAcceptsAProjectedToken(t *testing.T) {
-	if err := preflightIdentityToken(validIdentityToken(t)); err != nil {
+	if err := preflightIdentityToken(validIdentityToken(t), anthropicAudience, envAnthropicIdentityTokenFile); err != nil {
 		t.Fatalf("a well-formed projected token was refused: %v", err)
 	}
 }
@@ -312,7 +299,7 @@ func TestPreflightIdentityTokenRefusals(t *testing.T) {
 		{"empty path", "", envAnthropicIdentityTokenFile},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := preflightIdentityToken(tc.path)
+			err := preflightIdentityToken(tc.path, anthropicAudience, envAnthropicIdentityTokenFile)
 			if err == nil {
 				t.Fatal("preflight accepted a token it must refuse")
 			}
@@ -357,11 +344,11 @@ func TestJWTAudienceAcceptsBothRFC7519Shapes(t *testing.T) {
 // --- auth placeholder resolution (spec 6, AC 1 of #4334) -------------------
 
 // TestAnthropicAuthPlaceholdersAllResolve is the acceptance criterion that the
-// parser needs no change: all six keys of the provider's auth block travel
-// through resolveAuthPlaceholders unchanged in kind.
+// parser needs no change: every key of the provider's auth block travels
+// through resolveAuthPlaceholders unchanged in kind. It was six keys before
+// the apiKey was deleted (epic memql#5088); it is five now.
 func TestAnthropicAuthPlaceholdersAllResolve(t *testing.T) {
 	names := map[string]string{
-		authKeyAPIKey:            envAnthropicAPIKey,
 		authKeyFederationRuleID:  envAnthropicFederationRuleID,
 		authKeyOrganizationID:    envAnthropicOrganizationID,
 		authKeyServiceAccountID:  envAnthropicServiceAccountID,
@@ -394,7 +381,6 @@ func TestOptionalAuthPlaceholdersResolveToAbsent(t *testing.T) {
 		t.Setenv(envName, "")
 	}
 	values := map[string]string{
-		authKeyAPIKey:            "${" + envAnthropicAPIKey + "}",
 		authKeyFederationRuleID:  "${" + envAnthropicFederationRuleID + "}",
 		authKeyOrganizationID:    "${" + envAnthropicOrganizationID + "}",
 		authKeyServiceAccountID:  "${" + envAnthropicServiceAccountID + "}",
@@ -415,8 +401,8 @@ func TestOptionalAuthPlaceholdersResolveToAbsent(t *testing.T) {
 // TestNonOptionalPlaceholdersStillFail holds the line on the other 190-odd
 // registry names: optionality is an allow-list, not a new default.
 func TestNonOptionalPlaceholdersStillFail(t *testing.T) {
-	t.Setenv("MEMQL_AI_OPENAI_API_KEY", "")
-	_, err := resolveAuthPlaceholders(map[string]string{"apiKey": "${MEMQL_AI_OPENAI_API_KEY}"})
+	t.Setenv("MEMQL_AI_OPENAI_PROJECT_ID", "")
+	_, err := resolveAuthPlaceholders(map[string]string{"apiKey": "${MEMQL_AI_OPENAI_PROJECT_ID}"})
 	if err == nil {
 		t.Fatal("an unset non-optional placeholder resolved silently")
 	}
@@ -428,17 +414,24 @@ func TestNonOptionalPlaceholdersStillFail(t *testing.T) {
 	citesNoDeadMakeTarget(t, "the resolver's seeding hint", err.Error())
 }
 
-// TestOptionalAuthNamesAreAnthropicCredentialOnly pins the allow-list. Adding
-// a name here makes an absent value silent for that variable, which is only
-// ever right where a constructor takes over the decision.
-func TestOptionalAuthNamesAreAnthropicCredentialOnly(t *testing.T) {
+// TestOptionalAuthNamesCoverBothVendors pins the allow-list. Adding a name
+// here makes an absent value silent for that variable, which is only ever
+// right where a constructor takes over the decision.
+//
+// It covers BOTH vendors' federation ids now, and NO key name -- there is no
+// manually entered vendor key left to be absent (epic memql#5088). It replaces
+// TestOptionalAuthNamesAreAnthropicCredentialOnly, whose name asserted a
+// one-vendor world in the one place a second vendor had to be added.
+func TestOptionalAuthNamesCoverBothVendors(t *testing.T) {
 	want := []string{
-		envAnthropicAPIKey,
 		envAnthropicFederationRuleID,
 		envAnthropicIdentityTokenFile,
 		envAnthropicOrganizationID,
 		envAnthropicServiceAccountID,
 		envAnthropicWorkspaceID,
+		envOpenAIIdentityProviderID,
+		envOpenAIIdentityTokenFile,
+		envOpenAIServiceAccountID,
 	}
 	got := optionalAuthEnvNameList()
 	if strings.Join(got, ",") != strings.Join(want, ",") {

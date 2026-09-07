@@ -23,7 +23,7 @@ const realtimeBaseURL = "wss://api.openai.com/v1/realtime"
 // speech-to-text without bundling an LLM -- the fastest streaming transcription
 // available from OpenAI.
 type ASRClient struct {
-	apiKey string
+	bearer func(ctx context.Context) (string, error)
 	model  string
 	logger *slog.Logger
 }
@@ -38,7 +38,7 @@ func NewASRClient(cfg Config) (*ASRClient, error) {
 	logger.Info("openai asr: initialized", "model", cfg.ASRModel)
 
 	return &ASRClient{
-		apiKey: cfg.APIKey,
+		bearer: cfg.Bearer,
 		model:  cfg.ASRModel,
 		logger: logger,
 	}, nil
@@ -75,12 +75,44 @@ func (c *ASRClient) StartStream(ctx context.Context, config audio.ASRConfig) (au
 	url := realtimeBaseURL + "?intent=transcription"
 
 	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+c.apiKey)
+	// Resolved PER DIAL, not captured at construction: a reconnection an hour
+	// later needs the bearer that is current then, not the one that opened the
+	// first connection.
+	token, err := c.bearer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("openai asr: no bearer for the transcription websocket: %w", err)
+	}
+	headers.Set("Authorization", "Bearer "+token)
 
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+	// THE HANDSHAKE STATUS IS KEPT, and it is the point of this whole path.
+	//
+	// The design record (2026-09-06, section 5 and section 9) leaves ONE
+	// question open about OpenAI federation: whether the Realtime WebSocket
+	// accepts a federated bearer at all. OpenAI's documentation does not say,
+	// and the answer arrives here, once, as an HTTP status on the upgrade
+	// response -- which this call discarded into `_`.
+	//
+	// It is the difference between "the bearer was refused" (401/403, the
+	// finding the runbook is waiting for), "the endpoint moved" (404) and
+	// "throttled" (429), and without it all three surface as the same opaque
+	// "connect" error on a path nobody watches. A refusal is a runbook finding
+	// and not a crash: the error is returned, the audio websocket stays
+	// disabled, and the status is in the log line.
+	conn, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
 	if err != nil {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		c.logger.Warn("openai asr: the transcription websocket refused the handshake",
+			"status", status,
+			"credential", "federated bearer",
+			"runbook", "docs/public/operate/auth/openai-federation.md")
+		if status != 0 {
+			return nil, fmt.Errorf("openai asr: connect (handshake status %d): %w", status, err)
+		}
 		return nil, fmt.Errorf("openai asr: connect: %w", err)
 	}
 

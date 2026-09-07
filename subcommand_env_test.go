@@ -28,11 +28,11 @@ import (
 // TestApplySubcommandEnvBridgesLegacyNames proves ApplyLegacyEnvAliases runs.
 //
 // The live case #751 recorded: the voice-agent subcommand fail-fast'd on the
-// required MEMQL_OPENAI_API_KEY against a cluster still carrying the legacy
+// required MEMQL_OPENAI_PROJECT_ID against a cluster still carrying the legacy
 // spelling, because nothing bridged the two on the subcommand path.
 func TestApplySubcommandEnvBridgesLegacyNames(t *testing.T) {
-	const legacy = "MEMQL_SI_OPENAI_API_KEY"
-	const modern = "MEMQL_AI_OPENAI_API_KEY"
+	const legacy = "MEMQL_SI_OPENAI_PROJECT_ID"
+	const modern = "MEMQL_AI_OPENAI_PROJECT_ID"
 
 	t.Setenv(legacy, "value-from-the-legacy-name")
 	t.Setenv(modern, "")

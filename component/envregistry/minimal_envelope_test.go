@@ -87,13 +87,19 @@ func TestNoAIVariableIsRequiredByAnyNodeType(t *testing.T) {
 // TestNoAIVariableIsInTheSealFloor is the axis the audit actually found broken.
 //
 // `Names()` is the strict-superset set a developer's .env must cover, and it
-// EXCLUDES entries marked `optional: true`. MEMQL_OPENAI_API_KEY and
-// MEMQL_ANTHROPIC_API_KEY carried no such marking while every sibling did --
-// MEMQL_AI_OPENAI_API_KEY, MEMQL_AI_ANTHROPIC_API_KEY, the five federation
-// ids, both deprecated aliases, all of them optional. So the seal floor
-// demanded a vendor key from anyone setting up a development environment,
-// which is the same requirement this epic removed from the installer, in the
-// one place nobody thought to look.
+// EXCLUDES entries marked `optional: true`. The two instance-wide vendor
+// API-key entries carried no such marking while every sibling did -- their
+// AI_-prefixed twins, the five Anthropic federation ids, both deprecated
+// aliases, all of them optional. So the seal floor demanded a vendor key from
+// anyone setting up a development environment, which is the same requirement
+// that epic removed from the installer, in the one place nobody thought to
+// look.
+//
+// All four key entries and their four aliases are DELETED as of epic
+// memql#5088 -- both vendors federate and no manually entered key exists
+// anywhere -- so this gate now guards the federation names that replaced them.
+// It is kept rather than retired: the failure it caught was a missing
+// `optional: true` on an AI entry, and there are eight AI entries still.
 func TestNoAIVariableIsInTheSealFloor(t *testing.T) {
 	m, err := LoadManifestFromBytes(embeddedManifest, "embedded snapshot")
 	if err != nil {

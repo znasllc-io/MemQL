@@ -1,0 +1,12 @@
+{
+  "body": {
+    "dimensions": 1536,
+    "input": [
+      "first",
+      "second"
+    ],
+    "model": "text-embedding-3-small"
+  },
+  "method": "POST",
+  "path": "/v1/embeddings"
+}

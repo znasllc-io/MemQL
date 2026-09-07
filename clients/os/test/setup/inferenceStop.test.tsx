@@ -112,21 +112,39 @@ describe("the doors a developer is offered", () => {
     expect(calls).toEqual([["fleet", "machines", { addMachine: true }]]);
   });
 
-  it("gets WORDS for a federation door, never a button that would be refused", () => {
-    mount("developer");
+  // THE PREDICTION IN THE TEST BELOW CAME TRUE IN THE SAME RELEASE.
+  //
+  // This asserted that a developer gets WORDS for a federation door, "never a
+  // button that would be refused", because the providers section was
+  // owner-only. Epic memql#5088's D7 widened that section to
+  // owner-or-developer -- a developer helps an owner through setup -- so the
+  // button is no longer one that would be refused, and withholding it would
+  // now be the defect.
+  //
+  // The stop needed NO edit for this, which is what the second test was
+  // pinning: it asks the registry rather than restating the rule.
+  it("gets the BUTTON for a federation door, since a developer may federate", () => {
+    const calls = mount("developer");
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic/ }));
-    expect(screen.queryByRole("button", { name: "Open AI providers" })).toBeNull();
-    expect(screen.getByText("An owner can set Anthropic up in Settings, under AI providers.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: /OpenAI/ }));
-    expect(screen.getByText("An owner can set OpenAI up in Settings, under AI providers.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open AI providers" }));
+    expect(calls).toEqual([["settings", "providers", { vendor: "anthropic" }]]);
+    expect(
+      screen.queryByText("An owner can set Anthropic up in Settings, under AI providers."),
+    ).toBeNull();
   });
 
   it("asks the REGISTRY rather than restating who may federate", () => {
-    // The providers section declares `roles: { min: "owner" }`. This is the
-    // pin: widen that manifest and the developer gets the button, with no
-    // edit to the stop -- which is the whole reason the check is a lookup.
+    // The pin, and it did its job: the section's manifest widened in
+    // memql#5088 and the developer got the button with no edit to the stop.
+    // That is the whole reason the check is a lookup.
+    //
+    // A SET, not a floor. This repo's ladder ranks developer (300) ABOVE admin
+    // (200), so `{ min: "developer" }` would admit admin -- exactly the role
+    // the engine's own gate refuses. The manifest has to say the set.
     const settings = OS_REGISTRY.apps.find((a) => a.id === "settings");
-    expect(settings?.sections?.find((s) => s.id === "providers")?.roles).toEqual({ min: "owner" });
+    expect(settings?.sections?.find((s) => s.id === "providers")?.roles).toEqual({
+      any: ["owner", "developer"],
+    });
   });
 });
 

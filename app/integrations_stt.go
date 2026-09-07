@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"strings"
 
@@ -47,18 +48,32 @@ func (a *App) selectSTTProvider() {
 	}
 }
 
-// openAIKeyFromEnv resolves the OpenAI API key for the STT bootstrap,
-// trying MEMQL_AI_OPENAI_API_KEY first and falling back to the bare
-// MEMQL_OPENAI_API_KEY -- the same prefix-elision chain the provider auth
-// resolver (component/memql/ai_providers.go, authConceptLookupNames)
-// and integrations/openairealtime use. The `memql-secrets` Secret seeds the
-// bare form, so without the fallback the voice node boots with the
-// audio websocket silently disabled (#1371).
-func openAIKeyFromEnv() string {
-	if key := strings.TrimSpace(os.Getenv("MEMQL_AI_OPENAI_API_KEY")); key != "" {
-		return key
+// openAIBearerForSTT resolves the credential the transcription paths dial with.
+//
+// It asks the ENGINE rather than the environment (epic memql#5088). Both STT
+// paths used to read a vendor API key out of the process environment, with a
+// fallback to its seal-floor spelling; there is no vendor key any more, and the
+// credential is a federated bearer the engine's exchanger owns. Going through the engine is
+// what keeps transcription and every other OpenAI consumer on this node
+// agreeing about whether OpenAI is configured -- a second reader with its own
+// idea of that presents as "transcription is broken" long after the change
+// that caused it.
+//
+// The returned function is called PER DIAL and per request, never captured:
+// a bearer expires within the hour and a reconnect after that must not present
+// the token the first connection opened with.
+func (a *App) openAIBearerForSTT() (func(ctx context.Context) (string, error), bool) {
+	if a.engine == nil {
+		return nil, false
 	}
-	return strings.TrimSpace(os.Getenv("MEMQL_OPENAI_API_KEY"))
+	source, ok := a.engine.OpenAIBearer()
+	if !ok {
+		return nil, false
+	}
+	return func(ctx context.Context) (string, error) {
+		token, _, err := source.Bearer(ctx)
+		return token, err
+	}, true
 }
 
 // initOpenAIRealtimeProvider wires the OpenAI Realtime API (streaming
@@ -78,9 +93,15 @@ func openAIKeyFromEnv() string {
 // mode, unlike the /audio/transcriptions batch endpoint). Deployments
 // that have provisioned gpt-4o-transcribe can opt in via the env var.
 func (a *App) initOpenAIRealtimeProvider(name string) {
-	openAIKey := openAIKeyFromEnv()
-	if openAIKey == "" {
-		a.Logger.Info("audio websocket disabled (neither MEMQL_AI_OPENAI_API_KEY nor MEMQL_OPENAI_API_KEY set for openai-realtime)")
+	bearer, ok := a.openAIBearerForSTT()
+	if !ok {
+		// NOT AN ERROR, and the message says which fact it is reporting. A
+		// local cluster cannot federate at all -- its OIDC issuer is private --
+		// so streaming transcription is off there by design (memql#5088, D6),
+		// and a fresh cloud cluster is in the same state until an operator
+		// finishes the runbook.
+		a.Logger.Info("audio websocket disabled (no OpenAI federation on this cluster)",
+			"runbook", "docs/public/operate/auth/openai-federation.md")
 		return
 	}
 
@@ -93,7 +114,7 @@ func (a *App) initOpenAIRealtimeProvider(name string) {
 	}
 
 	cfg := openaivoice.Config{
-		APIKey:   openAIKey,
+		Bearer:   bearer,
 		ASRModel: model,
 		Logger:   a.Logger,
 	}
@@ -108,12 +129,13 @@ func (a *App) initOpenAIRealtimeProvider(name string) {
 }
 
 func (a *App) initWhisperProvider(name string) {
-	openAIKey := openAIKeyFromEnv()
-	openAIProject := strings.TrimSpace(os.Getenv("MEMQL_AI_OPENAI_PROJECT_ID"))
-	if openAIKey == "" {
-		a.Logger.Info("audio websocket disabled (neither MEMQL_AI_OPENAI_API_KEY nor MEMQL_OPENAI_API_KEY set for whisper)")
+	bearer, ok := a.openAIBearerForSTT()
+	if !ok {
+		a.Logger.Info("audio websocket disabled (no OpenAI federation on this cluster)",
+			"runbook", "docs/public/operate/auth/openai-federation.md")
 		return
 	}
-	a.sttProvider = stt.NewOpenAIWhisperProvider(openAIKey, openAIProject, nil)
+	openAIProject := strings.TrimSpace(os.Getenv("MEMQL_AI_OPENAI_PROJECT_ID"))
+	a.sttProvider = stt.NewOpenAIWhisperProvider(bearer, openAIProject, nil)
 	a.Logger.Info("audio websocket using OpenAI Whisper", "provider", name)
 }

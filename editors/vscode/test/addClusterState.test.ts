@@ -13,7 +13,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { AddClusterState, optionalFields, requiredFields } from "../src/state/addCluster.js";
+import { AddClusterState, requiredFields } from "../src/state/addCluster.js";
 import type { ExecEvent } from "../src/install/executor.js";
 import type { Step } from "../src/install/graph.js";
 
@@ -107,20 +107,20 @@ test("an install needs everything up front; a repair needs what it can get wrong
   // recorded -- so it asks for the domain and for the two the RECEIPT can be
   // wrong about (memql#3544).
   //
-  // It used to ask for the domain alone, reading the key path off the receipt
-  // (memql#3512) so wave 2 could pass. That is right when the recorded path is
-  // good and a dead end when it is not: the repair re-runs with the same bad
-  // value, fails at the same step, and offers no box to fix it. The panel
-  // pre-fills both from the receipt, so the common case is still no typing --
-  // what changed is that the value is now reachable.
+  // It used to ask for the domain alone, reading the rest off the receipt.
+  // That is right when the recorded answer is good and a dead end when it is
+  // not: the repair re-runs with the same bad value, fails at the same step,
+  // and offers no box to fix it. The panel pre-fills from the receipt, so the
+  // common case is still no typing -- what changed is that the value is now
+  // reachable.
   assert.deepEqual(requiredFields("install"), [
     "domain",
     "ownerFirstName",
     "ownerLastName",
     "ownerEmail",
-    // NO PROVIDER FIELDS (epic memql#4440). They are collected -- see
-    // `optionalFields` and zeroKeyInstall.test.ts -- but nothing waits on
-    // them, because installing a cluster spends no inference.
+    // NO PROVIDER FIELDS (epic memql#4440, and since epic memql#5088 there are
+    // none to collect either -- see zeroKeyInstall.test.ts). Installing a
+    // cluster spends no inference, and there is no vendor key in the product.
     // memql#3882. Collected LAST and pre-filled with DEFAULT_STACK_TAG, so it
     // reads as a confirmation rather than a question -- the pin stays the
     // reviewed answer and the field is the override.
@@ -158,40 +158,24 @@ test("an install needs everything up front; a repair needs what it can get wrong
   assert.deepEqual(requiredFields("connect"), []);
 });
 
-test("the provider is one of the fields collected, and it is pre-answered", () => {
-  // It used to be neither. `provider` was hardcoded in the panel AND pinned in
-  // install.json, where graph params win -- so an operator holding an OpenAI
-  // key had no route through this wizard, though verify-provider-key.sh
-  // supports one. Every test enumerated the other five fields, so "collected on
-  // one pass" read as satisfied at a glance.
-  //
-  // COLLECTED, not required (epic memql#4440): the assertion moved from
-  // `requiredFields` to `optionalFields`, which is the whole content of that
-  // epic's wizard half. The pre-answer stays, because the field still exists
-  // and a closed set still deserves a default.
-  assert.ok(optionalFields("install").includes("provider"));
-  assert.ok(!requiredFields("install").includes("provider"));
-  assert.equal(
-    new AddClusterState().inputs.provider,
-    "anthropic",
-    "a choice from a closed set gets a default; the four personal fields do not",
-  );
-});
-
-test("a provider MemQL cannot verify is refused here, in the operator's terms", () => {
-  // The second wall. The control is a select, so the wrong answer is not
-  // expressible by clicking -- but the postMessage channel is untrusted, and
-  // the alternative to refusing here is exit 2 out of the script, whose
-  // guidance correctly says "a fault in MemQL rather than in your machine or
-  // your answers". That is the wrong sentence about a value the operator chose.
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  s.setInput("provider", "gemini");
-  assert.match(s.errors.find((e) => e.field === "provider")?.message ?? "", /anthropic or openai/);
-
-  s.setInput("provider", "openai");
-  assert.deepEqual(s.errors, [], "a provider the script does support is accepted");
-});
+// TWO PROVIDER TESTS ARE DELETED HERE (epic memql#5088).
+//
+//   - `the provider is one of the fields collected, and it is pre-answered`
+//     asserted that the AI vendor was collected rather than hardcoded, and that
+//     a closed set got a default (memql#3473, demoted to optional by #4440).
+//   - `a provider MemQL cannot verify is refused here, in the operator's terms`
+//     asserted the second wall behind that select: the postMessage channel is
+//     untrusted, and the alternative to refusing here was an exit 2 whose
+//     guidance blames MemQL for a value the operator chose.
+//
+// The field is gone. Both cloud vendors are reached by workload identity
+// federation and there is no vendor key to name a vendor FOR -- and this wizard
+// installs a local cluster, which cannot federate at all because a k3d
+// cluster's OIDC issuer is not publicly reachable.
+//
+// What still holds the general shape of the second wall is
+// `addClusterCollect.test.ts`, whose "no validation message ever quotes the
+// value it rejected" case drives every field this module refuses.
 
 test("a run cannot begin while a required field is empty", () => {
   const s = new AddClusterState();
@@ -211,7 +195,6 @@ test("a complete form begins the run", () => {
   s.setInput("ownerFirstName", "Ada");
   s.setInput("ownerLastName", "Lovelace");
   s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("providerKeyFile", "/home/ada/.anthropic-key");
 
   assert.equal(s.beginRun(), true);
   assert.equal(s.screen, "running");
@@ -916,7 +899,6 @@ test("a run cannot begin on an answer that is not a hostname", () => {
   s.setInput("ownerFirstName", "Ada");
   s.setInput("ownerLastName", "Lovelace");
   s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("providerKeyFile", "/home/ada/.anthropic-key");
 
   assert.equal(
     s.beginRun(),
@@ -982,7 +964,6 @@ test("a second run does not carry the first run's owner finding", () => {
   s.setInput("ownerFirstName", "Ada");
   s.setInput("ownerLastName", "Lovelace");
   s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("providerKeyFile", "/home/ada/.anthropic-key");
   s.setOwnerAccountExists(true);
 
   assert.equal(s.beginRun(), true);
@@ -1040,8 +1021,6 @@ test("a second run starts with no key from the first", () => {
   s.setInput("ownerFirstName", "Ada");
   s.setInput("ownerLastName", "Lovelace");
   s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("provider", "anthropic");
-  s.setInput("providerKeyFile", "/tmp/provider-key");
   s.setRecoveryKey(STATE_TEST_KEY, "claimed");
 
   assert.equal(s.beginRun(), true);
@@ -1085,8 +1064,6 @@ test("a second run's key is hidden until it is asked for", () => {
   s.setInput("ownerFirstName", "Ada");
   s.setInput("ownerLastName", "Lovelace");
   s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("provider", "anthropic");
-  s.setInput("providerKeyFile", "/tmp/provider-key");
   s.setRecoveryKey(STATE_TEST_KEY, "claimed");
   s.revealRecoveryKey();
 
@@ -1179,8 +1156,6 @@ test("a second run starts with no magic link from the first", () => {
   s.setInput("ownerFirstName", "Ada");
   s.setInput("ownerLastName", "Lovelace");
   s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("provider", "anthropic");
-  s.setInput("providerKeyFile", "/tmp/provider-key");
   s.setClaimUrl(STATE_TEST_CLAIM_URL);
 
   assert.equal(s.beginRun(), true);

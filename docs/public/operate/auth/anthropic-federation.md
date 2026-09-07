@@ -9,8 +9,8 @@ owner: znas
 
 # Anthropic workload identity federation
 
-**What it replaces:** the one static `MEMQL_AI_ANTHROPIC_API_KEY` on the
-hand-seeded `memql-secrets` Secret that every engine pod `envFrom`s.
+**What it replaces:** the one static Anthropic API key on the hand-seeded
+`memql-secrets` Secret that every engine pod `envFrom`s.
 
 **What it replaces it with:** the pod's own Kubernetes service-account token,
 exchanged by the Anthropic SDK for a bearer that lives one hour.
@@ -70,14 +70,21 @@ account, token file -- as a set:
 | What is set | What the engine does |
 |---|---|
 | all four | federates |
-| none | uses `MEMQL_AI_ANTHROPIC_API_KEY`, as before |
-| all four **and** the key | federates; logs one warning that the key is ignored |
+| none | leaves the Anthropic providers registered as unavailable |
 | one, two or three | **refuses to boot**, naming which are missing |
 
-The last row is deliberate. Falling back to the key on a half-configured
-federation would work in every test, boot every node, and stop working the
-hour you finished step 5 of this runbook -- on whichever node nobody was
-watching. A refusal at boot is loud, immediate and attributable.
+**THERE IS NO KEY ARM ANY MORE** (epic memql#5088). This table used to have a
+fourth row -- "none: uses the API key, as before" -- and a fifth for a cluster
+carrying both. The key path is deleted from the product, for both vendors, so
+"none" now means the Anthropic providers register as unavailable, which is not
+an error: a cluster with no federated vendor boots, serves everything that
+needs no model, and reports `ai` as unconfigured.
+
+The last row is deliberate, and it is the reason the key arm could go without
+anyone noticing a gap. Falling back on a half-configured federation would work
+in every test, boot every node, and stop working the hour you finished step 3
+of this runbook -- on whichever node nobody was watching. A refusal at boot is
+loud, immediate and attributable.
 
 ---
 
@@ -172,9 +179,14 @@ token, so "it works on agent" is not "it works".
 Then watch the exchange counter across a refresh cycle or two:
 
 ```
-memql_ai_federation_exchanges_total{outcome="ok"}       # should tick up slowly
-memql_ai_federation_exchanges_total{outcome="denied"}   # must stay flat
+memql_ai_federation_exchanges_total{vendor="anthropic",outcome="ok"}      # should tick up slowly
+memql_ai_federation_exchanges_total{vendor="anthropic",outcome="denied"}  # must stay flat
 ```
+
+**Include the vendor label** (memql#5088 added it). Both federating vendors
+share this counter, so a query without it sums the two -- an OpenAI denial
+would fire an alert an operator reads as Anthropic's, and a healthy OpenAI
+`ok` rate would mask Anthropic's having gone to zero.
 
 A steady low `ok` rate is the healthy shape -- roughly one per token lifetime
 per client. **Alert on `denied`.** A denial does not break traffic
@@ -190,25 +202,22 @@ scripts/install/verify-provider-key.sh \
   --provider=anthropic --federation-deploy=agent --namespace=memql
 ```
 
-### Step 5 -- Remove the key
+### Step 5 -- There is nothing left to remove
 
-Only after step 4 passes on every engine node type.
+This step used to drop the Anthropic key out of `memql-secrets` and roll the
+mesh. Epic memql#5088 removed the key path from the product entirely -- there
+is no env name for a vendor key any more, and nothing reads one -- so a key
+still sitting in your Secret from before the cutover is INERT rather than in
+use.
+
+Delete it for hygiene if it is there, and then **revoke it in the Console**.
+Removing it from the Secret makes the cluster stop carrying it, not the key
+stop working.
 
 ```bash
-# Drop the one key from the Secret, leaving the rest untouched.
-kubectl get secret memql-secrets -n memql -o json \
-  | jq 'del(.data.MEMQL_AI_ANTHROPIC_API_KEY)' \
-  | kubectl apply -f -
-
-kubectl rollout restart -n memql deploy/agent deploy/planner deploy/bff \
-  deploy/workbench deploy/edge deploy/mcp
-
-kubectl exec -n memql deploy/agent -- /app/memql provider-auth check
+kubectl get secret memql-secrets -n memql -o json | jq '.data | keys'
+# anything vendor-key-shaped in that list is left over; drop it and re-apply.
 ```
-
-The second check is the one that matters: it proves nothing was quietly
-leaning on the key. Then **revoke the key in the Console** -- deleting it from
-the Secret makes the cluster stop using it, not the key stop working.
 
 ### Step 6 -- Record the ids
 
@@ -223,7 +232,19 @@ invalidates the rule and needs steps 1 to 3 again.
 
 The Console's Workload identity -> authentication events tab shows a reason
 for every refusal, and the engine logs the same string from Anthropic's
-response body on `anthropic federation: token exchange DENIED`.
+response body.
+
+**The log message names no vendor; the vendor is a FIELD** (memql#5088 made one
+observer serve both). The line to look for is
+
+```
+WARN federation: token exchange DENIED -- the cluster is running on a
+     credential the vendor will not renew   vendor=anthropic status=401
+     vendorError="..." runbook=docs/public/operate/auth/anthropic-federation.md
+```
+
+Filter on `vendor=anthropic`, not on the message: grepping for a vendor name
+inside the message finds nothing at all.
 
 | Reason | What it means | What to do |
 |---|---|---|
@@ -274,13 +295,19 @@ surprise.
   `https://kubernetes.default.svc.cluster.local`, whose JWKS lives on a node
   IP that Anthropic cannot reach. `inline` JWKS mode would mean registering
   an issuer per developer cluster and re-pasting it after every
-  `make up-refresh`. The local cluster keeps the API key, and that is an
-  allowed value difference, not a divergence in shape -- see
+  `make up-refresh`. So a local cluster federates with NEITHER vendor and, now
+  that the key path is gone, has no second door: a developer reaches cloud
+  models through a fleet machine or a local model instead
+  ([local-models.md](../local-models.md)). That is an allowed value difference,
+  not a divergence in shape -- see
   [environment-parity.md](../environment-parity.md). The manifests are
   identical; only the four ids differ, and locally they are empty.
-- **OpenAI.** There is no federation mechanism on that side. Its key stays,
-  and `verify-provider-key.sh --provider=openai --key-file=...` still verifies
-  it.
+- **OpenAI, which is its own runbook rather than an absence.** An earlier
+  version of this document said there was no federation mechanism on that
+  side. That was wrong when it was written: OpenAI's workload identity
+  federation has been generally available since 2025-05-26. It is now wired,
+  on this same `memql-engine` ServiceAccount with a second projected token --
+  see [openai-federation.md](openai-federation.md).
 - **Scripting the Console setup.** The Admin API could do steps 1 and 2, but
   the manual path has to be walked once before it is worth automating.
 

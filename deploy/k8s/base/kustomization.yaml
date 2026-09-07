@@ -59,6 +59,11 @@ resources:
   # the Deployments that reference it for readability only -- kustomize does
   # not order-apply.
   - anthropic-federation.yaml
+  # The second vendor door on the SAME memql-engine ServiceAccount
+  # (epic memql#5088): the (empty) ConfigMap the cloud overlays fill with
+  # the two OpenAI federation ids. No ServiceAccount of its own,
+  # deliberately -- one workload identity, one subject, two audiences.
+  - openai-federation.yaml
   - identity.yaml
   # RBAC for the deploy console's in-cluster substrate (memql#4257).
   - identity-rbac.yaml

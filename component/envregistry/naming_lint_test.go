@@ -120,9 +120,17 @@ func TestOwnedVarsArePrefixed(t *testing.T) {
 // the two TTS knobs, the prediction-engine URL and the voice-provider switch).
 // The target is gone in each case, so the migration path has nothing left to
 // lead to. The three streaming-transcription survivors keep their aliases.
+//
+// 100 -> 96 in epic memql#5088, the memql#3453 case again: the four aliases
+// for the two vendors' manually entered API keys -- an SI_-prefixed and a bare
+// spelling each -- all pointed at a variable that no longer exists. Both
+// vendors are now reached by workload identity federation, with no key path
+// left anywhere in the product. The target of each of the four is gone, so an
+// alias kept here would tell an operator a variable still means something when
+// nothing reads it.
 func TestLegacyAliasesCount(t *testing.T) {
-	if len(LegacyAliases) != 100 {
-		t.Fatalf("LegacyAliases has %d entries, want 100 (the Epic 7.3 rename map, minus the memql#3453 removal and the fifteen voice/avatar/polyphon aliases retired with their targets in epic memql#4988, plus the six pre-convention renames in memql#3831, the fourteen SERVER_*/SERVICE_* renames in memql#3892, and the blob connection string in memql#4843 -- the one key every deployed secret carries that no reader survived the rename for)", len(LegacyAliases))
+	if len(LegacyAliases) != 96 {
+		t.Fatalf("LegacyAliases has %d entries, want 96 (the Epic 7.3 rename map, minus the memql#3453 removal, the fifteen voice/avatar/polyphon aliases retired with their targets in epic memql#4988 and the four vendor-API-key aliases retired with theirs in epic memql#5088, plus the six pre-convention renames in memql#3831, the fourteen SERVER_*/SERVICE_* renames in memql#3892, and the blob connection string in memql#4843 -- the one key every deployed secret carries that no reader survived the rename for)", len(LegacyAliases))
 	}
 	seenLegacy := map[string]bool{}
 	for newName, legacy := range LegacyAliases {

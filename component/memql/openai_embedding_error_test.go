@@ -23,7 +23,8 @@ const canaryUserContent = "PATIENT-NOTE-2291 my mother's maiden name is Rosalind
 // newTestEmbeddingClient returns a client pointed at srv.
 func newTestEmbeddingClient(t *testing.T, srv *httptest.Server) *OpenAIEmbeddingClient {
 	t.Helper()
-	c := NewOpenAIEmbeddingClient("test-key", "text-embedding-3-small", 1536)
+	c := NewOpenAIEmbeddingClient("text-embedding-3-small", 1536)
+	c.bearer = &staticBearer{token: "test-bearer"}
 	c.baseURL = srv.URL
 	c.httpClient = srv.Client()
 	return c

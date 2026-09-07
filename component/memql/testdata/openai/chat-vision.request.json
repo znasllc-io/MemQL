@@ -1,0 +1,27 @@
+{
+  "body": {
+    "max_completion_tokens": 1000,
+    "messages": [
+      {
+        "content": [
+          {
+            "image_url": {
+              "detail": "auto",
+              "url": "data:image/png;base64,bm90LXJlYWxseS1hLXBuZw=="
+            },
+            "type": "image_url"
+          },
+          {
+            "text": "describe this",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.4-mini",
+    "stream": false
+  },
+  "method": "POST",
+  "path": "/v1/chat/completions"
+}

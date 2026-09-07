@@ -257,7 +257,6 @@ function options(over: Partial<SessionOptions> = {}): SessionOptions {
     root: "/nonexistent",
     receiptFile: path.join(dir, "install-receipt.json"),
     skip: new Set<string>(),
-    provider: "anthropic",
     stepParams: {},
     ...over,
   };
@@ -1057,6 +1056,44 @@ test("the pinned tag is a release tag, not a branch", async () => {
 // because seed-bootstrap.sh checks its five as a set and reports them together.
 // A test that infers a contract from an implementation only sees the shapes it
 // was taught; --print-spec is the contract itself.
+/**
+ * The one step the wizard's plan never runs, and the assertion that keeps that
+ * exact (epic memql#5088).
+ *
+ * `providerFederation` is skipped satisfied on this lane, always: a k3d
+ * cluster's OIDC issuer is not publicly reachable, so no vendor can verify a
+ * token it mints and there is nothing for the check to ask. The two param
+ * audits below walk every step in the graph and demand a `run`, so they have to
+ * be told about it.
+ *
+ * TOLD, NOT LOOSENED. A bare `if (decision.action !== "run") continue;` would
+ * silently empty the audit the day any OTHER step starts skipping -- and both
+ * misses these audits exist for (`--tag`, `--registration-mode`) were exactly
+ * the shape of "a step's params stopped being checked and nobody noticed". So
+ * this names the step, asserts the skip is the satisfied one, and refuses any
+ * other skip.
+ *
+ * Nothing is lost by not auditing it: `verify-provider-key.sh` declares no
+ * REQUIRED param at all, and a skipped step is handed no params to declare.
+ */
+function auditableRun(
+  decision: StepPlan,
+  step: Step,
+): Extract<StepPlan, { action: "run" }> | undefined {
+  if (decision.action === "run") return decision;
+  assert.equal(
+    step.id,
+    "providerFederation",
+    `${step.id} was not planned as a run, and only providerFederation may skip here`,
+  );
+  assert.equal(
+    decision.action === "skip" ? decision.satisfied : false,
+    true,
+    "the providerFederation skip must be satisfied, or it cascades through the whole graph",
+  );
+  return undefined;
+}
+
 test("every required param is supplied by the graph or the plan", async () => {
   const graphDoc = await loadGraphFile(graphDocumentPath("install", REPO_ROOT));
   // THE WIZARD'S OWN OPTIONS, not a hand-populated SessionOptions. The point is
@@ -1066,8 +1103,6 @@ test("every required param is supplied by the graph or the plan", async () => {
     installSessionOptions({
       root: REPO_ROOT,
       receiptFile: path.join(mkdtempSync(path.join(os.tmpdir(), "memql-audit-")), "receipt.json"),
-      provider: "anthropic",
-      providerKeyFile: "/tmp/key",
       domain: "memql.localhost",
       ownerEmail: "op@example.test",
       ownerFirstName: "Op",
@@ -1077,9 +1112,8 @@ test("every required param is supplied by the graph or the plan", async () => {
 
   const missing: string[] = [];
   for (const step of graphDoc.steps) {
-    const decision = plan(step);
-    assert.equal(decision.action, "run", `${step.id} was not planned as a run`);
-    if (decision.action !== "run") continue;
+    const decision = auditableRun(plan(step), step);
+    if (decision === undefined) continue;
     const supplied = new Set([...Object.keys(step.params ?? {}), ...Object.keys(decision.params)]);
 
     for (const name of await requiredParams(capabilityScriptPath(step.script, REPO_ROOT))) {
@@ -1325,8 +1359,6 @@ test("the wizard's answers carry the recorded image tag through to the run", () 
   const opts = installSessionOptions({
     root: REPO_ROOT,
     receiptFile: path.join(mkdtempSync(path.join(os.tmpdir(), "memql-imagetag-")), "receipt.json"),
-    provider: "anthropic",
-    providerKeyFile: "/tmp/key",
     domain: "memql.localhost",
     ownerEmail: "op@example.test",
     ownerFirstName: "Op",
@@ -1504,8 +1536,6 @@ test("every param the plan supplies is a flag the script declares", async () => 
     installSessionOptions({
       root: REPO_ROOT,
       receiptFile: path.join(mkdtempSync(path.join(os.tmpdir(), "memql-audit-")), "receipt.json"),
-      provider: "anthropic",
-      providerKeyFile: "/tmp/key",
       domain: "memql.localhost",
       ownerEmail: "op@example.test",
       ownerFirstName: "Op",
@@ -1515,9 +1545,8 @@ test("every param the plan supplies is a flag the script declares", async () => 
 
   const undeclared: string[] = [];
   for (const step of graphDoc.steps) {
-    const decision = plan(step);
-    assert.equal(decision.action, "run", `${step.id} was not planned as a run`);
-    if (decision.action !== "run") continue;
+    const decision = auditableRun(plan(step), step);
+    if (decision === undefined) continue;
     const declared = new Set(await declaredParams(capabilityScriptPath(step.script, REPO_ROOT)));
     for (const name of [...Object.keys(step.params ?? {}), ...Object.keys(decision.params)]) {
       if (!declared.has(name)) undeclared.push(`${step.id} (${step.script}): --${name}`);

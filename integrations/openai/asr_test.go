@@ -1,27 +1,32 @@
 package openai
 
 import (
-	"github.com/znasllc-io/memql/core/audio"
+	"context"
 	"log/slog"
 	"testing"
+
+	"github.com/znasllc-io/memql/core/audio"
 )
 
 // Compile-time interface compliance check.
 var _ audio.ASRProvider = (*ASRClient)(nil)
 
-func TestNewASRClient_MissingAPIKey(t *testing.T) {
+func TestNewASRClient_MissingBearer(t *testing.T) {
 	cfg := DefaultConfig()
-	// APIKey intentionally left empty.
+	// Bearer intentionally left nil: after epic memql#5088 there is no API key
+	// to fall back to, so a cluster with no OpenAI federation supplies no
+	// bearer source and the client must refuse to be built rather than dial
+	// with an empty Authorization header.
 
 	_, err := NewASRClient(cfg)
 	if err == nil {
-		t.Fatal("expected error for missing API key, got nil")
+		t.Fatal("expected an error for a missing bearer source, got nil")
 	}
 }
 
 func TestNewASRClient_DefaultModel(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.APIKey = "test-key"
+	cfg.Bearer = staticTestBearer
 
 	client, err := NewASRClient(cfg)
 	if err != nil {
@@ -34,7 +39,7 @@ func TestNewASRClient_DefaultModel(t *testing.T) {
 
 func TestNewASRClient_CustomModel(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.APIKey = "test-key"
+	cfg.Bearer = staticTestBearer
 	cfg.ASRModel = "gpt-audio-mini"
 
 	client, err := NewASRClient(cfg)
@@ -166,3 +171,7 @@ func TestHandleEvent_SpeechStartedEmitsOnset(t *testing.T) {
 		t.Fatal("speech_started did not emit a result")
 	}
 }
+
+// staticTestBearer stands in for the engine's exchanger in tests that only
+// need the client to be constructible.
+func staticTestBearer(context.Context) (string, error) { return "test-bearer", nil }

@@ -99,16 +99,23 @@ test("every uninstall step reverses a real install step", async () => {
   }
 });
 
-test("nothing touches the machine until the provider key is verified", async () => {
-  // memql#3473. The key check is a GATE, not a peer of the work: it is
-  // `readOnly` and writes no receipt, so ordering everything mutating behind it
-  // costs one ~1s API call ahead of tool downloads and buys the operator never
-  // being asked for a sudo password and then told their key is wrong.
+test("nothing touches the machine until the federation gate has run", async () => {
+  // memql#3473, renamed by epic memql#5088. The credential check is a GATE, not
+  // a peer of the work: it is `readOnly` and writes no receipt, so ordering
+  // everything mutating behind it costs one check ahead of tool downloads and
+  // buys the operator never being asked for a sudo password and then told
+  // their cluster's credential is not accepted.
+  //
+  // THE GRAPH KEEPS THE GATE THOUGH THE WIZARD ALWAYS SKIPS IT. The same
+  // document drives cloud installs, where the check is real -- a cluster whose
+  // OIDC issuer a vendor CAN reach is one this can verify. On the local lane it
+  // skips satisfied, and this ordering property is what makes that skip safe to
+  // read as "nothing unverified is about to be relied on".
   //
   // That was the real gap. `hostsBlock` is `elevation: "sudo"`, writes
-  // /etc/hosts, and used to sit in the SAME WAVE as providerKey -- so a bad key
-  // could cost a system-file edit and an elevation prompt before anything
-  // mentioned it. Binaries being receipt-recorded and reversible was never the
+  // /etc/hosts, and used to sit in the SAME WAVE as the gate -- so a refused
+  // credential could cost a system-file edit and an elevation prompt before
+  // anything mentioned it. Binaries being receipt-recorded and reversible was never the
   // whole story.
   //
   // Expressed in the graph rather than as a caller-supplied skip: "what must
@@ -116,15 +123,15 @@ test("nothing touches the machine until the provider key is verified", async () 
   // front end decides anything.
   const g = await loadGraphFile(graphDocumentPath("install", REPO_ROOT));
   const waves = topoOrder(g);
-  const gateWave = waves.findIndex((w) => w.includes("providerKey"));
-  assert.ok(gateWave >= 0, "providerKey is not in the graph");
+  const gateWave = waves.findIndex((w) => w.includes("providerFederation"));
+  assert.ok(gateWave >= 0, "providerFederation is not in the graph");
 
   for (let i = 0; i <= gateWave; i++) {
     for (const id of waves[i]!) {
       const step = stepById(g, id);
       assert.ok(
         step?.readOnly === true,
-        `${id} runs in wave ${i + 1}, at or before the provider-key gate, but is not readOnly`,
+        `${id} runs in wave ${i + 1}, at or before the federation gate, but is not readOnly`,
       );
     }
   }
@@ -137,21 +144,25 @@ test("nothing touches the machine until the provider key is verified", async () 
   );
 });
 
-test("the shipped graph pins no provider, because the vendor is run input", async () => {
-  // memql#3473. `providerKey.params` pinned `{"provider": "anthropic"}`, and
-  // graph params WIN over run-time ones -- deliberately, since what the graph
-  // pins is POLICY (which tool, which confirmation phrase). Which vendor a key
-  // belongs to is not policy: it is a fact about the operator's key, run input
-  // exactly like the path beside it. Pinned there, no caller could override it,
-  // so an operator with an OpenAI key had no route through the installer at all
-  // -- while verify-provider-key.sh supported one the whole time.
+test("the shipped graph pins no credential on the federation gate", async () => {
+  // memql#3473 asserted this about `provider`: the gate pinned
+  // `{"provider": "anthropic"}`, and graph params WIN over run-time ones -- so
+  // no caller could override it and an operator with an OpenAI key had no route
+  // through the installer at all.
+  //
+  // WIDENED BY epic memql#5088, because the reason has changed underneath it.
+  // It is no longer "the vendor is run input"; it is that there is no vendor
+  // credential of any kind, so the gate must pin nothing that resembles one.
+  // Asserted over the whole params map rather than over the one key that used
+  // to be there, since a pinned value is invisible to every caller-side test.
   const g = await loadGraphFile(graphDocumentPath("install", REPO_ROOT));
-  const gate = stepById(g, "providerKey");
-  assert.ok(gate !== undefined);
-  assert.equal(
-    gate.params?.provider,
-    undefined,
-    "a pinned provider silently overrides whatever the operator chose",
+  const gate = stepById(g, "providerFederation");
+  assert.ok(gate !== undefined, "providerFederation is not in the graph");
+  const pinned = Object.keys(gate.params ?? {});
+  assert.deepEqual(
+    pinned.filter((k) => /provider|vendor|key|secret|token|credential/i.test(k)),
+    [],
+    `the gate pins a credential-shaped param (${pinned.join(", ")}), which no caller can override`,
   );
 });
 

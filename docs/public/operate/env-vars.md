@@ -109,7 +109,7 @@ Where `COMPONENT` is the subsystem that consumes the value:
 |-----------------|--------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
 | `MEMQL_`        | MemQL itself: master key, node identity, transport, engine tuning.                         | `MEMQL_MASTER_KEY`, `MEMQL_NODE_TYPE`, `MEMQL_GRPC_ADDRESS`, `MEMQL_DEFAULT_*`.   |
 | `MEMORY_NODES_` | Database tier (the row store).                                                             | `MEMQL_DATABASE_DSN`.                                                     |
-| `MEMQL_SI_`     | Synthetic-intelligence providers (LLM / STT). Vendor goes after the prefix.                | `MEMQL_AI_OPENAI_API_KEY`, `MEMQL_AI_ANTHROPIC_API_KEY`.                         |
+| `MEMQL_AI_`     | AI providers (LLM / STT). Vendor goes after the prefix.                                    | `MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID`, `MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID`. |
 | `EMAIL_`        | Email integration (Microsoft Graph or SMTP sender).                                        | `MEMQL_EMAIL_AZURE_TENANT_ID`, `MEMQL_EMAIL_SENDER`, `MEMQL_EMAIL_FROM_NAME`.                      |
 | `IDENTITY_`     | In-house identity service (auth subsystem) -- both the service itself and the per-node verifier.   | `MEMQL_IDENTITY_BASE_URL`, `MEMQL_IDENTITY_VERIFIER_BASE_URL`, `MEMQL_IDENTITY_KEY_ENCRYPTION_KEY`.|
 | `MEMQL_SERVER_` | HTTP transport (listen address, timeouts, public path, CORS).                              | `MEMQL_SERVER_ADDRESS`, `MEMQL_SERVER_PUBLIC_PATH`.                                          |
@@ -139,8 +139,7 @@ the browser"):
   repo, every var is "MemQL's" -- prefixing every one of them with
   `MEMQL_` is noise. Reserve `MEMQL_` for things that are about
   MemQL itself (master key, node identity, engine tuning), not for
-  things MemQL happens to call (`MEMQL_OPENAI_API_KEY` reads cleaner than
-  `MEMQL_OPENAI_API_KEY`).
+  things MemQL happens to call.
 
 ### Migration window
 
@@ -203,7 +202,7 @@ display. See `component/secret/encryption.go`.
 ### Resolution chain (provider auth)
 
 When a `.memql` provider file references a placeholder like
-`env("MEMQL_AI_OPENAI_API_KEY")`, the resolver in
+`env("MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID")`, the resolver in
 `component/memql/ai_providers.go` (`resolveAuthPlaceholders`) walks:
 
 1. `v1:platform:globalSecret`     -- `systemSecretResolver`
@@ -213,24 +212,23 @@ When a `.memql` provider file references a placeholder like
 
 #### Prefix elision
 
-Provider `.memql` files reference `MEMQL_AI_<VENDOR>_...` while the manifest
-seeds the SEAL-FLOOR form (`MEMQL_OPENAI_API_KEY`, `MEMQL_ANTHROPIC_API_KEY`,
-...). To bridge that gap without renaming either side, every layer of the chain
-tries **both** names in priority order:
+Provider `.memql` files reference `MEMQL_AI_<VENDOR>_...` while a name may have
+been seeded in the shorter form without the `AI_` segment. To bridge that gap
+without renaming either side, every layer of the chain tries **both** names in
+priority order:
 
 ```
-authConceptLookupNames("MEMQL_AI_OPENAI_API_KEY")
-  -> ["MEMQL_AI_OPENAI_API_KEY", "MEMQL_OPENAI_API_KEY"]
+authConceptLookupNames("MEMQL_AI_OPENAI_PROJECT_ID")
+  -> ["MEMQL_AI_OPENAI_PROJECT_ID", "MEMQL_OPENAI_PROJECT_ID"]
 ```
 
-So a provider asking for `MEMQL_AI_OPENAI_API_KEY` will pick up a
-value seeded as `MEMQL_OPENAI_API_KEY` automatically. The same elision
-applies to the OS env fallback.
+So a provider asking for the long form will pick up a value seeded under the
+short one automatically. The same elision applies to the OS env fallback.
 
-Only the `AI_` segment is dropped -- `MEMQL_` is part of the seal-floor name.
-The deprecated `MEMQL_SI_` prefix elides the same way and additionally keeps
-its historical bare form (`OPENAI_API_KEY`) as a last candidate, so a product
-DSL bundle still declaring the old prefix does not regress.
+Only the `AI_` segment is dropped -- `MEMQL_` is part of the registered name.
+The deprecated `MEMQL_SI_` prefix elides the same way and additionally keeps its
+historical bare form as a last candidate, so a product DSL bundle still
+declaring the old prefix does not regress.
 
 **This section described the behaviour before the code had it** (memql#4338).
 The elision was written against `MEMQL_SI_`, which no provider in the tree uses
@@ -258,57 +256,62 @@ hook so providers retry concept storage once seeding finishes.
 A miss at every layer produces:
 
 ```
-auth "apiKey" references MEMQL_AI_OPENAI_API_KEY but no value is in
-concept storage or OS env. Tried name(s) MEMQL_AI_OPENAI_API_KEY,
-MEMQL_OPENAI_API_KEY under v1:platform:globalSecret, v1:platform:globalVariable,
+auth "projectId" references MEMQL_AI_OPENAI_PROJECT_ID but no value is in
+concept storage or OS env. Tried name(s) MEMQL_AI_OPENAI_PROJECT_ID,
+MEMQL_OPENAI_PROJECT_ID under v1:platform:globalSecret, v1:platform:globalVariable,
 and the process env. Seed ANY of those names: put it in the node's environment
 (locally `make secrets`; in a cluster, whichever secret store the deployment
 reads), or store a v1:platform:globalSecret row under it. The last name listed
-is the seal-floor form the manifest and docs/public/operate/env-vars.md use
+is the short form the manifest and docs/public/operate/env-vars.md use
 ```
 
-#### The one exception: Anthropic's credential is optional at every layer
+#### The one exception: a vendor's federation set is optional at every layer
 
-Six placeholders resolve to ABSENT instead of failing when no layer holds
-them (`optionalAuthEnvNames`, memql#4334):
+Two sets of placeholders resolve to ABSENT instead of failing when no layer
+holds them (`optionalAuthEnvNames`, memql#4334, widened for both vendors in
+epic memql#5088):
 
 ```
-MEMQL_AI_ANTHROPIC_API_KEY
-MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID
-MEMQL_AI_ANTHROPIC_ORGANIZATION_ID
-MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID
+MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID       MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID
+MEMQL_AI_ANTHROPIC_ORGANIZATION_ID          MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID
+MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID       MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE
 MEMQL_AI_ANTHROPIC_WORKSPACE_ID
 MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE
 ```
 
-They are Anthropic's credential, and it is the one case where an absence is a
-legitimate configuration rather than a mistake -- in both directions. The four
-federation ids are unset on every local cluster, and the API key is unset in
-the cloud once the federation cutover finishes. Left non-optional, either state
-would take every Claude provider out of the registry with a WARNING rather than
-an error -- which, locally, is a log line nobody reads.
+They are the two vendors' credentials, and this is the one case where an
+absence is a legitimate configuration rather than a mistake. **Every local
+cluster has all of them unset**, because k3d's OIDC issuer is private and
+neither vendor can federate with it; a cloud cluster may reasonably federate
+one vendor and not the other. Left non-optional, either state would take that
+vendor's providers out of the registry with a WARNING rather than an error --
+which, locally, is a log line nobody reads.
 
 So the absence is not decided here. `anthropicCredential`
-(`component/memql/ai_anthropic_federation.go`) is the one place that knows
-which combination is meaningful, and it decides:
+(`component/memql/ai_anthropic_federation.go`) and `openaiCredential`
+(`component/memql/ai_openai_federation.go`) are the two places that know which
+combination is meaningful, and they decide the same way:
 
 | What is set | Result |
 |---|---|
-| all four federation values | federate |
-| none | require `MEMQL_AI_ANTHROPIC_API_KEY`, as before |
-| both | federate; one warning that the key is ignored |
-| one, two or three | **refuse to boot**, naming the missing names |
+| the vendor's whole federation set | federate |
+| none of it | that vendor's providers register as UNAVAILABLE, which is not an error |
+| some of it | **refuse to boot**, naming the missing names |
 
-The seeding hint the resolver would have printed moves with the decision: the
-no-credential error names `MEMQL_AI_ANTHROPIC_API_KEY` and the seeding line for
-it.
+**There is no API-key row in either table.** Manually entered vendor API keys
+are gone from the product -- no env name, no seeded secret, no field in MemQL
+OS -- so "none of it" cannot mean "fall back to a key" and a half-configured
+federation has nothing to fall back to. That is the point of the refusal:
+falling back would work in every test and stop working an hour after a cutover,
+on whichever node nobody was watching.
 
-Optionality is an ALLOW-LIST of exactly these six, not a new default; every
+Optionality is an ALLOW-LIST of exactly these names, not a new default; every
 other placeholder still fails its provider with the message above.
 `MEMQL_AI_ANTHROPIC_WORKSPACE_ID` is optional even when federating -- Anthropic
 needs it only when the rule spans more than one workspace.
 
-Runbook: [auth/anthropic-federation.md](auth/anthropic-federation.md).
+Runbooks: [auth/anthropic-federation.md](auth/anthropic-federation.md) ·
+[auth/openai-federation.md](auth/openai-federation.md).
 
 For partition-scoped resolvers (DSL `resolveSecret(...)` /
 `resolveVariable(...)`) the chain is:
@@ -376,10 +379,11 @@ does. It is separate from `MEMQL_OPERATOR_KEY`, which authenticates
 [operator-credential.md](auth/operator-credential.md).
 
 Everything AI-related is **console-configured**: the models this cluster can
-call, and how it authenticates to them, live at **Settings -> AI providers**
-(owner-only). Workload identity federation is the recommended path for
-Anthropic, and needs no key at rest at all --
-[anthropic-federation.md](auth/anthropic-federation.md).
+call, and how it authenticates to them, live at **Settings -> AI providers**.
+Workload identity federation is the ONLY path for both vendors and needs no key
+at rest at all -- [anthropic-federation.md](auth/anthropic-federation.md) and
+[openai-federation.md](auth/openai-federation.md). There is no key field,
+because there is no key.
 
 ### How this stays true
 
@@ -389,11 +393,12 @@ plausible local reason to break it:
 - `TestNoAIVariableIsRequiredByAnyNodeType` (`component/envregistry`) sweeps
   every `MEMQL_AI_*` / Anthropic / OpenAI entry against every node type.
 - `TestNoAIVariableIsInTheSealFloor` keeps them out of the *other*
-  requiredness axis. This is the one the audit found broken:
-  `MEMQL_OPENAI_API_KEY` and `MEMQL_ANTHROPIC_API_KEY` carried no
-  `optional: true` while every sibling did, so a developer could not seal a
-  `.env` without a vendor key -- the same requirement, in the one place nobody
-  looked.
+  requiredness axis. This is the one the audit found broken: the two
+  instance-wide vendor API keys carried no `optional: true` while every sibling
+  did, so a developer could not seal a `.env` without a vendor key -- the same
+  requirement, in the one place nobody looked. Those two entries are gone
+  entirely now (epic memql#5088); the gate stays, because the federation names
+  that replaced them are on the same axis.
 - `TestMinimalEnvelopeIsWhatTheDocSays` pins the per-node-type set, so a node
   type gaining a required variable fails a test and has to be justified rather
   than discovered by an operator.
@@ -636,8 +641,6 @@ Stored in `v1:platform:globalSecret`, sealed under `MEMQL_MASTER_KEY`.
 
 | Name                          | Kind             | Purpose                                                                                                                                   |
 |-------------------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `MEMQL_OPENAI_API_KEY`              | `vendor_api_key` | Instance-wide OpenAI key. Used by the chat / STT providers unless a tenant overrides it.                                                  |
-| `MEMQL_ANTHROPIC_API_KEY`           | `vendor_api_key` | Instance-wide Anthropic key for Claude chat / vision providers.                                                                           |
 | `MEMQL_IDENTITY_KEY_ENCRYPTION_KEY` | `integration`    | Master secret (>=16 bytes) wrapping the identity service's on-disk Ed25519 signing keypair. Required in production.                       |
 | `MEMQL_EMAIL_AZURE_CLIENT_SECRET`   | `oauth_secret`   | Microsoft Graph client secret used by the **email integration**'s GraphSender. Legacy name `AZURE_CLIENT_SECRET` still accepted (fallback). |
 
@@ -687,12 +690,14 @@ overridden per-tenant by writing the same `name` into
 stamped on the row.
 
 The resolver always tries the partition-scoped row first and falls
-back to the global one. So a tenant with `MEMQL_OPENAI_API_KEY` in their
-partition's `v1:platform:partitionSecret` will use their own key; everyone else
-keeps using the platform default.
+back to the global one. So a tenant with `MEMQL_SHOPIFY_ADMIN_TOKEN` in their
+partition's `v1:platform:partitionSecret` will use their own token; everyone
+else keeps using the platform default.
 
-This is the BYOK ("bring your own key") path. The DSL surface is
-`resolveSecret("MEMQL_OPENAI_API_KEY")` and `resolveVariable("...")`; see
+This is the BYOK ("bring your own key") path, and it does NOT extend to the AI
+vendors: their credential is a projected Kubernetes token belonging to the pod,
+not a value any tenant can supply. The DSL surface is
+`resolveSecret("MEMQL_SHOPIFY_ADMIN_TOKEN")` and `resolveVariable("...")`; see
 `component/memql/sense/builtins.go` for the builtin docs.
 
 ---
@@ -930,7 +935,7 @@ Check the resolver chain in order:
 1. Is the row in `v1:platform:globalSecret` /
    `v1:platform:globalVariable`? Read it back through the
    `globalSecret` / `globalVariable` query, e.g. in DSL
-   `globalVariable({name: "MEMQL_OPENAI_API_KEY"})`.
+   `globalVariable({name: "MEMQL_IDENTITY_BASE_URL"})`.
 2. Does the running MemQL have `MEMQL_MASTER_KEY` set in env?
 3. Is the master key the **same one** that encrypted the row? If
    you regenerated it, the existing rows are unreadable -- re-seed with

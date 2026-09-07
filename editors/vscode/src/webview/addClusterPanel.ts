@@ -65,8 +65,6 @@ import {
   readReceipt,
   recordedDomain,
   recordedOwner,
-  recordedProvider,
-  recordedProviderKeyFile,
   checkoutPinFor,
   recordedCheckout,
   recordedImageSource,
@@ -74,7 +72,6 @@ import {
   recordedStackTag,
   type Receipt,
 } from "../install/receipt.js";
-import { REDACTED, looksLikeProviderKey } from "../install/secrets.js";
 import {
   elevationEnv,
   startSudoAgent,
@@ -104,7 +101,6 @@ import {
 import {
   AddClusterState,
   DERIVATION_PLACEHOLDER,
-  SUPPORTED_PROVIDERS,
   derivationLine,
   type ConnectField,
   type ConnectProbeTargets,
@@ -388,8 +384,8 @@ export interface AddClusterDeps {
    * ~/.memql/install-receipt.json, resolved once at activation.
    *
    * ONE VALUE, THREE READERS. The install writes it, the uninstall preview
-   * reads it, and a repair reads the provider key path back out of it
-   * (memql#3512). Each used to call `defaultReceiptPath()` for itself, which is
+   * reads it, and a repair reads the recorded checkout, domain and owner back
+   * out of it. Each used to call `defaultReceiptPath()` for itself, which is
    * three independent answers to "where is the record of this install" -- and
    * the run that writes the receipt and the run that reverses it disagreeing
    * about that is the one way an uninstall can silently take nothing back.
@@ -404,7 +400,7 @@ export interface AddClusterDeps {
    * threaded one layer further out so a case can drive this panel over the REAL
    * graph document, the real plan, the real executor and the real receipt with
    * only script EXECUTION faked (memql#3514). That is what makes the assertions
-   * worth anything: the wave-2 provider-key gate, the params a step is handed
+   * worth anything: the wave-2 dependency gate, the params a step is handed
    * and the timeout it is given are all properties of the layers underneath,
    * and a fake that replaced any of them would be the test talking to itself.
    */
@@ -822,10 +818,6 @@ export class AddClusterPanel {
       this.openRemedyTerminal(value);
       return;
     }
-    if (type === "browseKeyFile") {
-      void this.browseForKeyFile();
-      return;
-    }
     if (type === "signInAsOwner") {
       void this.signInAsOwner();
     }
@@ -837,9 +829,6 @@ export class AddClusterPanel {
     }
     if (type === "openCheckout") {
       void this.openCheckout();
-    }
-    if (type === "openProviderSettings") {
-      void this.openProviderSettings();
     }
     if (type === "copyRecoveryKey") {
       void this.copyRecoveryKey();
@@ -864,116 +853,29 @@ export class AddClusterPanel {
     }
   }
 
-  /**
-   * Opens the editor's own file dialog and puts the chosen path in the box
-   * (memql#3547).
-   *
-   * THE DIALOG BELONGS TO THE HOST. A webview runs in an iframe with no
-   * filesystem access at all: it cannot open a native picker, and an
-   * `<input type="file">` would give it a File object with no path -- which is
-   * not something `--key-file` can be handed. So the page posts, the extension
-   * asks, and the answer comes back as a path.
-   *
-   * IT FILLS THE FIELD, IT DOES NOT START ANYTHING. Choosing a file is not
-   * consent to install; the operator still reads the form and presses Start.
-   *
-   * `defaultUri` opens where the answer probably is: the directory of whatever
-   * is already typed, else `~/.memql`, which is where the wizard's own hint
-   * tells people to put the key. `canSelectMany: false` because the flag takes
-   * one path, and `canSelectFolders: false` because a directory is not a key.
-   *
-   * No filter. Key files carry every extension and none -- `.txt`, `.key`,
-   * bare `key` -- and a filter that guessed would hide the file the operator
-   * came here to choose.
-   */
-  private async browseForKeyFile(): Promise<void> {
-    const chosen = await vscode.window.showOpenDialog({
-      canSelectMany: false,
-      canSelectFiles: true,
-      canSelectFolders: false,
-      openLabel: "Use this key file",
-      title: "Select the file holding your AI provider key",
-      defaultUri: vscode.Uri.file(this.keyDialogStartDir()),
-    });
-    // Cancelled. The form is untouched, which is the whole of what "cancel"
-    // should mean here.
-    if (chosen === undefined || chosen.length === 0) return;
-    if (this.disposed) return;
-
-    const picked = chosen[0]!.fsPath;
-    this.state.setInput("providerKeyFile", picked);
-    // A path that came out of the picker exists by construction, so any
-    // complaint left over from something typed earlier is now stale.
-    const problem = await this.keyFileProblem(picked);
-    if (problem !== "") this.state.noteFieldProblem("providerKeyFile", problem);
-    if (!this.disposed) this.render();
-  }
-
-  /** Where the file dialog opens. See browseForKeyFile. */
-  private keyDialogStartDir(): string {
-    const typed = this.state.inputs.providerKeyFile.trim();
-    if (typed !== "" && !looksLikeProviderKey(typed) && path.isAbsolute(typed)) {
-      return path.dirname(typed);
-    }
-    return path.join(os.homedir(), ".memql");
-  }
+  // `browseForKeyFile`, `keyDialogStartDir` AND `keyFileProblem` ARE GONE
+  // (epic memql#5088).
+  //
+  // They existed for one field. memql#3547 gave `providerKeyFile` the editor's
+  // own file picker, because typing a path is the error-prone way to name a
+  // file and that path was the one an operator could least check -- it held a
+  // secret, so nothing on the page could echo its contents back as
+  // confirmation. `keyFileProblem` was the filesystem half of its validation,
+  // which `state/addCluster.ts` cannot do: that module is deliberately free of
+  // `node:fs`, so its checks are string shape only.
+  //
+  // There is no key file now. Both cloud vendors are reached by workload
+  // identity federation, and a cluster this wizard builds could not use even
+  // that -- a k3d cluster's OIDC issuer is not publicly reachable, so no vendor
+  // can verify a token minted by it.
 
   /**
-   * The form's last gate before a run: does the key file actually exist?
+   * Validates, then starts.
    *
-   * WHY IT IS NOT IN `problemWith`. `state/addCluster.ts` is deliberately free
-   * of `node:fs` -- it is the module the fast unit lane drives -- so its checks
-   * are string shape only. Whether there is a readable file at the path is the
-   * question that catches everything shape cannot: a typo, a `~` no shell ever
-   * expanded, a file moved since the last install.
-   *
-   * WHY IT MATTERS MORE THAN A TIDY ERROR. Without it, the first thing to
-   * notice is `verify-provider-key.sh`, which exits 2 -- and the wizard renders
-   * exit 2 as "a fault in MemQL rather than in your machine or your answers".
-   * That sentence is false here and points the operator away from the one thing
-   * they can fix. Nine minutes of install can precede it.
-   *
-   * Returns the message, or "" when the path is fine.
-   */
-  private async keyFileProblem(pathValue: string): Promise<string> {
-    const value = pathValue.trim();
-    if (value === "") return "";
-    if (looksLikeProviderKey(value)) {
-      // Belt to the state layer's braces: the same refusal, in case a value
-      // reached the inputs by a route that did not run `problemWith`.
-      return (
-        "That is the key itself. This field takes the PATH to a file holding it -- " +
-        "save the key to a file (e.g. ~/.memql/key) and give that path."
-      );
-    }
-    if (value.startsWith("~")) {
-      // `~` is expanded by a SHELL, and the runner spawns scripts with
-      // shell:false so that a `;` in a param stays inert. Nothing will expand
-      // this, and the script would report a missing file naming a literal "~".
-      return "A leading ~ is not expanded here. Give the full path, e.g. /home/you/.memql/key.";
-    }
-    try {
-      const stat = await fs.stat(value);
-      if (!stat.isFile()) return "That path is a directory. Give the file that holds the key.";
-    } catch {
-      return "No file exists at that path. Save the key to a file and give the path to it.";
-    }
-    try {
-      await fs.access(value, fsConstants.R_OK);
-    } catch {
-      return "That file exists but cannot be read. Check its permissions.";
-    }
-    return "";
-  }
-
-  /**
-   * Validates, then starts -- with the filesystem check the state machine
-   * cannot make itself (memql#3544).
-   *
-   * Async, which is why it is a method rather than three lines in `onMessage`:
-   * the shape checks are synchronous and the file check is not, and the
-   * operator must see the result of both under the fields rather than as a
-   * failed run.
+   * STILL ASYNC, and no longer for the filesystem check that made it so
+   * (memql#3544, key check removed by epic memql#5088): `startRun` is async and
+   * `onMessage` dispatches this with `void`, so the signature is the seam
+   * between a synchronous message handler and a run that takes minutes.
    */
   private async begin(): Promise<void> {
     // BEFORE `beginRun()`, not after. That call transitions to the run screen,
@@ -981,9 +883,9 @@ export class AddClusterPanel {
     // chosen action and every field error with it. Checking first keeps a
     // refusal on the form the operator is already looking at, with the box they
     // need to edit still on screen and still holding what they typed.
-    // A REMOTE WINDOW CANNOT INSTALL A LOCAL CLUSTER (memql#4623), and the
-    // refusal belongs here for the same reason the key-file check does: before
-    // `beginRun()`, so it lands on the form rather than on a run screen the
+    //
+    // A REMOTE WINDOW CANNOT INSTALL A LOCAL CLUSTER (memql#4623), and that is
+    // what this check is: it lands on the form rather than on a run screen the
     // operator can only leave by discarding what they typed.
     //
     // It is a refusal rather than a warning because the failure is silent and
@@ -993,12 +895,6 @@ export class AddClusterPanel {
     if (remoteProblem !== undefined) {
       this.deps.diagnostics.appendLine(`a local install was refused: ${remoteProblem}`);
       void vscode.window.showWarningMessage(remoteProblem, { modal: true });
-      return;
-    }
-    const problem = await this.keyFileProblem(this.state.inputs.providerKeyFile);
-    if (problem !== "") {
-      this.state.noteFieldProblem("providerKeyFile", problem);
-      this.render();
       return;
     }
     if (this.state.beginRun()) void this.startRun();
@@ -1038,65 +934,27 @@ export class AddClusterPanel {
     // to tell apart from a current one.
     this.runError = "";
 
-    // A REPAIR READS THE KEY OFF THE RECEIPT WHEN THE FIELD IS EMPTY
-    // (memql#3512), which after epic memql#4440 is a PREFILL rather than a
-    // rescue.
+    // NOTHING ABOUT AN AI CREDENTIAL HAPPENS HERE ANY MORE (epic memql#5088).
     //
-    // The original reasoning: memql#3473's gate put `providerKey` in front of
-    // every mutating step, and `session.ts` drops empty params, so a repair
-    // reached wave 2 with no `--key-file` and died there with exit 2 on every
-    // invocation. The receipt is the record of what the install did, and
-    // `providerKey` writes an entry even though it leaves no artifact, so the
-    // path is already on disk.
+    // Two things used to. A repair read a recorded key path and vendor back off
+    // the receipt when the fields were empty (memql#3512), because memql#3473's
+    // gate put `providerKey` in front of every mutating step and `session.ts`
+    // drops empty params -- so a repair reached wave 2 with no `--key-file` and
+    // died there with exit 2, every invocation. And before that, the panel
+    // REFUSED outright when neither the field nor the receipt had a path.
     //
-    // That failure mode is gone: `installPlan` now SKIPS `providerKey`,
-    // satisfied, when no key file is supplied, so a keyless repair passes
-    // wave 2 rather than dying in it. What the receipt read still buys is the
-    // thing it was always also doing -- a repair of a cluster that WAS
-    // installed with a key re-verifies that same key against that same
-    // vendor, instead of silently dropping provider seeding on the way
-    // through.
-    let providerKeyFile = inputs.providerKeyFile;
-    let provider = inputs.provider;
+    // memql#4440 removed the refusal; this epic removes the read, along with the
+    // fields, the receipt params and the vendor key itself. `providerFederation`
+    // skips satisfied and every step behind it proceeds.
+    //
+    // Nothing replaces either, deliberately. A cluster with no provider
+    // configured is a working cluster whose agents cannot think yet, and what
+    // the collect screen says about that is where its models come from instead:
+    // a fleet machine the operator is signed in on, or a local model.
+
     // Read ONCE, up here: the recorded tag is needed at the run call below, and
     // a second read could see a different file (memql#3605).
     const priorReceipt = await readReceipt(this.deps.receiptFile);
-    if (providerKeyFile === "") {
-      const receipt = priorReceipt;
-      // `usablePath`, because the receipt can hold a value that is not one: a
-      // redaction marker where a key was given instead of a path (memql#3545),
-      // or -- on a receipt written before that guard existed -- the key itself.
-      // Passing either as `--key-file` produces a confusing failure deep in the
-      // run; treating it as "nothing recorded" produces the honest refusal
-      // below, which names the one thing the operator can do about it.
-      providerKeyFile = usablePath(recordedProviderKeyFile(receipt));
-      // The recorded vendor travels with the recorded path, and for the same
-      // reason: a repair that read the key file back but re-asserted the
-      // wizard's DEFAULT vendor would verify an OpenAI key against Anthropic
-      // and report a refusal (exit 3) -- "the key is bad", about a key that is
-      // fine.
-      provider = recordedProvider(receipt) || provider;
-    }
-    // NO REFUSAL HERE ANY MORE (epic memql#4440).
-    //
-    // This is where a repair used to stop dead: with no key path recorded and
-    // none typed, the run could not pass wave 2, so the panel refused up front
-    // with "Install rather than repair, so the key can be collected and
-    // verified." That was the honest sentence for a graph in which every
-    // mutating step waited on a vendor call.
-    //
-    // It is now the wrong sentence, and it would be the WORST one in the
-    // product: after this epic the ordinary install supplies no key at all, so
-    // "no record of an AI provider key" describes almost every cluster -- and
-    // the remedy it names, reinstalling, is destructive advice for a machine
-    // whose only problem was that a repair refused to run. A keyless repair is
-    // just a repair; `providerKey` skips, satisfied, and every step behind it
-    // proceeds.
-    //
-    // Nothing replaces it, deliberately. There is no degraded state to warn
-    // about: a cluster with no provider configured is a working cluster whose
-    // agents cannot think yet, and the place that says so is the portal page
-    // the done screen links to.
 
     // Repair does not go through gateCreateDeployment, so it must refuse
     // here -- before sudo -- on an unsupported platform (memql#4294).
@@ -1161,18 +1019,10 @@ export class AddClusterPanel {
           // writes the receipt and the run that reverses it cannot disagree
           // about where it lives.
           receiptFile: this.deps.receiptFile,
-          // COLLECTED (memql#3473), and the graph no longer pins it -- which
-          // vendor a key belongs to is a fact about the operator's key, run
-          // input like the path beside it, not policy the graph decides. On a
-          // repair it comes off the receipt, with the key path.
-          provider,
           domain: inputs.domain,
           ownerEmail: inputs.ownerEmail,
           ownerFirstName: inputs.ownerFirstName,
           ownerLastName: inputs.ownerLastName,
-          // A PATH, never the key. argv is world-readable in `ps`. On a
-          // repair this is the path the receipt recorded (memql#3512).
-          providerKeyFile,
           // On a REPAIR, the checkout the receipt recorded (memql#3605). Without
           // it the run fell through to DEFAULT_STACK_TAG and a repair from a
           // newer extension silently upgraded the cluster.
@@ -1410,32 +1260,23 @@ export class AddClusterPanel {
   /**
    * Puts the recorded answers into the repair form's boxes (memql#3544).
    *
-   * A DEFAULT, NOT A LOCK -- that distinction is the whole fix. memql#3512
-   * taught the repair to read the key path off the receipt so wave 2 could
-   * pass, which was right for a good path and a trap for a bad one: the run
-   * re-used the recorded value, failed at the same step, and offered no field
-   * in which to correct it. The value now lands in an editable box.
-   *
-   * A REDACTED entry is left blank on purpose. It records that a key was given
-   * where a path belonged (see install/secrets.ts) -- it is not a path, and
-   * pre-filling it would hand the operator the very value that has to change.
+   * A DEFAULT, NOT A LOCK -- that distinction is the whole fix. A repair that
+   * simply re-used a recorded value failed at the same step every time and
+   * offered no field in which to correct it. The values land in editable boxes.
    *
    * A value already typed WINS. This is async and the operator is looking at
    * the form while it runs; overwriting what they have just entered with what
    * an old receipt says would be the worst possible moment to be helpful.
+   *
+   * NO AI CREDENTIAL IS PRE-FILLED (epic memql#5088). This used to restore a
+   * recorded key path and vendor as well, skipping a `REDACTED` entry on
+   * purpose -- that marker records that a key was given where a path belonged,
+   * so pre-filling it would hand the operator the very value that had to
+   * change. No receipt records either param now.
    */
   private async prefillFromReceipt(): Promise<void> {
     const receipt = await readReceipt(this.deps.receiptFile);
     if (this.disposed || this.state.action !== "repair") return;
-
-    const recordedPath = usablePath(recordedProviderKeyFile(receipt));
-    if (this.state.inputs.providerKeyFile === "" && recordedPath !== "") {
-      this.state.setInput("providerKeyFile", recordedPath);
-    }
-    const recordedVendor = recordedProvider(receipt);
-    if (recordedVendor !== "" && SUPPORTED_PROVIDERS.some((p) => p === recordedVendor)) {
-      this.state.setInput("provider", recordedVendor);
-    }
 
     // THE DOMAIN AND THE OWNER, which a repair needs and did not have
     // (znasllc-io#3888). `seedBootstrap` takes five values and refuses a partial
@@ -1445,9 +1286,8 @@ export class AddClusterPanel {
     //
     // Each is filled only when the box is EMPTY, so a value the operator has
     // just typed to correct a bad recorded one is never overwritten by the bad
-    // one. That is the same rule the provider key path above follows, and it is
-    // what makes pre-filling safe on the very run whose purpose is to change an
-    // answer.
+    // one, which is what makes pre-filling safe on the very run whose purpose
+    // is to change an answer.
     const recordedHost = recordedDomain(receipt);
     if (this.state.inputs.domain === "" && recordedHost !== "") {
       this.state.setInput("domain", recordedHost);
@@ -1639,9 +1479,6 @@ export class AddClusterPanel {
       // still describes the result exactly -- a skipped removal leaves its entry
       // intact, so a later uninstall can still take it.
       skip: this.skippedSharedRemovals(),
-      // Required by the shape and meaningless to a removal: `provider` names
-      // the AI vendor an install seeds a key for.
-      provider: "",
       stepParams: {},
       // A removal can hang exactly as an install can -- `k3d cluster delete`
       // against a wedged daemon is the obvious way -- and an uninstall stuck
@@ -2159,7 +1996,6 @@ ${LOG_PANE_SCRIPT}
       root: this.deps.installRoot,
       receiptFile: this.deps.receiptFile,
       skip: new Set<string>(),
-      provider: "anthropic",
       stepParams: {},
       timeoutMs: STEP_TIMEOUT_MS,
       // Same marker the install run puts on every step (memql#3586): detect is
@@ -2507,16 +2343,11 @@ ${this.sharedToolsHtml()}`,
       sudoFree = await isFree().catch(() => false);
     }
     const receipt = await readReceipt(this.deps.receiptFile).catch(() => null);
-    const recordedKeyPath = maskHomePath(
-      usablePath(recordedProviderKeyFile(receipt)),
-      os.homedir(),
-    );
     if (this.disposed || this.state.action !== action || this.state.screen !== "collect") return;
     this.preflight = preflightItems({
       action,
       graph,
       sudoFree,
-      recordedKeyPath,
       // WHICH LANE THIS MACHINE IS IN, from the same receipt every other fact
       // here comes from (memql#4246). A run over a cluster on checkout-built
       // images returns it to released ones, and this is what makes the
@@ -3043,38 +2874,33 @@ ${followUp}`,
    * never reached the clone step, has nowhere for the button to open.
    */
   /**
-   * Opens the portal's AI-providers page (epic memql#4440).
+   * The done screen's line about where this cluster's models come from.
    *
-   * `asExternalUri` is deliberately NOT used, unlike the claim link: this is a
-   * plain address an operator could type, carries no credential and no
-   * single-use token, and remote-tunnel port mapping would only rewrite a
-   * hostname the browser resolves perfectly well on its own.
-   */
-  private async openProviderSettings(): Promise<void> {
-    const url = this.state.providerSetupUrl;
-    if (url === "") return;
-    await vscode.env.openExternal(vscode.Uri.parse(url));
-  }
-
-  /**
-   * The done screen's "Configure AI providers" line, offered only when the run
-   * seeded no key (epic memql#4440).
+   * IT USED TO BE A LINK TO THE PORTAL'S AI-PROVIDERS PAGE (epic memql#4440),
+   * with a "Configure AI providers" button beside it, offered whenever the run
+   * had seeded no key. Three things had to change together (epic memql#5088):
    *
-   * The DECISION is `providerSetupUrl`'s, in state/addCluster.ts, where a test
-   * can reach it; this method only renders what that getter returned. An empty
-   * string renders nothing at all, which is the whole keyed path.
+   *  - the CONDITION read `providerKeyFile`, a field that no longer exists, so
+   *    it was true on every install there can now be;
+   *  - the ADDRESS was `portal.<domain>`, and epic memql#4984 retired the
+   *    portal -- `clusters/consoleUrl.ts` records that host as one nothing
+   *    serves, having been caught by it twice;
+   *  - the SENTENCE invited the operator to set a provider up, and a local
+   *    cluster cannot hold a cloud vendor credential at all. Federation is the
+   *    only door, and it works by having the vendor verify a token against the
+   *    cluster's OIDC issuer -- which for k3d is not publicly reachable.
+   *
+   * So it is now a statement rather than an offer, and it is unconditional:
+   * every cluster this wizard builds is in exactly this position, and an
+   * operator whose agents cannot think yet is owed the reason.
    */
   private providerSettingsBlock(): string {
-    const url = this.state.providerSetupUrl;
-    if (url === "") return "";
     return `<p>${escapeHtml(
-      "No AI provider was configured, which is the ordinary way to install: nothing about running this cluster needs one. When you want agents to think, set a provider up in the portal -- workload identity federation is the recommended path for Anthropic, and needs no key at rest.",
+      "No AI credential was configured, which is the only way to install: a local cluster " +
+        "cannot hold one, because a vendor cannot verify a token minted by an OIDC issuer " +
+        "it cannot reach. When you want agents to think, reach models through a fleet " +
+        "machine you are signed in on, or through a model running locally.",
     )}</p>`;
-  }
-
-  private providerSettingsButton(): string {
-    if (this.state.providerSetupUrl === "") return "";
-    return `<button class="secondary" type="button" data-act="openProviderSettings">Configure AI providers</button>`;
   }
 
   private openCheckoutButton(): string {
@@ -3087,14 +2913,17 @@ ${followUp}`,
 
     // A RUN THAT WAS NEVER ATTEMPTED, and the reason it was not.
     //
-    // This branch is first because BOTH paths that set `runError` end here:
-    // the refusal ahead of the provider-key gate (memql#3512) and a throw out
-    // of `runInstall` -- a missing graph document, an unreadable script -- each
-    // call `finish()`, which is this screen. The sentence used to be rendered
-    // only by `runHtml()`, which neither path can reach, so an operator
-    // repairing a cluster with no recorded key was told "Finished / Nothing
-    // further to do" -- the exact confident-wrong-report the honest message was
-    // written to replace. It said the true thing to nobody.
+    // This branch is first because a throw out of `runInstall` -- a missing
+    // graph document, an unreadable script -- calls `finish()`, which is this
+    // screen. The sentence used to be rendered only by `runHtml()`, which that
+    // path cannot reach, so an operator whose run never started was told
+    // "Finished / Nothing further to do" -- the exact confident-wrong-report
+    // the honest message was written to replace. It said the true thing to
+    // nobody.
+    //
+    // It USED to be reached from two directions: the other was an up-front
+    // refusal ahead of the provider-key gate (memql#3512), retired with the key
+    // (epic memql#5088).
     if (this.runError !== "") {
       return renderScreen({
         title:
@@ -3173,9 +3002,10 @@ ${followUp}`,
       // they ask the operator for different things, which is why the script
       // keeps them tellable apart.
       const recovery = this.recoveryKeyBlock();
-      // LAST of the notes and last but one of the buttons (epic memql#4440).
-      // It is the only line here that is not about getting INTO the cluster,
-      // and an operator who cannot sign in yet has no use for a provider page.
+      // LAST of the notes (epic memql#4440, reworded by epic memql#5088). It is
+      // the only line here that is not about getting INTO the cluster. It used
+      // to carry a button beside it; see providerSettingsBlock for why the
+      // button went and the sentence stayed.
       const providers = this.providerSettingsBlock();
       // THE RECOVERY BLOCK STAYS IN THE DETAILS, BELOW THE BUTTONS, and it is
       // the one place where actions-first needed thinking rather than moving.
@@ -3190,7 +3020,6 @@ ${followUp}`,
         actions: `${enrol}
   ${claim}
   ${signIn}
-  ${this.providerSettingsButton()}
   ${this.openCheckoutButton()}
   <button class="secondary" type="button" data-act="back">Back</button>`,
         status: `<p class="lede">${escapeHtml(
@@ -3367,19 +3196,11 @@ const VERDICT_LEDE: Record<PresenceVerdict, string> = {
   "installed-unreachable": "A local cluster is installed here, but it is not answering.",
 };
 
-/**
- * A recorded key-file value, or "" when what was recorded is not a path.
- *
- * TWO WAYS THE RECEIPT CAN HOLD A NON-PATH, and both end here. Since
- * memql#3545 a key given where a path belonged is stored as `REDACTED`; on a
- * receipt written before that, the key itself is sitting there in plaintext.
- * Neither can be handed to `--key-file`, and "" is precisely what the callers
- * treat as "nothing to go on, ask" -- which is the true state of affairs.
- */
-function usablePath(recorded: string): string {
-  if (recorded === REDACTED) return "";
-  return looksLikeProviderKey(recorded) ? "" : recorded;
-}
+// `usablePath` IS GONE (epic memql#5088). It turned a recorded key-file value
+// into one a run could use, answering "" for the two things a receipt could
+// hold that are not paths: the `REDACTED` marker written since memql#3545 where
+// a key was given instead of a path, and -- on a receipt written before that
+// guard -- the key itself in plaintext. No receipt records a key path now.
 
 // A CSP nonce is a security control, so it comes from a CSPRNG.
 function nonceValue(): string {

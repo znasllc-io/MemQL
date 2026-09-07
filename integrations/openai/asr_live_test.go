@@ -15,14 +15,25 @@ import (
 // and assert the server accepts the session instead of closing with
 // beta_api_shape_disabled or rejecting the config with an error event.
 //
-// Env-gated: skips unless MEMQL_OPENAI_API_KEY is set (never runs in CI lanes
-// without the secret). Asserts acceptance by sending a short burst of silence
-// and confirming the stream stays open with no error for a grace window --
-// the beta-shape rejection closes the socket within ~1s of connect.
+// Env-gated: skips unless MEMQL_TEST_OPENAI_BEARER is set (never runs in CI
+// lanes). Asserts acceptance by sending a short burst of silence and
+// confirming the stream stays open with no error for a grace window -- the
+// beta-shape rejection closes the socket within ~1s of connect.
+//
+// THE VARIABLE IS A TEST INPUT, NOT A PRODUCT CONFIGURATION PATH, and the
+// distinction is why it is not named like one. Epic memql#5088 removed every
+// manually entered vendor key from the product; nothing outside this file
+// reads this name, no manifest registers it, and no code path falls back to
+// it. What it is for is an engineer pasting a bearer -- a federated one from a
+// pod, or any token their own account can mint -- to answer the one question
+// the design record leaves open: whether OpenAI's Realtime WebSocket accepts a
+// FEDERATED bearer at all. That answer belongs in
+// docs/public/operate/auth/openai-federation.md, and this is how it gets
+// checked.
 func TestASRStreamLiveGA(t *testing.T) {
-	apiKey := os.Getenv("MEMQL_OPENAI_API_KEY")
-	if apiKey == "" {
-		t.Skip("MEMQL_OPENAI_API_KEY not set; skipping live GA ASR check")
+	bearer := os.Getenv("MEMQL_TEST_OPENAI_BEARER")
+	if bearer == "" {
+		t.Skip("MEMQL_TEST_OPENAI_BEARER not set; skipping the live Realtime check")
 	}
 
 	model := os.Getenv("MEMQL_OPENAI_REALTIME_MODEL")
@@ -31,7 +42,7 @@ func TestASRStreamLiveGA(t *testing.T) {
 	}
 
 	client, err := NewASRClient(Config{
-		APIKey:   apiKey,
+		Bearer:   func(context.Context) (string, error) { return bearer, nil },
 		ASRModel: model,
 		Logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	})

@@ -33,7 +33,6 @@ import { test } from "node:test";
 
 import { parseCliArgs, repairOptions, type CliOptions } from "../src/install/cli.js";
 import { installPlan, type SessionOptions } from "../src/install/session.js";
-import { REDACTED } from "../src/install/secrets.js";
 import {
   DEFAULT_IMAGE_REGISTRY,
   DEFAULT_STACK_TAG,
@@ -64,7 +63,6 @@ function options(over: Partial<SessionOptions> = {}): SessionOptions {
     root: "/nonexistent",
     receiptFile: path.join(dir, "install-receipt.json"),
     skip: new Set<string>(),
-    provider: "anthropic",
     stepParams: {},
     ...over,
   };
@@ -288,7 +286,6 @@ test("no receipt answers nothing rather than guessing", () => {
 function recordedInstall(
   checkout: Record<string, unknown>,
   checkoutParams: Record<string, string> = {},
-  providerParams: Record<string, string> = {},
   clusterParams?: Record<string, string>,
 ): Receipt {
   const receipt = receiptWith(checkout, checkoutParams);
@@ -304,16 +301,6 @@ function recordedInstall(
       recordedAt: "2026-08-16T00:00:00.000Z",
     });
   }
-  receipt.entries.push({
-    stepId: "providerKey",
-    script: "install.verifyProviderKey",
-    receipt: "",
-    preExisting: false,
-    params: { "key-file": "/home/dev/.memql/key", provider: "openai", ...providerParams },
-    result: { valid: true },
-    changed: false,
-    recordedAt: "2026-08-16T00:00:00.000Z",
-  });
   receipt.entries.push({
     stepId: "seedBootstrap",
     script: "install.seedBootstrap",
@@ -398,7 +385,6 @@ test("a repair of a BRANCH install replays the recorded IMAGE tag, not this buil
   const receipt = recordedInstall(
     { tag: "", ref: "main", refKind: "branch", commit: "d".repeat(40) },
     { branch: "main" },
-    {},
     { "image-tag": "0.17.1" },
   );
   const opts = repairOptions(repairArgs(), receipt);
@@ -431,7 +417,6 @@ test("a repair of a TAG install replays its recorded image tag too", () => {
   const receipt = recordedInstall(
     { tag: "v0.17.1", ref: "v0.17.1", refKind: "tag", commit: "e".repeat(40) },
     { tag: "v0.17.1" },
-    {},
     { "image-tag": "0.17.1" },
   );
   const params = paramsFor(repairOptions(repairArgs(), receipt), "clusterUp", "k3d.up");
@@ -469,7 +454,6 @@ test("the recorded image tag is read off clusterUp, and travels with the checkou
   const branch = recordedInstall(
     { tag: "", ref: "main", refKind: "branch", commit: "d".repeat(40) },
     { branch: "main" },
-    {},
     { "image-tag": "0.17.1" },
   );
   assert.equal(recordedImageTag(branch), "0.17.1");
@@ -486,7 +470,6 @@ test("the recorded image tag is read off clusterUp, and travels with the checkou
     recordedInstall(
       { tag: "v0.17.1", refKind: "tag", commit: "e".repeat(40) },
       { tag: "v0.17.1" },
-      {},
       { "image-tag": "0.17.1" },
     ),
   );
@@ -515,16 +498,11 @@ test("a repair restores the answers the operator is never asked for again", () =
     "owner-first-name": "Dev",
     "owner-last-name": "Eloper",
     "registration-mode": "invite_only",
-    provider: "openai",
-    "provider-key-file": "/home/dev/.memql/key",
   });
-  // The VENDOR travels with the key path. Re-asserting the default over a
-  // recorded OpenAI key verifies it against Anthropic and reports exit 3 --
-  // REFUSED, "the key is bad" -- about a key that is fine (memql#3473).
-  assert.deepEqual(paramsFor(opts, "providerKey", "install.verifyProviderKey"), {
-    "key-file": "/home/dev/.memql/key",
-    provider: "openai",
-  });
+  // NO VENDOR PARAMS, and pinned as a whole map so a reappearance fails here
+  // (epic memql#5088). seed-bootstrap.sh no longer declares `--provider` or
+  // `--provider-key-file`; a capability script exits 2 on an undeclared flag,
+  // so a repair that restored them would fail the seed rather than ignore them.
   // And the domain reaches all four of its consumers, not just the two that
   // used to get it (memql#3593).
   // Anchored to the comma-joined list's separators: unanchored, `api.lab.example.com`
@@ -545,17 +523,21 @@ test("a repair refuses rather than guesses, and every refusal names the remedy",
   const noCheckout = recordedInstall({});
   assert.throws(() => repairOptions(repairArgs(), noCheckout), /records no checkout/);
 
-  const pastedKey = recordedInstall(
+  // THE THIRD REFUSAL IS GONE (epic memql#5088), and its removal is the point
+  // rather than a casualty. `repairOptions` used to throw "no usable AI-provider
+  // key path" when the receipt recorded no path it could re-use -- correct while
+  // `providerKey` gated every mutating step and a run could not pass wave 2
+  // without one. No receipt records a key path now, so keeping it would have
+  // made EVERY repair impossible for the one reason that can no longer be true.
+  //
+  // Asserted, not merely deleted: a repair over a receipt with no credential in
+  // it must SUCCEED.
+  const keyless = recordedInstall(
     { tag: "v0.19.0", refKind: "tag", commit: "a".repeat(40) },
     { tag: "v0.19.0" },
-    { "key-file": REDACTED },
   );
-  assert.throws(() => repairOptions(repairArgs(), pastedKey), /no usable AI-provider key path/);
-
-  // ...but a path the receipt never carried is not a value the receipt is
-  // overriding, so the flag still supplies it.
-  const supplied = repairOptions(repairArgs(["--provider-key-file=/tmp/key"]), pastedKey);
-  assert.equal(paramsFor(supplied, "providerKey", "install.verifyProviderKey")["key-file"], "/tmp/key");
+  const opts = repairOptions(repairArgs(), keyless);
+  assert.equal(opts.tag, "v0.19.0", "a repair of a keyless install must replay its checkout");
 });
 
 // ---------------------------------------------------------------------------

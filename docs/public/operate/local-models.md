@@ -82,8 +82,8 @@ after sign-in the first-run gate runs in order:
 
 1. **Passkey**, when you have none enrolled. It is what gets you back in
    without a link in your inbox.
-2. **Inference**, when the cluster has no eligible source. Four doors,
-   local first.
+2. **Inference**, when the cluster has no eligible source. Four doors, local
+   first -- and none of them is an API key, because the product has none.
 3. The console.
 
 ### Door 1 — run a local model (the default)
@@ -115,17 +115,32 @@ next entry in the chain.
 A machine whose stream a **sibling replica** holds leaves the door shut on
 this one — the app-session envelope has no cross-node forward yet.
 
-### Door 3 — the Anthropic workload-identity federation
+### Door 3 — Anthropic workload identity federation
 
 No key at rest anywhere: each pod exchanges its own projected Kubernetes token
-for a one-hour bearer. Configured outside the console; once it is complete this
-step passes silently. See
+for a bearer that lives at most an hour. Configured outside the console; once
+it is complete this step passes silently. See
 [anthropic-federation.md](auth/anthropic-federation.md).
 
-### Door 4 — an API key
+### Door 4 — OpenAI workload identity federation
 
-An Anthropic or OpenAI key, stored the way this cluster stores every provider
-credential. Calls are billed to that account. Settings → AI providers.
+The same shape for the other vendor, on the same `memql-engine` ServiceAccount
+with its own projected token and audience (epic memql#5088). Calls are billed
+to the Platform service account the mapping targets. See
+[openai-federation.md](auth/openai-federation.md).
+
+### There is no fourth door, and no API-key door
+
+A manually entered vendor API key is not a way to configure inference on this
+cluster. There is no field for one in Settings → AI providers, no env name the
+engine reads, and nothing seeds one into a Secret. Federation and the fleet are
+the whole list.
+
+**A local cluster therefore reaches cloud models through door 1 only.** k3d's
+OIDC issuer is private, so neither vendor can federate with it, and doors 2 and
+3 are unavailable there by construction rather than by omission. Streaming
+transcription and Whisper are OpenAI calls and are off on a local cluster for
+the same reason; there is no local substitute today.
 
 ### What the gate does and does not do
 

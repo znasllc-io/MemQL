@@ -142,7 +142,7 @@ prompt probePrompt {
 @type("Anthropic")
 provider probeProvider {
   auth {
-    apiKey env("MEMQL_AI_ANTHROPIC_API_KEY")
+    apiKey env("MEMQL_AI_ANTHROPIC_ORGANIZATION_ID")
   }
 }`,
 		"policy": doc + `

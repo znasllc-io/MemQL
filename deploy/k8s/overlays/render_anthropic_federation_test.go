@@ -13,7 +13,12 @@
 //
 // So the gate asserts the whole shape on EVERY engine Deployment in BOTH
 // cloud overlays, and asserts the local build leaves the ids empty -- which is
-// what keeps `make up` booting on the API key with the same manifests.
+// the only correct answer there, since k3d's issuer is private and no vendor
+// can federate with it (epic memql#5088, decision D6).
+//
+// The OpenAI half of the same shape is render_openai_federation_test.go. The
+// ServiceAccount is asserted HERE only: there is one workload identity serving
+// both vendors, and asserting it twice would imply otherwise.
 package overlays
 
 import (
@@ -298,8 +303,9 @@ func TestTheCloudOverlaysCarryFederationPlaceholders(t *testing.T) {
 }
 
 // TestTheLocalOverlayLeavesFederationEmpty is the parity assertion: the local
-// cluster runs the same manifests and keeps using the API key, because empty
-// ids mean "not federating" rather than "half-configured".
+// cluster runs the same manifests with these four empty, because empty ids
+// mean "not federating" rather than "half-configured". It has no key to fall
+// back to and does not need one -- nothing local can federate.
 func TestTheLocalOverlayLeavesFederationEmpty(t *testing.T) {
 	data := federationConfig(t, render(t, "local"))
 	for key, value := range data {

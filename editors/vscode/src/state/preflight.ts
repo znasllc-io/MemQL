@@ -28,8 +28,6 @@ export interface PreflightInputs {
   graph: { ok: true; steps: number; needsElevation: boolean } | { ok: false; error: string };
   /** Whether sudo would run without asking (or the process is root). */
   sudoFree: boolean;
-  /** The receipt's usable provider-key path, "" when none is recorded. */
-  recordedKeyPath: string;
   /**
    * Which lane set this machine's node images last (memql#4246).
    *
@@ -81,27 +79,18 @@ export function preflightItems(inputs: PreflightInputs): PreflightItem[] {
     });
   }
 
-  if (inputs.action === "repair") {
-    items.push(
-      inputs.recordedKeyPath === ""
-        ? {
-            label: "Provider key file",
-            state: "attention",
-            detail: "No usable path is recorded from the last install; the form asks for one.",
-          }
-        : {
-            label: "Provider key file",
-            state: "ok",
-            detail: `Recorded from the last install: ${inputs.recordedKeyPath}`,
-          },
-    );
-  } else {
-    items.push({
-      label: "Provider key file",
-      state: "ok",
-      detail: "You name a PATH to a file holding the key, below. The key itself never leaves that file.",
-    });
-  }
+  // THE "PROVIDER KEY FILE" LINE IS GONE (epic memql#5088), on both branches.
+  //
+  // It said, before Start, what the run was about to do with the key path the
+  // operator had named or the receipt had recorded. There is no key path
+  // anywhere in the product now: both cloud vendors are reached by workload
+  // identity federation, whose credential is a projected token inside a pod.
+  // A checklist line about a value nothing collects is one an operator has to
+  // interpret before they can ignore it, which is the opposite of what a
+  // "Before it runs" list is for.
+  //
+  // What a local cluster does about models instead is said once, on the
+  // collect screen, where the fields used to be.
 
   // THE LANE CROSSING, IN THE OTHER DIRECTION (memql#4246).
   //

@@ -181,6 +181,14 @@ function InferenceLine({
  * Three separate fixes, and they live in three different places -- so a
  * single "configure inference" sentence would be true and useless. The fleet
  * one is named first because it is the only one that costs nothing.
+ *
+ * THERE IS NO KEY ROUTE ANY MORE (epic memql#5088, D5). This used to offer
+ * "add a provider key", and a route that no longer exists is worse than no
+ * route: somebody follows it to a section that has no field for it and
+ * concludes the console is broken. Federation is the only door for a cloud
+ * vendor, both vendors have one, and the two are named separately because
+ * they are configured separately -- a cluster can federate with one and not
+ * the other, and "configure federation" would not say which is missing.
  */
 function notReadyNext(facts: {
   cloudConfigured: boolean;
@@ -200,14 +208,30 @@ function notReadyNext(facts: {
   if (facts.appSessionsInstalled) {
     routes.push("sign into Claude Code or Codex on a machine you have paired (Fleet -> Apps)");
   }
-  if (!facts.cloudConfigured) routes.push("add a provider key (Settings -> AI providers)");
-  if (!facts.federationConfigured) routes.push("configure Anthropic workload-identity federation");
+  if (!facts.federationConfigured) {
+    routes.push(
+      "set up Anthropic or OpenAI workload-identity federation (Settings -> AI providers)",
+    );
+  }
+  // THE KEY ROUTE IS GONE, and `cloudConfigured` no longer earns one of its
+  // own (epic memql#5088). "Add a provider key" pointed at a box that no
+  // longer exists, and `cloudConfigured` now means what federation means -- a
+  // callable cloud provider is a federated one -- so naming it separately
+  // would print the same sentence twice. It stays on the reading because the
+  // engine still reports it; it just has nowhere of its own to send anybody.
   return `To open one: ${routes.join("; ")}.`;
 }
 
 /** The doors, in the reader's words rather than the enum's. An unrecognised
  *  value is printed as it came, never dropped: a door this build has no name
- *  for is still a door, and hiding it would under-report readiness. */
+ *  for is still a door, and hiding it would under-report readiness.
+ *
+ *  `apiKey` loses its case with the key itself (epic memql#5088) rather than
+ *  keeping a phrase for a door the engine no longer opens. It falls through to
+ *  the pass-through arm above, which is the right treatment for a value from
+ *  an older node: printed as it came, not silently dropped. `federation` drops
+ *  the vendor name, because both vendors federate now and the reading does not
+ *  say which one answered. */
 function doorPhrase(doors: readonly string[]): string {
   if (doors.length === 0) return "a door it did not name";
   const named = doors.map((door) =>
@@ -216,10 +240,8 @@ function doorPhrase(doors: readonly string[]): string {
       : door === "app"
         ? "a signed-in app on one of your machines"
         : door === "federation"
-          ? "Anthropic workload-identity federation"
-          : door === "apiKey"
-            ? "a configured provider key"
-            : door,
+          ? "workload-identity federation"
+          : door,
   );
   if (named.length === 1) return named[0] as string;
   return `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;

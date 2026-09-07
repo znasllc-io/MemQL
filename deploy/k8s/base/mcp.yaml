@@ -91,6 +91,18 @@ spec:
                   audience: https://api.anthropic.com
                   expirationSeconds: 3600
                   path: token
+        # The same identity again, minted for OpenAI (epic memql#5088). A
+        # projected token carries ONE audience, so the Anthropic volume above
+        # cannot be reused here -- OpenAI verifies the token against the
+        # cluster's public OIDC JWKS and refuses one minted for anybody else.
+        # Same ServiceAccount, same subject, second audience.
+        - name: openai-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: https://api.openai.com/v1
+                  expirationSeconds: 3600
+                  path: token
       # Graceful shutdown (#552): must exceed MEMQL_SHUTDOWN_DRAIN_DELAY (5s
       # default) + the app Stop budget (30s) so drain + GracefulStop finish.
       terminationGracePeriodSeconds: 45
@@ -124,6 +136,10 @@ spec:
             - configMapRef:
                 name: memql-anthropic-federation
                 optional: true
+            # The two OpenAI federation ids, on the same terms.
+            - configMapRef:
+                name: memql-openai-federation
+                optional: true
             # Bounded Postgres pool (MAX_OPEN_CONNS/MAX_IDLE_CONNS) so the
             # mesh stays under max_connections during a rollout (memql#1858).
             - configMapRef:
@@ -131,6 +147,7 @@ spec:
           env:
             - { name: MEMQL_SERVICE_NAME, value: "MemQL" }
             - { name: MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE, value: "/var/run/secrets/anthropic.com/token" }
+            - { name: MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE, value: "/var/run/secrets/openai.com/token" }
             - { name: MEMQL_NODE_TYPE, value: "mcp" }
             - { name: MEMQL_NODE_ADDRESS, value: "mcp:50060" }
             # Unique per-pod mesh identity (#1042). Overrides the shared genesis
@@ -182,6 +199,7 @@ spec:
           volumeMounts:
             - { name: memql-ca, mountPath: /etc/memql/cacerts, readOnly: true }
             - { name: anthropic-identity, mountPath: /var/run/secrets/anthropic.com, readOnly: true }
+            - { name: openai-identity, mountPath: /var/run/secrets/openai.com, readOnly: true }
           # Slow boot (DSL load + engine init) must not trip liveness/readiness (#1117).
           # Probes target the standard :8085 server (createHTTPServer), same as
           # every other node -- /healthz is dependency- + drain-aware, /livez is

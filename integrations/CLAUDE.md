@@ -530,12 +530,30 @@ subscription missing; API keys absent; cache hit rate (visible in the logs).
 ## Environment Variables
 
 ### AI Providers (Cognition Integration)
+
+There is no vendor API key (epic memql#5088). Both cloud vendors are reached by
+workload identity federation: the pod presents the OIDC token Kubernetes
+projects for it and the engine exchanges that for a short-lived bearer. All the
+ids or none -- a partial set refuses boot.
+
 ```bash
-MEMQL_AI_OPENAI_API_KEY=sk-...         # OpenAI provider
-MEMQL_AI_ANTHROPIC_API_KEY=sk-ant-...  # Anthropic provider
+# OpenAI -- all three, or none
+MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID=idp_...
+MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID=svc_...
+MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE=/var/run/secrets/openai.com/token
+
+# Anthropic -- all four, or none (the workspace id is optional)
+MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID=fdrl_...
+MEMQL_AI_ANTHROPIC_ORGANIZATION_ID=...
+MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID=svac_...
+MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE=/var/run/secrets/anthropic.com/token
+
 MEMQL_SI_CACHE_DEFAULT_ENABLED=true
 MEMQL_SI_CACHE_MAX_SECONDS=120
 ```
+
+Runbooks: [OpenAI](../docs/public/operate/auth/openai-federation.md) ·
+[Anthropic](../docs/public/operate/auth/anthropic-federation.md)
 
 `MEMQL_SI_OPENAI_API_KEY` / `MEMQL_SI_ANTHROPIC_API_KEY` are legacy aliases
 only (`component/envregistry/legacyalias.go`, entries at :88-89, the map is

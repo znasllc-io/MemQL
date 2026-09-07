@@ -2,10 +2,15 @@
 #
 # anthropic-bench.sh
 #
-# Measure how fast the Anthropic API responds with the configured key
-# under conditions that approximate what the agent node sees during a
-# takeover turn. Reads MEMQL_AI_ANTHROPIC_API_KEY from .env.local
-# (no other side effects -- the key is never echoed).
+# Measure how fast the Anthropic API responds under conditions that
+# approximate what the agent node sees during a takeover turn.
+#
+# CREDENTIAL: MEMQL_TEST_ANTHROPIC_BEARER, from .env.local or the environment.
+# It is a DEVELOPER INPUT, not a product configuration path -- epic memql#5088
+# removed every manually entered vendor key from MemQL, and the engine reaches
+# Anthropic by workload identity federation. Nothing in the product reads this
+# name. Paste a bearer here (one lifted from a federated pod, or any token your
+# own account can mint) to run the benchmark. It is never echoed.
 #
 # Three scenarios:
 #   1. tiny      -- 11 tokens in / ~5 tokens out, no tools         (baseline)
@@ -78,16 +83,21 @@ function load_key() {
         echo "ERROR: $ENV_FILE not found"
         exit 1
     fi
-    KEY=$(grep "^MEMQL_AI_ANTHROPIC_API_KEY=" "$ENV_FILE" | head -1 | cut -d"'" -f2)
+    KEY="${MEMQL_TEST_ANTHROPIC_BEARER:-}"
+    if [[ -z "$KEY" ]]; then
+        KEY=$(grep "^MEMQL_TEST_ANTHROPIC_BEARER=" "$ENV_FILE" | head -1 | cut -d"'" -f2)
+    fi
     if [[ -z "$KEY" ]]; then
         # tolerate unquoted form
-        KEY=$(grep "^MEMQL_AI_ANTHROPIC_API_KEY=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+        KEY=$(grep "^MEMQL_TEST_ANTHROPIC_BEARER=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
     fi
     if [[ -z "$KEY" ]]; then
-        echo "ERROR: MEMQL_AI_ANTHROPIC_API_KEY not found in $ENV_FILE"
+        echo "ERROR: MEMQL_TEST_ANTHROPIC_BEARER is set neither in the environment nor in $ENV_FILE."
+        echo "       It is a developer input for this benchmark only -- MemQL itself holds no"
+        echo "       vendor key and federates instead (docs/public/operate/auth/anthropic-federation.md)."
         exit 1
     fi
-    echo "INFO: key loaded (suffix ...${KEY: -10}, len ${#KEY})"
+    echo "INFO: bearer loaded (suffix ...${KEY: -10}, len ${#KEY})"
 }
 
 function check_prerequisites() {

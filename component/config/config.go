@@ -74,7 +74,6 @@ func loadFromEnv() *busv1.ConfigSnapshot {
 		DbDsn: envStr("MEMQL_DATABASE_DSN"),
 
 		// AI
-		SiOpenaiApiKey:    envStr("MEMQL_AI_OPENAI_API_KEY"),
 		SiOpenaiProjectId: envStr("MEMQL_AI_OPENAI_PROJECT_ID"),
 		SiDefaultProvider: envStr("MEMQL_DEFAULT_PROVIDER"),
 

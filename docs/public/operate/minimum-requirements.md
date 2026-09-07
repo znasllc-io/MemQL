@@ -165,8 +165,15 @@ Every DB-connecting pod mounts the `memql-secrets` Secret via `envFrom`. The
   shared `MEMQL_IDENTITY_SIGNING_KEY_B64` (Ed25519 seed) in the envelope — every
   replica derives the same key/JWKS. See [Identity Service](auth/identity-service.md)
   and the [Access Model](auth/access-model.md).
-- **AI providers:** an `MEMQL_OPENAI_API_KEY` is required (streaming
-  transcription = OpenAI ASR); Anthropic optional. See
+- **AI providers: NO key is required, because no key exists.** Both vendors
+  are reached by workload identity federation, so the only per-cluster values
+  are the federation ids, they are optional, and a cluster with none boots and
+  serves everything that needs no model. Streaming transcription and Whisper
+  are OpenAI calls and therefore need OpenAI federation specifically -- they
+  are unavailable on a cluster that has not done that cutover, and on every
+  local cluster, whose OIDC issuer no vendor can reach. See
+  [OpenAI federation](auth/openai-federation.md),
+  [Anthropic federation](auth/anthropic-federation.md), and
   [Environment Variables](env-vars.md) for the full env surface and the
   bootstrap-envelope vs concept-stored split.
 

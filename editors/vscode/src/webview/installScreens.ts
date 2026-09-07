@@ -48,7 +48,7 @@ import type {
 import { MAIN_BRANCH_CHOICE, isMainBranchChoice } from "../install/stackPin.js";
 import type { UpdateStrategy } from "../state/updatePreflight.js";
 import { compareSemverDesc } from "../install/tags.js";
-import { SUPPORTED_PROVIDERS, optionalFields, requiredFields } from "../state/addCluster.js";
+import { requiredFields } from "../state/addCluster.js";
 import {
   failureGuidance,
   runIsSettled,
@@ -66,23 +66,19 @@ export const INPUT_FIELDS: readonly InputField[] = [
   "ownerFirstName",
   "ownerLastName",
   "ownerEmail",
-  "provider",
-  "providerKeyFile",
   "version",
 ];
 
 /**
  * The fields rendered as a CHOICE rather than as a text box.
  *
- * `provider` is one because the set is closed and the script refuses anything
- * outside it with exit 2 -- whose guidance says "a fault in MemQL rather than
- * in your machine or your answers", which would be a lie about a value the
- * operator typed. A control that cannot express the wrong answer is the fix;
- * `problemWith` is the second wall, for a message this page did not render.
+ * EMPTY SINCE epic memql#5088, and kept rather than deleted: `version` is a
+ * choice too, but a DYNAMIC one -- its options come off the remote at
+ * page-open time, so it rides `CollectScreenInput.versionChoices` instead.
+ * This map is the static half, and `renderField` reads it for every field.
+ * The only entry it ever held was the AI vendor, which is no longer collected.
  */
-export const CHOICE_FIELDS: Partial<Record<InputField, readonly string[]>> = {
-  provider: SUPPORTED_PROVIDERS,
-};
+export const CHOICE_FIELDS: Partial<Record<InputField, readonly string[]>> = {};
 
 /** The label each collected field carries. */
 export const FIELD_LABELS: Record<InputField, string> = {
@@ -90,8 +86,6 @@ export const FIELD_LABELS: Record<InputField, string> = {
   ownerFirstName: "First name",
   ownerLastName: "Last name",
   ownerEmail: "Email address",
-  provider: "AI provider",
-  providerKeyFile: "AI provider key file",
   version: "Version",
 };
 
@@ -100,11 +94,7 @@ export const FIELD_HINTS: Record<InputField, string> = {
   domain: "The cluster answers at api.<domain>. Defaults are fine if you have no preference.",
   ownerFirstName: "The cluster owner -- you.",
   ownerLastName: "",
-  provider:
-    "Which vendor the key below belongs to. Supply one and the installer makes a single authenticated call to check it before anything on this machine changes; leave both empty and it makes none.",
   ownerEmail: "Used to create the owner account. A local cluster sends no mail.",
-  providerKeyFile:
-    "A PATH to a file holding the key, never the key itself: a command line is readable by every process on this machine.",
   version:
     "Which MemQL release to install. Latest is preselected and is what a fresh install wants -- a release's manifests and its node images ship together at that tag. Choosing `main` instead clones the repository and BUILDS the node images from that checkout: it needs Docker and takes several minutes.",
 };
@@ -168,34 +158,27 @@ export function renderPreflight(items: readonly PreflightItem[] | undefined): st
 }
 
 /**
- * One field's markup. Extracted from `renderCollectScreen` when the AI
- * provider fields became optional (epic memql#4440): the disclosure below the
- * required fields renders exactly the same control, and a second copy of this
- * would be a second answer to what a field LOOKS LIKE on this page.
+ * One field's markup.
+ *
+ * Extracted from `renderCollectScreen` when the AI provider fields became
+ * optional (epic memql#4440) and the disclosure below the required fields
+ * needed exactly the same control. That disclosure is gone with the fields
+ * (epic memql#5088); this stays extracted because it is the one answer to what
+ * a field LOOKS LIKE on this page, which is worth having in one place whether
+ * or not two callers want it.
  */
 function renderField(input: CollectScreenInput, field: InputField): string {
   const { values, errors } = input;
   const error = errors.find((e) => e.field === field);
   const hint = FIELD_HINTS[field];
   const choices = CHOICE_FIELDS[field];
-  // THE ONE FIELD THAT NAMES A FILE GETS A FILE PICKER (memql#3547).
+  // NO FIELD NAMES A FILE ANY MORE (epic memql#5088), so there is no picker.
   //
-  // Typing a path is the error-prone way to name a file, and this is the
-  // path an operator is least able to check: it holds a secret, so
-  // nothing on this page can echo its contents back as confirmation. The
-  // picker removes the whole class -- what it returns exists, is a file,
-  // and is spelled the way the filesystem spells it.
-  //
-  // Typing still works, and both routes end in the same validation. The
-  // dialog is the extension host's (`vscode.window.showOpenDialog`);
-  // a webview cannot open one itself, which is why this is a button that
-  // posts a message rather than an `<input type="file">` -- and an
-  // `<input type="file">` would hand back a File object with no path,
-  // which is not what a `--key-file` flag can be given.
-  const browse =
-    field === "providerKeyFile"
-      ? `<button class="secondary browse" type="button" data-act="browseKeyFile">Browse...</button>`
-      : "";
+  // memql#3547 gave `providerKeyFile` a Browse button, because typing a path
+  // is the error-prone way to name a file and that path was the one an
+  // operator could least check -- it held a secret, so nothing on the page
+  // could echo its contents back as confirmation. There is no key file now:
+  // both cloud vendors are reached by workload identity federation.
   // `version` is the one field whose options are not a constant: they come
   // off the remote at page-open time. Falls through to the text box when
   // the listing is empty, which is what makes a no-network install still
@@ -217,7 +200,7 @@ function renderField(input: CollectScreenInput, field: InputField): string {
     fieldChoices === undefined
       ? `<div class="control-row"><input id="f-${field}" data-field="${field}" value="${escapeHtml(
           values[field],
-        )}">${browse}</div>`
+        )}"></div>`
       : `<select id="f-${field}" data-field="${field}">${fieldChoices
           .map(
             (choice) =>
@@ -235,50 +218,39 @@ function renderField(input: CollectScreenInput, field: InputField): string {
 }
 
 /**
- * The AI-provider disclosure (epic memql#4440).
+ * What this cluster does about AI models -- one sentence, not a field.
  *
- * COLLAPSED, AND THAT IS THE POINT. Installation spends no inference, so the
- * honest presentation of a vendor key is "there is a slot for this if you
- * happen to have one", not a field between the operator and the Start button.
- * An operator with no key -- which after this epic is the expected case --
- * should be able to read the form top to bottom and never learn that LLM
- * vendors exist.
+ * IT REPLACES THE AI-PROVIDER DISCLOSURE (epic memql#4440, retired by epic
+ * memql#5088). That disclosure was a collapsed `<details>` holding a vendor
+ * choice and a path to a key file. Both are gone: there is no vendor API key
+ * anywhere in the product, because both cloud vendors are now reached by
+ * workload identity federation.
  *
- * FORCED OPEN when one of its fields is in error, because a validation
- * message inside a closed `<details>` is a form that refuses to start and
- * will not say why. That is the failure mode a disclosure introduces, and it
- * is the only reason this function takes the errors at all.
+ * AND FEDERATION IS NOT ON OFFER HERE EITHER, which is why this is a sentence
+ * rather than a shorter form. Federation proves a cluster's identity by having
+ * the vendor verify a token against the cluster's OIDC issuer; a k3d cluster's
+ * issuer is not publicly reachable, so no vendor can verify anything it mints.
+ * A local cluster therefore cannot hold a cloud vendor credential of any kind.
+ * Offering an ids form here would collect answers that could never work.
+ *
+ * So the honest thing to tell an operator is where their models will actually
+ * come from, and it is worth telling them: a cluster whose agents cannot think
+ * yet is a working cluster, but only if you know why.
  */
-export function renderProviderDisclosure(
-  input: CollectScreenInput,
-  fields: readonly InputField[],
-): string {
-  if (fields.length === 0) return "";
-  const invalid = fields.some((field) => input.errors.some((e) => e.field === field));
-  const rendered = fields.map((field) => renderField(input, field)).join("");
-  return `<details class="optional-section"${invalid ? " open" : ""}>
-  <summary>AI provider (optional -- configure later in the portal)</summary>
-  <p class="hint">${escapeHtml(
-    "Nothing here is needed to install, start, repair or upgrade the cluster, and leaving it empty makes no call to any AI vendor. Providers are configured after the install at Settings -> AI providers in the portal, where workload identity federation is the recommended path for Anthropic. Supply a key here only if you already have one and would rather it were seeded during the run.",
-  )}</p>
-  ${rendered}
-</details>`;
+export function renderModelAccessNote(): string {
+  return `<p class="hint">${escapeHtml(
+    "No AI credential is collected, and installing makes no call to any AI vendor. " +
+      "A local cluster reaches models through a fleet machine you are signed in on, " +
+      "or through a model running locally -- not through a key.",
+  )}</p>`;
 }
 
 export function renderCollectScreen(input: CollectScreenInput): string {
   const required = new Set(requiredFields(input.action));
-  const optional = new Set(optionalFields(input.action));
 
   const fields = INPUT_FIELDS.filter((field) => required.has(field))
     .map((field) => renderField(input, field))
     .join("");
-  // Filtered from INPUT_FIELDS rather than taken from `optionalFields`
-  // directly, so the disclosure lists them in the same declared order as
-  // everything else on the page.
-  const disclosure = renderProviderDisclosure(
-    input,
-    INPUT_FIELDS.filter((field) => optional.has(field)),
-  );
 
   return renderScreen({
     title: COLLECT_TITLE[input.action] ?? "Install a local cluster",
@@ -295,7 +267,7 @@ export function renderCollectScreen(input: CollectScreenInput): string {
     status: `<p class="lede">Everything is collected before any work starts, so the long part runs unattended.</p>
 ${renderPreflight(input.preflight)}`,
     details: `${fields}
-${disclosure}`,
+${renderModelAccessNote()}`,
   });
 }
 
