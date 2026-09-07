@@ -12,6 +12,11 @@ import (
 //go:embed manifest.yaml
 var embeddedManifest []byte
 
+// EmbeddedManifestBytes returns the //go:embed snapshot baked into this
+// binary (loader priority 4). Exported so a boot-time check can decode it
+// strictly without duplicating the embed directive.
+func EmbeddedManifestBytes() []byte { return embeddedManifest }
+
 // ManifestEntry mirrors one row in memql's secrets/variable registry.
 // Callers only need Name at seal-validation time; the rest is the
 // authoritative metadata that drives the cockpit Configuration screen
@@ -72,7 +77,11 @@ func (e ManifestEntry) RequiredFor(nodeType string) bool {
 type Manifest struct {
 	Secrets   []ManifestEntry `yaml:"secrets"`
 	Variables []ManifestEntry `yaml:"variables"`
-	Source    string          `yaml:"-"`
+	// Modules are the readiness modules (design record
+	// docs/superpowers/specs/2026-09-06-configuration-readiness-design.md, section 4.2).
+	// Decoded leniently here like everything else; DecodeModulesStrict is the gate.
+	Modules []Module `yaml:"modules,omitempty"`
+	Source  string   `yaml:"-"`
 }
 
 // Names returns the REQUIRED entry names (secrets + variables) in
