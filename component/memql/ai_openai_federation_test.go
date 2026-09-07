@@ -598,3 +598,59 @@ func buildMinimalChatParams() openai.ChatCompletionNewParams {
 		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
 	}
 }
+
+// TestOpenAIExchangeIsPerformedOnceUnderConcurrentCallers backs the claim the
+// exchanger's lock discipline makes.
+//
+// Every engine node runs one exchanger behind a dozen providers, so a bearer
+// expiring under load means many goroutines arrive at once. Holding the mutex
+// across the network exchange is what makes the first caller pay and the rest
+// wake to a cached token; releasing it "to avoid blocking on I/O" would let
+// each of them exchange separately, against a vendor that rate-limits the
+// endpoint.
+//
+// This is not a probabilistic race test: the assertion is an EXACT count of
+// requests the server saw, which is 1 whatever order the goroutines run in. A
+// broken lock discipline gives some number greater than 1 rather than a
+// timing-dependent flake.
+func TestOpenAIExchangeIsPerformedOnceUnderConcurrentCallers(t *testing.T) {
+	f := newExchangeServer(t)
+	fed := openaiFederation{
+		IdentityProviderID: "idp_test",
+		ServiceAccountID:   "svc_test",
+		TokenFile:          validOpenAIIdentityToken(t),
+		TokenEndpoint:      f.srv.URL + "/oauth/token",
+	}
+	exchanger := newOpenAIExchanger(fed, guardedHTTPClient(nil))
+
+	const callers = 24
+	var wg sync.WaitGroup
+	tokens := make([]string, callers)
+	errs := make([]error, callers)
+	start := make(chan struct{})
+
+	for i := range callers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			token, _, err := exchanger.Bearer(context.Background())
+			tokens[i], errs[i] = token, err
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("caller %d: %v", i, err)
+		}
+		if tokens[i] != "sk-federated-1" {
+			t.Errorf("caller %d got %q, want the one exchanged bearer", i, tokens[i])
+		}
+	}
+	if n := len(f.exchanges()); n != 1 {
+		t.Errorf("%d callers caused %d token exchanges, want exactly 1 -- the lock is not held "+
+			"across the exchange, so each caller performed its own", callers, n)
+	}
+}

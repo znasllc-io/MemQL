@@ -203,12 +203,20 @@ func newOpenAIExchanger(fed openaiFederation, httpClient *http.Client) *openaiEx
 
 // Bearer returns a valid access token, exchanging the projected identity token
 // for a new one when the cached bearer is missing or close to expiry.
+//
+// THE LOCK IS HELD ACROSS THE NETWORK EXCHANGE, ON PURPOSE. Every engine node
+// runs one of these behind a dozen providers, so a bearer expiring under load
+// means many goroutines arrive at once; releasing the lock to "avoid blocking
+// on I/O" would let each of them perform its own exchange, against a vendor
+// that rate-limits the endpoint and a counter that would then report a dozen
+// exchanges per rotation. Serialising means the first caller pays and the rest
+// wake to a cached token. The wait is bounded by the caller's own context,
+// which the exchange honours.
 func (x *openaiExchanger) Bearer(ctx context.Context) (string, time.Time, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 
-	now := x.now()
-	if x.token != "" && x.expiresAt.After(now.Add(openaiRefreshMandatory)) {
+	if x.token != "" && x.expiresAt.After(x.now().Add(openaiRefreshMandatory)) {
 		return x.token, x.expiresAt, nil
 	}
 
@@ -220,7 +228,12 @@ func (x *openaiExchanger) Bearer(ctx context.Context) (string, time.Time, error)
 		// an hour to fix into an immediate outage. This mirrors what the
 		// Anthropic SDK does with its own cache, and the `denied` counter is
 		// what makes the window visible.
-		if x.token != "" && x.expiresAt.After(now) {
+		//
+		// The clock is read AGAIN here rather than reused from above: the
+		// exchange that just failed may have spent seconds timing out, and a
+		// token that was valid when this call started can have expired during
+		// it. Handing that one back would replace a clear error with a 401.
+		if x.token != "" && x.expiresAt.After(x.now()) {
 			return x.token, x.expiresAt, nil
 		}
 		return "", time.Time{}, err
