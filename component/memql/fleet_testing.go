@@ -36,6 +36,26 @@ func (r *ProviderRegistry) RegisterForTest(name, providerType, model string, cli
 	r.markDeclared(name)
 }
 
+// RegisterWithParamsForTest is RegisterForTest with the record's params, which
+// is where a provider's PRICES and its context window live.
+//
+// It is separate rather than a longer RegisterForTest because most fixtures do
+// not care: they stand in for "a provider that answers". The ones that do care
+// are the router's selector tests, where the whole question is what an
+// unpriced or window-less record does -- and a fixture that could not express
+// "declared no price" could not test the answer.
+func (r *ProviderRegistry) RegisterWithParamsForTest(name, providerType, model string, params map[string]any, client AIProvider) {
+	if r == nil {
+		return
+	}
+	r.setEntry(&ProviderConfigEntry{
+		Config:    ProviderConfig{Name: name, Type: providerType, Model: model, Params: params},
+		Client:    client,
+		Available: true,
+	})
+	r.markDeclared(name)
+}
+
 // NewPolicyRegistryForTest builds a policy registry from name -> provider
 // chain, where the first entry is the @primary and the rest are @fallback in
 // try order -- the same reading ProviderChain() gives a parsed policy.

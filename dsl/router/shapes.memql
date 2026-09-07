@@ -18,3 +18,37 @@ shape budget budgetFull {
   resetAt
   active
 }
+
+/// One AI routing decision, as an operator reads it. Projects what was asked
+/// for, what served, which rule and policy decided, and what it cost.
+///
+/// It deliberately projects NEITHER the prompt nor the error message. A
+/// decision record answers "why did this go to a vendor", and neither of those
+/// is needed to answer it -- while both are the fields most likely to carry
+/// something a reader of this list should not see.
+@row
+shape call routerDecision {
+  row.id
+  row.createdAt
+  requestId
+  promptName
+  level
+  requestedLevel
+  servedLevel
+  degraded
+  rule
+  policy
+  door
+  providerName
+  vendor
+  model
+  considered
+  touches
+  minContextTokens
+  machineOwnerUserId
+  totalCost
+  totalDurationMs
+  outcome
+  billing
+  executionSurface
+}

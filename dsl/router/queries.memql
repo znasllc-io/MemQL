@@ -20,3 +20,47 @@ query budget routerBudgets {
   filter  when(args.scope) { scope==args.scope } && isActiveRecord
   shape   budgetFull
 }
+
+/// The recent AI routing decisions, newest first. This is how a rule is
+/// checked: a rule set nobody can read the consequences of is a set of
+/// assertions.
+///
+/// FLOORED AT developer, WHICH ADMITS OWNER AND REFUSES ADMIN. On this ladder
+/// developer (300) outranks admin (200), so the floor is exactly the "owner or
+/// developer" this read was specified at. The AI-settings epic may want to
+/// widen it to admin -- a decision record carries no prompt content, and an
+/// admin answering "why did this go to a vendor" needs it -- and widening a
+/// floor later is safe where narrowing one is not, which is why it ships at
+/// the narrower reading.
+///
+/// v1:router:call declares no @rowAuthz tier, so this gate is the whole of the
+/// authorization. Declaring a tier on the concept would narrow every existing
+/// read of the cost ledger, which is a separate decision from adding this one.
+///
+/// There is no `limit` argument: the struct-query paginate directive accepts an
+/// integer literal only, so a caller-supplied page size is not expressible
+/// here. Callers page with the keyset cursor instead, which is the read a live
+/// decision list wants anyway.
+@requiresRank("developer")
+query call routerDecisionsRecent {
+  args {
+    /// Only decisions at or after this RFC3339 timestamp.
+    since    string
+    /// Only decisions resolved at this level.
+    level    string  @enum("fast", "strong", "reasoning", "embeddings")
+    /// Only decisions served through this door.
+    door     string  @enum("local", "app", "federation")
+    /// Only decisions the named rule made.
+    rule     string
+    /// Only decisions with this outcome. A park is recorded as its refusal code.
+    outcome  string
+  }
+  filter   when(args.since) { row.createdAt >= args.since }
+        && when(args.level) { level == args.level }
+        && when(args.door) { door == args.door }
+        && when(args.rule) { rule == args.rule }
+        && when(args.outcome) { outcome == args.outcome }
+  shape    routerDecision
+  sort     "row.createdAt", "desc"
+  paginate 200
+}

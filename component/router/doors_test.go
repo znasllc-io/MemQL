@@ -50,7 +50,8 @@ func shutApp(appId string) memql.AppDoor {
 }
 
 // threeStepRouter builds the router over the shipped default shape:
-// fleet:* -> app:* -> a vendor entry.
+// fleet:strongest -> app:* -> a vendor entry, reached through the one rule
+// every call falls to.
 func threeStepRouter(t *testing.T, models []memql.FleetModel, doors []memql.AppDoor, withCloud bool) (*Router, *countingCloud, *stubAppInference) {
 	t.Helper()
 	providers := memql.NewProviderRegistryForTest()
@@ -58,13 +59,13 @@ func threeStepRouter(t *testing.T, models []memql.FleetModel, doors []memql.AppD
 	apps := &stubAppInference{doors: doors}
 	providers.SetAppInference(apps)
 	cloud := &countingCloud{}
-	chain := []string{memql.FleetWildcard, memql.AppWildcard}
+	chain := []string{memql.FleetStrongest, memql.AppWildcard}
 	if withCloud {
 		providers.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", cloud)
 		chain = append(chain, "streamClaudeSonnet")
 	}
 	policies := memql.NewPolicyRegistryForTest(map[string][]string{"defaultChain": chain})
-	return New(providers, policies, nil, nil), cloud, apps
+	return New(providers, policies, testRules(t, defaultRule("defaultChain")), nil, nil), cloud, apps
 }
 
 func TestTheLocalDoorIsTriedFirst(t *testing.T) {
@@ -73,12 +74,18 @@ func TestTheLocalDoorIsTriedFirst(t *testing.T) {
 		[]memql.AppDoor{openApp("claude-code")},
 		true,
 	)
-	_, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "defaultChain", UserId: "alice"})
+	_, resolved, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if resolved.ProviderName != memql.FleetWildcard {
-		t.Fatalf("resolved %q, want the local door first", resolved.ProviderName)
+	// The DECISION NAMES THE MODEL, not the selector. `fleet:strongest` is a
+	// question; `fleet:llama3.1:8b` is the answer, and the answer is what a
+	// ledger row has to carry to be worth reading.
+	if resolved.ProviderName != "fleet:llama3.1:8b" {
+		t.Fatalf("resolved %q, want the local door first, named by model", resolved.ProviderName)
+	}
+	if resolved.Decision.Door != DoorLocal {
+		t.Fatalf("decision door = %q, want %q", resolved.Decision.Door, DoorLocal)
 	}
 	if apps.calls != 0 || cloud.calls != 0 {
 		t.Fatalf("nothing past the local door may be touched while it is open (app=%d cloud=%d)",
@@ -92,7 +99,7 @@ func TestTheAppDoorIsTriedWhenNoLocalModelIsAvailable(t *testing.T) {
 		[]memql.AppDoor{openApp("claude-code")},
 		true,
 	)
-	client, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "defaultChain", UserId: "alice"})
+	client, resolved, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -113,7 +120,7 @@ func TestFederationIsTriedWhenBothLocalDoorsAreShut(t *testing.T) {
 		[]memql.AppDoor{shutApp("claude-code")},
 		true,
 	)
-	client, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "defaultChain", UserId: "alice"})
+	client, resolved, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -139,7 +146,7 @@ func TestWorkParksOnlyWhenEveryDoorIsShut(t *testing.T) {
 		[]memql.AppDoor{shutApp("claude-code")},
 		false, // no vendor entry in the chain at all
 	)
-	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "defaultChain", UserId: "alice"})
+	_, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err == nil {
 		t.Fatal("every door shut must refuse")
 	}
@@ -189,14 +196,19 @@ func TestTheCeilingGatesTheFederationHopAndNotADirectVendorChain(t *testing.T) {
 	cloud := &countingCloud{}
 	providers.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", cloud)
 	policies := memql.NewPolicyRegistryForTest(map[string][]string{
-		"threeStep": {memql.FleetWildcard, "streamClaudeSonnet"},
+		"threeStep": {memql.FleetStrongest, "streamClaudeSonnet"},
 		"direct":    {"streamClaudeSonnet"},
 	})
-	r := New(providers, policies, nil, nil)
+	// Two chains, chosen by two RULES rather than by a caller naming a policy.
+	rules := testRules(t,
+		defaultRule("threeStep"),
+		&memql.RuleConfig{Name: "directChain", When: when("tag", "direct"), Policy: "direct", Precedence: 10, Locked: true},
+	)
+	r := New(providers, policies, rules, nil, nil)
 	r.ceilingCheck = reached
 
 	// The HOP: local first, then a vendor. Refused at the ceiling.
-	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "threeStep", UserId: "alice"})
+	_, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	var refusal *InferenceUnavailable
 	if !errors.As(err, &refusal) {
 		t.Fatalf("err = %v, want a ceiling refusal", err)
@@ -214,7 +226,7 @@ func TestTheCeilingGatesTheFederationHopAndNotADirectVendorChain(t *testing.T) {
 	}
 
 	// The DIRECT chain: a vendor with no local door before it. Unaffected.
-	_, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "direct", UserId: "alice"})
+	_, resolved, err := r.ResolveChat(ResolveRequest{UserId: "alice", Tags: []string{"direct"}})
 	if err != nil {
 		t.Fatalf("a chain that starts at a vendor is an operator's decision and must resolve: %v", err)
 	}
@@ -245,7 +257,7 @@ func TestACeilingRefusalIsNotAPark(t *testing.T) {
 // so rather than leaving the door unexplained.
 func TestAToolTurnWalksPastTheAppDoor(t *testing.T) {
 	r, _, apps := threeStepRouter(t, nil, []memql.AppDoor{openApp("claude-code")}, false)
-	_, _, err := r.ResolveWithTools(ResolveRequest{PolicyName: "defaultChain", UserId: "alice"})
+	_, _, err := r.ResolveWithTools(ResolveRequest{UserId: "alice"})
 	var refusal *InferenceUnavailable
 	if !errors.As(err, &refusal) {
 		t.Fatalf("err = %v, want the typed refusal", err)
@@ -273,11 +285,15 @@ func TestDoorForClassifiesEveryReferenceShape(t *testing.T) {
 		want string
 	}{
 		{memql.FleetWildcard, DoorLocal},
+		{memql.FleetStrongest, DoorLocal},
+		{memql.FleetFastest, DoorLocal},
 		{"fleet:llama3.1:8b", DoorLocal},
 		{memql.AppWildcard, DoorApp},
 		{"app:claude-code", DoorApp},
 		{"streamClaudeSonnet", DoorFederation},
 		{"chat54Mini", DoorFederation},
+		{"federation:cheapest", DoorFederation},
+		{"federation:streamClaudeSonnet", DoorFederation},
 		// Deliberately over-approximating: a raw API key reaches a vendor
 		// through the same entry and spends money the same way, so the
 		// ceiling must gate it too.

@@ -17,8 +17,13 @@ import (
 
 // PromptTemplate represents a compiled prompt definition.
 type PromptTemplate struct {
-	Name            string
-	Description     string
+	Name        string
+	Description string
+	// Level is what the prompt DECLARES it needs -- one of core/airoute's
+	// closed four -- and it is what a routing rule branches on. Empty means the
+	// prompt declared none; that is a load-time problem for the loader to
+	// refuse, not a value any reader should substitute a default for.
+	Level           string
 	TemplateSource  string
 	DefaultProvider string
 

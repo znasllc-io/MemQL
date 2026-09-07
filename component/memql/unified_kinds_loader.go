@@ -608,6 +608,7 @@ func LoadUnifiedPrompts(logger *slog.Logger, registry *PromptRegistry, partials 
 			registry.set(&PromptTemplate{
 				Name:            decl.name,
 				Description:     languageParser.EffectiveDescription(decl.docComment, decl.description),
+				Level:           decl.level,
 				TemplateSource:  source,
 				DefaultProvider: decl.defaultProvider,
 				tmpl:            tmpl,

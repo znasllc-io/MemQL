@@ -163,6 +163,8 @@ var sandboxSupportedKinds = map[string]bool{
 	"automation": true,
 	"action":     true,
 	"capability": true,
+	"policy":     true,
+	"rule":       true,
 }
 
 // SandboxCompileBundle compiles + binds each candidate construct in
@@ -446,6 +448,44 @@ func sandboxCompileOne(c SandboxConstruct, concepts memoryNodes.Registry) Sandbo
 			if _, gErr := concepts.Get(res.TriggerConcept); gErr != nil {
 				return failAt(d, c, fmt.Sprintf("%s: @trigger references concept %q, which is not defined by the core registry or this bundle", origin, res.TriggerConcept))
 			}
+		}
+
+	case "policy":
+		// A policy is a chain of doors and nothing else, so Gate 1 for one is
+		// the parse plus the converter -- which is where @primary being
+		// required and the closed entry grammar are both enforced. Chain
+		// EXPANSION is deliberately not run here: policy:<name> resolves
+		// against the live registry, and an isolated compile has none, so
+		// expanding would either fail on every composed policy or need a
+		// registry the sandbox must not touch. Activation expands.
+		decl, err := languageParser.ParsePolicyDecl(stripUseDeclarations(c.Source))
+		if err != nil {
+			return attachPos(fail(d, fmt.Sprintf("%s: %v", origin, err)), c, err)
+		}
+		actualName = decl.Name
+		if _, err := policyDeclToPolicyConfig(decl); err != nil {
+			return failAt(d, c, fmt.Sprintf("%s: %v", origin, err))
+		}
+
+	case "rule":
+		decl, err := languageParser.ParseRuleDecl(stripUseDeclarations(c.Source))
+		if err != nil {
+			return attachPos(fail(d, fmt.Sprintf("%s: %v", origin, err)), c, err)
+		}
+		actualName = decl.Name
+		// @locked IS REFUSED HERE, not only at load. The loader's check keys
+		// on which TREE a file came from, and an authored construct comes from
+		// no tree at all -- so without this the annotation would pass Gate 1,
+		// reach activation, and be refused there instead: later, further from
+		// the author, and with a message about trees they have no file in.
+		if decl.Locked {
+			return failAt(d, c, fmt.Sprintf("%s: rule %q carries @locked, which is accepted only in the embedded tree. "+
+				"An authored rule orders itself with @precedence, which is visible beside every other rule; "+
+				"@locked would place it ahead of the shipped rules, which is the one authority runtime authoring does not grant",
+				origin, decl.Name))
+		}
+		if _, err := ruleDeclToRuleConfig(decl, origin); err != nil {
+			return failAt(d, c, fmt.Sprintf("%s: %v", origin, err))
 		}
 
 	case "action":

@@ -56,6 +56,10 @@ func promptDeclToPromptDecl(decl *languageParser.PromptDecl, origin string) (*pr
 	out := &promptDecl{
 		name:       decl.Name,
 		docComment: decl.DocComment,
+		// The PARSER has already validated the value against the closed four
+		// and left it empty when absent, so this is a carry rather than a
+		// second check. Requiring it is the loader's job.
+		level: decl.Level,
 	}
 
 	for _, attr := range decl.Attributes {
@@ -76,6 +80,13 @@ func promptDeclToPromptDecl(decl *languageParser.PromptDecl, origin string) (*pr
 				return nil, fmt.Errorf("%s: @defaultProvider expects a string value", origin)
 			}
 			out.defaultProvider = val
+		case "level":
+			// Read off the typed field the parser filled, not off the raw
+			// value: this arm exists so the annotation is not rejected as
+			// unknown below. Validation happened at parse.
+			if _, ok := attr.Value.(string); !ok {
+				return nil, fmt.Errorf("%s: @level expects a string value", origin)
+			}
 		case "templateFile":
 			val, ok := attr.Value.(string)
 			if !ok {
@@ -86,7 +97,7 @@ func promptDeclToPromptDecl(decl *languageParser.PromptDecl, origin string) (*pr
 			// Unknown annotation -- hard-rejected (#990). Closes the
 			// silent-tolerance gap so typos and stale annotations on
 			// prompts fail at load instead of being dropped.
-			return nil, fmt.Errorf("%s: prompt %q: unknown annotation @%s -- supported: @defaultProvider, @description, @disabled, @enabled, @templateFile", origin, decl.Name, attr.Name)
+			return nil, fmt.Errorf("%s: prompt %q: unknown annotation @%s -- supported: @defaultProvider, @description, @disabled, @enabled, @level, @templateFile", origin, decl.Name, attr.Name)
 		}
 	}
 

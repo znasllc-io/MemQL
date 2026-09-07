@@ -185,6 +185,22 @@ func fallbackRecord(req ResolveRequest, failedResolved Resolved, err error) Call
 		ErrorCategory:     CategorizeError(err),
 		ErrorMessage:      TruncateError(errOrString(err), 500),
 		FallbackFromModel: failedResolved.Model,
+
+		// The decision is the same one for every row this resolution
+		// produces: the fallback attempt is part of what the rule decided,
+		// not a decision of its own.
+		PolicyName:         failedResolved.PolicyName,
+		Level:              string(failedResolved.Decision.Level),
+		RequestedLevel:     string(failedResolved.Decision.RequestedLevel),
+		ServedLevel:        string(failedResolved.Decision.ServedLevel),
+		Degraded:           failedResolved.Decision.Degraded,
+		Rule:               failedResolved.Decision.Rule,
+		Policy:             failedResolved.Decision.Policy,
+		Door:               failedResolved.Decision.Door,
+		Considered:         failedResolved.Decision.Considered,
+		Touches:            failedResolved.Decision.Touches,
+		MinContextTokens:   failedResolved.Decision.MinContextTokens,
+		MachineOwnerUserId: failedResolved.Decision.MachineOwnerUserId,
 	}
 }
 

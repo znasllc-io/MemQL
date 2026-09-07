@@ -13,6 +13,7 @@ import (
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 )
@@ -32,6 +33,7 @@ type Engine interface {
 type Router struct {
 	providers *memql.ProviderRegistry
 	policies  *memql.PolicyRegistry
+	rules     *memql.RuleRegistry
 	engine    Engine
 	logger    *slog.Logger
 
@@ -49,17 +51,29 @@ type Router struct {
 	ceilingCheck func(context.Context) (string, bool)
 }
 
-// New constructs a Router. Provider registry is required; policies
-// registry is optional (nil is treated as "no policies registered" and
-// the router falls through to single-provider resolution). The engine
-// is required for ledger writes. The logger may be nil.
-func New(providers *memql.ProviderRegistry, policies *memql.PolicyRegistry, engine Engine, logger *slog.Logger) *Router {
+// New constructs a Router. The provider, policy and RULE registries are all
+// required; the engine is required for ledger writes; the logger may be nil.
+//
+// A NIL RULE REGISTRY IS A REFUSAL AT RESOLVE TIME, NOT A FALLBACK, and that
+// is the one thing about this constructor worth stating. Without rules there
+// is no `default` rule, so there is no chain to walk -- and the only
+// alternative to refusing would be for the router to pick one itself, which is
+// precisely the pre-rules precedence (explicit, then a caller-named policy,
+// then a default provider) this epic removed. Re-appearing silently is how it
+// would come back: every call would resolve, the ledger would look ordinary,
+// and no decision record would name a rule.
+//
+// It is not refused HERE because a constructor that returns an error is a
+// change at every call site including the tests, and because the honest place
+// to refuse is where the missing thing is needed.
+func New(providers *memql.ProviderRegistry, policies *memql.PolicyRegistry, rules *memql.RuleRegistry, engine Engine, logger *slog.Logger) *Router {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &Router{
 		providers:    providers,
 		policies:     policies,
+		rules:        rules,
 		engine:       engine,
 		logger:       logger,
 		ceilingCheck: memql.CostCeilingReached,
@@ -124,6 +138,71 @@ func (r *Router) ResolveChat(req ResolveRequest) (common.ChatAIProvider, Resolve
 	}, resolved, nil
 }
 
+// ResolveStructured picks a provider for a structured-output call -- the
+// classifiers, the routing prompts, every CallChatStructured site.
+//
+// There is no fallback wrapper and no observer on this surface yet: the
+// observed* wrappers cover the three chat surfaces, and wrapping a fourth
+// without a ledger row to write would be an empty layer. The RESOLUTION is
+// still recorded in full on Resolved.Decision.
+func (r *Router) ResolveStructured(req ResolveRequest) (common.ChatStructuredProvider, Resolved, error) {
+	client, resolved, err := r.resolveDirect(req, modalityStructured)
+	if err != nil {
+		return nil, Resolved{}, err
+	}
+	return client.(common.ChatStructuredProvider), resolved, nil
+}
+
+// ResolveVision picks a provider for a vision call -- an image or a document
+// handed to a model that can look at it.
+func (r *Router) ResolveVision(req ResolveRequest) (common.VisionAIProvider, Resolved, error) {
+	client, resolved, err := r.resolveDirect(req, modalityVision)
+	if err != nil {
+		return nil, Resolved{}, err
+	}
+	return client.(common.VisionAIProvider), resolved, nil
+}
+
+// ResolveEmbedding picks a provider for an embedding call.
+//
+// The level for these is `embeddings`, which never degrades: a degraded
+// embedder answers in a different vector space, so the result is not a worse
+// vector but one that does not belong in the index it is about to be written
+// to. The shipped `embeddingsPark` rule is what enforces that, not this
+// function -- which is the point of levels being data.
+func (r *Router) ResolveEmbedding(req ResolveRequest) (memql.EmbeddingAIProvider, Resolved, error) {
+	client, resolved, err := r.resolveDirect(req, modalityEmbedding)
+	if err != nil {
+		return nil, Resolved{}, err
+	}
+	return client.(memql.EmbeddingAIProvider), resolved, nil
+}
+
+// resolveDirect resolves a modality that has no fallback wrapper: it runs the
+// same chain walk and hands back the winning entry's client.
+//
+// The interface assertion is safe by construction -- walkChain refused every
+// candidate that did not implement it -- but the entry is looked up once more
+// here rather than threaded out of the walk, because the walk returns the
+// chain the wrapper would use and this surface has no wrapper to give it to.
+func (r *Router) resolveDirect(req ResolveRequest, mod providerModality) (any, Resolved, error) {
+	chain, resolved, err := r.resolveChain(req, mod)
+	if err != nil {
+		return nil, Resolved{}, err
+	}
+	client, _, ok := r.providerLookup(context.Background(), req.UserId, resolved.ProviderName, mod)
+	if !ok {
+		// The entry resolved a moment ago and does not now. A machine slept,
+		// or a credential expired between the two lookups. It is a refusal
+		// rather than a panic on a failed assertion, and it says which
+		// provider moved.
+		return nil, Resolved{}, fmt.Errorf("router: %s resolved for %s and was gone by the time it was used",
+			resolved.ProviderName, modalityName(mod))
+	}
+	resolved.Chain = chain
+	return client, resolved, nil
+}
+
 type providerModality int
 
 const (
@@ -136,52 +215,306 @@ const (
 	// non-streaming providers implement CallChatWithTools, so any chain
 	// entry that serves modalityStreamTools also serves modalityTools.
 	modalityTools
+	// modalityStructured, modalityVision and modalityEmbedding are the three
+	// non-chat surfaces the seam carries (design D2). Each maps to exactly one
+	// provider interface.
+	//
+	// THERE IS DELIBERATELY NO SPEECH OR TRANSCRIPTION MODALITY HERE, and the
+	// absence is a finding rather than an oversight. TTSAIProvider has no
+	// caller and no gRPC handler behind it; transcription runs through
+	// integrations/stt.StreamingProvider, which never touches the provider
+	// registry at all. Entry points for those two would advertise doors this
+	// router cannot open.
+	modalityStructured
+	modalityVision
+	modalityEmbedding
 )
 
-// resolveChain picks the ordered list of provider names to try for a
-// request, along with metadata for the primary (first available)
-// provider. The chain is then used by the fallback wrappers to walk
-// down the list on error.
+// modalityName is what the report calls a modality an entry does not serve.
+func modalityName(mod providerModality) string {
+	switch mod {
+	case modalityStreamTools:
+		return "streaming tool-calling turns"
+	case modalityTools:
+		return "tool-calling turns"
+	case modalityStructured:
+		return "structured output"
+	case modalityVision:
+		return "vision turns"
+	case modalityEmbedding:
+		return "embeddings"
+	default:
+		return "chat turns"
+	}
+}
+
+// servesModality reports whether a resolved client implements the interface
+// this modality needs, and names the miss when it does not.
 //
-// Precedence:
-//  1. ExplicitProvider  -- single-entry chain
-//  2. PolicyName        -- policy's primary + fallbacks
-//  3. DefaultProvider   -- single-entry chain
-//  4. Registry default  -- single-entry chain (last resort)
+// The INTERFACE is the authority, not the provider record's declared modality.
+// A record says what it is for; the client says what it can do, and the client
+// is what the call is about to be handed to.
+func servesModality(client any, mod providerModality) (bool, string) {
+	var ok bool
+	switch mod {
+	case modalityStreamTools:
+		_, ok = client.(common.ChatStreamWithToolsProvider)
+	case modalityTools:
+		_, ok = client.(common.ToolCallingChatAIProvider)
+	case modalityStructured:
+		_, ok = client.(common.ChatStructuredProvider)
+	case modalityVision:
+		_, ok = client.(common.VisionAIProvider)
+	case modalityEmbedding:
+		_, ok = client.(memql.EmbeddingAIProvider)
+	default:
+		_, ok = client.(common.ChatAIProvider)
+	}
+	if ok {
+		return true, ""
+	}
+	return false, "does not serve " + modalityName(mod)
+}
+
+// chainWinner is the entry a walk settled on, plus the concrete names left
+// after it for the fallback wrapper to try.
+type chainWinner struct {
+	entry     *memql.ProviderConfigEntry
+	door      string
+	remaining []string
+}
+
+// resolveChain decides which provider serves this call, and records the whole
+// decision on the way (epic memql#5127, design D5 / D9 / D10).
+//
+// The order:
+//
+//  1. An EXPLICIT PROVIDER wins. No rule is consulted and no level is
+//     overridden: a pin is a caller saying "this one" about a specific call,
+//     and a rule that could override it would make the pin advisory.
+//  2. Otherwise the first matching RULE decides. Its @level overrides the
+//     call's -- both are recorded -- its @policy names the chain, and its
+//     @exclude entries come out of that chain before anything is tried.
+//  3. The chain is walked at the effective level, with a reason recorded for
+//     every entry passed over.
+//  4. On exhaustion the rule says what happens: DEGRADE walks again at the
+//     next level down, re-matching the rule there because a different rule may
+//     name a different policy, and records servedLevel and degraded; PARK
+//     returns the refusal with the report. `fast` is the floor, and
+//     `embeddings` never degrades at all.
+//  5. CLOUD CONSENT is the last thing checked, after every door is shut,
+//     because it is a person's decision about a situation they were shown.
 func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]string, Resolved, error) {
-	var chain []string
-	var policyName string
-
-	switch {
-	case strings.TrimSpace(req.ExplicitProvider) != "":
-		chain = []string{strings.TrimSpace(req.ExplicitProvider)}
-	case strings.TrimSpace(req.PolicyName) != "" && r.policies != nil:
-		if policy, ok := r.policies.Lookup(req.PolicyName); ok {
-			chain = policy.ProviderChain()
-			policyName = policy.Name
-		}
-	}
-	if len(chain) == 0 {
-		if def := strings.TrimSpace(req.DefaultProvider); def != "" {
-			chain = []string{def}
-		} else if d := r.providers.Default(); d != "" {
-			chain = []string{d}
-		}
-	}
-	if len(chain) == 0 {
-		return nil, Resolved{}, fmt.Errorf("router: no provider resolved (no explicit, no policy, no default)")
-	}
-
-	// THE CHAIN WALK (epic memql#5096, design D4). It picks the first entry
-	// that is available AND serves the requested modality, and it records a
-	// REASON for every entry it passes over -- which is what turns an
-	// exhausted chain from "no provider available" into a report a person can
-	// act on. The previous version dropped rejected entries silently, so the
-	// only thing an operator learned was the chain they had already written.
+	ctx := context.Background()
 	report := &doorReporter{}
+
+	// NO RULES MEANS NO ROUTING. See New: the only alternative to refusing is
+	// the router picking a chain on its own, which is the precedence this epic
+	// deleted, arriving back silently.
+	if r == nil || r.rules == nil {
+		report.note("(rules)", "no rule registry is wired into this router, so no rule can decide this call")
+		return nil, Resolved{}, r.refusalWith(report, work.RefusalEveryDoorShut, "", "", airoute.Decision{
+			RequestedLevel: req.Level,
+			Level:          req.Level,
+			ServedLevel:    req.Level,
+		})
+	}
+
+	if explicit := strings.TrimSpace(req.ExplicitProvider); explicit != "" {
+		winner, err := r.walkChain(ctx, req, mod, []string{explicit}, nil, report, "")
+		if err != nil {
+			return nil, Resolved{}, err
+		}
+		decision := airoute.Decision{
+			RequestedLevel:   req.Level,
+			Level:            req.Level,
+			ServedLevel:      req.Level,
+			Touches:          req.Touches,
+			MinContextTokens: req.Needs.MinContextTokens,
+		}
+		if winner != nil {
+			return chainAndResolved(r.resolvedFrom(winner, mod, "", report, decision))
+		}
+		resolved, err := r.consentOrRefusal(req, mod, report, "", decision)
+		if err != nil {
+			return nil, Resolved{}, err
+		}
+		return chainAndResolved(resolved)
+	}
+
+	// THE DEGRADE LOOP. Each pass matches a rule AT THE CURRENT LEVEL, because
+	// a different rule may name a different policy there -- which is the only
+	// way a second walk can produce a different answer at all.
+	level := req.Level
+	served := req.Level
+	var firstRule, lastRule *memql.RuleConfig
+	// walked fingerprints the chains already exhausted. A degrade that
+	// re-matches to the SAME chain cannot produce a different answer, and
+	// walking it again would fill the report with a second copy of reasons the
+	// reader has already read.
+	walked := map[string]bool{}
+	// seenLevels stops a cycle. A rule may RAISE the level it serves at, so
+	// "degrade from what was served" can arrive back at a level already tried;
+	// without this the loop spins forever on a pair of rules that point at
+	// each other, which is a configuration an owner can write.
+	seenLevels := map[airoute.Level]bool{}
+
+	for !seenLevels[level] {
+		seenLevels[level] = true
+
+		levelReq := req
+		levelReq.Level = level
+		rule := r.MatchRule(levelReq)
+		if rule == nil {
+			report.note("(rules)", "no rule matched this call and no default rule is registered")
+			break
+		}
+		if firstRule == nil {
+			firstRule = rule
+		}
+		lastRule = rule
+		effective := rule.EffectiveLevel(level)
+		served = effective
+
+		chain, ok := r.chainFor(rule, report)
+		if !ok {
+			break
+		}
+
+		if key := strings.Join(chain, "\x00"); walked[key] {
+			report.noteConsidered("(rule "+rule.Name+")", "",
+				"resolves the chain already exhausted at a higher level, so it is not walked again")
+		} else {
+			walked[key] = true
+			winner, err := r.walkChain(ctx, levelReq, mod, chain, rule.Excludes, report, rule.Policy)
+			if err != nil {
+				return nil, Resolved{}, err
+			}
+			if winner != nil {
+				// Level is what the call asked for once the FIRST matching
+				// rule had its say. A rule raising or lowering the level is
+				// the routing decision rather than a degradation, so Degraded
+				// compares what SERVED against this and not against what the
+				// call declared.
+				asked := firstRule.EffectiveLevel(req.Level)
+				return chainAndResolved(r.resolvedFrom(winner, mod, rule.Policy, report, airoute.Decision{
+					RequestedLevel:   req.Level,
+					Level:            asked,
+					ServedLevel:      effective,
+					Degraded:         effective != asked,
+					Rule:             rule.Name,
+					Policy:           rule.Policy,
+					Touches:          req.Touches,
+					MinContextTokens: req.Needs.MinContextTokens,
+				}))
+			}
+		}
+
+		// PARK IS THE RULE'S ANSWER and it stops the walk here. A degraded
+		// reasoning call returns a confident answer from a model that could
+		// not do the work, and nothing downstream can tell the difference.
+		if rule.Parks() {
+			report.noteConsidered("(rule "+rule.Name+")", "",
+				"declares onUnavailable=park, so the call is refused rather than degraded")
+			break
+		}
+		next, canDegrade := effective.Degrade()
+		if !canDegrade {
+			report.noteConsidered("(level "+string(effective)+")", "", degradeFloorReason(effective))
+			break
+		}
+		level = next
+	}
+
+	decision := airoute.Decision{
+		RequestedLevel:   req.Level,
+		Level:            req.Level,
+		ServedLevel:      served,
+		Touches:          req.Touches,
+		MinContextTokens: req.Needs.MinContextTokens,
+	}
+	policyName := ""
+	if firstRule != nil {
+		decision.Level = firstRule.EffectiveLevel(req.Level)
+	}
+	if lastRule != nil {
+		decision.Rule = lastRule.Name
+		decision.Policy = lastRule.Policy
+		policyName = lastRule.Policy
+	}
+	resolved, err := r.consentOrRefusal(req, mod, report, policyName, decision)
+	if err != nil {
+		return nil, Resolved{}, err
+	}
+	return chainAndResolved(resolved)
+}
+
+// chainAndResolved is the three-value form resolveChain returns: the concrete
+// chain the fallback wrapper walks, the resolution beside it, no error.
+func chainAndResolved(resolved Resolved) ([]string, Resolved, error) {
+	return resolved.Chain, resolved, nil
+}
+
+// degradeFloorReason says WHY a level has nowhere to go, because the two
+// reasons are different answers to an operator.
+func degradeFloorReason(level airoute.Level) string {
+	if level == airoute.LevelEmbeddings {
+		return "embeddings never degrades: a degraded embedder answers in a different vector space, " +
+			"so the vector would not belong in the index it was about to be written to"
+	}
+	return "there is no level below " + string(level) + " to degrade to"
+}
+
+// chainFor resolves a rule's policy into the chain to walk, with the rule's
+// excludes removed.
+//
+// A chain that empties out is returned EMPTY and walked as such. The rule's
+// onUnavailable then decides, which is the answer an operator asked for when
+// they excluded every entry -- falling back to the unexcluded chain would
+// quietly undo the exclusion they wrote.
+func (r *Router) chainFor(rule *memql.RuleConfig, report *doorReporter) ([]string, bool) {
+	if r.policies == nil {
+		report.note("(policy "+rule.Policy+")", "no policy registry is wired into this router")
+		return nil, false
+	}
+	policy, ok := r.policies.Lookup(rule.Policy)
+	if !ok {
+		report.note("(policy "+rule.Policy+")", "rule "+rule.Name+" names a policy that is not registered")
+		return nil, false
+	}
+	chain, removed := applyExcludes(policy.ProviderChain(), rule.Excludes)
+	for _, e := range removed {
+		report.noteConsidered(e, doorFor(e), "excluded by rule "+rule.Name)
+	}
+	return chain, true
+}
+
+// walkChain tries the entries of one chain in order, at one level.
+//
+// It returns (nil, nil) when the chain is exhausted -- an answer, not a fault
+// -- and a non-nil error only for a HARD stop: the cost ceiling, or a
+// `policy:` reference that should have been expanded at load. A ceiling
+// refusal does not degrade, because the ceiling is a condition only a person
+// changes and the next level down would meet it identically.
+func (r *Router) walkChain(
+	ctx context.Context,
+	req ResolveRequest,
+	mod providerModality,
+	chain []string,
+	excludes []string,
+	report *doorReporter,
+	policyName string,
+) (*chainWinner, error) {
 	sawLocalDoor := false
-	for _, name := range chain {
-		door := doorFor(name)
+	// EXCLUDES ARE APPLIED TWICE, AND BOTH ARE THE POINT. chainFor removed the
+	// entries an author wrote (`app:*`, `fleet:strongest`); this removes the
+	// CONCRETE names a selector expanded into, which is the form the demotion
+	// vehicle of epic 4 actually takes -- `@exclude("fleet:qwen3.5:7b")` names
+	// a model, and no chain entry is ever spelled that way.
+	banned := bannedSet(excludes)
+
+	for idx, rawEntry := range chain {
+		entryDoor := doorFor(rawEntry)
 
 		// THE FEDERATION HOP ASKS THE GUARD FIRST, and only when a LOCAL
 		// door preceded it in the chain. That condition is the whole
@@ -190,87 +523,212 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 		// falling BACK to paid inference, not choosing it. A chain that
 		// starts at a vendor is a decision somebody made, and refusing it
 		// here would break every cloud-quality policy in the tree.
-		if door == DoorFederation && sawLocalDoor {
-			if reason, reached := r.ceilingReached(context.Background()); reached {
-				report.note(name, "the cost ceiling for this process has been reached")
-				return nil, Resolved{}, report.refusal(work.RefusalCeilingReached, policyName, reason)
+		//
+		// It is asked of the ENTRY an author wrote rather than of the
+		// candidates it expands into, and that placement is load-bearing now
+		// that entries expand: a fleet selector with nothing eligible produces
+		// NO candidates, so a per-candidate flag would leave sawLocalDoor
+		// false and let the next hop skip the ceiling entirely -- a silent
+		// paid call at exactly the moment the local door was shut.
+		if entryDoor == DoorFederation && sawLocalDoor {
+			if reason, reached := r.ceilingReached(ctx); reached {
+				report.note(rawEntry, "the cost ceiling for this process has been reached")
+				return nil, r.refusalWith(report, work.RefusalCeilingReached, policyName, reason, airoute.Decision{
+					RequestedLevel: req.Level,
+					Level:          req.Level,
+					ServedLevel:    req.Level,
+					Policy:         policyName,
+					Touches:        req.Touches,
+				})
 			}
 		}
-		if door == DoorLocal || door == DoorApp {
+		if entryDoor == DoorLocal || entryDoor == DoorApp {
 			sawLocalDoor = true
 		}
 
-		// EntryForUser, not Entry: a `fleet:` or `app:` entry resolves
-		// against the ACTING USER'S machines (epic memql#4676), and
-		// resolving it against the system catalog instead would report a
-		// live laptop as unavailable -- which, with a fallback, is a silent
-		// paid call for a user whose machine was awake the whole time.
-		entry, ok := r.providers.EntryForUser(context.Background(), req.UserId, name)
-		if !ok {
-			report.note(name, "no provider by that name is registered")
-			continue
+		candidates, err := r.expandEntry(ctx, req, rawEntry, report)
+		if err != nil {
+			return nil, err
 		}
-		if !entry.Available {
-			reason := "unavailable"
-			if err := entry.Err(); err != nil {
-				reason = err.Error()
-			}
-			report.noteLocal(name, reason, r.consideredFor(req.UserId, name))
-			continue
-		}
-		// Confirm interface support for the requested modality.
-		//
-		// An app door lands here for a TOOL turn and is passed over, which
-		// is the design rather than a gap (D3): on a tool turn MemQL is
-		// driving, and an app is an agent that drives itself. It reaches
-		// MemQL's tools through MCP, in the other direction.
-		switch mod {
-		case modalityStreamTools:
-			if _, ok := entry.Client.(common.ChatStreamWithToolsProvider); !ok {
-				report.note(name, "does not serve streaming tool-calling turns")
+		for ci, cand := range candidates {
+			if banned[cand.Name] {
+				report.note(cand.Name, "excluded by the rule that chose this chain")
 				continue
 			}
-		case modalityTools:
-			if _, ok := entry.Client.(common.ToolCallingChatAIProvider); !ok {
-				report.note(name, "does not serve tool-calling turns")
+			// EntryForUser, not Entry: a `fleet:` or `app:` entry resolves
+			// against the ACTING USER'S machines (epic memql#4676), and
+			// resolving it against the system catalog instead would report a
+			// live laptop as unavailable -- which, with a fallback, is a
+			// silent paid call for a user whose machine was awake the whole
+			// time.
+			entry, ok := r.providers.EntryForUser(ctx, req.UserId, cand.Name)
+			if !ok {
+				report.note(cand.Name, "no provider by that name is registered")
 				continue
 			}
-		default:
-			if _, ok := entry.Client.(common.ChatAIProvider); !ok {
-				report.note(name, "does not serve chat turns")
+			if !entry.Available {
+				reason := "unavailable"
+				if err := entry.Err(); err != nil {
+					reason = err.Error()
+				}
+				report.noteLocal(cand.Name, reason, r.consideredFor(req.UserId, cand.Name))
 				continue
 			}
+			// The context floor is checked HERE only for a federation record.
+			// A fleet model's window was already checked against the same
+			// floor by the catalog, against the machine's own report, and a
+			// synthesized fleet or app entry carries no contextWindow param --
+			// so asking one would report every local model as undeclared.
+			if cand.Door == DoorFederation {
+				if miss := contextFloorMiss(entry.Config, req.Needs.MinContextTokens); miss != "" {
+					report.note(cand.Name, miss)
+					continue
+				}
+			}
+			// Confirm interface support for the requested modality.
+			//
+			// An app door lands here for a TOOL turn and is passed over, which
+			// is the design rather than a gap (D3): on a tool turn MemQL is
+			// driving, and an app is an agent that drives itself. It reaches
+			// MemQL's tools through MCP, in the other direction.
+			if serves, why := servesModality(entry.Client, mod); !serves {
+				report.note(cand.Name, why)
+				continue
+			}
+			return &chainWinner{
+				entry:     entry,
+				door:      cand.Door,
+				remaining: r.remainingNames(ctx, req, candidates[ci:], chain[idx+1:], banned),
+			}, nil
 		}
-		return chain, Resolved{
-			ProviderName: entry.Config.Name,
-			Vendor:       vendorFromType(entry.Config.Type),
-			Model:        entry.Config.Model,
-			Pricing:      entry.Config.Pricing(),
-			Streaming:    mod == modalityStreamTools,
-			PolicyName:   policyName,
-		}, nil
 	}
+	return nil, nil
+}
 
-	// EVERY DOOR IS SHUT. The chain is exhausted, and reaching here is itself
-	// the proof that no paid fallback was authored past the ones already
-	// tried: had one been in the chain and been available, it would have been
-	// returned above. That is what makes the no-silent-spend property
-	// structural rather than a rule somebody has to remember -- there is no
-	// branch here that could choose a provider the policy never mentioned.
-	//
-	// The one exception is a person's decision rather than a code path: the
-	// caller carries explicit consent for THIS call. The surface that set it
-	// showed the refusal first and got a yes; nothing here can set it.
+// remainingNames is the concrete chain the fallback wrapper walks: the winner,
+// then the candidates after it inside the same entry, then everything the
+// later entries expand to.
+//
+// The tail is expanded HERE rather than left as the entries an author wrote,
+// because the wrapper resolves by NAME and `federation:cheapest` is not a name
+// -- leaving it would silently drop the whole federation step on a pre-flight
+// error. The expansion writes to a THROWAWAY report: these entries were never
+// tried, and a reason recorded for an entry nobody reached is a line that
+// contradicts the walk it appears in.
+func (r *Router) remainingNames(
+	ctx context.Context,
+	req ResolveRequest,
+	rest []candidate,
+	laterEntries []string,
+	banned map[string]bool,
+) []string {
+	out := make([]string, 0, len(rest)+len(laterEntries))
+	for _, c := range rest {
+		if !banned[c.Name] {
+			out = append(out, c.Name)
+		}
+	}
+	discard := &doorReporter{}
+	for _, entry := range laterEntries {
+		cands, err := r.expandEntry(ctx, req, entry, discard)
+		if err != nil {
+			continue
+		}
+		for _, c := range cands {
+			if !banned[c.Name] {
+				out = append(out, c.Name)
+			}
+		}
+	}
+	return out
+}
+
+// resolvedFrom assembles the answer, KEEPING THE DOOR REPORT ON SUCCESS.
+//
+// That is design D10 and it is the whole point of the report: a rule is
+// falsifiable only if the decisions it made can be read, and what a chain did
+// not pick is half of that. The pre-rules walk accumulated exactly this and
+// dropped it with the stack frame the moment an entry won.
+func (r *Router) resolvedFrom(
+	winner *chainWinner,
+	mod providerModality,
+	policyName string,
+	report *doorReporter,
+	decision airoute.Decision,
+) Resolved {
+	decision.Door = winner.door
+	decision.Considered = append(report.entries(), airoute.ConsideredEntry{
+		Entry:  winner.entry.Config.Name,
+		Door:   winner.door,
+		Reason: "selected",
+	})
+	decision.Outcome = airoute.OutcomeOK
+	return Resolved{
+		ProviderName: winner.entry.Config.Name,
+		Vendor:       vendorFromType(winner.entry.Config.Type),
+		Model:        winner.entry.Config.Model,
+		Pricing:      winner.entry.Config.Pricing(),
+		Streaming:    mod == modalityStreamTools,
+		PolicyName:   policyName,
+		Chain:        winner.remaining,
+		Decision:     decision,
+	}
+}
+
+// consentOrRefusal is the last step: every door is shut, so either the person
+// already said yes to a paid provider for THIS call, or the call is refused.
+//
+// EVERY DOOR IS SHUT. Reaching here is itself the proof that no paid fallback
+// was authored past the ones already tried: had one been in the chain and been
+// available, it would have been returned above. That is what makes the
+// no-silent-spend property structural rather than a rule somebody has to
+// remember -- there is no branch here that could choose a provider the policy
+// never mentioned.
+//
+// The one exception is a person's decision rather than a code path: the caller
+// carries explicit consent for THIS call. The surface that set it showed the
+// refusal first and got a yes; nothing here can set it.
+func (r *Router) consentOrRefusal(
+	req ResolveRequest,
+	mod providerModality,
+	report *doorReporter,
+	policyName string,
+	decision airoute.Decision,
+) (Resolved, error) {
 	if req.CloudConsent {
 		if client, resolved, ok := r.consentedCloudFallback(mod); ok {
 			r.logger.Info("router: every door was shut and the user consented to a paid provider for this call",
 				"provider", resolved.ProviderName, "policy", policyName)
 			_ = client
-			return []string{resolved.ProviderName}, resolved, nil
+			decision.Door = DoorFederation
+			decision.Considered = append(report.entries(), airoute.ConsideredEntry{
+				Entry:  resolved.ProviderName,
+				Door:   DoorFederation,
+				Reason: "selected: the caller carried explicit consent to reach a paid provider for this call",
+			})
+			decision.Outcome = airoute.OutcomeOK
+			resolved.PolicyName = policyName
+			resolved.Chain = []string{resolved.ProviderName}
+			resolved.Decision = decision
+			return resolved, nil
 		}
 		report.note("(consent)", "a paid provider was approved for this call, but this cluster has none configured")
 	}
-	return nil, Resolved{}, report.refusal(work.RefusalEveryDoorShut, policyName, "")
+	return Resolved{}, r.refusalWith(report, work.RefusalEveryDoorShut, policyName, "", decision)
+}
+
+// refusalWith builds the typed refusal and stamps the decision onto it, so a
+// park is as legible as a hit (design D9).
+func (r *Router) refusalWith(
+	report *doorReporter,
+	code, policyName, ceilingReason string,
+	decision airoute.Decision,
+) error {
+	refusal := report.refusal(code, policyName, ceilingReason)
+	decision.Considered = report.entries()
+	decision.Outcome = code
+	refusal.Decision = decision
+	return refusal
 }
 
 // providerLookup resolves a chain entry by name into its client +
@@ -289,21 +747,10 @@ func (r *Router) providerLookup(ctx context.Context, userId, name string, mod pr
 		Pricing:      entry.Config.Pricing(),
 		Streaming:    mod == modalityStreamTools,
 	}
-	switch mod {
-	case modalityStreamTools:
-		if c, ok := entry.Client.(common.ChatStreamWithToolsProvider); ok {
-			return c, resolved, true
-		}
-	case modalityTools:
-		if c, ok := entry.Client.(common.ToolCallingChatAIProvider); ok {
-			return c, resolved, true
-		}
-	case modalityChat:
-		if c, ok := entry.Client.(common.ChatAIProvider); ok {
-			return c, resolved, true
-		}
+	if ok, _ := servesModality(entry.Client, mod); !ok {
+		return nil, Resolved{}, false
 	}
-	return nil, Resolved{}, false
+	return entry.Client, resolved, true
 }
 
 // buildRouterCallArgs assembles the recordRouterCall arg map for one
@@ -345,7 +792,41 @@ func buildRouterCallArgs(rec CallRecord, callId string) map[string]any {
 		"fallbackFromModel":  rec.FallbackFromModel,
 		"billing":            billingOrMetered(rec.Billing),
 		"executionSurface":   rec.ExecutionSurface,
+
+		// THE DECISION (epic memql#5127, design D10). Written on a hit AND on
+		// a park, so a refusal is as legible as a resolution. `considered` is
+		// the door report kept on SUCCESS as well -- what a chain did not pick
+		// is half the decision, and before this it was accumulated and then
+		// dropped with the stack frame the moment an entry won.
+		"level":              rec.Level,
+		"requestedLevel":     rec.RequestedLevel,
+		"servedLevel":        rec.ServedLevel,
+		"degraded":           rec.Degraded,
+		"rule":               rec.Rule,
+		"policy":             rec.Policy,
+		"door":               rec.Door,
+		"considered":         consideredArgs(rec.Considered),
+		"touches":            rec.Touches,
+		"minContextTokens":   rec.MinContextTokens,
+		"machineOwnerUserId": rec.MachineOwnerUserId,
 	}
+}
+
+// consideredArgs renders the door report as the plain []map the mutation's
+// []object argument takes. It returns an EMPTY SLICE rather than nil for an
+// empty report, because nil and "the walk considered nothing" are different
+// claims and only one of them is ever true: a resolution always considered at
+// least the entry it took.
+func consideredArgs(entries []airoute.ConsideredEntry) []map[string]any {
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, map[string]any{
+			"entry":  e.Entry,
+			"door":   e.Door,
+			"reason": e.Reason,
+		})
+	}
+	return out
 }
 
 // billingOrMetered normalizes a record's billing for the ledger. An

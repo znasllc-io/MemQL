@@ -199,5 +199,23 @@ func buildRecord(
 		Outcome:            outcome,
 		ErrorCategory:      errCat,
 		ErrorMessage:       errMsg,
+
+		// THE DECISION travels with the row from the resolution that made it.
+		// It is copied rather than re-derived: the router already answered
+		// which rule decided and what it passed over, and a second answer
+		// computed here from the provider name would be a guess that agrees
+		// most of the time.
+		PolicyName:         resolved.PolicyName,
+		Level:              string(resolved.Decision.Level),
+		RequestedLevel:     string(resolved.Decision.RequestedLevel),
+		ServedLevel:        string(resolved.Decision.ServedLevel),
+		Degraded:           resolved.Decision.Degraded,
+		Rule:               resolved.Decision.Rule,
+		Policy:             resolved.Decision.Policy,
+		Door:               resolved.Decision.Door,
+		Considered:         resolved.Decision.Considered,
+		Touches:            resolved.Decision.Touches,
+		MinContextTokens:   resolved.Decision.MinContextTokens,
+		MachineOwnerUserId: resolved.Decision.MachineOwnerUserId,
 	}
 }

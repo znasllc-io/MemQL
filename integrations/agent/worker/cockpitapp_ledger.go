@@ -80,8 +80,16 @@ func (w *LedgerWriter) RecordAppSession(ctx context.Context, result workerservic
 		"errorCategory":      "",
 		"errorMessage":       truncateForLedger(result.ErrorMessage),
 		"fallbackFromModel":  "",
-		"billing":            result.Billing,
-		"executionSurface":   planner.BackendCockpitApp + ":" + spec.App,
+		// NO DECISION FIELDS, and their absence is the record rather than an
+		// omission (epic memql#5127, D10). A decision says which rule matched
+		// and which policy chain picked which door -- and this row is a
+		// session an APP ran on the user's own machine, where the app chose
+		// its own model and MemQL's router was never consulted. Writing a
+		// level or a rule here would attribute a decision nobody made. The
+		// row still says what served, through providerName, model and
+		// executionSurface.
+		"billing":          result.Billing,
+		"executionSurface": planner.BackendCockpitApp + ":" + spec.App,
 	}
 	call, err := langparser.RenderCall("recordRouterCall", args)
 	if err != nil {

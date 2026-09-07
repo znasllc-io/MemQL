@@ -369,10 +369,11 @@ func (a *App) engineAndBus() {
 	// v1:router:call rows via recordRouterCall). The router is
 	// never a separate node; it's a library the agent replier, the
 	// gRPC AI handlers, and future policy-driven call sites all share.
-	a.router = router.New(a.engine.Providers(), a.engine.Policies(), a.engine, a.Logger)
+	a.router = router.New(a.engine.Providers(), a.engine.Policies(), a.engine.Rules(), a.engine, a.Logger)
 	a.Logger.Info("AI Router initialized",
 		"providers", a.engine.Providers().Count(),
 		"policies", a.engine.Policies().Count(),
+		"rules", a.engine.Rules().Count(),
 		"default", a.engine.Providers().Default(),
 	)
 }
