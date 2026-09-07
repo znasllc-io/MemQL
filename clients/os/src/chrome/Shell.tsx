@@ -36,6 +36,7 @@ import { ShellDragScope } from "./dragScope";
 import { gridForViewport, OsProvider, useOs } from "./state";
 import { LauncherOverlay } from "./LauncherOverlay";
 import { PhoneShell } from "./PhoneShell";
+import { useReadinessFeed } from "../live/readiness";
 
 // The shell (spec A): providers + the layout split. Desktop and iPad get
 // the desk world; the phone gets its own chrome. Transports and stores
@@ -179,9 +180,12 @@ function SessionScope({
   // not reach this" from "the shell does not know yet" -- two states that
   // both hide an app and must not read the same to the person in front of it.
   const ladderLoaded = useRoleLadder();
+  // Readiness is retained HERE and nowhere else, so every window, mark and
+  // Set up group reads one answer. See src/live/readiness.tsx.
+  const readiness = useReadinessFeed();
   const value = useMemo(
-    () => ({ access: resolved, config, ladderLoaded }),
-    [resolved, config, ladderLoaded],
+    () => ({ access: resolved, config, ladderLoaded, readiness }),
+    [resolved, config, ladderLoaded, readiness],
   );
   return <SessionProvider value={value}>{children}</SessionProvider>;
 }
