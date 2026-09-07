@@ -91,7 +91,7 @@ describe("the map draws what the rows say", () => {
   it("puts you at the start, the automation next, and the goal at the far end", async () => {
     mount(seeded());
     await openGoal();
-    expect(screen.getByLabelText("You, where the goal was set")).toBeTruthy();
+    expect(screen.getByLabelText("Start, where the goal was set")).toBeTruthy();
     expect(screen.getByLabelText(/^Automation nightlyReconcile/)).toBeTruthy();
     // The beacon carries the goal's own words and how far the work has got.
     // Two readings of the same fact -- the count under the ring and the map's
