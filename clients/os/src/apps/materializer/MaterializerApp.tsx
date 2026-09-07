@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Caption, Check, Head, Panel, Select } from "../../kit";
+import { Caption, Check, Head, Panel, Select, SetupGroup } from "../../kit";
 import { AppLogsSection } from "../../logs/AppLogsSection";
 import { useOsIfPresent } from "../../chrome/state";
 import type { OsAppProps } from "../../system/registry";
@@ -38,10 +38,10 @@ import {
   LocalMaterializerSettingsStore,
   MATERIALIZER_SECTIONS,
   type MaterializerSettings,
-  type MaterializerSettingsStore,
-} from "./settings";
+  type MaterializerSettingsStore, MATERIALIZER_REQUIRES, MATERIALIZER_WANTS } from "./settings";
 import { useCompositions, useRecipes, useTemplates } from "./useCompose";
 import { FORMATS, formatWord } from "./words";
+import { useSession } from "../../chrome/access";
 
 // THE MATERIALIZER: where a person and the model compose data from the
 // memory graph into a file (epic memql#4977, design record
@@ -305,9 +305,20 @@ function MaterializerSettingsSection({
   settings: MaterializerSettings;
   update: (patch: Partial<MaterializerSettings>) => void;
 }) {
+  const { readiness } = useSession();
   return (
     <div className="os-settings">
       <Head title="Materializer settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Materializer"
+        requires={MATERIALIZER_REQUIRES}
+        wants={MATERIALIZER_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Materializer settings">
         <fieldset className="os-field-group">
           <legend>Open the Materializer on</legend>

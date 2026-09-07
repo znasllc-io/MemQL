@@ -1,3 +1,4 @@
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 // The Materializer's own settings, in their own versioned store.
@@ -158,3 +159,17 @@ export function sanitizeSettings(raw: unknown): MaterializerSettings {
 }
 
 const FORMAT_IDS = ["markdown", "html", "txt", "csv", "json", "docx", "pdf"];
+
+/**
+ * The readiness modules this app needs (design record
+ * 2026-09-06-configuration-readiness, section 5.1).
+ *
+ * Composing runs a model and every materialized output is written to blob
+ * storage, so neither is optional here.
+ *
+ * Exported so the manifest and the Set up group read ONE list: a second
+ * literal is one that can disagree, and the disagreement is an app that gates
+ * on a module its own Settings never offers to set up.
+ */
+export const MATERIALIZER_REQUIRES: readonly ModuleId[] = ["ai", "storage"];
+export const MATERIALIZER_WANTS: readonly ModuleId[] = [];

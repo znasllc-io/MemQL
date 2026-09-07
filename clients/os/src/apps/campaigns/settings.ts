@@ -5,6 +5,7 @@
 // version it does not know, so folding per-app preferences into it would mean
 // a person loses their desks because an app learned a checkbox.
 
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 /**
@@ -148,3 +149,17 @@ export class LocalCampaignsSettingsStore implements CampaignsSettingsStore {
     }
   }
 }
+
+/**
+ * The readiness modules this app needs (design record
+ * 2026-09-06-configuration-readiness, section 5.1).
+ *
+ * Sending needs a mailbox and the unsubscribe pair, and authoring waits on
+ * them too: a campaign nobody can send is a draft with a button that refuses.
+ *
+ * Exported so the manifest and the Set up group read ONE list: a second
+ * literal is one that can disagree, and the disagreement is an app that gates
+ * on a module its own Settings never offers to set up.
+ */
+export const CAMPAIGNS_REQUIRES: readonly ModuleId[] = ["email", "campaigns"];
+export const CAMPAIGNS_WANTS: readonly ModuleId[] = [];

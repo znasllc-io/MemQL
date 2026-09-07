@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Concepts, type LiveSnapshot, type Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { Head, Panel, roleAdmits } from "../../kit";
+import { Head, Panel, roleAdmits, SetupGroup } from "../../kit";
 import { useSession } from "../../chrome/access";
 import { useLiveView, type LiveView } from "../../live/liveView";
 import { useArrivals } from "../../live/useArrivals";
@@ -25,8 +25,7 @@ import {
   LocalDeployablesSettingsStore,
   type DeployablesSettings,
   type DeployablesSettingsStore,
-  type ListDensity,
-} from "./settings";
+  type ListDensity, DEPLOYABLES_REQUIRES, DEPLOYABLES_WANTS } from "./settings";
 import { DeployablesSettingsProvider } from "./settingsContext";
 import { useSites } from "./useSites";
 
@@ -345,6 +344,7 @@ function DeployablesSettingsSection({
   /** The answer from a GitHub connect, rendered by the group that asked. */
   connectResult: ConnectReturn | null;
 }) {
+  const { readiness } = useSession();
   // OFFER ONLY WHAT THIS SESSION CAN OPEN. A preference naming a section the
   // reader is not admitted to would silently do nothing -- WindowFrame falls
   // back to the first admitted section -- which reads as a broken setting
@@ -355,6 +355,16 @@ function DeployablesSettingsSection({
   return (
     <div className="os-settings">
       <Head title="Deployables settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Deployables"
+        requires={DEPLOYABLES_REQUIRES}
+        wants={DEPLOYABLES_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Deployables settings">
         <fieldset className="os-field-group">
           <legend>Open Deployables on</legend>

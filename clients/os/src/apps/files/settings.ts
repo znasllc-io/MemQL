@@ -1,3 +1,4 @@
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 // The Files app's own settings, and the store that keeps them (design D4).
@@ -102,3 +103,17 @@ export class LocalFilesSettingsStore implements FilesSettingsStore {
     }
   }
 }
+
+/**
+ * The readiness modules this app needs (design record
+ * 2026-09-06-configuration-readiness, section 5.1).
+ *
+ * WANTS: the tree, the places and the Bin all read rows. Only bytes need
+ * storage, and the upload path says so itself.
+ *
+ * Exported so the manifest and the Set up group read ONE list: a second
+ * literal is one that can disagree, and the disagreement is an app that gates
+ * on a module its own Settings never offers to set up.
+ */
+export const FILES_REQUIRES: readonly ModuleId[] = [];
+export const FILES_WANTS: readonly ModuleId[] = ["storage"];

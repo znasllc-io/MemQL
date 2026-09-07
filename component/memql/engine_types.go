@@ -455,6 +455,13 @@ const (
 	// catalog and registry the router reads -- eligibility gets no second
 	// implementation. See fleet_catalog_read.go.
 	BuiltinExecutorInferenceStatus = "inferenceStatus"
+	// BuiltinExecutorModuleReadiness folds every node's readiness rows into
+	// one verdict per module (design record 2026-09-06-configuration-readiness,
+	// section 4.5). See readiness_read.go.
+	BuiltinExecutorModuleReadiness = "moduleReadiness"
+	// BuiltinExecutorReadinessRecompute re-evaluates this node and rewrites
+	// its rows; pulled by integration configure paths, never by a client.
+	BuiltinExecutorReadinessRecompute = "readinessRecompute"
 	// BuiltinExecutorProvidersReload re-resolves provider auth on EVERY node
 	// (epic memql#4440). Owner-gated in Go; writes an audit line; broadcasts
 	// over the mesh. See provider_reload_propagate.go.
@@ -472,6 +479,21 @@ const (
 	// (epic memql#4440). Owner-gated. None of the five is a credential.
 	BuiltinExecutorProviderFederationSet = "providerFederationSet"
 )
+
+// ModuleReadinessConcept is the canonical id of one node's per-module
+// readiness verdict (design record 2026-09-06-configuration-readiness,
+// section 4.4). See readiness_read.go.
+const ModuleReadinessConcept = "v1:platform:moduleReadiness"
+
+// ModuleVerdictConcept is the canonical id of the virtual, never-persisted
+// cluster-wide fold of ModuleReadinessConcept rows, one row per module
+// (section 4.5). See readiness_read.go.
+const ModuleVerdictConcept = "v1:platform:moduleVerdict"
+
+// ReadinessRecomputeResultConcept is the canonical id of the virtual,
+// never-persisted single row readinessRecompute answers with: which node
+// re-evaluated and how many rows it wrote.
+const ReadinessRecomputeResultConcept = "v1:platform:readinessRecomputeResult"
 
 // FilterNode aliases ComparisonExpression for backwards compatibility with earlier plan designs.
 type FilterNode = ComparisonExpression

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { Button, Caption, Fact, Facts, Head, Notice, Panel, Subhead, roleAdmits, useNow } from "../../kit";
+import { Button, Caption, Fact, Facts, Head, Notice, Panel, Subhead, roleAdmits, useNow, SetupGroup } from "../../kit";
 import { formatBytes, formatFreshness, formatMoment } from "../../kit/format";
 import { boolOr, flatten } from "../../kit/rows";
 import { useOsConnection } from "../../live/connection";
@@ -13,8 +13,8 @@ import {
   LOGS_DENSITIES,
   LOGS_SECTIONS,
   STREAM_WINDOWS,
-  type LogsSettings,
-} from "./settings";
+  type LogsSettings, LOGS_REQUIRES, LOGS_WANTS } from "./settings";
+import { useSession } from "../../chrome/access";
 
 // The Logs app's settings: its own preferences, what this cluster keeps, and
 // the archived days (spec H "The Logs app", L7, L8).
@@ -128,6 +128,7 @@ export function LogsSettingsSection({
   update: (patch: Partial<LogsSettings>) => void;
   actorRole: string;
 }) {
+  const { readiness } = useSession();
   const connection = useOsConnection();
   const now = useNow();
   const isOwner = roleAdmits(actorRole, { min: "owner" });
@@ -210,6 +211,16 @@ export function LogsSettingsSection({
   return (
     <div className="os-settings">
       <Head title="Logs settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Logs"
+        requires={LOGS_REQUIRES}
+        wants={LOGS_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Logs settings">
         <fieldset className="os-field-group">
           <legend>Open Logs on</legend>

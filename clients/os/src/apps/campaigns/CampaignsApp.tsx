@@ -4,7 +4,7 @@ import { Concepts } from "@znasllc-io/memql-sdk-core/client";
 import { useAuthSource } from "../../auth/context";
 import { EdgeUploadProvider } from "../../items/edgeUpload";
 import type { UploadProvider } from "../../items/upload";
-import { Check, Head, Notice, Panel } from "../../kit";
+import { Check, Head, Notice, Panel, SetupGroup } from "../../kit";
 import { AppLogsSection } from "../../logs/AppLogsSection";
 import type { OsAppProps } from "../../system/registry";
 import { AudiencesSection } from "./AudiencesSection";
@@ -18,9 +18,9 @@ import {
   DEFAULT_CAMPAIGNS_SETTINGS,
   LocalCampaignsSettingsStore,
   type CampaignsSettings,
-  type CampaignsSettingsStore,
-} from "./settings";
+  type CampaignsSettingsStore, CAMPAIGNS_REQUIRES, CAMPAIGNS_WANTS } from "./settings";
 import { useCampaignFeeds, useEmailReadiness } from "./useCampaigns";
+import { useSession } from "../../chrome/access";
 
 // Campaigns: writing mail, sending it, and knowing what happened (epic
 // memql#4827 / #4828 / #4830).
@@ -210,9 +210,20 @@ function CampaignsSettingsSection({
   settings: CampaignsSettings;
   update: (patch: Partial<CampaignsSettings>) => void;
 }) {
+  const { readiness } = useSession();
   return (
     <div className="os-settings">
       <Head title="Campaigns settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Campaigns"
+        requires={CAMPAIGNS_REQUIRES}
+        wants={CAMPAIGNS_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Campaigns settings">
         <fieldset className="os-field-group">
           <legend>Open Campaigns on</legend>

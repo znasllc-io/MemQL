@@ -964,3 +964,12 @@ completed 2026-04-25. Decision summary:
   The fallback keeps the BFF alive through that bootstrap window. A
   lazy per-request resolver or a post-seed engine-reload hook would
   let us retire it.
+
+## What is set up, and what is not
+
+An entry declared here is a slot something can fill. Whether a slot is
+actually filled -- per module, per node and cluster-wide -- is
+[configuration readiness](configuration-readiness.md): what the marks on an
+app's Settings entry mean, why two replicas can disagree mid-rollout, why
+"not reported" is a different answer from "not set up", and the `modules:`
+block that declares it.

@@ -1707,6 +1707,21 @@ func LogsTailBuild(args LogsTailArgs) string {
 	return b.String()
 }
 
+// ModuleReadiness -- The cluster-wide readiness verdict per module (design record 2026-09-06-configuration-readiness, section 4.5): reads every node's latest moduleReadiness row and the live cluster nodes, folds them with component/memql/readiness -- worst state wins, disagreement is partial with the nodes named, no live reporter is unreported -- and answers one row per module on v1:platform:moduleVerdict.
+type ModuleReadinessArgs struct {
+}
+
+// ModuleReadiness calls the engine builtin moduleReadiness.
+func (qc *QueryClient) ModuleReadiness(ctx context.Context, args ModuleReadinessArgs) (*Result, error) {
+	call := ModuleReadinessBuild(args)
+	return qc.executeNamed(ctx, "moduleReadiness", call)
+}
+
+func ModuleReadinessBuild(args ModuleReadinessArgs) string {
+	_ = args
+	return "builtin moduleReadiness()"
+}
+
 // PackageAnalyze -- Analyze a package source offline and return the report, deploying nothing (epic memql#4794, D12). Fetches the tracked source, walks the manifest, discovers the DSL domains and runs the SAME Init-grade gates strict boot runs -- so 'this DSL would refuse boot' is an answer produced here, before a pod is ever asked to run it. Returns {report, ok}: the report names every deployable with its build plan (or 'prebuilt output found -- build skipped'), every DSL domain with construct counts, any Go pack as reported-not-deployable, and every problem found. A refusal carries one of the stable codes in component/packages/refusal.go.
 type PackageAnalyzeArgs struct {
 	// The v1:platform:package row to analyze.

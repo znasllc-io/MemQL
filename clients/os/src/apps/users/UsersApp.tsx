@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Concepts } from "@znasllc-io/memql-sdk-core/client";
 
-import { Check, Head, Panel } from "../../kit";
+import { Check, Head, Panel, SetupGroup } from "../../kit";
 import { useSession } from "../../chrome/access";
 import { AppLogsSection } from "../../logs/AppLogsSection";
 import type { OsAppProps } from "../../system/registry";
@@ -13,8 +13,7 @@ import {
   LocalUsersSettingsStore,
   USERS_SECTIONS,
   type UsersSettings,
-  type UsersSettingsStore,
-} from "./settings";
+  type UsersSettingsStore, USERS_REQUIRES, USERS_WANTS } from "./settings";
 
 // Users: the people of this cluster, the invitations outstanding, and the
 // three admin actions the identity service exposes (epic memql#4733).
@@ -115,9 +114,20 @@ function UsersSettingsSection({
   settings: UsersSettings;
   update: (patch: Partial<UsersSettings>) => void;
 }) {
+  const { readiness } = useSession();
   return (
     <div className="os-settings">
       <Head title="Users settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Users"
+        requires={USERS_REQUIRES}
+        wants={USERS_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Users settings">
         <fieldset className="os-field-group">
           <legend>Open Users on</legend>

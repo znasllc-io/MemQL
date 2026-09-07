@@ -59,6 +59,10 @@ func TestEmbeddedManifestInSync(t *testing.T) {
 
 	compareEntrySlices(t, "secrets", authored.Secrets, embedded.Secrets)
 	compareEntrySlices(t, "variables", authored.Variables, embedded.Variables)
+
+	if !reflect.DeepEqual(authored.Modules, embedded.Modules) {
+		t.Fatalf("embedded manifest modules are out of sync with the authored file: run `make env-registry-sync`\nauthored=%+v\nembedded=%+v", authored.Modules, embedded.Modules)
+	}
 }
 
 func compareEntrySlices(t *testing.T, section string, authored, embedded []ManifestEntry) {

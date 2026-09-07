@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { ModulesClient, type ModulesInventory } from "@znasllc-io/memql-sdk-core/client";
 
-import { Button, Caption, Chip, Head, Notice, Panel, Row, Subhead } from "../../../kit";
+import { Button, Caption, Chip, Head, Notice, Panel, Row, Subhead, stateWords } from "../../../kit";
+import { useSession } from "../../../chrome/access";
 import { useOsConnection } from "../../../live/connection";
 import { useReading } from "../../../cluster/reading";
 import { ModuleDetail } from "./ModuleDetail";
@@ -10,6 +11,7 @@ import {
   moduleStateNeedsAttention,
   moduleStateSentence,
   moduleStateTone,
+  readinessForModule,
 } from "./rows";
 
 // Modules: what this cluster is MADE OF, as the answering binary knows it.
@@ -48,6 +50,9 @@ import {
 
 export function ModulesSection() {
   const connection = useOsConnection();
+  // The readiness feed the shell already retains -- not a second read of the
+  // same rows, which is the rule the feed's own file states.
+  const { readiness } = useSession();
 
   // The client is constructed from the dispatcher, not from `query`: the
   // module registry is its own surface with its own authorization tier
@@ -140,6 +145,7 @@ export function ModulesSection() {
           <Subhead>{group.name}</Subhead>
           {group.modules.map((module) => {
             const sentence = moduleStateSentence(module.state);
+            const verdict = readinessForModule(module, readiness);
             return (
               <Row
                 key={`${module.kind}/${module.name}`}
@@ -153,6 +159,20 @@ export function ModulesSection() {
                     <Chip tone="muted" title={scopeTitle(module.scope)}>
                       {module.scope || "unscoped"}
                     </Chip>
+                    {/* The CLUSTER-WIDE reading, beside this node's own, so
+                        the operator's inventory and the apps' marks are one
+                        answer rather than two that can quietly differ. */}
+                    {verdict ? (
+                      <Chip
+                        tone={verdict.state === "configured" ? "muted" : "accent"}
+                        title="Every live node's answer, folded. This row's other chips are the answering node's own."
+                      >
+                        {stateWords(verdict)}
+                        {verdict.disagreement.length > 0
+                          ? ` (${verdict.disagreement.join(", ")})`
+                          : ""}
+                      </Chip>
+                    ) : null}
                   </>
                 }
               >

@@ -169,8 +169,23 @@ func TestConfigureRenderedCallsParse(t *testing.T) {
 			t.Fatalf("configure %s: %v", tc.slot, err)
 		}
 	}
-	if len(w.calls) != 3 {
-		t.Fatalf("expected three writes, got %d", len(w.calls))
+	// SIX calls, not three: each configure writes its slot and then pulls
+	// `builtin readinessRecompute()` through the same writer, so the module's
+	// mark follows the value on this node (epic memql#5077). Both halves are
+	// rendered MemQL text and both are checked below -- a recompute call that
+	// did not parse would leave the write correct and the mark stale, which
+	// is a state nothing else reports.
+	if len(w.calls) != 6 {
+		t.Fatalf("expected three writes and three recomputes, got %d: %v", len(w.calls), w.calls)
+	}
+	recomputes := 0
+	for _, q := range w.calls {
+		if strings.Contains(q, "readinessRecompute") {
+			recomputes++
+		}
+	}
+	if recomputes != 3 {
+		t.Errorf("expected one readiness recompute per configure, got %d: %v", recomputes, w.calls)
 	}
 	for _, q := range w.calls {
 		tokens, lerr := langparser.NewLexer(q).Tokenize()

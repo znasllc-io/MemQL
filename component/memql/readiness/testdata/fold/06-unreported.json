@@ -1,0 +1,13 @@
+{
+  "name": "unreported",
+  "now": "2026-09-06T12:00:00Z",
+  "reports": [
+    {"module": "localApps", "nodeId": "agent-a", "nodeType": "agent", "state": "unconfigured", "core": true, "lanes": [], "reportedAt": "2026-09-06T11:58:00Z"}
+  ],
+  "nodes": [
+    {"nodeId": "agent-a", "health": "stopped", "lastSeen": "2026-09-06T11:59:40Z"}
+  ],
+  "expect": [
+    {"module": "localApps", "state": "unreported", "disagreement": []}
+  ]
+}

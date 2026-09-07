@@ -78,6 +78,27 @@ func main() {
 	// so a deployment that configures these explicitly is untouched.
 	envregistry.ApplyDomainDerivations(serviceLogger)
 
+	// The readiness modules block (design record
+	// 2026-09-06-configuration-readiness, section 4.2) is decoded STRICTLY the
+	// way an unknown relationship type refuses boot: a typo'd key or a slot
+	// naming no registry entry would otherwise ship as a module nobody can
+	// ever configure, silently. Two checks, deliberately against two sources:
+	// DecodeModulesStrict always reads the EMBEDDED snapshot, since that is
+	// what every binary actually ships; ValidateModules runs against whatever
+	// manifest this boot resolved (which may be the authored file on a dev
+	// machine with MEMQL_REPO set). A manifest that fails to load at all is
+	// handled by the boot validator downstream in app.configAndAuth, not here.
+	if manifest, err := envregistry.LoadManifest(""); err == nil {
+		if _, err := envregistry.DecodeModulesStrict(envregistry.EmbeddedManifestBytes()); err != nil {
+			serviceLogger.Error("env manifest modules block does not decode strictly", "error", err)
+			os.Exit(1)
+		}
+		if err := manifest.ValidateModules(); err != nil {
+			serviceLogger.Error("env manifest modules block is invalid", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	app.Run(app.RunConfig{
 		Logger:  serviceLogger,
 		Version: resolveVersionFn(),

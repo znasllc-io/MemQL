@@ -2,11 +2,25 @@ import { useDraggable } from "@dnd-kit/core";
 import { Maximize2, Minimize2, Minus, Settings2, Sparkles, X } from "lucide-react";
 
 import { useAsk } from "../ask/AskProvider";
+import { ProvenanceDot } from "../kit";
 import { SurfaceRefused } from "../kit/RankStates";
+import {
+  canConfigure,
+  gateFor,
+  markToneFor,
+  SurfaceUnconfigured,
+} from "../kit/ReadinessStates";
+import { MODULE_DESCRIPTIONS } from "../system/modules";
 import type { Rect } from "../system/placement";
-import { sectionsForRole, type OsAppManifest } from "../system/registry";
+import {
+  allRequirementsFor,
+  requirementsFor,
+  sectionsForRole,
+  type OsAppManifest,
+} from "../system/registry";
 import { roleAdmits } from "../system/roles";
 import type { OsWindow } from "../system/windows";
+import { useSession } from "./access";
 import { useOs } from "./state";
 import { WindowErrorBoundary } from "./WindowErrorBoundary";
 
@@ -37,6 +51,29 @@ export function WindowFrame({
 
   const sections = sectionsForRole(manifest, actorRole);
   const current = sections.find((s) => s.id === win.sectionId) ?? sections[0];
+
+  // READINESS (design record 2026-09-06-configuration-readiness, 5.3 to 5.5).
+  //
+  // TWO gates, because they answer different questions. `gate` is about the
+  // section on screen and decides whether its body renders. `appGate` is about
+  // the whole app and decides the mark on Settings -- which must stay lit
+  // while the person is standing in Settings fixing it, so it cannot come from
+  // the section gate (requirementsFor returns nothing for Settings by design).
+  const { readiness } = useSession();
+  const sectionReqs = requirementsFor(manifest, current?.id ?? "");
+  const gate = gateFor(readiness, sectionReqs.requires, sectionReqs.wants);
+  const appReqs = allRequirementsFor(manifest);
+  const appGate = gateFor(readiness, appReqs.requires, appReqs.wants);
+  const settingsTone = markToneFor(appGate);
+  // The dot inside a button is DECORATIVE and the button says the state
+  // itself: a labelled role="img" nested in a button appends to the button's
+  // accessible name, so "Settings" would announce as "Settings Campaigns is
+  // not set up" -- the right information in a shape nothing can match on.
+  const settingsStatePhrase = settingsTone === "needsSetup" ? "not set up" : "partly set up";
+  // A module the SECTION alone asked for names the section in the headline
+  // ("Workbenches is not set up yet"); an app-level one names the app.
+  const appRequires = manifest.requires ?? [];
+  const unmetIsSectionOnly = gate.unmet.some((id) => !appRequires.includes(id));
   const Icon = manifest.icon;
   const Body = manifest.component;
   const contextTag = `app:${manifest.id}${current ? ` section:${current.id}` : ""}`;
@@ -91,10 +128,16 @@ export function WindowFrame({
             <button
               type="button"
               className="os-icon-button"
-              aria-label={`${manifest.name} settings`}
+              data-os-setup={settingsTone ? "" : undefined}
+              aria-label={
+                settingsTone
+                  ? `${manifest.name} settings, ${settingsStatePhrase}`
+                  : `${manifest.name} settings`
+              }
               onClick={() => actions.navigateSection(win.id, manifest.settingsSection!)}
             >
               <Settings2 size={14} aria-hidden />
+              {settingsTone ? <ProvenanceDot tone={settingsTone} /> : null}
             </button>
           ) : null}
           <button
@@ -133,10 +176,21 @@ export function WindowFrame({
                 key={section.id}
                 type="button"
                 className="os-window-nav-item"
+                data-os-setup={
+                  settingsTone && section.id === manifest.settingsSection ? "" : undefined
+                }
+                aria-label={
+                  settingsTone && section.id === manifest.settingsSection
+                    ? `${section.name}, ${manifest.name} is ${settingsStatePhrase}`
+                    : undefined
+                }
                 aria-current={section.id === current?.id ? "page" : undefined}
                 onClick={() => actions.navigateSection(win.id, section.id)}
               >
                 {section.name}
+                {settingsTone && section.id === manifest.settingsSection ? (
+                  <ProvenanceDot tone={settingsTone} />
+                ) : null}
               </button>
             ))}
           </nav>
@@ -150,7 +204,31 @@ export function WindowFrame({
               OPEN, but neither path re-checks a window already on the desk.
               Rendering the app body anyway would run its reads and show the
               refusals one at a time, which says nothing about why. */}
-          {roleAdmits(actorRole, manifest.roles) ? (
+          {/* THE SETUP SURFACE (design record 2026-09-06-configuration-readiness,
+              5.3). Below the role refusal on purpose: "you may not open this"
+              is a fact about the person and outranks "this is not wired up
+              yet", which is a fact about the cluster.
+
+              Only `unconfigured` gates. `unknown` -- the feed has not landed --
+              renders the body, so a configured cluster never flashes a setup
+              screen for a frame; `partial` renders it too, because mid-rollout
+              is a state that resolves itself and a screen telling somebody to
+              fix a deploy in progress is worse than a page that mostly works. */}
+          {!roleAdmits(actorRole, manifest.roles) ? (
+            <SurfaceRefused
+              surface={manifest.name}
+              requirement={manifest.roles}
+              actorRole={actorRole}
+            />
+          ) : gate.state === "unconfigured" ? (
+            <SurfaceUnconfigured
+              surface={unmetIsSectionOnly ? (current?.name ?? manifest.name) : manifest.name}
+              unmet={gate.unmet}
+              descriptions={MODULE_DESCRIPTIONS}
+              canSetUp={canConfigure(actorRole)}
+              onSetUp={() => actions.navigateSection(win.id, manifest.settingsSection)}
+            />
+          ) : (
             /* THE BOUNDARY (epic memql#4895): a render error in this app
                stays in this window -- a Notice with the error's own sentence
                and a reload -- and is REPORTED with the app id and section
@@ -166,12 +244,6 @@ export function WindowFrame({
                 consumeIntent={(intentId) => actions.consumeWindowIntent(win.id, intentId)}
               />
             </WindowErrorBoundary>
-          ) : (
-            <SurfaceRefused
-              surface={manifest.name}
-              requirement={manifest.roles}
-              actorRole={actorRole}
-            />
           )}
         </div>
       </div>

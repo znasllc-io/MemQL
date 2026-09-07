@@ -13,7 +13,7 @@
   their own records. Section 10 carries the facts established today that
   they will need.
 - **Owner areas:** `component/envregistry` (the declaration),
-  `component/readiness` (new leaf package, the fold), `component/memql`
+  `component/memql/readiness` (new leaf package, the fold), `component/memql`
   (the writer, the evaluators, the builtin), `component/node` (the routing
   rule), `dsl/platform` (the concept), `clients/os` (the shell).
 
@@ -218,25 +218,23 @@ modules:
   - name: storage
     core: true
     description: "Files, materialized outputs, deploy bundles and log archives live in blob storage."
+    hostedBy:
+      integrations: [storage]
     lanes:
       - name: azure-blob
         configurableFrom: deployment
         slots: [MEMQL_AZURE_BLOB_CONTAINER, MEMQL_AZURE_STORAGE_CONNECTION_STRING]
+        # Present slots count toward "touched", never toward completeness.
+        optionalSlots: []
   - name: email
     core: true
     description: "Sending mail needs a mailbox this cluster can send from."
-    lanes:
-      - name: graph
-        configurableFrom: os
-        slots: [MEMQL_EMAIL_AZURE_TENANT_ID, MEMQL_EMAIL_AZURE_CLIENT_ID,
-                MEMQL_EMAIL_AZURE_CLIENT_SECRET, MEMQL_EMAIL_SENDER]
-      - name: smtp
-        configurableFrom: os
-        # Which of the four are required in the lane is whatever email's
-        # ConfigManifest says; the parity test pins it here.
-        slots: [SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD]
+    # An evaluator, NOT lanes -- see the amendment note below 4.2.
+    evaluator: "integration:email"
   - name: githubApp
     description: "Connecting a source through the GitHub App needs the app registered on identity."
+    hostedBy:
+      nodeTypes: [identity]
     lanes:
       - name: app
         configurableFrom: deployment
@@ -285,19 +283,51 @@ Rules:
 - The manifest decoder drops unknown keys silently today (the unshipped
   C5). The `modules` block is decoded strictly, and a test asserts every
   lane the manifest names is one the evaluator read.
-- Email's Go `ConfigManifest` stays as it is. A parity test pins its lanes
-  and required slots to the `email` module's, so the two cannot drift; a
-  later cleanup may derive one from the other.
+- `hostedBy` names the integrations or node types that report on a
+  module; a node matching neither reports `notApplicable`. Naming
+  neither means every node evaluates it.
+- `optionalSlots` count toward presence, not completeness: a lane whose
+  only present slots are optional is untouched, and a lane missing only
+  optional slots is complete. They exist so a person can see the whole
+  lane, not so a lane can be half-satisfied by the part that did not
+  matter.
+
+> **AMENDED while planning (2026-09-06).** `email` is an EVALUATOR, not
+> lanes, and the parity test this bullet used to describe does not exist
+> because the duplicate it would have guarded does not exist.
+>
+> The SMTP lane's variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`,
+> `SMTP_PASSWORD`, and the from-address pair) are not env-registry
+> entries, so a lane naming them would violate the first rule above --
+> every slot names an entry. Declaring only the Graph lane would have
+> been worse than a rule violation: it would report an SMTP-configured
+> cluster as unconfigured, which is a wrong answer rather than a missing
+> one. So the module declares `evaluator: integration:email` and the
+> engine asks the email integration's own status capability in-process,
+> which already knows both lanes. Email's Go `ConfigManifest` remains the
+> single source of that knowledge; nothing restates it.
 
 ### 4.3 Evaluators
 
 The generic evaluator resolves each slot's presence through the ladder
-email already uses (`integrations/email/configmanifest.go`): environment,
-then `v1:platform:globalVariable`, then `v1:platform:globalSecret`. A slot
+email already uses (`integrations/email/configmanifest.go`): environment
+first, then the row tier the slot's own kind names -- `v1:platform:globalSecret`
+for an entry declared under `secrets`, `v1:platform:globalVariable` for one
+declared under `variables`. A secret slot does NOT fall through to the
+variable tier: a plaintext row written under a secret's name would satisfy
+a falling-through check while the decrypting reader still finds nothing, so
+the report would say configured about a lane that cannot work. A slot
 reports `present` and `source`, never a value. A node evaluates every
 module in the manifest and reports `notApplicable` for one it does not
-host, decided by whether the module's owning plug-in or node type is
-present on that node.
+host, decided by `hostedBy` above.
+
+An `integration:<name>` evaluator asks `integration.<name>.status`
+in-process: `configured` or `unhealthy` is configured, `needs_configuration`
+with any slot present is partial, otherwise unconfigured, and an
+integration not registered on the node -- or one whose probe errors -- is
+not applicable. `unhealthy` is deliberately CONFIGURED: somebody did the
+setup and the send is failing for another reason, so sending them back to
+a form they already filled in correctly would be the wrong repair.
 
 `ai` is the one module whose truth is not environment presence. Its
 evaluator asks the provider registry through the same reading
@@ -344,7 +374,18 @@ concept moduleReadiness {
 
 ### 4.5 The fold
 
-`component/readiness` is a leaf package: no engine, no database, no
+> **AMENDED on 2026-09-07.** This record and the plan both placed the package
+> at `component/readiness`, in the ROOT module, on the reasoning that its one
+> importer "already depends on the root". IT DOES NOT: the root requires
+> `component/memql`, not the reverse. Workspace mode resolves the import
+> anyway, so every local run and every other CI lane was green; only the
+> `module-boundaries` lane, which runs `GOWORK=off`, saw it -- and it failed
+> for SEVENTEEN modules at once, since each one that replaces `component/memql`
+> by relative path inherits its unsatisfiable import. The package is a sibling
+> of its importer now. A nested module of its own was the alternative and is
+> worse: a new `go.mod` trips a dozen gates, three of which no local run sees.
+
+`component/memql/readiness` is a leaf package: no engine, no database, no
 provider. Its one exported function takes the rows and the cluster's node
 rows and returns one verdict per module:
 
@@ -495,7 +536,7 @@ reading.
 
 ## 7. Testing
 
-1. **The fold** (`component/readiness`): table tests on values for worst
+1. **The fold** (`component/memql/readiness`): table tests on values for worst
    state, disagreement, dead-node exclusion, `unreported`; the same JSON
    fixtures drive the TypeScript mirror, and a Go test fails when either
    side drifts, as `TestFleetOnlineWindowMatchesTheClients` does for the
@@ -503,8 +544,9 @@ reading.
 2. **The evaluator:** fake resolvers for the three sources; complete lane,
    some slots but no lane, none; a written row carries presence and source
    only (modelled on `TestModuleEnvSurfaceNeverCarriesASecretValue`); the
-   email parity test; the consumed-lanes gate; a lane naming an unknown
-   entry refuses boot.
+   consumed-lanes gate; a lane naming an unknown entry refuses boot; the
+   `integration:<name>` evaluator's five cases, including a probe error
+   reading as `notApplicable` rather than `unconfigured`.
 3. **The writer:** database-gated on the shared throwaway Postgres: boot
    writes one row per module per node, a reload rewrites the same ids, a
    read collapses to the latest. Routing-rule presence for created and
@@ -534,15 +576,30 @@ editing deployment-only slots from the OS beyond naming them; the dead
 `missingCapability` concept, which is unrelated and can go in its own
 cleanup.
 
-**Delivery:** two PRs. PR 1, the engine: the manifest block and decoder,
-the evaluators, the concept and routing rule, the writer, the fold and the
-builtin, the Modules column's data. PR 2, the OS: the manifest verbs and
-contract test, the feed, the three kit pieces, both renderers, the mapping
-table, the tests and the screenshots. PR 2 branches from main after PR 1
-merges rather than stacking on it, so it gets CI. This record and the
-implementation plan land with PR 1. One epic issue plus task issues carry
-the `claude` label and the epic label, grouped so each PR closes its
-tasks.
+**Delivery:** ONE PR, closing the epic issue and all seven task issues.
+
+> **AMENDED on 2026-09-07** (owner instruction). This record and the plan
+> both specified two PRs -- the engine, then the OS branched from main
+> after it merged. The owner asked for a single PR covering every issue in
+> the epic, so the split is retired. What the split was buying was CI on
+> PR 2 against a base that already carried PR 1; one PR gets that for free,
+> since both halves are on the same branch. The plan's Task 7 ("open PR 1")
+> and Task 14's PR 2 step collapse into one open at the end.
+
+The engine half: the manifest block and decoder, the evaluators, the
+concept and routing rule, the writer, the fold and the builtin, the Modules
+column's data. The OS half: the manifest verbs and contract test, the feed,
+the three kit pieces, both renderers, the mapping table, the tests and the
+screenshots. All issues carry the `claude` label and the epic label.
+
+The email configure hook runs the `readinessRecompute` builtin through the
+integration's existing writer; the builtin carries no `@sdk` and refuses any
+origin that is not internal or a cluster owner. It therefore admits an
+owner and refuses a developer, whose write still lands and whose mark
+catches up on the next providers reload or restart -- the recompute gate
+exists so no signed-in person can make every node rewrite rows in a loop,
+and widening it to fit one caller would trade that away for a mark that
+refreshes sooner.
 
 ## 9. Out of scope, explicitly
 

@@ -5,6 +5,8 @@
 
 import type { ComponentType } from "react";
 
+import type { ModuleId } from "./modules";
+import { isModuleId } from "./modules";
 import type { RoleRequirement } from "./roles";
 import { roleAdmits, roleRank } from "./roles";
 
@@ -12,6 +14,20 @@ export interface OsAppSection {
   id: string;
   name: string;
   roles?: RoleRequirement;
+  /**
+   * Modules this section cannot work without. Unmet, the section shows the
+   * setup surface in place of its body -- a quiet "not set up yet" rather
+   * than a wall of refusals from an engine that has nothing to answer with.
+   */
+  requires?: readonly ModuleId[];
+  /**
+   * Modules this section works without but is diminished by. Unmet, they
+   * mark Settings and add a Set up row; they NEVER gate. The distinction is
+   * the whole point: composing a deployable works with no storage, and only
+   * publishing refuses, so gating the section would take away the part that
+   * works.
+   */
+  wants?: readonly ModuleId[];
 }
 
 export interface OsAppProps {
@@ -41,6 +57,14 @@ export interface OsAppManifest {
   icon: ComponentType<{ size?: number | string; "aria-hidden"?: boolean }>;
   roles?: RoleRequirement;
   sections?: OsAppSection[];
+  /**
+   * Modules the WHOLE app cannot work without: every section but Settings
+   * and Logs shows the setup surface. Those two stay reachable on purpose --
+   * Settings is where the fix is, and Logs is how an admin sees why.
+   */
+  requires?: readonly ModuleId[];
+  /** As the section verb, for the whole app. Marks and rows, never a gate. */
+  wants?: readonly ModuleId[];
   /**
    * Section id the title-bar gear jumps to. REQUIRED on every app
    * (memql#4743): the owner's rule is that each app carries its own
@@ -93,6 +117,13 @@ export interface OsWidgetManifest {
   name: string;
   icon: ComponentType<{ size?: number | string; "aria-hidden"?: boolean }>;
   roles?: RoleRequirement;
+  /**
+   * Modules this widget cannot work without. A widget has no sections and no
+   * settings of its own, so an unmet requirement renders the setup surface's
+   * SENTENCE in its own body rather than the whole surface -- a desktop
+   * widget is too small to carry a headline and an act.
+   */
+  requires?: readonly ModuleId[];
   /** Size in desktop grid cells. */
   size: { w: number; h: number };
   component: ComponentType;
@@ -213,4 +244,87 @@ export function logsSectionProblem(app: OsAppManifest): string | null {
     return `${app.id}: logsSection "${target}" is not floored at ${LOGS_ROLE_FLOOR} on the section or the app`;
   }
   return null;
+}
+
+/**
+ * The readiness contract, as a function for the same reason `logsSectionProblem`
+ * is one: so a test can run it over the SHIPPED registry rather than restating
+ * the rule per app. (`settingsSectionProblem` goes further and is rendered by
+ * the apps index; this one and the logs one are not, yet.)
+ *
+ * A requirement on the settings or logs section is REFUSED. Those two are the
+ * exemptions the window frame keeps reachable while an app is unconfigured, so
+ * a requirement there would lock a person out of the one place they can fix it
+ * -- an app that gates its own repair.
+ */
+export function readinessProblem(app: OsAppManifest): string | null {
+  const bad = (ids: readonly string[] | undefined, where: string): string | null => {
+    for (const id of ids ?? []) {
+      if (!isModuleId(id)) return `${app.id}: ${where} names unknown module "${id}"`;
+    }
+    return null;
+  };
+  const top = bad(app.requires, "requires") ?? bad(app.wants, "wants");
+  if (top) return top;
+  for (const section of app.sections ?? []) {
+    const p =
+      bad(section.requires, `section ${section.id} requires`) ??
+      bad(section.wants, `section ${section.id} wants`);
+    if (p) return p;
+    const exempt = section.id === app.settingsSection || section.id === app.logsSection;
+    if (exempt && ((section.requires?.length ?? 0) > 0 || (section.wants?.length ?? 0) > 0)) {
+      return `${app.id}: section ${section.id} is the settings or logs section and cannot carry a requirement`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The requirements that gate one section: the app's, then the section's own.
+ *
+ * Settings and Logs answer empty whatever the app declares, which is the same
+ * exemption `readinessProblem` enforces at the declaration -- stated twice
+ * because one is about what an author may write and the other about what the
+ * frame does with it.
+ */
+export function requirementsFor(
+  app: OsAppManifest,
+  sectionId: string,
+): { requires: ModuleId[]; wants: ModuleId[] } {
+  if (sectionId === app.settingsSection || sectionId === app.logsSection) {
+    return { requires: [], wants: [] };
+  }
+  const section = (app.sections ?? []).find((s) => s.id === sectionId);
+  const dedupe = (ids: readonly ModuleId[]) => Array.from(new Set(ids));
+  return {
+    requires: dedupe([...(app.requires ?? []), ...(section?.requires ?? [])]),
+    wants: dedupe([...(app.wants ?? []), ...(section?.wants ?? [])]),
+  };
+}
+
+/**
+ * Everything this app needs set up ANYWHERE in it: the app's own lists plus
+ * every section's, minus the settings and logs exemption.
+ *
+ * This is what the MARK is computed from, and it is deliberately not
+ * `requirementsFor`. That function answers "does this section render", so it
+ * must fold the app's list into each section and nothing else -- putting a
+ * section's own requirement on the manifest instead would gate every OTHER
+ * section on it, which is how Fleet briefly required a local-app credential
+ * to look at its machines. The mark asks a different question: is a person
+ * needed anywhere in this app. Both readings are wanted; one function cannot
+ * give both.
+ */
+export function allRequirementsFor(app: OsAppManifest): {
+  requires: ModuleId[];
+  wants: ModuleId[];
+} {
+  const requires = new Set<ModuleId>(app.requires ?? []);
+  const wants = new Set<ModuleId>(app.wants ?? []);
+  for (const section of app.sections ?? []) {
+    if (section.id === app.settingsSection || section.id === app.logsSection) continue;
+    for (const id of section.requires ?? []) requires.add(id);
+    for (const id of section.wants ?? []) wants.add(id);
+  }
+  return { requires: Array.from(requires), wants: Array.from(wants) };
 }

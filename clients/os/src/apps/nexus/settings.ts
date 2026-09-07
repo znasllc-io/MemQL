@@ -1,3 +1,4 @@
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 // The Nexus app's own settings, kept in their own versioned store.
@@ -36,10 +37,14 @@ import type { OsAppSection } from "../../system/registry";
  * with the nav highlighting nothing.
  */
 export const NEXUS_SECTIONS: OsAppSection[] = [
-  { id: "goals", name: "Goals" },
-  { id: "runs", name: "Runs" },
+  // Three of the four need a model: a goal is compiled, a run executes what
+  // the compile produced, and an approval is a gate on one. Automations is the
+  // exception and is deliberately NOT gated -- an authored automation is rows,
+  // and reading and arming one asks nothing of a provider.
+  { id: "goals", name: "Goals", requires: ["ai"] },
+  { id: "runs", name: "Runs", requires: ["ai"] },
   { id: "automations", name: "Automations" },
-  { id: "approvals", name: "Approvals" },
+  { id: "approvals", name: "Approvals", requires: ["ai"] },
   // Admin-floored because every read on the log store is (spec L3). The one
   // section whose floor is not this app's to choose.
   { id: "logs", name: "Logs", roles: { min: "admin" } },
@@ -149,3 +154,11 @@ export class LocalNexusSettingsStore implements NexusSettingsStore {
     }
   }
 }
+
+/** The union of the section requirements above, for the Set up group. */
+export const NEXUS_REQUIRES: readonly ModuleId[] = Array.from(
+  new Set(NEXUS_SECTIONS.flatMap((s) => s.requires ?? [])),
+);
+export const NEXUS_WANTS: readonly ModuleId[] = Array.from(
+  new Set(NEXUS_SECTIONS.flatMap((s) => s.wants ?? [])),
+);

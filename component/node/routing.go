@@ -159,6 +159,12 @@ func defaultRoutingRules() []RoutingRule {
 		{Pattern: "graph.node.deleted.v1:worker:registration", TargetType: ""},
 		{Pattern: "graph.node.deleted.v1:worker:routingPolicy", TargetType: ""},
 		{Pattern: "graph.node.deleted.v1:workbench:workspace", TargetType: ""},
+		// MODULE READINESS (design record 2026-09-06-configuration-readiness,
+		// section 4.4). Every node writes its own verdict rows; the OS folds
+		// them from a live feed on whichever replica it is attached to. No
+		// delete rule: rows are rewritten as versions, never removed.
+		{Pattern: "graph.node.created.v1:platform:moduleReadiness", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:platform:moduleReadiness", TargetType: ""},
 		// RESPONSIBILITY, not the whole planner namespace (memql#5053).
 		//
 		// These were `v1:planner:*` WILDCARDS, added for the plan-lifecycle

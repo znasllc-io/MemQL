@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Concepts, type LiveSnapshot, type Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { Check, Head, Panel } from "../../kit";
+import { Check, Head, Panel, SetupGroup } from "../../kit";
 import { useAuthSource } from "../../auth/context";
 import { useLiveView } from "../../live/liveView";
 import { AppLogsSection } from "../../logs/AppLogsSection";
@@ -26,8 +26,7 @@ import {
   LocalTrainingSettingsStore,
   TRAINING_SECTIONS,
   type TrainingSettings,
-  type TrainingSettingsStore,
-} from "./settings";
+  type TrainingSettingsStore, TRAINING_REQUIRES, TRAINING_WANTS } from "./settings";
 import { UploadSection } from "./UploadSection";
 import { useAnalysisRuns } from "./useAnalysisRuns";
 import { useDomains } from "./useDomains";
@@ -35,6 +34,7 @@ import { useLibraryFiles } from "./useLibraryFiles";
 import { useReviewQueue } from "./useReviewQueue";
 import { useTrain } from "./useTrain";
 import { useUploads } from "./useUploads";
+import { useSession } from "../../chrome/access";
 
 // Training: teach MemQL from files (epic memql#4737, re-keyed to the Library
 // in epic memql#4970).
@@ -314,6 +314,7 @@ function TrainingSettingsSection({
   settings: TrainingSettings;
   update: (patch: Partial<TrainingSettings>) => void;
 }) {
+  const { readiness } = useSession();
   // EVERY SECTION IS OFFERED. Unlike Deployables and Users, no section of this
   // app carries a role of its own -- the app-level `writer` gate is the only
   // one -- so there is no section a reader of this settings page could pick
@@ -321,6 +322,16 @@ function TrainingSettingsSection({
   return (
     <div className="os-settings">
       <Head title="Training settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Training"
+        requires={TRAINING_REQUIRES}
+        wants={TRAINING_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Training settings">
         <fieldset className="os-field-group">
           <legend>Open Training on</legend>
