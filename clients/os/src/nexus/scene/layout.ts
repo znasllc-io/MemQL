@@ -294,7 +294,14 @@ export function layout(world: GoalWorld, options: LayoutOptions = {}): LayoutRes
     lane: "road",
     x: YOU_X,
     y: 0,
-    label: "you",
+    // "start", not "you". The map is a road from where the goal was set to the
+    // goal itself, and both ends are POSITIONS on it -- which is what the open
+    // ring has always drawn. "you" named the person instead of the place, so
+    // the road appeared to run from a participant to an objective rather than
+    // from one end of the work to the other. The id stays `you`: it is the
+    // internal handle every test and `conceptIdForKind` already uses, and
+    // renaming it would be churn with no reader.
+    label: "start",
     rowId: "",
     conceptId: "",
     stepKey: "",
