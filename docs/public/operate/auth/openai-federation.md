@@ -42,6 +42,23 @@ verifies the token, checks it against the provider's mapping, and returns a
 short-lived bearer. The engine re-exchanges before expiry. There is no refresh
 token and nothing long-lived at rest.
 
+### CONFIRM THE TOKEN ENDPOINT BEFORE THE FIRST CUTOVER
+
+The engine posts to **`https://auth.openai.com/oauth/token`**
+(`openaiTokenEndpoint`, component/memql/ai_openai_federation.go).
+
+**The PATH is from the design record; the HOST is an inference and nobody here
+has checked it against OpenAI's live documentation.** The record says "OpenAI's
+auth host at `/oauth/token`" and does not name the host. That makes this the
+single most load-bearing constant in the feature: every other id can be wrong
+in a way that produces a refusal you can read, and this one wrong produces a
+connection error at a hostname, which reads like a network problem.
+
+So the first cutover confirms it, and the confirmation is cheap -- step 4's
+`provider-auth check` either reaches an endpoint that answers an RFC 8693
+exchange or it does not. If OpenAI documents a different host, change that one
+constant; nothing else in the exchange depends on it.
+
 Two properties of that bearer are worth knowing before you plan around it: it
 never outlives the subject token it was minted from, and it is scoped to a
 Platform service account in a project, which excludes the Admin API. So a
