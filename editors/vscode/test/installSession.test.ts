@@ -453,10 +453,36 @@ test("runRebuild runs the shipped one-step graph, under its pinned image-source"
 // `voice` node and a `voice-runtime` Dockerfile stage, both retired in the
 // commits the update had pulled.
 
+/**
+ * Every `verify` field the install / rebuild graphs read, all satisfied at once.
+ *
+ * A step whose verify does not hold SKIPS everything downstream, so a fake that
+ * returned `{}` would record one path and pass a test that meant to record
+ * several -- which is what the first version of these did. Satisfying every
+ * predicate is what makes the recorded list the whole graph.
+ */
+const ALL_VERIFIES_SATISFIED: Record<string, unknown> = {
+  supported: true,
+  ready: true,
+  installed: true,
+  blockPresent: true,
+  caTrusted: true,
+  valid: true,
+  argocdReady: true,
+  bootstrapComplete: true,
+  allPassed: true,
+  commit: "abc1234def",
+  commitAfter: "abc1234def",
+  linkState: "sent",
+  enrolmentState: "minted",
+  recoveryKeyState: "minted",
+  imageSource: "checkout",
+};
+
 /** A runner that records the script PATH each step was run from. */
 function pathRecordingRunner(): { run: RunScript; paths: string[] } {
   const paths: string[] = [];
-  const run: RunScript = async ({ scriptPath }) => {
+  const run: RunScript = async ({ scriptPath, capability }) => {
     paths.push(scriptPath);
     return {
       argv: [],
@@ -464,7 +490,13 @@ function pathRecordingRunner(): { run: RunScript; paths: string[] } {
       signal: null,
       stdout: "",
       stderr: "",
-      envelope: { ok: true, capability: "k3d.dev", changed: true, result: {}, error: null },
+      envelope: {
+        ok: true,
+        capability: capability ?? "",
+        changed: true,
+        result: { ...ALL_VERIFIES_SATISFIED },
+        error: null,
+      },
     };
   };
   return { run, paths };
@@ -510,20 +542,101 @@ test("a rebuild runs the CHECKOUT's scripts, not the extension's frozen copy", a
   );
 });
 
-test("an update-and-rebuild runs the checkout's scripts too", async () => {
+test("an update-and-rebuild builds from the checkout and updates from the extension", async () => {
   // The flow the failure was reported against: step 1 moves the checkout, step
-  // 2 builds it. Step 2 must read the tree step 1 produced.
+  // 2 builds it. Only step 2 has to read the tree step 1 produced -- the BUILD
+  // is what must match the tree. `updateCheckout` moves a directory with git and
+  // runs before the tree is at the commit anyone wants to build, so pointing it
+  // at the checkout would run the OLD copy of the updater to perform the update.
   const staged = stagedTree();
   const { run, paths } = pathRecordingRunner();
   await runUpdateRebuild(options({ root: staged, stackDir: REPO_ROOT, nodes: "bff" }), { run });
 
-  assert.ok(paths.length >= 1, "no step ran");
-  for (const p of paths) {
-    assert.ok(
-      p.startsWith(REPO_ROOT + path.sep),
-      `a step ran from ${p}, outside the checkout it is building`,
-    );
-  }
+  assert.deepEqual(
+    paths,
+    [
+      path.join(staged, "scripts", "install", "update-stack.sh"),
+      path.join(REPO_ROOT, "scripts", "k3d", "dev.sh"),
+    ],
+    "the update must come from the extension and the build from the checkout",
+  );
+});
+
+test("a from-source INSTALL builds with the checkout's scripts (memql#5064)", async () => {
+  // THE REGRESSION. memql#5056 keyed the rule on which FLOW was running and
+  // covered only the two rebuild flows, so `buildImages` -- the same `k3d.dev`
+  // capability, reached through the install -- kept the frozen copy and a fresh
+  // from-source install still asked for a `voice` node the checkout had retired.
+  //
+  // A session-scoped answer could not have fixed it either: an install's
+  // checkout is produced by `stackCheckout`, several waves AFTER the session is
+  // built, so at construction time there is no checkout to resolve to.
+  const staged = stagedTree();
+  const { run, paths } = pathRecordingRunner();
+  await runInstall(
+    options({ root: staged, stackDir: REPO_ROOT, imagesFromSource: true }),
+    { run },
+  );
+
+  const build = paths.filter((p) => p.endsWith(path.join("scripts", "k3d", "dev.sh")));
+  assert.equal(build.length, 1, `expected one k3d.dev invocation, got ${paths.join(", ")}`);
+  assert.equal(
+    build[0],
+    path.join(REPO_ROOT, "scripts", "k3d", "dev.sh"),
+    "buildImages ran the extension's frozen dev.sh against a checkout it does not match",
+  );
+});
+
+test("the STEP's own --repo-root decides, not a guess made when the session was built", async () => {
+  // THE MECHANISM, pinned on its own. memql#5056 resolved the script root ONCE
+  // when the session was constructed. For an install that is too early: the
+  // checkout is produced by `stackCheckout`, several waves later, so a
+  // session-time probe sees nothing and the whole run keeps the frozen scripts.
+  //
+  // Here the session's `stackDir` points at a directory carrying no capability
+  // contract -- which is exactly what a session-time probe would have found --
+  // while the step is handed a real checkout in its own `--repo-root`. The step's
+  // declaration has to win, or the resolution is still happening too early.
+  const staged = stagedTree();
+  const notYetCloned = mkdtempSync(path.join(os.tmpdir(), "memql-not-yet-"));
+  const { run, paths } = pathRecordingRunner();
+
+  await runRebuild(
+    options({ root: staged, stackDir: notYetCloned, nodes: "bff" }),
+    { run, graph: graph({
+      name: "rebuild",
+      kind: "install",
+      steps: [{
+        id: "rebuildFromCheckout",
+        description: "build from the checkout",
+        script: "k3d.dev",
+        elevation: "none",
+        retained: false,
+        retainedReason: "",
+        params: { "image-source": "checkout", "repo-root": REPO_ROOT },
+        verify: { kind: "resultEquals", field: "result.imageSource", value: "checkout" },
+      }],
+    }) },
+  );
+
+  assert.deepEqual(paths, [path.join(REPO_ROOT, "scripts", "k3d", "dev.sh")]);
+});
+
+test("an install's non-build steps still come from the extension", async () => {
+  // The other half, and the reason the rule is keyed on the capability rather
+  // than applied to the whole session: the early steps run BEFORE any checkout
+  // exists, and the graph is the extension's contract with its own wizard.
+  const staged = stagedTree();
+  const { run, paths } = pathRecordingRunner();
+  await runInstall(
+    options({ root: staged, stackDir: REPO_ROOT, imagesFromSource: true }),
+    { run },
+  );
+
+  const strays = paths.filter(
+    (p) => !p.endsWith(path.join("scripts", "k3d", "dev.sh")) && !p.startsWith(staged + path.sep),
+  );
+  assert.deepEqual(strays, [], "a non-build step read its script from outside the extension");
 });
 
 test("a checkout that cannot answer the capability contract falls back to the extension", async () => {

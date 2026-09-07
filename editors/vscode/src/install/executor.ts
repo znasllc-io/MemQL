@@ -151,7 +151,17 @@ export type ExecEvent =
 export interface ExecuteOptions {
   graph: Graph;
   /** Resolves a step to the capability script that runs it. */
-  scriptPath: (step: Step) => string;
+  /**
+   * Where the step's capability script is read from.
+   *
+   * TAKES THE RESOLVED PARAMS, not just the step (memql#5064). A step that
+   * builds FROM a checkout says so in its own `--repo-root`, and the script
+   * that operates on a tree has to come from that tree. Resolving per STEP
+   * rather than per SESSION is what makes it work for an install, whose
+   * checkout does not exist when the session is built -- it is produced by
+   * `stackCheckout`, several waves in.
+   */
+  scriptPath: (step: Step, params: Record<string, string>) => string;
   /** Run-time params, or a decision to skip. Defaults to running with none. */
   plan?: (step: Step) => StepPlan;
   /** Injectable for tests; defaults to the real spawn-based runner. */
@@ -262,7 +272,7 @@ async function runStep(
   await emit(options, { type: "stepStarted", step, params });
 
   const outcome = await run({
-    scriptPath: options.scriptPath(step),
+    scriptPath: options.scriptPath(step, params),
     params,
     capability: step.script,
     cwd: options.cwd,

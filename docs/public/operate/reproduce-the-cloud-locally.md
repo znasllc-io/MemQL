@@ -365,17 +365,31 @@ Both buttons stay, because they answer two different questions -- "test just
 what I have" and "test the latest with what I have" -- and neither is a mode of
 the other.
 
-**The rebuild step runs the CHECKOUT's scripts, not the extension's**
-(memql#5056). A packaged extension carries a staged copy of `scripts/` so an
-install can run before any checkout exists; for these two buttons the checkout
-already exists and is the thing being built, so it supplies the build recipe as
-well as the source. Anything else is a recipe frozen at the extension's package
-date driving a tree that has since moved -- which is how an update once asked
-for a `voice` node and a `voice-runtime` Dockerfile stage that had both been
-retired in the commits it had just pulled. A checkout too old to carry
-`scripts/lib/capability.sh` falls back to the staged copy, since it could not
-have run these scripts either way. The graph document still comes from the
-extension: it names the steps, and the wizard is written against them.
+**Building node images from a checkout runs the CHECKOUT's scripts, not the
+extension's** (memql#5056, corrected by memql#5064). A packaged extension carries
+a staged copy of `scripts/` so an install can run before any checkout exists;
+once a checkout is the thing being BUILT, it supplies the build recipe as well as
+the source. Anything else is a recipe frozen at the extension's package date
+driving a tree that has since moved -- which is how an update once asked for a
+`voice` node and a `voice-runtime` Dockerfile stage that had both been retired in
+the commits it had just pulled.
+
+**The rule is keyed on the capability, `k3d.dev`, not on which button was
+pressed.** Three step ids reach it -- `rebuildFromCheckout` on the two rebuild
+graphs and `buildImages` on the from-source install -- and naming the flows
+instead covered only the first two, so a fresh `main` install kept failing on the
+retired node for a release longer. It is also resolved PER STEP rather than once
+per run: an install's checkout is produced by `stackCheckout` several waves in,
+so a session-time answer sees no checkout at all and silently keeps the frozen
+scripts.
+
+A checkout too old to carry `scripts/lib/capability.sh` falls back to the staged
+copy, since it could not have run these scripts either way. The graph document
+still comes from the extension: it names the steps, and the wizard is written
+against them. `clusterUp` (`k3d.up`) is deliberately NOT included -- it is
+reachable from the release lane against an arbitrary older tag, and a capability
+script refuses an undeclared flag outright, so that one is a compatibility
+question of its own.
 
 **A failed rebuild imports nothing** (memql#5058). Every image is built first
 and only then imported, so a build that fails partway leaves the cluster exactly
