@@ -754,3 +754,12 @@ query sourceCredential githubAppGrantForCaller {
   sort    "row.createdAt", "desc"
   shape   sourceCredentialSealed
 }
+
+/// Every node's latest verdict on every module: the rows the OS folds live and the moduleReadiness
+/// builtin folds on demand. Modules times nodes, consumed whole. Any signed-in caller (the concept's
+/// tier); no caller term is written because public, requiresIdentity injects nothing.
+@unbounded("module readiness -- modules times nodes, consumed whole by the fold")
+query moduleReadiness moduleReadinessAll {
+  shape   moduleReadinessFull
+  asOf    latest
+}

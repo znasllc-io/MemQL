@@ -1832,3 +1832,37 @@ mutate sourceCredential recordGithubAppInstallations {
     }
   }
 }
+
+/// Record one node's verdict on one module as a new version of the deterministic row
+/// v1:platform:moduleReadiness:<module>--<nodeId>. @serverOnly: readiness is the engine's own
+/// observation, written under internal origin at boot and on a change; a client-reachable writer
+/// would be a primitive for forging "configured".
+///
+/// actor.userId scoping is not the fix, and there is nothing to scope to: the concept is public,
+/// requiresIdentity tier and carries no owner field, because readiness is a fact about the NODE, not
+/// about any user. A caller-reachable write would let any signed-in caller claim any node's
+/// configuration state, however the args were scoped.
+@serverOnly
+@description("Write one node's readiness verdict for one module as a new version of its deterministic row.")
+mutate moduleReadiness recordModuleReadiness {
+  args {
+    rowId       string!
+    module      string!
+    nodeId      string!
+    nodeType    string!
+    state       enum("configured", "partial", "unconfigured", "notApplicable")!
+    core        boolean
+    lanes       []object
+    reportedAt  string!
+  }
+  insert {
+    id:          args.rowId
+    module:      args.module
+    nodeId:      args.nodeId
+    nodeType:    args.nodeType
+    state:       args.state
+    core:        args.core ?? false
+    lanes:       args.lanes ?? []
+    reportedAt:  args.reportedAt
+  }
+}

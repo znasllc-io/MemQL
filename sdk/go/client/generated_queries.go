@@ -4229,6 +4229,23 @@ func MissingCapabilityByKindAndNameBuild(args MissingCapabilityByKindAndNameArgs
 	return b.String()
 }
 
+// ModuleReadinessAll -- Every node's latest verdict on every module: the rows the OS folds live and the moduleReadiness builtin folds on demand. Modules times nodes, consumed whole. Any signed-in caller (the concept's tier); no caller term is written because public, requiresIdentity injects nothing.
+//
+// Bound concept: v1:platform:moduleReadiness (machine-readable: BoundConcepts["moduleReadinessAll"] in generated_concepts.go).
+type ModuleReadinessAllArgs struct {
+}
+
+// ModuleReadinessAll calls the engine query moduleReadinessAll.
+func (qc *QueryClient) ModuleReadinessAll(ctx context.Context, args ModuleReadinessAllArgs) (*Result, error) {
+	call := ModuleReadinessAllBuild(args)
+	return qc.executeNamed(ctx, "moduleReadinessAll", call)
+}
+
+func ModuleReadinessAllBuild(args ModuleReadinessAllArgs) string {
+	_ = args
+	return "query moduleReadinessAll()"
+}
+
 // MyDesktop -- The caller's own desktop document, or nothing when they have never saved one. The MemQL OS shell reads this once on connect and again on every graph.node.created event for the concept.
 // Caller-scoped with no argument at all: there is one desktop per person and it is the person asking. An ownerUserId argument would be a caller-supplied id standing in for a caller check the read already has, which is the reasoning myWorkersWithStatus and routingPolicyForOwner both record. It also means there is nothing here to enumerate.
 // Nothing empty comes back for a person with no row, and that is a STATE rather than an error: the shell's local document is uploaded on the first save, and until then absent is exactly right.

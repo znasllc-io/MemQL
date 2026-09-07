@@ -1013,6 +1013,17 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "skills/mutations.memql", Name: "commitSkillEdge"}: true,
 		{Path: "skills/mutations.memql", Name: "setSkillScripts"}: true,
 		{Path: "skills/mutations.memql", Name: "reinforceSkill"}:  true,
+
+		// design record 2026-09-06-configuration-readiness, section 4.4.
+		// recordModuleReadiness writes the engine's OWN OBSERVATION of one
+		// node's configuration state -- caller-scoping is not available even
+		// in principle, the same shape as the skillEdge entries above:
+		// v1:platform:moduleReadiness is @rowAuthz(public, requiresIdentity)
+		// and carries no owner field, because every signed-in person reads
+		// the same setup-readiness picture. There is no actor.userId to scope
+		// the write to, and a client-reachable writer would let any signed-in
+		// caller claim any node's module is "configured".
+		{Path: "platform/mutations.memql", Name: "recordModuleReadiness"}: true,
 	}
 	for k := range want {
 		if !set[k] {

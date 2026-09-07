@@ -597,3 +597,39 @@ concept packageDeployment {
   @relationship(type="references", as="fetchedFrom", field="snapshotArtifactId", target=artifact, direction="outgoing")
   @relationship(type="references", as="retriedFrom", field="fromDeploymentId", target=packageDeployment, direction="outgoing")
 }
+
+/// One node's verdict on one module (design record 2026-09-06-configuration-readiness, section
+/// 4.4). Rewritten as a new version of the same id, v1:platform:moduleReadiness:<module>--<nodeId>,
+/// on every boot and after a providers reload or an integration configure, so a read collapses to
+/// the latest. Carries presence and source only, never a value.
+///
+/// TIER: public, requiresIdentity. Any signed-in person reads it -- the setup surface has to tell a
+/// viewer "not set up" as honestly as it tells an owner -- and nobody anonymous does. The write is
+/// the engine's alone: recordModuleReadiness is @serverOnly.
+@rowAuthz(public, requiresIdentity)
+@displayCard(primary="module", secondary="nodeId", tertiary="nodeType", status="state")
+concept moduleReadiness {
+  module      string!  @description("The readiness module id from the env manifest's modules block: ai, storage, email, githubApp, campaigns, workbench, localApps.")
+  nodeId      string!  @description("The reporting node's MEMQL_NODE_ID.")
+  nodeType    string!  @description("The reporting node's type.")
+  state       enum("configured", "partial", "unconfigured", "notApplicable")!  @description("This node's verdict; notApplicable means the node does not host the module.")
+  core        bool     @description("Whether the module is one the first-run wizard walks.")
+  lanes       []object @description("One entry per lane: { name, configurableFrom, complete, slots: [{ name, present, source, optional }] }. Presence and source only.")
+  reportedAt  datetime!  @description("When this node evaluated, RFC3339.")
+}
+
+/// Virtual, never persisted: the cluster-wide fold of moduleReadiness rows, one row per module with
+/// id = module name. The moduleReadiness builtin answers it; the OS computes the same fold from the
+/// live feed with the mirrored function (component/readiness).
+///
+/// @displayCard's tertiary names "core" rather than the brief's original "disagreement": the loader
+/// rejects an array-typed slot ("disagreement" is []string; only string/enum/bool/datetime/int/float
+/// display), and core is the one other scalar this concept carries.
+@displayCard(primary="module", secondary="state", tertiary="core")
+concept moduleVerdict {
+  module        string!  @description("The module id.")
+  state         enum("configured", "partial", "unconfigured", "unreported")!  @description("Worst state across live reporting nodes; partial with disagreement when they differ; unreported when no live node reported.")
+  core          bool     @description("Whether the module is core.")
+  disagreement  []string @description("nodeId=state for every live reporter when they disagree, worst first; empty otherwise.")
+  nodes         []object @description("Per live reporting node: { nodeId, nodeType, state, reportedAt }.")
+}

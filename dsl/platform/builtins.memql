@@ -375,3 +375,20 @@ builtin sourceRepositories {
   credentialId  string   @description("A github_app grant of the caller's to list under. Empty resolves the caller's active grant, which is what a person with one connection has.")
   page          int      @description("1-based page through the repositories of every installation, 100 per page. Empty or 0 means the first page; nextPage in the reply is 0 when there are no more.")
 }
+
+/// The cluster-wide readiness verdict per module (design record 2026-09-06-configuration-readiness,
+/// section 4.5): reads every node's latest moduleReadiness row and the live cluster nodes, folds them
+/// with component/readiness -- worst state wins, disagreement is partial with the nodes named, no live
+/// reporter is unreported -- and answers one row per module on v1:platform:moduleVerdict.
+@sdk
+@executor("moduleReadiness")
+@description("Fold every node's module readiness rows into one verdict per module: configured, partial, unconfigured or unreported, with disagreeing nodes named.")
+builtin moduleReadiness { }
+
+/// Re-evaluate this node's modules and rewrite its moduleReadiness rows. NO @sdk: this is the seam an
+/// integration's configure path pulls after applying a slot (integration.email.configure runs
+/// `builtin readinessRecompute()` through its ConfigWriter). The handler refuses any call that is
+/// neither internal-origin nor a cluster owner.
+@executor("readinessRecompute")
+@description("Re-evaluate every module on this node and rewrite its moduleReadiness rows; answers one row naming how many modules were written.")
+builtin readinessRecompute { }

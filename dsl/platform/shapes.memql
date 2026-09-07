@@ -277,3 +277,17 @@ shape packageDeployment packageDeploymentFull {
   heartbeatAt
   row.createdAt
 }
+
+/// Full projection of v1:platform:moduleReadiness -- every field, because the OS folds them.
+@row
+shape moduleReadiness moduleReadinessFull {
+  row.id
+  module
+  nodeId
+  nodeType
+  state
+  core
+  lanes
+  reportedAt
+  row.createdAt
+}
