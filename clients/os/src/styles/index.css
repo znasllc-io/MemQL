@@ -11472,10 +11472,14 @@ a.os-button {
   justify-content: center;
   background: var(--os-ground);
   color: var(--os-ink);
-  /* Top-anchored: a tenth of the viewport, so the column sits high without
-     touching the edge, and clamped so a tall screen does not push it back into
-     the middle. The bottom padding is generous because the rail grows down. */
-  padding: clamp(48px, 10vh, 120px) 24px 96px;
+  /* Top-anchored, and the number was set by looking: at a tenth of the
+     viewport the column sat in the top third of a 900px screen with a third of
+     the page empty beneath it. Fourteen brings it toward the optical centre
+     while still leaving the rail room to grow DOWNWARD rather than pushing the
+     ring somebody is reading away from their cursor -- which is the whole
+     reason this is not centred. Clamped at both ends so a laptop and a 4K
+     display both get a column that starts where the eye lands. */
+  padding: clamp(48px, 14vh, 160px) 24px 96px;
 }
 
 .os-core-gate-column {
@@ -11512,9 +11516,13 @@ a.os-button {
   color: var(--os-ink);
 }
 
+/* NO max-width OF ITS OWN. The column is 34rem, which is about 68 characters
+   at --os-text-base -- a measure already inside the 80 the rule asks for --
+   and a second, tighter one only broke a two-line sentence into a ragged
+   three-line block that read as a paragraph. One measure, set where the
+   surface's width is decided. */
 .os-core-gate-body {
   margin: 0;
-  max-width: 46ch;
   font-size: var(--os-text-base);
   color: var(--os-muted);
   text-wrap: pretty;
