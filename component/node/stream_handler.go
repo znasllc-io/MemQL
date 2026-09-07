@@ -83,6 +83,14 @@ type WorkerForwardHandler interface {
 	// the requests.
 	HandleForwardedModelCall(ctx context.Context, req *nodev1.ModelForwardRequest, send func(*nodev1.NodeServerMessage) error)
 	CancelForwardedModelCall(ctx context.Context, requestId string)
+	// HandleForwardedModelPull is the same hop for a model pull (epic
+	// memql#5103). It joins this interface for the reason the ModelCall
+	// half did -- one subsystem, one install point -- and the cost of
+	// getting that wrong is worse here: a pull is named by a PERSON who
+	// pressed a button on one machine's page, so a hop that is not wired
+	// does not degrade to another machine, it simply refuses.
+	HandleForwardedModelPull(ctx context.Context, req *nodev1.ModelPullForwardRequest, send func(*nodev1.NodeServerMessage) error)
+	CancelForwardedModelPull(ctx context.Context, requestId string)
 }
 
 // WorkerForwardResponseSink is the originating replica's receiver for replies
@@ -94,6 +102,9 @@ type WorkerForwardResponseSink interface {
 	// The ModelCall half of the same hop (epic memql#4676).
 	DispatchModel(resp *nodev1.ModelForwardResponse)
 	DispatchModelDelta(delta *nodev1.ModelForwardDelta)
+	// The model-pull half (epic memql#5103).
+	DispatchModelPull(resp *nodev1.ModelPullForwardResponse)
+	DispatchModelPullProgress(p *nodev1.ModelPullForwardProgress)
 }
 
 // DeployControlForwardHandler is the identity-node-side entry point for a
@@ -414,6 +425,12 @@ func (s *nodeService) handleMessage(peerId string, msg *nodev1.NodeClientMessage
 	case *nodev1.NodeClientMessage_ModelForwardCancel:
 		s.handleModelForwardCancel(peerId, payload.ModelForwardCancel)
 
+	case *nodev1.NodeClientMessage_ModelPullForwardRequest:
+		s.handleModelPullForwardRequest(peerId, payload.ModelPullForwardRequest, stream)
+
+	case *nodev1.NodeClientMessage_ModelPullForwardCancel:
+		s.handleModelPullForwardCancel(peerId, payload.ModelPullForwardCancel)
+
 	default:
 		s.logger.Debug("unhandled message type from peer",
 			"peer_id", peerId,
@@ -714,6 +731,54 @@ func (s *nodeService) handleModelForwardCancel(peerId string, cancel *nodev1.Mod
 	}
 	s.logger.Debug("model forward cancel", "peer_id", peerId, "request_id", cancel.GetRequestId())
 	s.workerForwardHandler.CancelForwardedModelCall(context.Background(), cancel.GetRequestId())
+}
+
+// handleModelPullForwardRequest dispatches an inbound model pull to this
+// replica's local handler (epic memql#5103).
+func (s *nodeService) handleModelPullForwardRequest(peerId string, req *nodev1.ModelPullForwardRequest, stream nodev1.NodeService_StreamServer) {
+	if s.workerForwardHandler == nil {
+		s.logger.Warn("model pull forward request received but no handler configured",
+			"peer_id", peerId, "request_id", req.GetRequestId(),
+		)
+		_ = stream.Send(&nodev1.NodeServerMessage{
+			MessageId:   id.NewShortId(),
+			CorrelateTo: req.GetRequestId(),
+			Payload: &nodev1.NodeServerMessage_ModelPullForwardResponse{
+				ModelPullForwardResponse: &nodev1.ModelPullForwardResponse{
+					RequestId:    req.GetRequestId(),
+					Model:        req.GetModel(),
+					ErrorCode:    "not_configured",
+					ErrorMessage: "no worker forward handler on this node",
+				},
+			},
+		})
+		return
+	}
+	// ON ITS OWN GOROUTINE, and for a pull this is not optional. The handler
+	// does not return until the download ends -- up to ModelPullTimeoutDefault,
+	// four hours -- and this function runs on the peer stream's RECEIVE loop.
+	// Called inline, one pull would stop this node reading heartbeats, event
+	// forwards, and every other forward from that peer for the duration, until
+	// the liveness checker marked a healthy peer offline.
+	//
+	// It would also make the cancel unreachable: ModelPullForwardCancel arrives
+	// on the SAME stream, so the only message that could end the block is the
+	// one the block prevents us reading.
+	//
+	// This is the invariant handleAiForwardRequest states for itself ("The AI
+	// handlers spawn their own worker goroutines for long-running work, so this
+	// does not block the receive path"); a pull is the longest-running thing on
+	// this surface and needs it most.
+	go s.workerForwardHandler.HandleForwardedModelPull(context.WithoutCancel(stream.Context()), req, stream.Send)
+}
+
+// handleModelPullForwardCancel stops an in-flight forwarded pull.
+func (s *nodeService) handleModelPullForwardCancel(peerId string, cancel *nodev1.ModelPullForwardCancel) {
+	if s.workerForwardHandler == nil {
+		return
+	}
+	s.logger.Debug("model pull forward cancel", "peer_id", peerId, "request_id", cancel.GetRequestId())
+	s.workerForwardHandler.CancelForwardedModelPull(context.Background(), cancel.GetRequestId())
 }
 
 // SetWorkerForwardHandler installs the agent-side handler for inbound worker

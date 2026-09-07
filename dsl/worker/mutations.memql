@@ -861,3 +861,125 @@ mutate delegationPolicy setDelegationPolicy {
     args.updatedAt
   }
 }
+
+/// Open the row for one model pull (epic memql#5103).
+///
+/// Written BEFORE ModelPullStart goes on the wire, so a pull the machine never acknowledges
+/// still has a row saying it was asked for -- without it "nothing happened" and "it failed to
+/// start" read identically, on a surface whose whole job is telling somebody which of those
+/// two they are looking at.
+///
+/// @serverOnly because of `targetNodeId`. That field is the CLAIM: exactly one agent replica
+/// acts on this row, the one whose own MEMQL_NODE_ID it names, and it is read off the
+/// registration the server resolved. A wire-reachable create would let a caller name any
+/// replica -- pointing a download at a node that holds no stream for the machine, which is a
+/// pull that silently never happens.
+///
+/// actor.userId scoping is not the fix, and this is the same subtlety createAppSession
+/// records: the caller IS the owner, so a self-scoped filter admits exactly this call. What
+/// only the server knows is which replica currently holds the machine.
+@actor
+@serverOnly
+mutate modelPull createModelPull {
+  args {
+    pullId        string!
+    workerId      string!
+    model         string!
+    targetNodeId  string
+    requestedAt   string!
+  }
+  insert {
+    id: args.pullId
+    // Stamped from the actor, never accepted as an argument -- the rule
+    // createWorkerInvocation and createAppSession both state. A pull writes
+    // gigabytes onto this person's own machine, so the owner of the row and
+    // the owner of the hardware are the same by construction.
+    ownerUserId: actor.userId
+    args.workerId
+    args.model
+    status: "requested"
+    statusLine: ""
+    layer: ""
+    completedBytes: 0
+    totalBytes: 0
+    readvertised: false
+    errorMessage: ""
+    targetNodeId: args.targetNodeId ?? ""
+    args.requestedAt
+    updatedAt: args.requestedAt
+    endedAt: ""
+  }
+}
+
+/// Record progress on a live model pull, on a throttle.
+///
+/// @serverOnly because every field on it is the MACHINE'S report relayed by the replica driving
+/// the download. A client-reachable write would let anyone paint a progress bar for a pull that
+/// is not happening, on a surface a person is watching precisely because they cannot see the
+/// machine.
+///
+/// actor.userId scoping is not the fix, and it is the same subtlety createModelPull records: the
+/// caller IS the owner of their own machine's pull, so a self-scoped filter admits exactly this
+/// call. Scoping answers "whose row is it", and the hazard is not whose -- it is that these
+/// fields are a report about a MACHINE, and only the replica holding that machine's stream has
+/// heard from it. Anyone else writing them is describing a download that is not happening.
+///
+/// THE COUNTERS ARE NOT MONOTONIC and this mutation must not pretend otherwise: they describe
+/// the CURRENT layer and reset to zero on each new one. `completedBytes` going down is the
+/// ordinary shape of a working pull, which is why `layer` travels with them -- it is what turns
+/// a bar that jumped backwards from a bug into the next blob starting.
+@actor
+@serverOnly
+mutate modelPull recordModelPullProgress {
+  args {
+    pullId          string!
+    statusLine      string
+    layer           string
+    completedBytes  int
+    totalBytes      int
+    updatedAt       string!
+  }
+  update {
+    accept { completedBytes, totalBytes, updatedAt }
+    stamp {
+      id: args.pullId
+      statusLine: args.statusLine ?? ""
+      layer: args.layer ?? ""
+      status: "running"
+    }
+  }
+}
+
+/// Close a model pull at its terminal status.
+///
+/// @serverOnly for recordModelPullProgress's reason, plus one of its own: `readvertised` is the
+/// difference between "the model is on disk AND the cluster can see it" and "the model is on
+/// disk and will be invisible until this machine reconnects". Only the machine can report
+/// which, and a client that could write it could tell a person their fleet had gained a model
+/// it has not.
+///
+/// actor.userId scoping is not the fix, for the reason its sibling states: the caller is the
+/// owner, so a self-scoped filter admits this call unchanged. What only the server knows is what
+/// the MACHINE said -- and a terminal status is the one field on this row that a later reader
+/// treats as settled, so a caller who could write it could close a pull that is still running.
+@actor
+@serverOnly
+mutate modelPull finishModelPull {
+  args {
+    pullId        string!
+    status        enum("succeeded", "failed", "cancelled")!
+    statusLine    string
+    errorMessage  string
+    readvertised  bool
+    endedAt       string!
+  }
+  update {
+    accept { status, readvertised, endedAt }
+    stamp {
+      id: args.pullId
+      statusLine: args.statusLine ?? ""
+      errorMessage: args.errorMessage ?? ""
+      updatedAt: args.endedAt
+    }
+  }
+}

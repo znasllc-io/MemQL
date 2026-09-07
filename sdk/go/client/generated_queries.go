@@ -4229,6 +4229,28 @@ func MissingCapabilityByKindAndNameBuild(args MissingCapabilityByKindAndNameArgs
 	return b.String()
 }
 
+// ModelPullsForWorker -- The CALLER'S model pulls for one machine, newest first. Backs the machine detail's Models group: a live pull renders its progress, and finished ones answer "why is this model here".
+//
+// Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["modelPullsForWorker"] in generated_concepts.go).
+type ModelPullsForWorkerArgs struct {
+	WorkerId string
+}
+
+// ModelPullsForWorker calls the engine query modelPullsForWorker.
+func (qc *QueryClient) ModelPullsForWorker(ctx context.Context, args ModelPullsForWorkerArgs) (*Result, error) {
+	call := ModelPullsForWorkerBuild(args)
+	return qc.executeNamed(ctx, "modelPullsForWorker", call)
+}
+
+func ModelPullsForWorkerBuild(args ModelPullsForWorkerArgs) string {
+	var b strings.Builder
+	b.WriteString("query modelPullsForWorker(")
+	b.WriteString("workerId: ")
+	b.WriteString(quoteMemQL(args.WorkerId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // ModuleReadinessAll -- Every node's latest verdict on every module: the rows the OS folds live and the moduleReadiness builtin folds on demand. Modules times nodes, consumed whole. Any signed-in caller (the concept's tier); no caller term is written because public, requiresIdentity injects nothing.
 //
 // Bound concept: v1:platform:moduleReadiness (machine-readable: BoundConcepts["moduleReadinessAll"] in generated_concepts.go).
@@ -4564,6 +4586,39 @@ func OidcIdentityBySubjectBuild(args OidcIdentityBySubjectArgs) string {
 	}
 	b.WriteString("subject: ")
 	b.WriteString(quoteMemQL(args.Subject))
+	b.WriteString(")")
+	return b.String()
+}
+
+// OpenModelPulls -- Every model pull nobody is driving, for the sweep that closes them.
+// =========================================================================== TWO CUTOFFS, BECAUSE THERE ARE TWO SHAPES OF ABANDONMENT =========================================================================== A row still at `requested` was never picked up -- the replica named on it is not there -- and is judged against when it was ASKED FOR. A row at `running` was claimed and then lost, and is judged against when it last REPORTED.
+// Applying one cutoff to both is the bug this shape exists to prevent, and it is not hypothetical: it was written that way first. A single `requestedAt < now - claimGrace` returns every ACTIVE download older than the claim grace, so the sweep fails a 40GB pull ninety seconds in -- and then flaps, because the next progress write stamps `running` back on the row and the following tick fails it again while the download continues invisibly. The stall grace must also exceed the worker handle's own idle ceiling, or the row watcher gives up on a pull the runtime watcher has not.
+// It reads under `actor.isClusterOwner==true` for the reason expiredWorkerInvocations states at length: its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL, and an identity is only as powerful as the queries it is used for, where a read-path bypass would be available to everything that could reach it. Writing the conjunct is also what makes the failure loud -- strip the principal and this returns zero rows, and the filter says why.
+//
+// Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["openModelPulls"] in generated_concepts.go).
+type OpenModelPullsArgs struct {
+	// A `requested` row older than this was never claimed.
+	RequestedBefore string
+	// A `running` row that has not reported since this has stopped moving.
+	UpdatedBefore string
+}
+
+// OpenModelPulls calls the engine query openModelPulls.
+func (qc *QueryClient) OpenModelPulls(ctx context.Context, args OpenModelPullsArgs) (*Result, error) {
+	call := OpenModelPullsBuild(args)
+	return qc.executeNamed(ctx, "openModelPulls", call)
+}
+
+func OpenModelPullsBuild(args OpenModelPullsArgs) string {
+	var b strings.Builder
+	b.WriteString("query openModelPulls(")
+	b.WriteString("requestedBefore: ")
+	b.WriteString(quoteMemQL(args.RequestedBefore))
+	if b.Len() > 21 {
+		b.WriteString(", ")
+	}
+	b.WriteString("updatedBefore: ")
+	b.WriteString(quoteMemQL(args.UpdatedBefore))
 	b.WriteString(")")
 	return b.String()
 }

@@ -80,6 +80,17 @@ func (l *meshLink) Send(nodeId string, msg *nodev1.NodeClientMessage) bool {
 		l.cancels = append(l.cancels, payload.ModelForwardCancel.GetRequestId())
 		l.mu.Unlock()
 		l.handler.CancelForwardedModelCall(context.Background(), payload.ModelForwardCancel.GetRequestId())
+	case *nodev1.NodeClientMessage_ModelPullForwardRequest:
+		l.wg.Add(1)
+		go func() {
+			defer l.wg.Done()
+			l.handler.HandleForwardedModelPull(context.Background(), payload.ModelPullForwardRequest, l.back)
+		}()
+	case *nodev1.NodeClientMessage_ModelPullForwardCancel:
+		l.mu.Lock()
+		l.cancels = append(l.cancels, payload.ModelPullForwardCancel.GetRequestId())
+		l.mu.Unlock()
+		l.handler.CancelForwardedModelPull(context.Background(), payload.ModelPullForwardCancel.GetRequestId())
 	}
 	return true
 }
@@ -95,6 +106,10 @@ func (l *meshLink) back(msg *nodev1.NodeServerMessage) error {
 		l.router.DispatchModel(payload.ModelForwardResponse)
 	case *nodev1.NodeServerMessage_ModelForwardDelta:
 		l.router.DispatchModelDelta(payload.ModelForwardDelta)
+	case *nodev1.NodeServerMessage_ModelPullForwardResponse:
+		l.router.DispatchModelPull(payload.ModelPullForwardResponse)
+	case *nodev1.NodeServerMessage_ModelPullForwardProgress:
+		l.router.DispatchModelPullProgress(payload.ModelPullForwardProgress)
 	}
 	return nil
 }

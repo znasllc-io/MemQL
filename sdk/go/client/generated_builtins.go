@@ -1018,6 +1018,34 @@ func EditDocumentBuild(args EditDocumentArgs) string {
 	return b.String()
 }
 
+// FleetModelPull -- Ask one of YOUR OWN fleet machines to pull a model, and return at once with the id of the record to watch. The model id is passed to the machine's runtime verbatim, in the runtime's own vocabulary (llama3.1:8b, or a Hugging Face GGUF repository as hf.co/owner/repo:Q4_K_M). Owner-only: the machine must be yours, unrevoked, and connected to the cluster right now, and each of those is refused BEFORE anything is written -- a pull names one machine and has nothing to fall through to, so a refusal you can act on beats a spinner that fails later. Progress, the runtime's own status line, and the final verdict all land on the v1:worker:modelPull row this returns the id of.
+type FleetModelPullArgs struct {
+	// v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
+	RegistrationId string
+	// The model id in the runtime's own vocabulary. Carried verbatim -- the router selects on this exact string, so a model pulled under one spelling is unreachable under any other.
+	Model string
+}
+
+// FleetModelPull calls the engine builtin fleetModelPull.
+func (qc *QueryClient) FleetModelPull(ctx context.Context, args FleetModelPullArgs) (*Result, error) {
+	call := FleetModelPullBuild(args)
+	return qc.executeNamed(ctx, "fleetModelPull", call)
+}
+
+func FleetModelPullBuild(args FleetModelPullArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetModelPull(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	if b.Len() > 23 {
+		b.WriteString(", ")
+	}
+	b.WriteString("model: ")
+	b.WriteString(quoteMemQL(args.Model))
+	b.WriteString(")")
+	return b.String()
+}
+
 // FleetModels -- List every model the caller's fleet can run right now: the model id, its context window and capability flags, and the machines behind it with their online and busy state. Produced from live worker registrations, never persisted -- the answer is which machines are awake, so a stored copy's staleness would be indistinguishable from the condition it describes. Scoped to the caller's own machines plus the shared-inference set; a model call carries the caller's prompts and routes only to their machines. Feeds the portal's Providers page and the fleet machine cards.
 type FleetModelsArgs struct {
 }

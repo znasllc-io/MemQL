@@ -86,10 +86,17 @@ describe("the doors an owner is offered", () => {
     }
   });
 
-  it("opens Fleet at Machines with the Add machine panel, for the fleet door", () => {
+  // THE PAYLOAD CARRIES THE CHECKBOX (epic memql#5103, design D5). The act
+  // this button belongs to is "serve a model from a machine you own", and a
+  // pairing panel that then asks the person to remember to tick a box has
+  // handed the last step back. The shape is an OBJECT rather than the boolean
+  // this used to send, so a merely-truthy payload cannot pre-select a
+  // several-gigabyte download; MachinesSection changed in the same commit and
+  // there is no compatibility branch, per the repo's no-shims rule.
+  it("opens Fleet at Machines with the Add machine panel and the local-models box ticked", () => {
     const calls = mount("owner");
     fireEvent.click(screen.getByRole("button", { name: "Open Fleet" }));
-    expect(calls).toEqual([["fleet", "machines", { addMachine: true }]]);
+    expect(calls).toEqual([["fleet", "machines", { addMachine: { inference: true } }]]);
   });
 
   it("opens AI providers at the named vendor, for each federation door", () => {
@@ -109,7 +116,7 @@ describe("the doors a developer is offered", () => {
   it("gets the fleet door in full: Fleet's Machines section has no role floor", () => {
     const calls = mount("developer");
     fireEvent.click(screen.getByRole("button", { name: "Open Fleet" }));
-    expect(calls).toEqual([["fleet", "machines", { addMachine: true }]]);
+    expect(calls).toEqual([["fleet", "machines", { addMachine: { inference: true } }]]);
   });
 
   // THE PREDICTION IN THE TEST BELOW CAME TRUE IN THE SAME RELEASE.

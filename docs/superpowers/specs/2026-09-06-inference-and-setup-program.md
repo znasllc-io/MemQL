@@ -23,7 +23,7 @@
 | 1 | Configuration readiness -- the platform knows what is set up, and the OS says so | memql | `2026-09-06-configuration-readiness-design.md` | `2026-09-06-configuration-readiness.md` | nothing |
 | 2 | OpenAI workload identity federation, the official SDK, and no more API keys | memql | `2026-09-06-openai-federation-and-key-removal-design.md` | `2026-09-06-openai-federation-and-key-removal.md` | nothing (1 is convenient, not required) |
 | 3 | Fleet inference completion, and subscription apps as an inference door | memql (engine) + memql-cockpit (cockpit) | `2026-09-06-fleet-inference-and-app-door-design.md` in each repo | `2026-09-06-fleet-inference-and-app-door.md` in each repo | 2 for the key door's removal; the cockpit half and the engine half share a proto change |
-| 4 | Runtime install and model pull on the cockpit, and the guided inference machine | memql-cockpit (cockpit) + memql (Fleet app) | `2026-09-06-inference-machine-setup-design.md` in each repo | `2026-09-06-inference-machine-setup.md` in each repo | 3's model attributes |
+| 4 | Runtime install and model pull on the cockpit, and the guided inference machine | memql-cockpit (cockpit) + memql (Fleet app) | `2026-09-06-inference-machine-setup-design.md` in each repo | shipped; the engine half's plan is deleted (epic memql#5103) | 3's model attributes |
 | 5 | The first-run core wizard | memql | `2026-09-06-first-run-wizard-design.md` | `2026-09-06-first-run-wizard.md` | 1, 2, 3, 4 |
 
 The order was chosen as "foundations first, wizard last": the wizard is the core modules'

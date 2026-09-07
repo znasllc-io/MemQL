@@ -87,10 +87,17 @@ export function InferenceStop({ role }: { role: string }) {
         <Button
           tone="primary"
           onClick={() => {
-            // The Add machine panel, opened for them. Fleet's Machines
-            // section has no role floor, so this is offered to a developer in
-            // full -- which is the whole reason the fleet door comes first.
-            fleet.open("machines", { addMachine: true });
+            // The Add machine panel, opened for them WITH the local-models
+            // box already ticked. Fleet's Machines section has no role floor,
+            // so this is offered to a developer in full -- which is the whole
+            // reason the fleet door comes first.
+            //
+            // The flag is what makes the act complete rather than
+            // approximately right: the person pressed a button that says
+            // "serve a model from a machine you own", and a pairing flow that
+            // then asks them to remember to tick a box has handed the last
+            // step back.
+            fleet.open("machines", { addMachine: { inference: true } });
           }}
         >
           Open Fleet

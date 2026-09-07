@@ -151,3 +151,25 @@ shape routingPolicy workerRoutingPolicyFull {
   active
   row.createdAt
 }
+
+/// Full projection of a v1:worker:modelPull row. Backs the machine detail's Models group,
+/// which renders a live pull, and the sweep that fails abandoned ones.
+@row
+shape modelPull workerModelPullFull {
+  row.id
+  ownerUserId
+  workerId
+  model
+  status
+  statusLine
+  layer
+  completedBytes
+  totalBytes
+  readvertised
+  errorMessage
+  targetNodeId
+  requestedAt
+  updatedAt
+  endedAt
+  row.createdAt
+}

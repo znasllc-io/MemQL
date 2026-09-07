@@ -102,6 +102,33 @@ func (a *App) wireWorkerForwarding(
 			"node_id", nodeIdentity.ID)
 	}
 
+	// MODEL PULLS (epic memql#5103). Here rather than in
+	// integrations_worker_agent.go for the same reason fleet inference is: the
+	// runner needs the FORWARD. A pull is claimed by the replica that held the
+	// machine's stream when the act ran, and a cockpit reconnects on every
+	// restart -- so a machine that has moved to a sibling since is ordinary,
+	// and a runner that could not forward would be a Pull button that silently
+	// does nothing after a laptop wakes up.
+	//
+	// The subscription is what makes the feature exist at all: `fleetModelPull`
+	// is served by a bff, which cannot reach a machine's stream, so the row it
+	// writes is the whole of the request and this event is the only thing that
+	// picks it up.
+	if a.eventBus != nil {
+		runner := agentworker.NewModelPullRunner(integ.Dispatcher(), forwarder, nodeIdentity.ID)
+		// The unsubscribe is DISCARDED, deliberately. This subscription lives
+		// for the process's lifetime on an agent node, and there is no Stop
+		// path that would call it -- App has none, and the runner is not a
+		// Dependency. A stored handle nothing invokes is a field that claims
+		// to manage a lifecycle it does not.
+		_ = runner.Subscribe(a.eventBus)
+		a.Logger.Info("model pulls: this replica will drive pulls for the machines it holds",
+			"node_id", nodeIdentity.ID)
+	} else {
+		a.Logger.Warn("model pulls: no event bus on this node; a Pull from the OS will never be " +
+			"picked up here and its record is failed by workerModelPullStaleSweep")
+	}
+
 	a.Logger.Info("worker forwarding: this replica can reach machines held by its peers",
 		"node_id", nodeIdentity.ID)
 }

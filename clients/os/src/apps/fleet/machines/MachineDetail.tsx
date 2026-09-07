@@ -6,6 +6,7 @@ import { formatFreshness, formatMoment } from "../../../kit/format";
 import { isWorkerOnline } from "../online";
 import { machineName, type MachineRow } from "../rows";
 import { LabelEditor } from "./LabelEditor";
+import { ModelsGroup } from "./ModelsGroup";
 import type { MachineWrites } from "./useMachineWrites";
 
 // One machine, in full: what it reported, what its owner set, what it can
@@ -58,6 +59,11 @@ export function MachineDetail({
       <LabelGroups machine={machine} busy={busy} writes={writes} />
 
       <AppsGroup machine={machine} />
+
+      {/* Below Apps, because the two answer the same shape of question about
+          this machine -- what it can be asked to do -- and a person scanning
+          for either reads them together. */}
+      <ModelsGroup machine={machine} />
 
       <CallHistory workerId={machine.id} machineLabel={label} />
 

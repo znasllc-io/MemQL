@@ -171,6 +171,7 @@ func (s *server) admitRegistration(
 	w.SetDispatchFunc(session.dispatch, cancel)
 	w.SetAppSessionFunc(session.openAppSession)
 	w.SetModelCallFunc(session.openModelCall)
+	w.SetModelPullFunc(session.openModelPull)
 	s.registry.Add(w)
 
 	if err := stream.Send(&memqlv1.WorkerServerMessage{
@@ -324,6 +325,10 @@ type streamSession struct {
 	// the same lock and for the same reason: a call's lifetime is the
 	// stream's, and a disconnect must end every one.
 	modelCalls map[string]*ModelCallHandle
+	// modelPulls is the pull table. Separate from modelCalls because the
+	// id spaces are separate and a pull is not a call: conflating them
+	// would let a cancel for one reach the other.
+	modelPulls map[string]*ModelPullHandle
 	sendMu     sync.Mutex
 	sendErr    error
 	closeOnce  sync.Once
@@ -353,6 +358,7 @@ func newStreamSession(
 		chunkSinks: make(map[string]func(*memqlv1.ToolStream)),
 		sessions:   make(map[string]*AppSessionHandle),
 		modelCalls: make(map[string]*ModelCallHandle),
+		modelPulls: make(map[string]*ModelPullHandle),
 	}
 }
 
@@ -386,6 +392,15 @@ func (s *streamSession) close() {
 			liveCalls = append(liveCalls, h)
 		}
 		s.modelCalls = nil
+		// And the same for pulls, where the stake is higher: a pull that
+		// loses its stream has left bytes on somebody's disk, so a caller
+		// parked in Wait must be told the machine went away rather than
+		// being left to conclude the download is still running.
+		livePulls := make([]*ModelPullHandle, 0, len(s.modelPulls))
+		for _, h := range s.modelPulls {
+			livePulls = append(livePulls, h)
+		}
+		s.modelPulls = nil
 		s.mu.Unlock()
 		for _, h := range liveSessions {
 			h.finish(AppSessionOutcome{Error: "worker_disconnected"}, ErrWorkerDisconnected)
@@ -396,6 +411,9 @@ func (s *streamSession) close() {
 				Error:        "worker_disconnected",
 				ErrorCode:    "worker_disconnected",
 			}, ErrWorkerDisconnected)
+		}
+		for _, h := range livePulls {
+			h.finish(ModelPullOutcome{Error: "worker_disconnected"}, ErrWorkerDisconnected)
 		}
 		s.clearConnectedNode()
 		// Log disconnect symmetrically to "worker registered" on the
@@ -551,6 +569,10 @@ func (s *streamSession) handle(ctx context.Context, msg *memqlv1.WorkerClientMes
 		s.handleModelCallDelta(payload.ModelCallDelta)
 	case *memqlv1.WorkerClientMessage_ModelCallEnd:
 		s.handleModelCallEnd(payload.ModelCallEnd)
+	case *memqlv1.WorkerClientMessage_ModelPullProgress:
+		s.handleModelPullProgress(payload.ModelPullProgress)
+	case *memqlv1.WorkerClientMessage_ModelPullEnd:
+		s.handleModelPullEnd(payload.ModelPullEnd)
 	case *memqlv1.WorkerClientMessage_RotationRequest:
 		s.handleRotationRequest(ctx, payload.RotationRequest)
 	case *memqlv1.WorkerClientMessage_AuditEvent:
@@ -1260,4 +1282,145 @@ func toolCallsFromProto(in []*memqlv1.ModelCallToolCall) []ModelCallToolCall {
 		})
 	}
 	return out
+}
+
+// -----------------------------------------------------------------------------
+// Model pull (epic memql#5103)
+// -----------------------------------------------------------------------------
+
+// openModelPull is the per-stream hook behind Worker.StartModelPull. It
+// registers the pull BEFORE sending Start, so a machine that answers instantly
+// cannot deliver an observation for a pull this side has not yet recorded --
+// the ordering openModelCall and openAppSession both keep, for the same
+// reason.
+func (s *streamSession) openModelPull(ctx context.Context, req ModelPullRequest) (*ModelPullHandle, error) {
+	if req.RequestId == "" {
+		return nil, fmt.Errorf("worker: model pull requires a request id")
+	}
+	limits := req.Limits.withDefaults()
+	clock := time.Now
+	if s.server != nil && s.server.clock != nil {
+		clock = s.server.clock
+	}
+	handle := &ModelPullHandle{
+		requestId:    req.RequestId,
+		model:        req.Model,
+		limits:       limits,
+		progress:     make(chan ModelPullProgress, modelPullProgressBuffer),
+		done:         make(chan struct{}),
+		cancelFn:     s.sendModelPullCancel,
+		clock:        clock,
+		lastActivity: clock(),
+	}
+	handle.detach = func() {
+		s.mu.Lock()
+		if s.modelPulls != nil {
+			delete(s.modelPulls, req.RequestId)
+		}
+		s.mu.Unlock()
+	}
+
+	s.mu.Lock()
+	if s.modelPulls == nil {
+		s.mu.Unlock()
+		return nil, ErrWorkerDisconnected
+	}
+	if _, exists := s.modelPulls[req.RequestId]; exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("worker: model pull %s already open", req.RequestId)
+	}
+	s.modelPulls[req.RequestId] = handle
+	s.mu.Unlock()
+
+	start := &memqlv1.ModelPullStart{
+		RequestId:      req.RequestId,
+		RegistrationId: s.worker.RegistrationId,
+		Model:          req.Model,
+	}
+	if err := s.send(&memqlv1.WorkerServerMessage{
+		Payload: &memqlv1.WorkerServerMessage_ModelPullStart{ModelPullStart: start},
+	}); err != nil {
+		handle.finish(ModelPullOutcome{Error: "start_send_failed"}, err)
+		return nil, fmt.Errorf("worker: send model pull start: %w", err)
+	}
+
+	// A caller context that dies before the pull ends stops the download on
+	// the machine.
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = handle.Cancel("caller_context_done")
+		case <-handle.done:
+		case <-s.ctx.Done():
+		}
+	}()
+
+	return handle, nil
+}
+
+func (s *streamSession) sendModelPullCancel(cancel *memqlv1.ModelPullCancel) error {
+	if cancel == nil {
+		return nil
+	}
+	return s.send(&memqlv1.WorkerServerMessage{
+		Payload: &memqlv1.WorkerServerMessage_ModelPullCancel{ModelPullCancel: cancel},
+	})
+}
+
+func (s *streamSession) lookupModelPull(requestId string) *ModelPullHandle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.modelPulls == nil {
+		return nil
+	}
+	return s.modelPulls[requestId]
+}
+
+func (s *streamSession) handleModelPullProgress(p *memqlv1.ModelPullProgress) {
+	if p == nil || p.GetRequestId() == "" {
+		return
+	}
+	handle := s.lookupModelPull(p.GetRequestId())
+	if handle == nil {
+		// An observation for a pull this node is not hosting -- a machine
+		// that reconnected to a different replica mid-download does exactly
+		// this. Dropping it is right, and it is not an error.
+		if s.server != nil && s.server.logger != nil {
+			s.server.logger.Debug("worker: model pull progress for unknown request",
+				"request_id", p.GetRequestId(),
+				"registration_id", s.worker.RegistrationId,
+			)
+		}
+		return
+	}
+	handle.deliverProgress(ModelPullProgress{
+		CompletedBytes: p.GetCompletedBytes(),
+		TotalBytes:     p.GetTotalBytes(),
+		Status:         p.GetStatus(),
+		Layer:          p.GetLayer(),
+	})
+}
+
+func (s *streamSession) handleModelPullEnd(end *memqlv1.ModelPullEnd) {
+	if end == nil || end.GetRequestId() == "" {
+		return
+	}
+	handle := s.lookupModelPull(end.GetRequestId())
+	if handle == nil {
+		return
+	}
+	outcome := ModelPullOutcome{
+		Model:        end.GetModel(),
+		Ok:           end.GetOk(),
+		Error:        end.GetError(),
+		Readvertised: end.GetReadvertised(),
+	}
+	// A FAILED PULL IS NOT A TRANSPORT ERROR. The runtime reports its own
+	// failures in the body of a successful stream, so `ok=false` with text is
+	// an ANSWER: Wait returns it with a nil error and the caller renders the
+	// machine's own words. Returning an error here would make an ordinary
+	// "no space left on device" indistinguishable from the machine falling
+	// off the network, which is the one thing the two ends of this protocol
+	// exist to separate.
+	handle.finish(outcome, nil)
 }

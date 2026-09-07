@@ -88,14 +88,85 @@ after sign-in the first-run gate runs in order:
 
 ### Door 1 — run a local model (the default)
 
-Pair a machine through Fleet → Machines, install a runtime, and pull a model
-meeting the floor above. MemQL uses it for planning, routing, suggestions and
-embeddings. Nothing is billed per token and no prompt leaves your hardware.
+Pair a machine through Fleet → Machines with **"This machine will run local
+models"** ticked, and the one-line install command grows a `--inference` flag:
+the installer checks the hardware floor, sets up a runtime and pulls a starting
+model in the same terminal, before you have opened anything else. MemQL then
+uses it for planning, routing, suggestions and embeddings. Nothing is billed
+per token and no prompt leaves your hardware.
+
+A machine already paired is set up the same way from its own terminal:
+
+```bash
+memql worker setup --inference
+memql worker setup --inference --model llama3.1:8b --model nomic-embed-text
+```
 
 Supported runtimes: **Ollama**, discovered natively at its default endpoint;
 and **any OpenAI-compatible endpoint** declared in the machine's `policy.yaml`
 — which covers LM Studio, vLLM and llamafile. There are no other per-vendor
 integrations.
+
+#### Pulling a model from MemQL OS
+
+A machine's page in Fleet → Machines carries a **Models** group: what the
+machine runs, with each model's parameter count, quantization and context
+window, and a **Pull** control for the machine's owner.
+
+```
+Fleet → Machines → (a machine) → Models
+```
+
+Four things about that surface are deliberate, and each of them is the answer
+to a question the naive version gets wrong.
+
+**The act belongs to one machine.** A pull writes gigabytes to one disk and
+edits one `policy.yaml`, so it is offered on that machine's page and nowhere
+else — there is no fleet-wide "pull a model" that would have to ask which
+machine. It is offered to the machine's **owner only**, and to anybody else the
+control is absent rather than disabled: `fleetModelPull` refuses a machine that
+is not the caller's, and a greyed button would advertise an act nobody on that
+page can reach.
+
+**Every refusal happens before anything is written.** A machine that is not
+yours, is revoked, or is not connected to the cluster right now is refused at
+the press, with a sentence naming which. There is no second machine to fall
+through to, so a refusal you can act on beats a progress bar that fails five
+minutes later for a reason that was knowable at the start.
+
+**The progress numbers describe one STEP, never the whole download.** A
+runtime fetches a model as a set of blobs and counts each from zero, and states
+no whole-pull total anywhere — so the bar is labelled "in this step", the
+counters legitimately jump backwards at each layer boundary, and there is no
+overall percentage. When the runtime states no size for a step at all, the bar
+is **absent** rather than empty: an empty track claims the download has moved
+nothing, when what happened is that nobody said how far there is to go. The
+runtime's own status line ("pulling 8eeb52dfb3bb", "verifying sha256 digest")
+carries the rest, verbatim.
+
+**Leaving the page does not stop the pull.** The download runs on the agent
+replica holding the machine's connection, and its record is a
+`v1:worker:modelPull` row — so it survives the tab closing, and the same rows
+answer "why is this model here" long afterwards. A failed pull is the reason
+that history is shown at all: a successful one is already visible as a model,
+while a failed one leaves nothing behind and the machine's model list simply
+does not change.
+
+**A pulled model may not be visible to the cluster yet.** The cockpit
+re-advertises its label set at once after a pull it drove, so the model is
+normally routable immediately; when it could not, the record says
+`sees it when this machine next reconnects` rather than reporting plain
+success. Those are different facts and the surface keeps them apart.
+
+#### When a pull does not finish
+
+| What you see | What happened | What to do |
+|---|---|---|
+| "…is not connected to the cluster right now" | No agent replica holds that machine's stream. The pull was refused and nothing was written. | Wake the machine, or check its cockpit is running, and try again. |
+| "…was revoked" | The registration survives revocation as audit history, so it still appears. | Pair the machine again; its old worker token can never be used. |
+| "No agent replica is driving this pull" | The replica that claimed it is gone — scaled down or killed. `workerModelPullStaleSweep` closes the record within two minutes. | Start the pull again. Whatever was fetched stays on the machine, so it resumes rather than restarting. |
+| A runtime error ("no space left on device") | A pull can fail inside a successful HTTP response; the runtime's own words are carried through. | Fix what the message names, then pull again. |
+| The model does not appear after a success | The machine could not re-advertise, so the cluster has not seen the new label set. | It appears when the machine next reconnects; nothing needs doing. |
 
 ### Door 2 — a signed-in Claude Code or Codex on one of your machines
 

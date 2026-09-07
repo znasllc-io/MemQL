@@ -144,6 +144,35 @@ func defaultRoutingRules() []RoutingRule {
 		{Pattern: "graph.node.updated.v1:worker:routingPolicy", TargetType: ""},
 		{Pattern: "graph.node.created.v1:workbench:workspace", TargetType: ""},
 		{Pattern: "graph.node.updated.v1:workbench:workspace", TargetType: ""},
+		// MODEL PULLS (epic memql#5103) carry the block's argument TWICE
+		// over, which is why they are here rather than beside
+		// v1:worker:invocation.
+		//
+		// The READ half is the block's own: the row is written on the agent
+		// replica driving the download and read on the machine page the bff
+		// serves, so without a rule the progress bar is correct at the moment
+		// it loads and frozen from then on -- for a thing whose entire content
+		// is that it moves.
+		//
+		// The CREATE half is different in kind and is the one that would fail
+		// hardest. `fleetModelPull` is served by a bff, which cannot reach a
+		// machine's stream at all; the agent replica that CAN is subscribed to
+		// this event and to nothing else. Without this rule the request never
+		// leaves the node that took it, and pressing Pull does nothing
+		// whatsoever -- no download, no error, no row movement.
+		//
+		// SO THIS ROW IS THE ONE EXCEPTION TO "no consumer to double-fire"
+		// above: there IS a consumer (integrations/agent/worker's
+		// ModelPullRunner), and it is deliberate. It is safe because the
+		// consumer claims on `targetNodeId`, so the replicas that are not
+		// named ignore the event they were sent.
+		//
+		// The volume is a person pressing a button, plus one throttled write
+		// every two seconds while a download runs. That is nowhere near the
+		// ground v1:worker:invocation is excluded on, which is one row per
+		// tool call.
+		{Pattern: "graph.node.created.v1:worker:modelPull", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:worker:modelPull", TargetType: ""},
 		// DELETES, added by memql#4542. The three rules above were written
 		// for the Fleet's create/update flow and stopped there, which left
 		// a remove invisible on every replica but the writer's: the list is

@@ -57,6 +57,10 @@ type ForwardHandler struct {
 	// the reason ForwardRouter's twin states.
 	modelMu       sync.Mutex
 	modelInflight map[string]context.CancelFunc
+
+	// In-flight pulls, in their own table again (epic memql#5103).
+	modelPullMu       sync.Mutex
+	modelPullInflight map[string]context.CancelFunc
 }
 
 // NewForwardHandler wraps this replica's registry and fleet store.
@@ -65,11 +69,12 @@ func NewForwardHandler(registry *workerservice.Registry, store FleetStore, logge
 		logger = slog.Default()
 	}
 	return &ForwardHandler{
-		registry:      registry,
-		store:         store,
-		logger:        logger,
-		inflight:      make(map[string]context.CancelFunc),
-		modelInflight: make(map[string]context.CancelFunc),
+		registry:          registry,
+		store:             store,
+		logger:            logger,
+		inflight:          make(map[string]context.CancelFunc),
+		modelInflight:     make(map[string]context.CancelFunc),
+		modelPullInflight: make(map[string]context.CancelFunc),
 	}
 }
 

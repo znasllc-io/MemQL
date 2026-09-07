@@ -113,7 +113,14 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // survived its own fix. The successor selects runs through
 // v1:worker:invocation.runId instead of a Plan field, which is why it needs no
 // new field on v1:work:run.
-const shippedAutomationCount = 50
+//
+// 50 -> 51 with workerModelPullStaleSweep (epic memql#5103), the two-minutely
+// close of a model pull whose agent replica has gone. It is the sibling of
+// sweepAbandonedPackageDeployments both in cadence and in reason: a pull is
+// claimed by exactly one replica, so nothing raises an event when the process
+// holding it dies, and without a sweep the OS shows a progress bar that will
+// never move again.
+const shippedAutomationCount = 51
 
 // TestStrictAutomationBoot_MalformedAutomationRefusesBoot is the core
 // acceptance test: a malformed automation injected as a throwaway domain (the

@@ -30,6 +30,11 @@ export interface FakeQuery {
   myWorkspaces: ReturnType<typeof vi.fn>;
   clusterNodes: ReturnType<typeof vi.fn>;
   invocationsForWorker: ReturnType<typeof vi.fn>;
+  /** The per-machine model pulls (epic memql#5103). LIVE, unlike the two
+   *  Models-section reads beside it: v1:worker:modelPull is a real row with a
+   *  broadcast routing rule, so this seeds a collection the fake
+   *  subscriptions can then fold events into. */
+  modelPullsForWorker: ReturnType<typeof vi.fn>;
   // The Apps section's reads (epic memql#5009). Neither concept broadcasts,
   // so both are on-demand reads rather than seeds behind a subscription.
   delegationPolicyForUser: ReturnType<typeof vi.fn>;
@@ -41,6 +46,7 @@ export interface FakeQuery {
   createRoutingPolicy: ReturnType<typeof vi.fn>;
   updateRoutingPolicy: ReturnType<typeof vi.fn>;
   setDelegationPolicy: ReturnType<typeof vi.fn>;
+  fleetModelPull: ReturnType<typeof vi.fn>;
 }
 
 // The subscription seam, faithful to the one bit of it a collection uses:
@@ -109,6 +115,7 @@ export function fakeConnection(seed: Partial<Record<keyof FakeQuery, Row[]>> = {
       myWorkspaces: read("myWorkspaces"),
       clusterNodes: read("clusterNodes"),
       invocationsForWorker: read("invocationsForWorker"),
+      modelPullsForWorker: read("modelPullsForWorker"),
       delegationPolicyForUser: read("delegationPolicyForUser"),
       appSessionsForUser: read("appSessionsForUser"),
       appSessionById: read("appSessionById"),
@@ -118,6 +125,7 @@ export function fakeConnection(seed: Partial<Record<keyof FakeQuery, Row[]>> = {
       createRoutingPolicy: vi.fn(async () => rowsResult([])),
       updateRoutingPolicy: vi.fn(async () => rowsResult([])),
       setDelegationPolicy: vi.fn(async () => rowsResult([])),
+      fleetModelPull: vi.fn(async () => rowsResult([])),
     },
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },
@@ -146,6 +154,32 @@ export function withSession(
       {children}
     </SessionProvider>
   );
+}
+
+/** A `v1:worker:modelPull` row with sane defaults (epic memql#5103).
+ *
+ *  `totalBytes` IS ZERO BY DEFAULT, which is the state most easily got wrong:
+ *  a runtime that stated no size for the step did not state a size of zero,
+ *  and the difference is a progress bar that is absent rather than empty. Pass
+ *  one explicitly to model a step whose size the runtime DID report. */
+export function modelPullRow(over: Partial<Row> & { id: string }): Row {
+  return {
+    ownerUserId: "v1:identity:user:me",
+    workerId: "laptop",
+    model: "llama3.1:8b",
+    status: "running",
+    statusLine: "",
+    layer: "",
+    completedBytes: 0,
+    totalBytes: 0,
+    readvertised: false,
+    errorMessage: "",
+    targetNodeId: "agent-0",
+    requestedAt: "2026-09-07T12:00:00Z",
+    updatedAt: "2026-09-07T12:00:00Z",
+    endedAt: "",
+    ...over,
+  };
 }
 
 /** A registration row with sane defaults, overridable field by field. */

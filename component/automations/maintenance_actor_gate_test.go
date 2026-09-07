@@ -93,6 +93,16 @@ func TestMaintenanceAutomationsAreArgued(t *testing.T) {
 		"sweepWaitingWorkRuns",
 		"workJournalRetentionSweep",
 		"workerInvocationRetentionSweep",
+		// workerModelPullStaleSweep (epic memql#5103) is the newest, and it
+		// is the only entry here that is not a retention sweep. It closes
+		// model pulls whose claiming agent replica has gone: a pull is
+		// claimed by exactly one replica, which is what makes the claim
+		// lock-free, and nothing raises an event when the process holding it
+		// dies. Its read spans owners because a sweep for abandoned work
+		// cannot know whose work was abandoned before it looks, and without
+		// the principal it returns zero rows and no error -- leaving a
+		// progress bar on somebody's screen that will never move again.
+		"workerModelPullStaleSweep",
 	}
 	got := auth.MaintenanceAutomationNames()
 	if strings.Join(got, ",") != strings.Join(want, ",") {

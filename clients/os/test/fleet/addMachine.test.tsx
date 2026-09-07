@@ -202,6 +202,7 @@ describe("the install command", () => {
       clusterUrl: "",
       token: "tok",
       computerUse: false,
+      inference: false,
     });
     // Obviously not a URL, so a copied command fails loudly at the shell
     // rather than dialling a host nobody meant.
@@ -223,10 +224,18 @@ describe("the install command", () => {
     // its line structure.
     for (const platform of INSTALL_PLATFORMS) {
       for (const computerUse of [false, true]) {
-        for (const clusterUrl of ["https://api.example.com", ""]) {
-          const command = installCommand({ platform, clusterUrl, token: TOKEN, computerUse });
-          expect(command).not.toContain("\n");
-          expect(command).not.toContain("\\");
+        for (const inference of [false, true]) {
+          for (const clusterUrl of ["https://api.example.com", ""]) {
+            const command = installCommand({
+              platform,
+              clusterUrl,
+              token: TOKEN,
+              computerUse,
+              inference,
+            });
+            expect(command).not.toContain("\n");
+            expect(command).not.toContain("\\");
+          }
         }
       }
     }
@@ -242,10 +251,44 @@ describe("the install command", () => {
       clusterUrl: "https://api.example.com",
       token: TOKEN,
       computerUse: true,
+      inference: false,
     });
     expect(command).toBe(
       "curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-mac.sh" +
         ` | bash -s -- --token ${TOKEN} --cluster https://api.example.com --computeruse`,
+    );
+  });
+
+  // ===========================================================================
+  // --inference IS APPENDED, AND IT CHANGES NOTHING ELSE ON THE LINE
+  // ===========================================================================
+  // The failure this catches is a flag that arrives correctly and displaces
+  // something: a lost --cluster, a doubled space, --computeruse swallowed. The
+  // line is copied into a terminal by a person who will not read it, so the
+  // only place a displacement can be caught is here.
+  it("appends --inference and leaves the rest of the line untouched", () => {
+    const base = {
+      platform: "linux" as const,
+      clusterUrl: "https://api.example.com",
+      token: TOKEN,
+      computerUse: false,
+    };
+    const without = installCommand({ ...base, inference: false });
+    const withFlag = installCommand({ ...base, inference: true });
+    expect(withFlag).toBe(`${without} --inference`);
+  });
+
+  it("pins both flags together, in order", () => {
+    const command = installCommand({
+      platform: "linux",
+      clusterUrl: "https://api.example.com",
+      token: TOKEN,
+      computerUse: true,
+      inference: true,
+    });
+    expect(command).toBe(
+      "curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-linux.sh" +
+        ` | bash -s -- --token ${TOKEN} --cluster https://api.example.com --computeruse --inference`,
     );
   });
 });

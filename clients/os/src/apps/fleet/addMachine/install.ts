@@ -63,6 +63,22 @@ export interface InstallCommandInput {
    * first run.
    */
   computerUse: boolean;
+  /**
+   * Adds --inference, which carries on into `memql worker setup --inference`
+   * in the same terminal once the token is written: the installer checks the
+   * hardware floor, installs or finds a runtime, pulls a starting model and
+   * writes it into the machine's own `models.allow` (epic memql#5103, D5).
+   *
+   * Off by default, and that is a judgement rather than a convention. It
+   * downloads several gigabytes and may install software, which is not
+   * something to do to somebody's machine because a checkbox was pre-ticked;
+   * and a machine that only ever runs tools needs none of it.
+   *
+   * INDEPENDENT OF computerUse. The two flags choose different things -- one
+   * a BUILD, the other a SETUP STEP -- and both, either or neither is a
+   * legitimate machine.
+   */
+  inference: boolean;
 }
 
 // installCommand composes the runbook's one-liner.
@@ -89,5 +105,10 @@ export function installCommand(input: InstallCommandInput): string {
   const cluster = input.clusterUrl === "" ? CLUSTER_URL_PLACEHOLDER : input.clusterUrl;
   const script = `https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-${input.platform}.sh`;
   const computeruse = input.computerUse ? " --computeruse" : "";
-  return `curl -fsSL ${script} | bash -s -- --token ${input.token} --cluster ${cluster}${computeruse}`;
+  // ORDER IS FIXED and asserted word for word by the tests: --computeruse
+  // then --inference. The installers parse both, so the order is cosmetic to
+  // them and load-bearing to a person comparing what the OS printed with what
+  // the runbook prints.
+  const inference = input.inference ? " --inference" : "";
+  return `curl -fsSL ${script} | bash -s -- --token ${input.token} --cluster ${cluster}${computeruse}${inference}`;
 }

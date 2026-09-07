@@ -684,3 +684,21 @@ builtin datasyncDiscardOutboxEntry {
   entryId  string!
   reason   string
 }
+
+// ---- Pulling a model onto one of your machines (epic memql#5103) ----
+//
+// The first of these that is an ACT rather than a read, and the one that
+// makes something happen on hardware the cluster does not own.
+//
+// It RETURNS AT ONCE and the v1:worker:modelPull row is how anyone watches:
+// a 70B model is tens of gigabytes over a domestic connection, so a call
+// that blocked until the download finished would hold a gRPC stream for
+// hours and lose the whole pull if the person closed the tab.
+
+@sdk
+@executor("fleetModelPull")
+@description("Ask one of YOUR OWN fleet machines to pull a model, and return at once with the id of the record to watch. The model id is passed to the machine's runtime verbatim, in the runtime's own vocabulary (llama3.1:8b, or a Hugging Face GGUF repository as hf.co/owner/repo:Q4_K_M). Owner-only: the machine must be yours, unrevoked, and connected to the cluster right now, and each of those is refused BEFORE anything is written -- a pull names one machine and has nothing to fall through to, so a refusal you can act on beats a spinner that fails later. Progress, the runtime's own status line, and the final verdict all land on the v1:worker:modelPull row this returns the id of.")
+builtin fleetModelPull {
+  registrationId  string!  @description("v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.")
+  model           string!  @description("The model id in the runtime's own vocabulary. Carried verbatim -- the router selects on this exact string, so a model pulled under one spelling is unreachable under any other.")
+}

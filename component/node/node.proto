@@ -46,6 +46,8 @@ message NodeClientMessage {
     WorkerForwardCancel worker_forward_cancel = 101;
     ModelForwardRequest model_forward_request = 102;
     ModelForwardCancel model_forward_cancel = 103;
+    ModelPullForwardRequest model_pull_forward_request = 104;
+    ModelPullForwardCancel model_pull_forward_cancel = 105;
   }
 }
 
@@ -76,6 +78,8 @@ message NodeServerMessage {
     WorkerForwardStream worker_forward_stream = 101;
     ModelForwardResponse model_forward_response = 102;
     ModelForwardDelta model_forward_delta = 103;
+    ModelPullForwardResponse model_pull_forward_response = 104;
+    ModelPullForwardProgress model_pull_forward_progress = 105;
   }
 }
 
@@ -656,6 +660,69 @@ message ModelForwardDelta {
 
 // ModelForwardCancel stops a forwarded model call.
 message ModelForwardCancel {
+  string request_id = 1;
+  string reason = 2;
+}
+
+// ModelPullForwardRequest carries a model pull to the replica holding the
+// machine's WorkerService stream (epic memql#5103, design D3).
+//
+// Same mechanics as ModelForwardRequest and the same authority rule, with one
+// difference in what the hop is protecting. A model call is READ-SHAPED from
+// the machine's point of view: it spends tokens and leaves nothing behind. A
+// pull WRITES -- it puts gigabytes on somebody's disk and edits their
+// policy.yaml -- so the receiver's ownership re-check is not merely holding a
+// boundary across the hop, it is the last gate before a side effect on
+// hardware the cluster does not own.
+//
+// There is no `refused_before_start` re-pick here, and its absence is
+// deliberate: a pull names ONE machine because the person pressed Pull on that
+// machine's page. There is no second machine to re-pick to, so a refusal is
+// the answer rather than a routing signal.
+message ModelPullForwardRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  // A HINT for the fleet read only. The owner that DECIDES is the subject of
+  // `authority`.
+  string owner_user_id = 3;
+  // The model id, verbatim in the runtime's own vocabulary.
+  string model = 4;
+  // Optional ceiling; the receiver clamps to its own. A pull is measured in
+  // minutes to hours, so this is generous where a dispatch's is tight.
+  int32 timeout_sec = 5;
+  ForwardedAuthority authority = 6;
+}
+
+// ModelPullForwardResponse is the terminal answer for one request_id.
+message ModelPullForwardResponse {
+  string request_id = 1;
+  bool ok = 2;
+  string model = 3;
+  string error_code = 4;
+  string error_message = 5;
+  // Whether the machine re-advertised immediately, carried through so the
+  // originating replica can tell the watcher whether the cluster can see the
+  // model yet.
+  bool readvertised = 6;
+}
+
+// ModelPullForwardProgress relays one ModelPullProgress across the hop.
+//
+// The fields ride through UNTOUCHED, including the per-layer counters that go
+// backwards. Smoothing them here would put a second, different progress model
+// on the receiving side from the one every other reader sees, and the reader
+// that could detect the reset would be looking at numbers this node invented.
+message ModelPullForwardProgress {
+  string request_id = 1;
+  string model = 2;
+  uint64 completed_bytes = 3;
+  uint64 total_bytes = 4;
+  string status = 5;
+  string layer = 6;
+}
+
+// ModelPullForwardCancel stops a forwarded pull.
+message ModelPullForwardCancel {
   string request_id = 1;
   string reason = 2;
 }

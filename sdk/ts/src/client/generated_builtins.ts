@@ -772,6 +772,31 @@ QueryClient.prototype.editDocument = function (this: QueryClient, args: EditDocu
   return this.executeNamed("editDocument", buildEditDocument(args), opts);
 };
 
+/** Ask one of YOUR OWN fleet machines to pull a model, and return at once with the id of the record to watch. The model id is passed to the machine's runtime verbatim, in the runtime's own vocabulary (llama3.1:8b, or a Hugging Face GGUF repository as hf.co/owner/repo:Q4_K_M). Owner-only: the machine must be yours, unrevoked, and connected to the cluster right now, and each of those is refused BEFORE anything is written -- a pull names one machine and has nothing to fall through to, so a refusal you can act on beats a spinner that fails later. Progress, the runtime's own status line, and the final verdict all land on the v1:worker:modelPull row this returns the id of. */
+export interface FleetModelPullArgs {
+  /** v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
+  registrationId: string;
+  /** The model id in the runtime's own vocabulary. Carried verbatim -- the router selects on this exact string, so a model pulled under one spelling is unreachable under any other. */
+  model: string;
+}
+
+export function buildFleetModelPull(args: FleetModelPullArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  parts.push("model: " + renderMemQLValue(args.model));
+  return "builtin fleetModelPull(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetModelPull(args: FleetModelPullArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetModelPull = function (this: QueryClient, args: FleetModelPullArgs = {} as FleetModelPullArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetModelPull", buildFleetModelPull(args), opts);
+};
+
 /** List every model the caller's fleet can run right now: the model id, its context window and capability flags, and the machines behind it with their online and busy state. Produced from live worker registrations, never persisted -- the answer is which machines are awake, so a stored copy's staleness would be indistinguishable from the condition it describes. Scoped to the caller's own machines plus the shared-inference set; a model call carries the caller's prompts and routes only to their machines. Feeds the portal's Providers page and the fleet machine cards. */
 export interface FleetModelsArgs {
 }

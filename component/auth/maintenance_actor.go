@@ -123,6 +123,14 @@ var maintenanceAutomations = map[string]string{
 		"one writer that folds a run's summary onto the run row BEFORE deleting its detail, so a read that " +
 		"sees nothing does not merely skip the delete -- it skips the fold, and the detail then ages out of " +
 		"a run that never got its summary, which is the one failure here that destroys evidence",
+	"workerModelPullStaleSweep": "the two-minute sweep for abandoned model pulls (epic memql#5103). " +
+		"A pull is claimed by ONE agent replica -- the one holding the machine's stream -- which is what " +
+		"makes the claim lock-free, and the cost of that choice is the case where the named replica is " +
+		"gone: nothing picks the row up, no event is raised because a process that dies emits none, and " +
+		"the OS shows a spinner that never resolves. Its read spans owners BY NATURE, since a sweep for " +
+		"abandoned work cannot know whose work was abandoned before it looks. Without this principal " +
+		"openModelPulls returns zero rows and no error, and a cluster full of stuck pulls sweeps nothing " +
+		"every two minutes, forever, in silence -- the exact failure this list exists for",
 	"logsRetentionSweep": "the nightly log-store sweep (epic memql#4893), a retention sweep over every " +
 		"node's log lines. What it runs is builtin logsSweep, whose Go executor is floored at CLUSTER OWNER " +
 		"(design L3) -- the same floor an owner running it by hand clears, and the only floor the rows have, " +
