@@ -216,6 +216,14 @@ export function BeaconMap({
       if (node.kind === "cluster") return onToggleColumn(node.depth);
       if (node.kind === "fold") return onToggleFold(node.depth);
       if (node.kind === "approval") return onOpenApproval(node.rowId);
+      // AN ARTIFACT IS A LABEL, NOT A DOOR, and that is a finding rather than
+      // a preference. Opening one belongs in Files, and the shell's handoff
+      // (`openApp("files", ...)`) would reach an intent handler that reads
+      // `place` and `folderId` and CONSUMES anything else -- so wiring the
+      // click would open the Files window on whatever it was last showing and
+      // select nothing, which is a click that looks like it worked. Making it
+      // a door wants Files to accept an artifact id, which is a change to
+      // Files.
       if (node.stepKey !== "") return onSelectStep(node.stepKey);
     },
     [onOpenApproval, onSelectStep, onToggleColumn, onToggleFold, steering],
@@ -521,6 +529,19 @@ function shapeFor(node: LayoutNode, cx: number, cy: number) {
           d={`M ${cx} ${cy - APPROVAL_HALF} L ${cx + APPROVAL_HALF} ${cy} L ${cx} ${cy + APPROVAL_HALF} L ${cx - APPROVAL_HALF} ${cy} Z`}
         />
       );
+    // A PAGE WITH ITS CORNER TURNED. Every other glyph here is a primitive --
+    // circle, square, diamond -- because every other node stands for a moment
+    // in the machine. This one stands for a thing a person can open and read,
+    // and it is the only node on the map that leaves the run behind, so it is
+    // the one place a literal shape earns its keep.
+    case "artifact":
+      return (
+        <path
+          className="os-nexus-artifact"
+          data-archived={node.status === "archived" ? "" : undefined}
+          d={`M ${cx - 5} ${cy - 7} L ${cx + 2} ${cy - 7} L ${cx + 5} ${cy - 4} L ${cx + 5} ${cy + 7} L ${cx - 5} ${cy + 7} Z M ${cx + 2} ${cy - 7} L ${cx + 2} ${cy - 4} L ${cx + 5} ${cy - 4}`}
+        />
+      );
     default:
       return <circle className="os-nexus-step" cx={cx} cy={cy} r={STEP_R} />;
   }
@@ -548,6 +569,13 @@ function describe(node: LayoutNode): string {
       return node.status === "waiting"
         ? `Waiting on you: ${node.label}`
         : `${node.label}, ${node.status}`;
+    case "artifact":
+      // "Produced" rather than "created": the map is about what the run did,
+      // and a person reading this wants to know the run made it rather than
+      // when the row was written.
+      return node.status === "archived"
+        ? `${node.label}, produced here and since archived`
+        : `Produced: ${node.label}`;
     default:
       return `Step ${node.label}, ${node.status}`;
   }

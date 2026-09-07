@@ -5,7 +5,7 @@
 
 use agents.concepts.{ agent }
 use identity.concepts.{ identity, user }
-use planner.concepts.{ plan, task }
+use work.concepts.{ run, step }
 
 /// Per-call telemetry for worker tool invocations. Written once on call completion (success /
 /// failure / cancelled / timeout / denied). Operator reads these for plan debugging; auditor reads
@@ -34,8 +34,8 @@ concept invocation {
   ownerUserId    string!  @serverSet  @description("v1:identity:user.id of the worker's owner. Same as WorkerRegistration.ownerUserId; denormalized so the frontend's per-user invocations query doesn't need to join. THE ROW-AUTHZ OWNER FIELD (memql#4406), stamped from actor.userId by createWorkerInvocation and never accepted from caller args -- @serverSet makes that a load-time rejection rather than a convention, and TestDeclaredOwnerFieldsAreServerStamped fails the build on a mutation that writes it from args. Both Go writers (component/worker/store.go, integrations/agent/worker/store.go) already know the owner and run the create under auth.ContextWithUserActor for it.")
   workerId       string!  @description("v1:worker:registration.id the call dispatched to.")
   agentId        string!  @description("v1:agents:agent.id the call originated from.")
-  planId         string  @description("v1:planner:plan.id when the call was part of a plan-task. Empty for ad-hoc agent calls.")
-  taskId         string  @description("v1:planner:task.id when the call was part of a plan-task. Empty for ad-hoc agent calls.")
+  runId          string  @description("v1:work:run.id when the call was made inside a run. Empty for an ad-hoc agent call. Was planId until memql#5053.")
+  stepId         string  @description("v1:work:step.id when the call was made inside a step. Empty for an ad-hoc agent call. Was taskId until memql#5053 -- a step is the run's unit, and it is what a tool call happens inside.")
   correlationId  string  @description("Random ID linking this row to the matching v1:identity:auditEvent row when one was emitted (denied-by-policy, scope-elevation, etc).")
   tool           enum("workerHost", "workerComputer")!  @description("Umbrella tool the action belongs to.")
   action         string!  @description("Action discriminator within the tool. workerHost: exec / fs_read / fs_write / fs_list / fs_stat / http_fetch. workerComputer: capabilities / wait / screenshot / cursor_position / mouse_move / mouse_click / mouse_down / mouse_up / mouse_drag / mouse_scroll / key_type / key_combo / key_hold / display_info / window_list / window_focus.")
@@ -57,8 +57,8 @@ concept invocation {
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="parent", field="workerId", target=registration, direction="outgoing")
   @relationship(type="parent", field="agentId", target=agent, direction="outgoing")
-  @relationship(type="parent", field="planId", target=plan, direction="outgoing")
-  @relationship(type="parent", field="taskId", target=task, direction="outgoing")
+  @relationship(type="parent", field="runId", target=run, direction="outgoing")
+  @relationship(type="parent", field="stepId", target=step, direction="outgoing")
 }
 
 /// Operational registration of a worker -- the runtime record for a memql-cockpit instance running
@@ -125,8 +125,8 @@ concept appSession {
   workerId       string!  @description("v1:worker:registration.id of the machine the app ran on.")
   app            enum("claude-code", "codex")!  @description("Which local app. The engine's runnable set is closed; a cockpit that reports another app can store it on the registration but can never open a session for it.")
   kind           enum("run", "open", "attach")!  @description("run = headless and autonomous, the engine reads the output. open = launch the app for the HUMAN with the workspace and prompt loaded; it ends when the window closes, or immediately with a failure if the app cannot be opened. attach = stream a run the human started, named by appSessionRef.")
-  planId         string  @description("v1:planner:plan.id this session serves. Empty for a session opened outside a plan.")
-  taskId         string  @description("v1:planner:task.id this session serves. Empty for a session opened outside a task.")
+  runId          string  @description("v1:work:run.id this session serves. Empty for a session opened outside a run. Was planId until memql#5053.")
+  stepId         string  @description("v1:work:step.id this session serves. Empty for a session opened outside a step. Was taskId until memql#5053.")
   status         enum("starting", "running", "ended", "failed", "cancelled")!  @default("starting")  @description("Lifecycle. starting = the row exists and AppSessionStart has been sent; running = the first chunk arrived; ended = a clean AppSessionEnd; failed = the worker reported an error or disconnected mid-run; cancelled = a cancel was honoured. A session that never reaches a terminal status is one whose node died holding it -- the sweep in workerAppSessionStaleSweep marks those failed.")
   workspace      string  @description("Absolute directory on the machine the app ran in. Named on the consent card, so the user approved this specific path.")
   prompt         string  @description("The prompt the app was given. Kept because the transcript alone does not say what was asked.")
@@ -149,8 +149,8 @@ concept appSession {
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="parent", field="workerId", target=registration, direction="outgoing")
-  @relationship(type="parent", field="planId", target=plan, direction="outgoing")
-  @relationship(type="parent", field="taskId", target=task, direction="outgoing")
+  @relationship(type="parent", field="runId", target=run, direction="outgoing")
+  @relationship(type="parent", field="stepId", target=step, direction="outgoing")
 }
 
 /// Per-user preference deciding when the planner delegates a task to a local app instead of running

@@ -462,3 +462,43 @@ func parseDesignDependencies(resp any) (designResult, error) {
 	}
 	return res, nil
 }
+
+// extractJSONObject pulls the first balanced JSON object out of a model
+// response that wrapped it in prose.
+//
+// It lived in agent_loop.go beside the planner-decision parser, and moved here
+// with memql#5052 because the authoring design pass is the only caller left.
+// The failure it exists for is recorded in
+// TestExtractJSONObject_StripsProseWrapper: a live repair model returned its
+// JSON inside a sentence.
+func extractJSONObject(raw []byte) []byte {
+	s := stripJSONFence(raw)
+	start := -1
+	depth := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case escaped:
+			escaped = false
+		case inString && c == '\\':
+			escaped = true
+		case c == '"':
+			inString = !inString
+		case inString:
+			// inside a string literal: braces are content
+		case c == '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case c == '}':
+			depth--
+			if depth == 0 && start >= 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+	return s
+}

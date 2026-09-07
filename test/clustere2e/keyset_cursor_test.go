@@ -20,7 +20,7 @@
 //   - is reproducible regardless of which replica served the mint vs. the
 //     resolve.
 //
-// The rows are v1:planner:plan rather than the v1:cognition:utterance this
+// The rows are v1:platform:missingCapability rather than the v1:cognition:utterance this
 // suite used to seed (memql#4988 deleted cognition). The cursor primitive is
 // concept-agnostic -- it keys on (createdAt, id) and a sort signature -- so
 // the swap costs the proof nothing; what it needs from a concept is only that
@@ -45,12 +45,12 @@ import (
 	memqlclient "github.com/znasllc-io/memql/sdk/go/client"
 )
 
-// keysetScopeQuery pages a scope's plans newest-first. The cursor rides the
-// request via ExecutePaginated, not the query string.
+// keysetScopeQuery pages a scope's probe rows newest-first. The cursor rides
+// the request via ExecutePaginated, not the query string.
 func keysetScopeQuery(scope string, pageSize int) string {
 	return fmt.Sprintf(
-		`sort(paginate(concept==v1:planner:plan;payload.partitionId==%q, %d), "createdAt", "desc")`,
-		scope, pageSize)
+		`sort(paginate(%s, %d), "createdAt", "desc")`,
+		probeScopeQuery(scope), pageSize)
 }
 
 // TestKeysetCursorCrossNode proves a cursor minted on one replica resolves on
@@ -83,10 +83,10 @@ func TestKeysetCursorCrossNode(t *testing.T) {
 	const total = 12
 	sent := make([]string, 0, total) // in send order (oldest first)
 	for i := 0; i < total; i++ {
-		pid := "v1:planner:plan:" + id.NewShortId()
-		if _, err := qcA.CreatePlan(ctx, probePlanArgs(scope, pid,
+		pid := "v1:platform:missingCapability:" + id.NewShortId()
+		if _, err := qcA.LogMissingCapability(ctx, probeRowArgs(scope, pid,
 			fmt.Sprintf("keyset cross-node probe %02d", i), userID)); err != nil {
-			t.Fatalf("seed plan %d: %v", i, err)
+			t.Fatalf("seed row %d: %v", i, err)
 		}
 		sent = append(sent, pid)
 		// Small spacing so createdAt is strictly increasing even at coarse

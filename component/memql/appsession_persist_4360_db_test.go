@@ -46,8 +46,8 @@ func TestAppSessionRowPersistsAndReadsBack(t *testing.T) {
 		"workerId":  "reg-4360",
 		"app":       "claude-code",
 		"kind":      "run",
-		"planId":    "plan-4360",
-		"taskId":    "task-4360",
+		"runId":     "run-4360",
+		"stepId":    "step-4360",
 		"workspace": "/w/4360",
 		"prompt":    "do the thing",
 		"startedAt": "2026-08-22T09:00:00Z",
@@ -101,8 +101,8 @@ func TestAppSessionRowPersistsAndReadsBack(t *testing.T) {
 	require.True(t, contains(got, storedID),
 		"appSessionById(%q) must return the row just written; got %v", sessionID, got)
 
-	got = queryIds(t, ctx, eng, fmt.Sprintf("appSessionsForTask(taskId:%q)", "task-4360"))
-	require.True(t, contains(got, storedID), "appSessionsForTask must find the session; got %v", got)
+	got = queryIds(t, ctx, eng, fmt.Sprintf("appSessionsForStep(stepId:%q)", "step-4360"))
+	require.True(t, contains(got, storedID), "appSessionsForStep must find the session; got %v", got)
 
 	// A TERMINAL session must NOT appear in the concurrency-cap read --
 	// counting ended rows would make the cap tighten permanently as history
@@ -124,7 +124,7 @@ func TestAppSessionReadsAreCallerScoped(t *testing.T) {
 
 	storedID := runMutation(t, appSessionOwnerCtx(ownerA), eng, "createAppSession", map[string]any{
 		"sessionId": sessionID, "workerId": "reg-x", "app": "codex", "kind": "run",
-		"taskId": "task-scope", "startedAt": "2026-08-22T09:00:00Z",
+		"stepId": "step-scope", "startedAt": "2026-08-22T09:00:00Z",
 	})
 
 	// A's own read finds it.

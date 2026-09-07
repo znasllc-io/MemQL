@@ -78,7 +78,7 @@ func (h *ForwardHandler) HandleForwardedRequest(ctx context.Context, req *nodev1
 		h.logger.Warn("workbench: refused a forwarded request",
 			slog.String("requestId", requestId),
 			slog.String("action", req.GetAction()),
-			slog.String("planId", req.GetPlanId()),
+			slog.String("runId", req.GetRunId()),
 			slog.String("error", err.Error()))
 		h.sendError(send, requestId, "forwarded_authority_refused", err.Error())
 		return
@@ -88,7 +88,7 @@ func (h *ForwardHandler) HandleForwardedRequest(ctx context.Context, req *nodev1
 	// a different contract, and it forks here rather than inside
 	// handleDispatchHost so the two never share a code path: a build's command
 	// is the manifest's rather than the allowlist's, its key is a deployment
-	// rather than a Plan, and it writes no workspace row. What makes it
+	// rather than a run, and it writes no workspace row. What makes it
 	// checkable is the CLASS inside the assertion this handler just verified:
 	// only the engine can mint a SYSTEM-class authority (a node acting for
 	// itself, which ForwardedAuthorityForSystem refuses to give a user
@@ -107,14 +107,14 @@ func (h *ForwardHandler) HandleForwardedRequest(ctx context.Context, req *nodev1
 	}
 
 	// Reconstruct the args map handleDispatchHost expects (action +
-	// planId + args + agentId + taskId). The local path is identical
+	// runId + args + agentId + stepId). The local path is identical
 	// to single-node operation -- same Manager, same workspace dir.
 	dispatchArgs := map[string]any{
 		"action":  req.GetAction(),
-		"planId":  req.GetPlanId(),
+		"runId":   req.GetRunId(),
 		"args":    innerArgs,
 		"agentId": req.GetAgentId(),
-		"taskId":  req.GetTaskId(),
+		"stepId":  req.GetStepId(),
 	}
 	nodes, err := h.integration.handleDispatchHost(cctx, dispatchArgs, 0)
 	if err != nil {

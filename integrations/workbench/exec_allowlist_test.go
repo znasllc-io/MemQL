@@ -106,7 +106,7 @@ func TestEnforceExecAllowlist_RejectsUncurated(t *testing.T) {
 	// gate must reject -- without it a compromised agent could
 	// trivially spawn a reverse shell or escalate.
 	cases := []struct {
-		cmd          string
+		cmd           string
 		wantBadBinary string
 	}{
 		{cmd: "sudo rm -rf /", wantBadBinary: "sudo"},

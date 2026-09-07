@@ -386,27 +386,6 @@ QueryClient.prototype.installDependencyVerdict = function (this: QueryClient, ar
   return this.executeNamed("installDependencyVerdict", buildInstallDependencyVerdict(args), opts);
 };
 
-/** Pure decide for the kill-switch sweep: returns every running plan owned by the updated user. The suspend write + the gate (computerUseEnabled==false AND the plan has a computerUseScope) live in the killSwitchSuspendsRunningPlans automation's forEach step (#2235). Re-enable flips the flag back; resume is per-plan-explicit. */
-export interface KillSwitchSuspendsRunningPlansArgs {
-  event: Record<string, unknown>;
-}
-
-export function buildKillSwitchSuspendsRunningPlans(args: KillSwitchSuspendsRunningPlansArgs): string {
-  const parts: string[] = [];
-  parts.push("event: " + renderMemQLValue(args.event));
-  return "logic killSwitchSuspendsRunningPlans(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    killSwitchSuspendsRunningPlans(args: KillSwitchSuspendsRunningPlansArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.killSwitchSuspendsRunningPlans = function (this: QueryClient, args: KillSwitchSuspendsRunningPlansArgs = {} as KillSwitchSuspendsRunningPlansArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("killSwitchSuspendsRunningPlans", buildKillSwitchSuspendsRunningPlans(args), opts);
-};
-
 /** Hourly sweep that stamps consumedAt + consumedFromIP='system:expiry' on v1:identity:magiclink rows whose expiresAt is in the past, so the row reads as 'spent' in audit queries and any subsequent click is idempotently rejected by the consume handler's own expiresAt guard. */
 export interface MagicLinkExpirySweepArgs {
   event: Record<string, unknown>;
@@ -472,27 +451,6 @@ QueryClient.prototype.onDelegationCreated = function (this: QueryClient, args: O
   return this.executeNamed("onDelegationCreated", buildOnDelegationCreated(args), opts);
 };
 
-/** PURE terminal-status decision table for v1:planner:plan (#2370): returns true when the status is one of the terminal set (succeeded / failed / cancelled), false otherwise. THE single owner of that vocabulary -- the releaseWorkspaceOnPlanTerminal automation gates its release + teardown steps on this scalar instead of restating the ||-chain inline (v1:planner:plan has 9 statuses; inline copies drift). */
-export interface PlanIsTerminalArgs {
-  status?: unknown;
-}
-
-export function buildPlanIsTerminal(args: PlanIsTerminalArgs): string {
-  const parts: string[] = [];
-  if (args.status !== undefined) parts.push("status: " + renderMemQLValue(args.status));
-  return "logic planIsTerminal(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    planIsTerminal(args: PlanIsTerminalArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.planIsTerminal = function (this: QueryClient, args: PlanIsTerminalArgs = {} as PlanIsTerminalArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("planIsTerminal", buildPlanIsTerminal(args), opts);
-};
-
 /** Decides which departed cluster nodes to retire (ADR S2.1 pure logic, #2235). Reads MEMQL_NODE_STALE_PRUNE_MINUTES (default 30), computes cutoff = now - window via addDuration with a negative ISO duration, and returns staleClusterNodes({olderThan: cutoff}).nodes() -- the LATEST non-stopped rows whose lastSeen is past the window (the olderThan arg pushes a payload.lastSeen<cutoff predicate onto the query, #1642). The calling automation appends the terminal health='stopped' row per returned node via a forEach updateNodeHealth step. */
 export interface PruneStaleClusterNodesArgs {
   event: Record<string, unknown>;
@@ -556,25 +514,25 @@ QueryClient.prototype.purgeExpiredSafetyClassifications = function (this: QueryC
   return this.executeNamed("purgeExpiredSafetyClassifications", buildPurgeExpiredSafetyClassifications(args), opts);
 };
 
-/** Pure decide for the workspace-release sweep: returns every v1:workbench:workspace for the updated plan. The terminal-status gate, the per-row release write (provisioned workspaces only), and the unconditional on-disk teardown all live in the releaseWorkspaceOnPlanTerminal automation's steps (#2235). */
-export interface ReleaseWorkspaceOnPlanTerminalArgs {
+/** Pure decide for the workspace-release sweep: returns every v1:workbench:workspace for the updated run. The terminal-status gate, the per-row release write (provisioned workspaces only), and the unconditional on-disk teardown all live in the releaseWorkspaceOnRunTerminal automation's steps (#2235). */
+export interface ReleaseWorkspaceOnRunTerminalArgs {
   event: Record<string, unknown>;
 }
 
-export function buildReleaseWorkspaceOnPlanTerminal(args: ReleaseWorkspaceOnPlanTerminalArgs): string {
+export function buildReleaseWorkspaceOnRunTerminal(args: ReleaseWorkspaceOnRunTerminalArgs): string {
   const parts: string[] = [];
   parts.push("event: " + renderMemQLValue(args.event));
-  return "logic releaseWorkspaceOnPlanTerminal(" + parts.join(", ") + ")";
+  return "logic releaseWorkspaceOnRunTerminal(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    releaseWorkspaceOnPlanTerminal(args: ReleaseWorkspaceOnPlanTerminalArgs, opts?: QueryCallOptions): Promise<Result>;
+    releaseWorkspaceOnRunTerminal(args: ReleaseWorkspaceOnRunTerminalArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
-QueryClient.prototype.releaseWorkspaceOnPlanTerminal = function (this: QueryClient, args: ReleaseWorkspaceOnPlanTerminalArgs = {} as ReleaseWorkspaceOnPlanTerminalArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("releaseWorkspaceOnPlanTerminal", buildReleaseWorkspaceOnPlanTerminal(args), opts);
+QueryClient.prototype.releaseWorkspaceOnRunTerminal = function (this: QueryClient, args: ReleaseWorkspaceOnRunTerminalArgs = {} as ReleaseWorkspaceOnRunTerminalArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("releaseWorkspaceOnRunTerminal", buildReleaseWorkspaceOnRunTerminal(args), opts);
 };
 
 /** Map the render-diff result to a label installInstance switches on: "blocked" when the diff was REQUIRED and did not pass, else "clear". A first install passes required=false, because there is no previous ref to diff against. */
@@ -641,6 +599,28 @@ declare module "./query.js" {
 
 QueryClient.prototype.revokeExpiredDelegations = function (this: QueryClient, args: RevokeExpiredDelegationsArgs = {} as RevokeExpiredDelegationsArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("revokeExpiredDelegations", buildRevokeExpiredDelegations(args), opts);
+};
+
+/** PURE terminal-status decision table for v1:work:run (#2370): returns true when the status is one of the terminal set, false otherwise. THE single owner of that vocabulary -- the releaseWorkspaceOnRunTerminal automation gates its release + teardown steps on this scalar instead of restating the ||-chain inline.
+FOUR values, not the Plan's three: `abandoned` is terminal for a run (the node stopped answering) and has no Plan equivalent. A workspace whose run was abandoned is exactly the one nobody is left to clean up by hand. */
+export interface RunIsTerminalArgs {
+  status?: unknown;
+}
+
+export function buildRunIsTerminal(args: RunIsTerminalArgs): string {
+  const parts: string[] = [];
+  if (args.status !== undefined) parts.push("status: " + renderMemQLValue(args.status));
+  return "logic runIsTerminal(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    runIsTerminal(args: RunIsTerminalArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.runIsTerminal = function (this: QueryClient, args: RunIsTerminalArgs = {} as RunIsTerminalArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("runIsTerminal", buildRunIsTerminal(args), opts);
 };
 
 /** True when the owner's own company has not been materialized yet, on a bff.

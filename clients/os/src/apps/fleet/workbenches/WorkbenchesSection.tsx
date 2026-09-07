@@ -250,7 +250,7 @@ function WorkspaceLine({
       ) : null}
       <div className="os-fleet-workspace-body">
         <Facts>
-          <Fact label="Plan" value={workspace.planId} mono />
+          <Fact label="Run" value={workspace.runId} mono />
           <Fact label="Status" value={workspace.status} mono />
           <Fact label="Directory" value={workspace.storageRoot} mono />
           <Fact label="Provisioned" value={formatMoment(workspace.createdAt)} />

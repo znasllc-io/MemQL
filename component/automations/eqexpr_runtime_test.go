@@ -63,7 +63,6 @@ logic condEqProbe {
 	}
 }
 
-
 // memql#2655: an identifier-led comparison as a cond BRANCH value previously
 // loaded green and the string path returned the expression's own SOURCE TEXT
 // as the branch value (`args.b=="y"`) -- a silent wrong answer. That shape is

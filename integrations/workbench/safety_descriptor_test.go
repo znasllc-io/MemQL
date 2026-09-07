@@ -18,7 +18,7 @@ func TestBuildSafetyDescriptor_ExecCarriesCommandAndPlanId(t *testing.T) {
 	if got.Payload.Command != "ls -la" {
 		t.Errorf("command: got %q", got.Payload.Command)
 	}
-	if got.Caller.PlanID != "plan-1" || got.Caller.Capability != "workbench_use" {
+	if got.Caller.RunID != "plan-1" || got.Caller.Capability != "workbench_use" {
 		t.Errorf("caller: %+v", got.Caller)
 	}
 }

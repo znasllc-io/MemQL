@@ -314,7 +314,7 @@ automation rw {
   }
   step teardown {
     if exists(id) && (status == "succeeded" || status == "failed" || status == "cancelled") {
-      workbenchTeardownDirectory { planId: id }
+      workbenchTeardownDirectory { runId: id }
     }
   }
 }`
@@ -344,13 +344,13 @@ automation rw {
 		// The CDC envelope shape -- see the kill-switch fixture above for why
 		// the hand-built `{"node": ...}` it replaced was misleading (memql#3610).
 		nodePayload := map[string]any{"status": status}
-		ev := map[string]any{"id": "plan-1", "nodeId": "plan-1", "concept": "v1:planner:plan", "payload": nodePayload}
+		ev := map[string]any{"id": "run-1", "nodeId": "run-1", "concept": "v1:work:run", "payload": nodePayload}
 		for k, v := range nodePayload {
 			ev[k] = v
 		}
 		eval := automations.NewEvaluator()
 		eval.SetCustom("event", ev)
-		eval.SetCustom("args", map[string]any{"id": "plan-1", "status": status})
+		eval.SetCustom("args", map[string]any{"id": "run-1", "status": status})
 		eval.SetCustom("argsDeclared", map[string]bool{"id": true, "status": true})
 		eval.SetStepResult("decide", &automations.StepResult{StepId: "decide", Status: "success", Result: bundleOf(workspaces...)})
 		rec := &argRecorder{}

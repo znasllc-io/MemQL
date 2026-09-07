@@ -139,29 +139,6 @@ func (s *EngineStore) AgentAuthorization(ctx context.Context, agentId, ownerUser
 // outputPayloadRows lives in integration.go (same package); the
 // store reuses that helper rather than duplicating it.
 
-// PlanScope resolves Plan.computerUseScope for the supplied plan id.
-// Empty string means the Plan didn't declare a scope; dispatch
-// falls back to the agent's standing scope.
-func (s *EngineStore) PlanScope(ctx context.Context, planId string) (string, error) {
-	if s == nil || s.Engine == nil {
-		return "", nil
-	}
-	if strings.TrimSpace(planId) == "" {
-		return "", nil
-	}
-	// Re-uses the existing planFull query.
-	query := fmt.Sprintf(`query planById(planId:%s)`, langparser.QuoteString(planId))
-	res, err := s.Engine.Execute(ctx, query)
-	if err != nil {
-		return "", fmt.Errorf("plan lookup: %w", err)
-	}
-	if res == nil || res.Bundle == nil || len(res.Bundle.Nodes) == 0 {
-		return "", nil
-	}
-	scope := stringField(res.Bundle.Nodes[0], "computerUseScope")
-	return scope, nil
-}
-
 // WriteInvocation persists the invocation row by routing through
 // the same component/worker store the WorkerService uses.
 //
@@ -204,8 +181,8 @@ func invocationWriteCall(ctx context.Context, row workerservice.InvocationRow) (
 		"invocationId":  row.ID,
 		"workerId":      row.WorkerId,
 		"agentId":       row.AgentId,
-		"planId":        row.PlanId,
-		"taskId":        row.TaskId,
+		"runId":         row.RunId,
+		"stepId":        row.StepId,
 		"correlationId": row.CorrelationId,
 		"tool":          row.Tool,
 		"action":        row.Action,

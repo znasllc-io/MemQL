@@ -390,7 +390,7 @@ export const OUTCOME_TONE: Record<string, "ok" | "warn" | "error"> = {
 
 export interface WorkspaceRow {
   id: string;
-  planId: string;
+  runId: string;
   ownerUserId: string;
   /** MEMQL_NODE_ID of the workbench replica whose disk holds the directory. */
   nodeId: string;
@@ -406,7 +406,7 @@ export function workspaceFromRow(raw: Row): WorkspaceRow {
   const row = flatten(raw);
   return {
     id: rowString(row, "id"),
-    planId: rowString(row, "planId"),
+    runId: rowString(row, "runId"),
     ownerUserId: rowString(row, "ownerUserId"),
     nodeId: rowString(row, "nodeId"),
     status: rowString(row, "status"),
@@ -425,11 +425,11 @@ export function workspaceFromRow(raw: Row): WorkspaceRow {
  * decision (memql#4354) rather than a failure to recover them.
  */
 export const RELEASE_REASON_BLURB: Record<string, string> = {
-  plan_terminal: "The plan finished, so its workspace was torn down.",
+  run_terminal: "The run finished, so its workspace was torn down.",
   explicit: "Released by hand, from a fleet surface or a mutation.",
   ttl_expired: "Aged out by the idle sweep.",
   node_lost:
-    "The workbench replica holding this directory left the mesh. The files went with it -- they are not migrated -- and the plan was given a fresh workspace elsewhere.",
+    "The workbench replica holding this directory left the mesh. The files went with it -- they are not migrated -- and the run was given a fresh workspace elsewhere.",
 };
 
 // ---------------------------------------------------------------------------
@@ -606,8 +606,8 @@ export interface AppSessionRow {
   workerId: string;
   app: string;
   kind: string;
-  planId: string;
-  taskId: string;
+  runId: string;
+  stepId: string;
   status: string;
   billing: string;
   /** A Figure, not a number: `rowNumber` answers 0 for an absent key, and
@@ -673,8 +673,8 @@ export function appSessionFromRow(raw: Row): AppSessionRow {
     workerId: rowString(row, "workerId"),
     app: rowString(row, "app"),
     kind: rowString(row, "kind"),
-    planId: rowString(row, "planId"),
-    taskId: rowString(row, "taskId"),
+    runId: rowString(row, "runId"),
+    stepId: rowString(row, "stepId"),
     status: rowString(row, "status"),
     // `unknown` is a REAL enum member here (the app reported nothing), so an
     // absent field falls to it rather than to an empty chip.

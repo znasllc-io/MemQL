@@ -175,7 +175,7 @@ being explicit about, because the two existing controls want opposite answers:
 
 So the spend is split rather than summed:
 
-- `v1:planner:plan.tokenSpentSubscription` accumulates covered tokens,
+- `v1:work:run.spent.tokensSubscription` accumulates covered tokens,
   separately from `tokenSpent`. `component/planner/budget.go`'s `CheckCall`
   subtracts only `tokenSpent` from the ceiling.
 - `v1:router:call.billing` (`metered | subscription | unknown`) and

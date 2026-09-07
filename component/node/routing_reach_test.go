@@ -207,11 +207,26 @@ func TestGraphEventTopicMatchesWhatTheEnginePublishes(t *testing.T) {
 		t.Fatalf("GraphEventTopic = %q, want %q", got, want)
 	}
 	// The wildcard rules are INTRA-segment globs: a concept id contains no
-	// dots, so `v1:planner:*` is one segment matched by glob rather than a
+	// dots, so `v1:agents:*` is one segment matched by glob rather than a
 	// segment wildcard. A re-implementation that assumed otherwise would
 	// disagree with the real evaluator on exactly the rules that matter.
-	if !ForwardsGraphEvent(GraphEventTopic("created", "v1:planner:task")) {
-		t.Error("the v1:planner:* wildcard did not match v1:planner:task through the real evaluator")
+	//
+	// This used to assert through `v1:planner:*` on v1:planner:task. That
+	// wildcard is NARROWED to v1:planner:responsibility in memql#5053 -- the
+	// plan and task concepts are gone -- so the glob property is asserted
+	// through v1:agents:*, which is still a wildcard rule over a concept the
+	// tree still has.
+	if !ForwardsGraphEvent(GraphEventTopic("created", "v1:agents:agent")) {
+		t.Error("the v1:agents:* wildcard did not match v1:agents:agent through the real evaluator")
+	}
+	// And the narrowing itself: the planner namespace forwards its
+	// responsibility rows and NOTHING else. A rule left as `v1:planner:*`
+	// would pass the line above and fail here.
+	if !ForwardsGraphEvent(GraphEventTopic("created", "v1:planner:responsibility")) {
+		t.Error("v1:planner:responsibility is not forwarded -- the responsibility intake dispatcher goes dark cross-replica, silently")
+	}
+	if ForwardsGraphEvent(GraphEventTopic("created", "v1:planner:plan")) {
+		t.Error("the planner rules still forward more than responsibility; memql#5053 narrowed them deliberately")
 	}
 	if ForwardsGraphEvent(GraphEventTopic("created", "v1:nosuchdomain:thing")) {
 		t.Error("default-deny broke: an unknown concept forwarded")

@@ -431,10 +431,10 @@ export function Inspector({
               on one line and hands the whole string over on a click. Putting
               them below the human facts also keeps the two longest values out
               of the way of the four somebody actually reads. */}
-          {row.producedByPlanId !== "" ? (
+          {row.producedByRunId !== "" ? (
             <Fact
-              label="Plan"
-              value={<CopyValue value={row.producedByPlanId} label="Plan" />}
+              label="Run"
+              value={<CopyValue value={row.producedByRunId} label="Run" />}
               mono
             />
           ) : null}

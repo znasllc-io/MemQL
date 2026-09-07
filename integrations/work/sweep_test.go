@@ -415,3 +415,99 @@ func summariseGroups(g map[string][]map[string]any) string {
 	}
 	return b.String()
 }
+
+// TestSweepHandsASilentRunBackBeforeAbandoningIt is the backstop the dispatch
+// design names (memql#5054). A run that reached `running` while every agent
+// replica was down writes no heartbeat, and looks from the sweep exactly like
+// a run whose node died -- so it was being closed as a node loss.
+//
+// The two are told apart by the CLAIM, not by inspecting the run: if the lease
+// is free nobody is on it, and a live replica can have it.
+func TestSweepHandsASilentRunBackBeforeAbandoningIt(t *testing.T) {
+	now := testNow
+	stale := now.Add(-10 * time.Minute).Format(time.RFC3339)
+
+	rows := []map[string]any{
+		{
+			"id": "v1:work:run:r-unclaimed", "ownerUserId": "u-bob", "status": runStatusRunning,
+			"heartbeatAt": stale, "automationName": "invokeAgent",
+		},
+	}
+
+	t.Run("the claim is free: handed back, not closed", func(t *testing.T) {
+		i, eng := newTestIntegration(t)
+		d, c := &capturingDispatcher{}, &stubClaimer{grant: true}
+		i.SetDispatcher(d)
+		i.SetRunClaimer(c)
+
+		res := sweepRows(context.Background(), i, rows, now, time.Minute)
+
+		if res.Redispatched != 1 || res.Abandoned != 0 {
+			t.Fatalf("sweep = %+v, want 1 redispatched and 0 abandoned (calls: %s)", res, eng.summary())
+		}
+		got := d.seen()
+		if len(got) != 1 || got[0].RunId != "v1:work:run:r-unclaimed" {
+			t.Fatalf("dispatched %+v, want the one silent run", got)
+		}
+		if got[0].OwnerUserId != "u-bob" {
+			t.Errorf("dispatched under owner %q, want u-bob -- the run's steps write that person's rows", got[0].OwnerUserId)
+		}
+		if n := len(eng.callsTo("updateWorkRun")); n != 0 {
+			t.Errorf("wrote to the run row %d times; a run handed back is not touched, and abandoning it would race the replica that just took it", n)
+		}
+	})
+
+	t.Run("the claim is held: abandoned as before", func(t *testing.T) {
+		i, eng := newTestIntegration(t)
+		i.SetDispatcher(&capturingDispatcher{})
+		i.SetRunClaimer(&stubClaimer{grant: false})
+
+		res := sweepRows(context.Background(), i, rows, now, time.Minute)
+
+		// This is the replica-died case. runClaimTTL outlives this sweep's
+		// window on purpose, so the dead claimant still HOLDS the lease and
+		// the run is closed rather than handed to a second replica while the
+		// first is, by the sweep's own definition, still alive.
+		if res.Abandoned != 1 || res.Redispatched != 0 {
+			t.Fatalf("sweep = %+v, want 1 abandoned and 0 redispatched (calls: %s)", res, eng.summary())
+		}
+	})
+
+	t.Run("no dispatcher installed: abandoned, never assumed", func(t *testing.T) {
+		i, eng := newTestIntegration(t)
+
+		res := sweepRows(context.Background(), i, rows, now, time.Minute)
+
+		// A bff replica runs this sweep and executes no steps. Reading "I
+		// cannot dispatch" as "somebody else will" would leave dead runs open
+		// forever on a cluster whose agent nodes are gone.
+		if res.Abandoned != 1 || res.Redispatched != 0 {
+			t.Fatalf("sweep = %+v, want 1 abandoned and 0 redispatched (calls: %s)", res, eng.summary())
+		}
+	})
+
+	t.Run("a compile-failed run is closed, not dispatched", func(t *testing.T) {
+		i, _ := newTestIntegration(t)
+		d, c := &capturingDispatcher{}, &stubClaimer{grant: true}
+		i.SetDispatcher(d)
+		i.SetRunClaimer(c)
+
+		res := sweepRows(context.Background(), i, []map[string]any{{
+			"id": "v1:work:run:r-notemplate", "ownerUserId": "u-bob",
+			"status": runStatusRunning, "heartbeatAt": stale,
+		}}, now, time.Minute)
+
+		// A run at `running` with no automationName has nothing to execute.
+		// Dispatching it would take a claim the seam then refuses, burning a
+		// lease and delaying the close by a pass for nothing.
+		if res.Abandoned != 1 || res.Redispatched != 0 {
+			t.Fatalf("sweep = %+v, want it closed", res)
+		}
+		if got := d.seen(); len(got) != 0 {
+			t.Errorf("dispatched %+v; a run with no template has nothing to run", got)
+		}
+		if len(c.keys) != 0 {
+			t.Errorf("claimed %v; the claim must not be spent on a run that cannot execute", c.keys)
+		}
+	})
+}

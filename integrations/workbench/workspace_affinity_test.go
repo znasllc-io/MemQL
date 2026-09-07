@@ -20,14 +20,14 @@ import (
 //
 // A workspace is a FILESYSTEM, and a filesystem does not follow the request.
 // The base manifest runs two workbench replicas and the agent's peer picker was
-// any-fit, so a plan's first call made a directory on one replica and its
+// any-fit, so a run's first call made a directory on one replica and its
 // second call landed on the other with even odds. The failure that produced was
 // an fs_write followed by an fs_read of the same path answering "not found",
 // with both calls reporting ok=true and neither result naming a node -- so it
 // read as the agent having imagined the write.
 //
 // The tests below are the two halves of the fix: the pin (a row that records
-// which replica holds the directory, written under the plan owner's actor) and
+// which replica holds the directory, written under the run owner's actor) and
 // the picker that honours it.
 
 // ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ import (
 
 // fakeGraph stands in for the engine + database. It answers the four
 // v1:workbench:workspace calls plus planById, and -- the part that matters --
-// it ENFORCES THE ROW-AUTHZ TIER: workspaceForPlan returns only rows owned by
+// it ENFORCES THE ROW-AUTHZ TIER: workspaceForRun returns only rows owned by
 // the actor on the context, and no actor means no rows.
 //
 // That is not decoration. @rowAuthz(owner="ownerUserId", clusterOwner) has no
@@ -94,12 +94,12 @@ func (g *fakeGraph) run(ctx context.Context, q string) ([]map[string]any, error)
 			return nil, nil
 		}
 		return []map[string]any{{
-			"id":          args["planId"],
+			"id":          args["runId"],
 			"requestedBy": g.planOwner,
 			"createdBy":   "system:planner",
 		}}, nil
 
-	case strings.HasPrefix(q, "query workspaceForPlan("):
+	case strings.HasPrefix(q, "query workspaceForRun("):
 		if actor == "" {
 			g.unactoredReads++
 			// THE TIER. No actor, no rows -- and no error either, which is the
@@ -108,7 +108,7 @@ func (g *fakeGraph) run(ctx context.Context, q string) ([]map[string]any, error)
 		}
 		var out []map[string]any
 		for _, row := range g.rows {
-			if row["planId"] != args["planId"] || row["ownerUserId"] != actor {
+			if row["runId"] != args["runId"] || row["ownerUserId"] != actor {
 				continue
 			}
 			projected := map[string]any{}
@@ -126,7 +126,7 @@ func (g *fakeGraph) run(ctx context.Context, q string) ([]map[string]any, error)
 		g.provisionCalls = append(g.provisionCalls, args)
 		g.rows = append(g.rows, map[string]string{
 			"id":          args["workspaceId"],
-			"planId":      args["planId"],
+			"runId":       args["runId"],
 			"storageRoot": args["storageRoot"],
 			"nodeId":      args["nodeId"],
 			"status":      workspaceStatusProvisioned,
@@ -152,12 +152,12 @@ func (g *fakeGraph) run(ctx context.Context, q string) ([]map[string]any, error)
 	return nil, nil
 }
 
-func (g *fakeGraph) liveRows(planId string) []map[string]string {
+func (g *fakeGraph) liveRows(runId string) []map[string]string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	var out []map[string]string
 	for _, row := range g.rows {
-		if row["planId"] == planId && row["status"] == workspaceStatusProvisioned {
+		if row["runId"] == runId && row["status"] == workspaceStatusProvisioned {
 			out = append(out, row)
 		}
 	}
@@ -210,10 +210,10 @@ func alwaysReachable(p *node.PeerEntry) bool { return p != nil && p.Info != nil 
 // the agent's forward router makes. The receiving side is the ordinary local
 // path -- exactly what ForwardHandler invokes on the workbench node -- so this
 // exercises the real recordWorkspace bookkeeping.
-func dispatchTo(t *testing.T, r *replica, ctx context.Context, planId string, args map[string]any) dispatchResult {
+func dispatchTo(t *testing.T, r *replica, ctx context.Context, runId string, args map[string]any) dispatchResult {
 	t.Helper()
 	t.Setenv("MEMQL_NODE_ID", r.nodeId)
-	full := map[string]any{"planId": planId, "action": args["action"], "args": args["args"]}
+	full := map[string]any{"runId": runId, "action": args["action"], "args": args["args"]}
 	nodes, err := r.integ.handleDispatchHost(ctx, full, 0)
 	if err != nil {
 		t.Fatalf("dispatch on %s: %v", r.nodeId, err)
@@ -222,14 +222,14 @@ func dispatchTo(t *testing.T, r *replica, ctx context.Context, planId string, ar
 }
 
 // pinFor asks the graph, through the integration, which replica holds the
-// plan's workspace -- the same read the agent does before picking a peer.
-func pinFor(t *testing.T, r *replica, ctx context.Context, planId, owner string) string {
+// run's workspace -- the same read the agent does before picking a peer.
+func pinFor(t *testing.T, r *replica, ctx context.Context, runId, owner string) string {
 	t.Helper()
-	return r.integ.pinnedWorkspaceNode(ctx, planId, owner)
+	return r.integ.pinnedWorkspaceNode(ctx, runId, owner)
 }
 
 const (
-	testPlanId    = "v1:planner:plan:p4354"
+	testPlanId    = "v1:work:run:p4354"
 	testPlanOwner = "v1:identity:user:alice"
 )
 
@@ -263,7 +263,7 @@ func TestOnePlanKeepsOneWorkspaceAcrossThreeCallsWithTwoReplicas(t *testing.T) {
 	}
 	res := dispatchTo(t, byId[first.Info.GetNodeId()], ctx, testPlanId, map[string]any{
 		"action": "fs_write",
-		"args":   map[string]any{"path": "note.txt", "content": "the plan's working file"},
+		"args":   map[string]any{"path": "note.txt", "content": "the run's working file"},
 	})
 	if !res.OK {
 		t.Fatalf("the first call failed: %s / %s", res.ErrorCode, res.ErrorMsg)
@@ -283,7 +283,7 @@ func TestOnePlanKeepsOneWorkspaceAcrossThreeCallsWithTwoReplicas(t *testing.T) {
 		}
 		peer := selectWorkbenchPeer(order, pin, alwaysReachable)
 		if peer.Info.GetNodeId() != pin {
-			t.Fatalf("call %d: picked %s but the workspace is on %s. Any-fit selection sends a plan's "+
+			t.Fatalf("call %d: picked %s but the workspace is on %s. Any-fit selection sends a run's "+
 				"second call to a replica whose disk has never seen its files.",
 				n+2, peer.Info.GetNodeId(), pin)
 		}
@@ -292,7 +292,7 @@ func TestOnePlanKeepsOneWorkspaceAcrossThreeCallsWithTwoReplicas(t *testing.T) {
 			"args":   map[string]any{"path": "note.txt"},
 		})
 		if !res.OK {
-			t.Fatalf("call %d read back the file the plan wrote and did not find it (%s): "+
+			t.Fatalf("call %d read back the file the run wrote and did not find it (%s): "+
 				"this is the split -- the call landed on a replica with a different disk",
 				n+2, res.ErrorCode)
 		}
@@ -356,12 +356,12 @@ func TestAffinityPrefersThePinnedReplicaWhateverOrderTheCandidatesArriveIn(t *te
 // TestNodeLossReprovisionsExactlyOnceAndSaysWhy covers the case the pin cannot
 // fix: the replica holding the directory left the mesh, so the files are gone
 // with it. There is nothing to migrate -- a file tree cannot be recovered from a
-// node that is not there -- so the plan gets a fresh empty workspace and the
+// node that is not there -- so the run gets a fresh empty workspace and the
 // reason is recorded, which is what turns "my file vanished" into an answerable
 // question.
 //
 // "Exactly once" is the part worth pinning: a re-provision that fired on every
-// subsequent call would leave the plan with a new empty directory per call,
+// subsequent call would leave the run with a new empty directory per call,
 // which is a worse failure than the split it replaced.
 func TestNodeLossReprovisionsExactlyOnceAndSaysWhy(t *testing.T) {
 	var logs bytes.Buffer
@@ -409,7 +409,7 @@ func TestNodeLossReprovisionsExactlyOnceAndSaysWhy(t *testing.T) {
 
 	if got := len(graph.provisionCalls); got != 2 {
 		t.Fatalf("provisionWorkspace called %d times, want exactly 2 (the original + one takeover). "+
-			"More than that means the plan gets a fresh empty directory on every call.", got)
+			"More than that means the run gets a fresh empty directory on every call.", got)
 	}
 	if got := len(graph.releaseCalls); got != 1 {
 		t.Fatalf("releaseWorkspace called %d times, want exactly 1", got)
@@ -433,7 +433,7 @@ func TestNodeLossReprovisionsExactlyOnceAndSaysWhy(t *testing.T) {
 		t.Error("the successor reused the released row's id; one row cannot be both released and provisioned")
 	}
 
-	// The log has to name BOTH node ids and the plan, or an operator reading it
+	// The log has to name BOTH node ids and the run, or an operator reading it
 	// cannot tell a node loss from a plan that simply started fresh.
 	out := logs.String()
 	for _, want := range []string{lost.nodeId, survivor.nodeId, testPlanId, "NOT migrated"} {
@@ -465,7 +465,7 @@ func TestWorkspaceReadWithNoActorReturnsNothing(t *testing.T) {
 
 	if err := store.provision(ctx, testPlanOwner, workspaceRow{
 		Id:          "wbws-fixture",
-		PlanId:      testPlanId,
+		RunId:       testPlanId,
 		StorageRoot: "/var/lib/memql/workbenches/p4354",
 		NodeId:      "workbench-1",
 	}); err != nil {
@@ -495,7 +495,7 @@ func TestWorkspaceReadWithNoActorReturnsNothing(t *testing.T) {
 	// And the write half. A blank owner must never reach provisionWorkspace:
 	// ContextWithUserActor is a no-op on it, so ownerUserId would be stamped ""
 	// and the row would be readable by nobody at all.
-	if err := store.provision(ctx, "", workspaceRow{Id: "wbws-orphan", PlanId: testPlanId}); err == nil {
+	if err := store.provision(ctx, "", workspaceRow{Id: "wbws-orphan", RunId: testPlanId}); err == nil {
 		t.Fatal("provisionWorkspace ran with no owner; the row it writes is owned by nobody")
 	}
 
@@ -572,7 +572,7 @@ func TestDeriveWorkspaceIdIsStablePerNodeAndDistinctAcrossNodes(t *testing.T) {
 // TestAnUnreachableWorkbenchStillReportsNoWorkbenchPeer pins the ORDER of the
 // two refusals.
 //
-// The bookkeeping check needs the plan owner, and it would be natural to
+// The bookkeeping check needs the run owner, and it would be natural to
 // resolve that once at the top of the dispatch. Doing so would mean an
 // unreachable workbench with an unreadable plan answers
 // workspace_owner_unresolved -- costing the operator the one message that names

@@ -1,7 +1,7 @@
 // queries.memql -- workbench namespace
 //
 // Read paths for v1:workbench:workspace rows. The integration uses
-// workspaceForPlan as the existence-check before the lazy
+// workspaceForRun as the existence-check before the lazy
 // provision path.
 
 /// Look up the workbench workspace row for a Plan. Returns empty when no workspace has been
@@ -16,11 +16,11 @@
 /// "not provisioned yet", so the integration would provision a second directory on every call.
 @actor
 @unbounded("the workspace for a plan -- a per-plan singleton bounded to a single row")
-query workspace workspaceForPlan {
+query workspace workspaceForRun {
   args {
-    planId  string!
+    runId  string!
   }
-  filter  planId==args.planId && ownerUserId==actor.userId
+  filter  runId==args.runId && ownerUserId==actor.userId
   shape   workspaceFull
 }
 

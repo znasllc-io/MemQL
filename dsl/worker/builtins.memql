@@ -23,8 +23,8 @@ builtin agentworkerDispatchComputer {
   args           object
   agentId        string
   ownerUserId    string
-  planId         string
-  taskId         string
+  runId          string
+  stepId         string
   correlationId  string
   requireLabels  object
   preferLabels   object
@@ -46,8 +46,8 @@ builtin agentworkerDispatchHost {
   args           object
   agentId        string
   ownerUserId    string
-  planId         string
-  taskId         string
+  runId          string
+  stepId         string
   correlationId  string
   requireLabels  object
   preferLabels   object

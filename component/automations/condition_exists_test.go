@@ -31,34 +31,34 @@ func evalWithEventPayload(t *testing.T, payload map[string]any, cond string) boo
 	return got
 }
 
-// The plan-less agent create (the signup case) must NOT pass the gate: the
+// The run-less agent create (the signup case) must NOT pass the gate: the
 // field is absent from the event payload, so exists(...) is false and the
 // reroute automation no-ops instead of calling updatePlanStatus with
 // an empty planId.
 func TestEvaluateCondition_ExistsAbsentField(t *testing.T) {
-	// Mirrors a seed-materialized per-user agent: originatingPlanId lives under
+	// Mirrors a seed-materialized per-user agent: originatingRunId lives under
 	// lineage (or is absent entirely), never at the top level the filter reads.
 	payload := map[string]any{
 		"id":      "v1:agents:agent:assistant-user1",
-		"lineage": map[string]any{"createdBy": "system", "originatingPlanId": ""},
+		"lineage": map[string]any{"createdBy": "system", "originatingRunId": ""},
 	}
-	if got := evalWithEventPayload(t, payload, "exists(payload.originatingPlanId)"); got {
-		t.Errorf("exists(payload.originatingPlanId) = true for plan-less agent create, want false")
+	if got := evalWithEventPayload(t, payload, "exists(payload.originatingRunId)"); got {
+		t.Errorf("exists(payload.originatingRunId) = true for run-less agent create, want false")
 	}
 }
 
 // A present-but-empty-string field must also count as "not exists" (matches the
-// coalesce empty-string-is-missing semantics), so a blank originatingPlanId
+// coalesce empty-string-is-missing semantics), so a blank originatingRunId
 // stamped at the top level does not spuriously fire the reroute.
 func TestEvaluateCondition_ExistsEmptyString(t *testing.T) {
-	payload := map[string]any{"originatingPlanId": ""}
-	if got := evalWithEventPayload(t, payload, "exists(payload.originatingPlanId)"); got {
-		t.Errorf("exists(payload.originatingPlanId) = true for empty string, want false")
+	payload := map[string]any{"originatingRunId": ""}
+	if got := evalWithEventPayload(t, payload, "exists(payload.originatingRunId)"); got {
+		t.Errorf("exists(payload.originatingRunId) = true for empty string, want false")
 	}
 	// whitespace-only is also empty
-	payload2 := map[string]any{"originatingPlanId": "   "}
-	if got := evalWithEventPayload(t, payload2, "exists(payload.originatingPlanId)"); got {
-		t.Errorf("exists(payload.originatingPlanId) = true for whitespace-only string, want false")
+	payload2 := map[string]any{"originatingRunId": "   "}
+	if got := evalWithEventPayload(t, payload2, "exists(payload.originatingRunId)"); got {
+		t.Errorf("exists(payload.originatingRunId) = true for whitespace-only string, want false")
 	}
 }
 
@@ -66,9 +66,9 @@ func TestEvaluateCondition_ExistsEmptyString(t *testing.T) {
 // plan.needsAgent card stamps the Plan id at the top level) MUST pass the gate
 // so the reroute still fires.
 func TestEvaluateCondition_ExistsPresentField(t *testing.T) {
-	payload := map[string]any{"originatingPlanId": "v1:planner:plan:abc123"}
-	if got := evalWithEventPayload(t, payload, "exists(payload.originatingPlanId)"); !got {
-		t.Errorf("exists(payload.originatingPlanId) = false for present field, want true")
+	payload := map[string]any{"originatingRunId": "v1:work:run:abc123"}
+	if got := evalWithEventPayload(t, payload, "exists(payload.originatingRunId)"); !got {
+		t.Errorf("exists(payload.originatingRunId) = false for present field, want true")
 	}
 }
 
@@ -98,13 +98,13 @@ func TestEvaluateCondition_ExistsComposition(t *testing.T) {
 		{
 			name:    "not exists on absent field is true",
 			payload: map[string]any{"id": "x"},
-			cond:    `!exists(payload.originatingPlanId)`,
+			cond:    `!exists(payload.originatingRunId)`,
 			want:    true,
 		},
 		{
 			name:    "not exists on present field is false",
-			payload: map[string]any{"originatingPlanId": "v1:planner:plan:abc"},
-			cond:    `!exists(payload.originatingPlanId)`,
+			payload: map[string]any{"originatingRunId": "v1:work:run:abc"},
+			cond:    `!exists(payload.originatingRunId)`,
 			want:    false,
 		},
 	}

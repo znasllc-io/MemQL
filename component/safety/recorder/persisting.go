@@ -123,7 +123,7 @@ func buildArgs(desc safety.ActionDescriptor, cls safety.Classification, decision
 		"latencyMs":     cls.LatencyMs,
 		"agentId":       desc.Caller.AgentID,
 		"ownerUserId":   desc.Caller.OwnerUserID,
-		"planId":        desc.Caller.PlanID,
+		"runId":         desc.Caller.RunID,
 		"correlationId": desc.Caller.CorrelationID,
 		"mode":          string(mode),
 	}

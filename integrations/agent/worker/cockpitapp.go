@@ -215,8 +215,8 @@ func (e *CockpitAppExecutor) Run(ctx context.Context, req planner.ExecutorReques
 		Action:      "exec",
 		AgentId:     req.AgentId,
 		OwnerUserId: ownerUserId,
-		PlanId:      req.PlanId,
-		TaskId:      req.TaskId,
+		RunId:       req.RunId,
+		StepId:      req.StepId,
 		Args: map[string]any{
 			"app":       appId,
 			"kind":      req.Kind,
@@ -243,7 +243,7 @@ func (e *CockpitAppExecutor) Run(ctx context.Context, req planner.ExecutorReques
 		// The per-plan directory convention mirrors the workbench's:
 		// one tree per unit of work, so a run cannot read the previous
 		// one's leftovers by accident.
-		workspace = strings.TrimRight(policy.WorkspaceRoot, "/") + "/" + req.PlanId
+		workspace = strings.TrimRight(policy.WorkspaceRoot, "/") + "/" + req.RunId
 	}
 
 	spec := workerservice.RunSpec{
@@ -254,8 +254,8 @@ func (e *CockpitAppExecutor) Run(ctx context.Context, req planner.ExecutorReques
 		Prompt:             promptFromInput(req),
 		Workspace:          workspace,
 		Inputs:             req.Inputs,
-		PlanId:             req.PlanId,
-		TaskId:             req.TaskId,
+		RunId:              req.RunId,
+		StepId:             req.StepId,
 		RequireLabels:      mergeRequireLabels(req.RequireLabels, appId),
 		CredentialLifetime: policy.CredentialLifetime,
 		MaxDuration:        defaultAppSessionMaxDuration,

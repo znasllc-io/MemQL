@@ -9,7 +9,7 @@
 // Go level (the integration short-circuits before invoking the
 // mutation). The release path is similarly single-write.
 
-/// Create the v1:workbench:workspace row for a Plan on first workbenchHost call. Storage root is
+/// Create the v1:workbench:workspace row for a run on first workbenchHost call. Storage root is
 /// supplied by the workbench integration which has already created the directory on disk.
 ///
 /// ownerUserId is STAMPED FROM THE ACTOR (memql#4354). The concept declares
@@ -26,12 +26,12 @@
 mutate workspace provisionWorkspace {
   args {
     workspaceId  string!
-    planId       string!
+    runId        string!
     storageRoot  string!
     nodeId       string
   }
   insert {
-    accept { planId, storageRoot }
+    accept { runId, storageRoot }
     stamp {
       id: args.workspaceId
       ownerUserId: actor.userId

@@ -54,8 +54,8 @@ type RunSpec struct {
 	Prompt      string
 	Workspace   string
 	Inputs      []string
-	PlanId      string
-	TaskId      string
+	RunId       string
+	StepId      string
 	// AppSessionRef names the app's own session on the attach path.
 	AppSessionRef string
 	// RequireLabels narrows machine selection beyond the app: label.
@@ -159,8 +159,8 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 		WorkerId:            w.RegistrationId,
 		App:                 spec.App,
 		Kind:                spec.Kind,
-		PlanId:              spec.PlanId,
-		TaskId:              spec.TaskId,
+		RunId:               spec.RunId,
+		StepId:              spec.StepId,
 		Status:              AppSessionStatusStarting,
 		Workspace:           spec.Workspace,
 		Prompt:              spec.Prompt,
@@ -199,8 +199,8 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 		Workspace:     spec.Workspace,
 		Credential:    cred.Token,
 		MCPEndpoint:   r.MCPEndpoint,
-		PlanId:        spec.PlanId,
-		TaskId:        spec.TaskId,
+		RunId:         spec.RunId,
+		StepId:        spec.StepId,
 		AppSessionRef: spec.AppSessionRef,
 		Limits: AppSessionLimits{
 			CredentialLifetime: lifetime,
@@ -466,8 +466,8 @@ func (r *SessionRunner) audit(ctx context.Context, action string, spec RunSpec, 
 		return
 	}
 	detail["sessionId"] = spec.SessionId
-	detail["planId"] = spec.PlanId
-	detail["taskId"] = spec.TaskId
+	detail["runId"] = spec.RunId
+	detail["stepId"] = spec.StepId
 	if w != nil {
 		detail["machine"] = w.Name
 	}

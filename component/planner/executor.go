@@ -40,8 +40,8 @@ type ContainerExecutor interface {
 // whitelists, per-agent capability flags) ride on input as a typed
 // per-kind blob.
 type ExecutorRequest struct {
-	TaskId    string
-	PlanId    string
+	StepId    string
+	RunId     string
 	AgentId   string
 	Kind      string                 // task kind (fileProcessor / browseUrl / runCommand / ...)
 	Input     map[string]interface{} // per-kind input payload
@@ -256,4 +256,51 @@ func ValidateExecutorBackend(backend string) error {
 	}
 	return fmt.Errorf("planner: executorBackend %q is not registered; this binary has %s",
 		backend, strings.Join(registered, ", "))
+}
+
+// --- executor spend -------------------------------------------------------
+//
+// Spend and SplitSpend moved here from budget.go, which memql#5052 deletes.
+// They belong with the executor seam rather than with the plan budget: they
+// read an ExecutorResult's billing and route its tokens, which is a fact about
+// the EXECUTOR, and the cockpit-app path (the seam's only inhabitant) is what
+// uses them. The budget half of that file -- TokenBudget, EngineTokenBudget,
+// PlanLookup, TokenState -- was the per-PLAN cumulative ceiling, superseded by
+// component/work.Budget, which reads the run's ceilings instead.
+
+// Spend is where one executor's tokens land: exactly one of the three
+// counters is non-zero.
+type Spend struct {
+	// Metered is Plan.tokenSpent -- MemQL's own vendor spend, the only
+	// one the dollar ceiling reads.
+	Metered int
+	// Subscription is the run's subscription spend (memql#4362).
+	Subscription int
+	// Local is the run's local spend (memql#4681).
+	Local int
+}
+
+// SplitSpend routes a completed executor's token spend to the right
+// counter (memql#4362, memql#4681).
+//
+// An executor that reports no billing is treated as METERED, the
+// conservative direction: unattributed spend counts against the
+// ceiling rather than vanishing into a covered bucket, where it would
+// be invisible to the one control that stops runaway cost.
+//
+// `unknown` lands in Subscription rather than getting a counter of its
+// own, and that is not sloppiness: the counters exist to answer "what
+// did this cost us", and the honest answer for unknown is "we could
+// not tell, so we are not charging you for it" -- the same treatment
+// subscription gets. What must NOT happen is unknown being recorded as
+// local, because that would claim the work ran on the user's hardware.
+func SplitSpend(result ExecutorResult) Spend {
+	switch result.EffectiveBilling() {
+	case BillingLocal:
+		return Spend{Local: result.TokensSpent}
+	case BillingMetered:
+		return Spend{Metered: result.TokensSpent}
+	default:
+		return Spend{Subscription: result.TokensSpent}
+	}
 }

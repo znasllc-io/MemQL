@@ -66,22 +66,26 @@ func renderPayload(t *testing.T, fnRegistry *FunctionRegistry, name string, args
 func TestDroppedArgs1633_WireThrough(t *testing.T) {
 	reg := load1633Functions(t)
 
-	t.Run("createTask carries category", func(t *testing.T) {
-		payload := renderPayload(t, reg, "createTask", map[string]any{
-			"taskId": "t1", "planId": "p1", "category": "toolInvocation",
-			"kind": "callTool", "seq": int64(0), "input": map[string]any{},
+	// The two subtests here drove createTask's `category`, which was the
+	// original #1633 defect: a caller-supplied enum silently dropped, and an
+	// absent one taking the `??` default. createTask went with v1:planner:task
+	// in memql#5053, so the pair moved to mintSkill's `category` -- the same
+	// shape, a caller-supplied enum beside a `?? "specialized"` default, on a
+	// mutation that is still in the tree.
+	t.Run("mintSkill carries category", func(t *testing.T) {
+		payload := renderPayload(t, reg, "mintSkill", map[string]any{
+			"slug": "s1", "name": "S", "tier": "personal", "category": "core",
 		})
-		require.Equal(t, "toolInvocation", payload["category"],
-			"caller-supplied category must reach the v1:planner:task payload (#1633)")
+		require.Equal(t, "core", payload["category"],
+			"caller-supplied category must reach the v1:skills:skill payload (#1633)")
 	})
 
-	t.Run("createTask defaults category to semantic", func(t *testing.T) {
-		payload := renderPayload(t, reg, "createTask", map[string]any{
-			"taskId": "t2", "planId": "p1", "kind": "llmAnalyze",
-			"seq": int64(1), "input": map[string]any{},
+	t.Run("mintSkill defaults category to specialized", func(t *testing.T) {
+		payload := renderPayload(t, reg, "mintSkill", map[string]any{
+			"slug": "s2", "name": "S2", "tier": "personal",
 		})
-		require.Equal(t, "semantic", payload["category"],
-			"category is @required on the concept; absent arg must default to semantic")
+		require.Equal(t, "specialized", payload["category"],
+			"an absent category must take the `?? \"specialized\"` default")
 	})
 
 	t.Run("createNode carries capabilities", func(t *testing.T) {
@@ -138,17 +142,19 @@ func TestDroppedArgs1633_WireThrough(t *testing.T) {
 func TestDroppedArgs1633_RejectUnknownArgs(t *testing.T) {
 	reg := load1633Functions(t)
 
-	fn, err := reg.Get("createTask")
+	// mintSkill replaces createTask here for the reason given in
+	// TestDroppedArgs1633_WireThrough: same shape, still in the tree.
+	fn, err := reg.Get("mintSkill")
 	require.NoError(t, err)
 
-	// A now-declared arg is accepted.
+	// A declared arg is accepted.
 	require.NoError(t, rejectUnknownArgs(fn, map[string]any{
-		"planId": "p1", "category": "semantic", "kind": "k", "seq": int64(0), "input": map[string]any{},
+		"slug": "s1", "name": "S", "tier": "personal", "category": "core",
 	}))
 
 	// An undeclared arg is rejected, naming the offending arg.
 	err = rejectUnknownArgs(fn, map[string]any{
-		"planId": "p1", "kind": "k", "seq": int64(0), "input": map[string]any{}, "bogusArg": "x",
+		"slug": "s1", "name": "S", "tier": "personal", "bogusArg": "x",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "bogusArg")
@@ -164,7 +170,7 @@ func TestDroppedArgs1633_StrictGateOnlyAtMCP(t *testing.T) {
 	e := &MemQLEngine{} // concepts/db nil
 
 	call := &FunctionCallExpression{
-		Name: "createTask",
+		Name: "mintSkill",
 		Args: map[string]any{"bogusArg": "x"},
 	}
 

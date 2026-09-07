@@ -125,8 +125,9 @@ export function TrainingApp({
   // THE VIEW KEYS ARE CONSTANTS NOW, and that is the re-key's quiet security
   // gain rather than a simplification. The plan feed's key carried the viewer
   // id because its transform had to filter other people's rows out
-  // client-side: `v1:planner:plan` declares no row-authz tier, and a concept
-  // that declares nothing admits every subscriber. `v1:library:file` and
+  // client-side: `v1:planner:plan` declared no row-authz tier, and a concept
+  // that declares nothing admits every subscriber. (It is retired outright as
+  // of memql#5053.) `v1:library:file` and
   // `v1:work:run` both declare the composite owner tier, so admission runs on
   // the SUBSCRIPTION as well as the read (memql#4309) and nobody else's rows
   // arrive at all. There is no residual left to filter, so nothing about the

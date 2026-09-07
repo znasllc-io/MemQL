@@ -35,7 +35,7 @@ import (
 //   - provisionWorkspace stamps ownerUserId from actor.userId (a declared owner
 //     field written from caller args fails TestDeclaredOwnerFieldsAreServerStamped),
 //     so the WRITE must run under that same actor. The value is the parent
-//     plan's requestedBy.
+//     run's requestedBy.
 //
 // And the trap underneath both: auth.ContextWithUserActor is a NO-OP on a blank
 // id. It returns the context unchanged, the write lands with whatever actor was
@@ -50,11 +50,11 @@ import (
 // TestOnlyAllowlistedPackagesStampInternalOrigin. Consequently none of the
 // workbench constructs may be @serverOnly, and none are.
 
-// errNoPlanOwner is the refusal when the parent plan's owner could not be
+// errNoPlanOwner is the refusal when the parent run's owner could not be
 // resolved. It is an error rather than a skip because the alternative --
 // writing under a blank actor -- succeeds at every layer and produces a row
 // nobody can see.
-var errNoPlanOwner = errors.New("workbench: cannot resolve the parent plan's owner, so the workspace row would be stamped with no owner and be unreadable by anyone")
+var errNoPlanOwner = errors.New("workbench: cannot resolve the parent run's owner, so the workspace row would be stamped with no owner and be unreadable by anyone")
 
 // workspaceRowStatus values, mirroring the concept's status enum.
 const (
@@ -69,10 +69,10 @@ const (
 )
 
 // workspaceRow is the projection of v1:workbench:workspace this integration
-// reads back off workspaceForPlan.
+// reads back off workspaceForRun.
 type workspaceRow struct {
 	Id          string
-	PlanId      string
+	RunId       string
 	StorageRoot string
 	NodeId      string
 	Status      string
@@ -119,15 +119,15 @@ func newWorkspaceStore(engine memql.IntegrationEngineAccess) *workspaceStore {
 
 func (s *workspaceStore) available() bool { return s != nil && s.exec != nil }
 
-// planRow reads the parent plan. The single planById reader in this package:
+// planRow reads the parent run. The single planById reader in this package:
 // the workspace owner and the Library promotion's owner are the same value by
 // the same memql#952 rule (payload.requestedBy over the row-intrinsic
 // createdBy), and two readers would be two places for that rule to drift.
-func (s *workspaceStore) planRow(ctx context.Context, planId string) (map[string]any, error) {
+func (s *workspaceStore) planRow(ctx context.Context, runId string) (map[string]any, error) {
 	if !s.available() {
 		return nil, nil
 	}
-	rows, err := s.exec(ctx, fmt.Sprintf(`query planById(planId:%s)`, langparser.QuoteString(planId)))
+	rows, err := s.exec(ctx, fmt.Sprintf(`query planById(runId:%s)`, langparser.QuoteString(runId)))
 	if err != nil {
 		return nil, fmt.Errorf("workbench: planById: %w", err)
 	}
@@ -141,11 +141,11 @@ func (s *workspaceStore) planRow(ctx context.Context, planId string) (map[string
 
 // forPlan returns the LIVE workspace row for a plan, or nil when there is none.
 //
-// "Live" means status=provisioned. The query filters on planId alone and a plan
+// "Live" means status=provisioned. The query filters on runId alone and a plan
 // that has survived a node loss carries both the released row and its
 // successor, so picking by status here is what keeps the caller from adopting a
 // directory that is gone with the node it lived on.
-func (s *workspaceStore) forPlan(ctx context.Context, planId, ownerUserId string) (*workspaceRow, error) {
+func (s *workspaceStore) forPlan(ctx context.Context, runId, ownerUserId string) (*workspaceRow, error) {
 	if !s.available() {
 		return nil, nil
 	}
@@ -154,9 +154,9 @@ func (s *workspaceStore) forPlan(ctx context.Context, planId, ownerUserId string
 		return nil, err
 	}
 	rows, execErr := s.exec(actorCtx,
-		fmt.Sprintf(`query workspaceForPlan(planId:%s)`, langparser.QuoteString(planId)))
+		fmt.Sprintf(`query workspaceForRun(runId:%s)`, langparser.QuoteString(runId)))
 	if execErr != nil {
-		return nil, fmt.Errorf("workbench: workspaceForPlan: %w", execErr)
+		return nil, fmt.Errorf("workbench: workspaceForRun: %w", execErr)
 	}
 	for _, row := range rows {
 		if row == nil {
@@ -164,7 +164,7 @@ func (s *workspaceStore) forPlan(ctx context.Context, planId, ownerUserId string
 		}
 		parsed := workspaceRow{
 			Id:          strings.TrimSpace(stringFromRow(row, "id")),
-			PlanId:      strings.TrimSpace(stringFromRow(row, "planId")),
+			RunId:       strings.TrimSpace(stringFromRow(row, "runId")),
 			StorageRoot: strings.TrimSpace(stringFromRow(row, "storageRoot")),
 			NodeId:      strings.TrimSpace(stringFromRow(row, "nodeId")),
 			Status:      strings.TrimSpace(stringFromRow(row, "status")),
@@ -191,9 +191,9 @@ func (s *workspaceStore) provision(ctx context.Context, ownerUserId string, row 
 	if err != nil {
 		return err
 	}
-	call := fmt.Sprintf(`mutation provisionWorkspace(workspaceId:%s, planId:%s, storageRoot:%s, nodeId:%s)`,
+	call := fmt.Sprintf(`mutation provisionWorkspace(workspaceId:%s, runId:%s, storageRoot:%s, nodeId:%s)`,
 		langparser.QuoteString(row.Id),
-		langparser.QuoteString(row.PlanId),
+		langparser.QuoteString(row.RunId),
 		langparser.QuoteString(row.StorageRoot),
 		langparser.QuoteString(row.NodeId))
 	if _, execErr := s.exec(actorCtx, call); execErr != nil {
@@ -235,7 +235,7 @@ func (s *workspaceStore) release(ctx context.Context, ownerUserId, workspaceId, 
 	return nil
 }
 
-// actorContext binds the plan owner for one engine call, and refuses a blank
+// actorContext binds the run owner for one engine call, and refuses a blank
 // one. The refusal is the whole safety property of this file -- see the
 // errNoPlanOwner comment and the file header.
 func (s *workspaceStore) actorContext(ctx context.Context, ownerUserId string) (context.Context, error) {
@@ -246,17 +246,17 @@ func (s *workspaceStore) actorContext(ctx context.Context, ownerUserId string) (
 	return withUserActor(ctx, owner), nil
 }
 
-// deriveWorkspaceId derives the row id from (planId, nodeId).
+// deriveWorkspaceId derives the row id from (runId, nodeId).
 //
 // Deterministic in both components, which buys two properties. A workbench
-// replica that restarts and re-provisions the same plan's directory lands on
+// replica that restarts and re-provisions the same run's directory lands on
 // the same id, so the row is adopted rather than duplicated. A DIFFERENT
-// replica taking the plan over lands on a different id, which is required
+// replica taking the run over lands on a different id, which is required
 // rather than incidental: the node-loss path has to release the old row and
 // insert a successor, and one id cannot be both released and provisioned.
-func deriveWorkspaceId(planId, nodeId string) string {
+func deriveWorkspaceId(runId, nodeId string) string {
 	h := genOutputIdEngine.MustFromMap(map[string]any{
-		"planId": planId,
+		"runId":  runId,
 		"nodeId": nodeId,
 	})
 	return "wbws-" + string(h)[:16]

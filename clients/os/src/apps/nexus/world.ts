@@ -3,6 +3,7 @@ import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import {
   EMPTY_WORLD,
   readApproval,
+  readArtifact,
   readGoal,
   readRun,
   readStep,
@@ -61,6 +62,7 @@ export interface BuildWorldInput {
   runRows: readonly Row[];
   stepRows: readonly Row[];
   approvalRows: readonly Row[];
+  artifactRows: readonly Row[];
   openRunId: string;
 }
 
@@ -69,6 +71,7 @@ export function buildWorld({
   runRows,
   stepRows,
   approvalRows,
+  artifactRows,
   openRunId,
 }: BuildWorldInput): GoalWorld {
   const goal = readGoal(goalRow);
@@ -109,5 +112,13 @@ export function buildWorld({
         : approvalRows
             .map(readApproval)
             .filter((approval) => idTail(approval.runId) === idTail(run.id)),
+    // Filtered on the open run for the reason above, and it matters more
+    // here: this feed is the PAGE's, keyed on the run, so a stale row can
+    // only be one the previous run produced -- which is exactly the row that
+    // would read as this run's work.
+    artifacts:
+      run === null
+        ? []
+        : artifactRows.map(readArtifact).filter((a) => idTail(a.runId) === idTail(run.id)),
   };
 }

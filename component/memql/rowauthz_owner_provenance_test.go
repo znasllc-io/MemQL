@@ -231,12 +231,43 @@ func TestLibraryOwnerMutationsTakeNoOwnerArg(t *testing.T) {
 
 // The accept-block shape, which is the one the issue originally
 // specified and the only one a source scan would have caught.
+//
+// THE SUBJECT MOVED, AND THE OLD ONE MADE THIS TEST VACUOUS (memql#5053).
+// It named `v1:planner:plan.requestedBy` until that concept was deleted, and
+// `OwnerFieldProvenance` answers a concept it has never heard of with a zero
+// verdict whose `ServerStamped` is false and whose Reason is "no mutation
+// writes this concept". So the assertion below passed on a concept that did
+// not exist -- the whole test, green, asserting nothing.
+//
+// `v1:library:artifact.ownerUserId` is the live subject now: `createArtifact`
+// writes it from `args.ownerUserId`, and the tree-wide gate carries it as a
+// TRACKED exemption (memql#4340 / #2803) rather than an oversight. A
+// synthetic fixture would not do here -- an `accept { }` block lowers into
+// exactly the `field: args.field` PayloadTemplate entry a longhand line
+// produces, so a hand-built one would be byte-identical to
+// TestBareArgsMirrorIsCallerWritable's and this test's only remaining
+// distinction is that its subject is REAL.
+//
+// The WritableBy assertion is what makes it non-vacuous, and it is the line
+// that was missing: a concept nobody writes has an EMPTY WritableBy, so this
+// can no longer pass by naming nothing. It also fails if the exemption is
+// ever paid off, which is correct -- the tree-wide gate errors on a stale
+// exemption for the same reason, and both should be repaired together.
 func TestAcceptedOwnerFieldIsCallerWritable(t *testing.T) {
 	reg := loadTreeRegistry(t)
-	got := provenanceOf(t, reg, "v1:planner:plan", "requestedBy")
+	got := provenanceOf(t, reg, "v1:library:artifact", "ownerUserId")
+	if len(got.WritableBy) == 0 {
+		t.Fatalf("no mutation writes library.artifact.ownerUserId (%s). This test asserts that a "+
+			"caller-accepted owner field is REPORTED caller-writable, so a subject nothing "+
+			"writes makes it vacuous -- which is exactly how it survived the deletion of its "+
+			"previous subject. Re-point it at a live accepted-owner field, or make it "+
+			"synthetic and say so.", got.Reason)
+	}
 	if got.ServerStamped {
-		t.Fatal("planner.plan.requestedBy reported server-stamped; createPlan accepts it from " +
-			"caller args. This is the fixture memql#2982 was filed around.")
+		t.Fatalf("library.artifact.ownerUserId reported server-stamped; createArtifact writes it "+
+			"from args.ownerUserId. StampedBy=%v writableBy=%v. If the exemption "+
+			"(memql#4340) has been paid off, TestDeclaredOwnerFieldsAreServerStamped will be "+
+			"failing on the stale entry too -- fix both.", got.StampedBy, got.WritableBy)
 	}
 }
 

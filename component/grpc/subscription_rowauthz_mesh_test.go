@@ -46,12 +46,18 @@ import (
 	"github.com/znasllc-io/memql/component/node"
 )
 
-// meshOwnedConcept is namespaced under `planner` deliberately: forwarding is
-// decided by TOPIC, and the planner graph topics are among those the mesh
-// actually forwards. A fixture in an invented namespace would not cross the
-// mesh at all, so the test would assert nothing about the hop -- it would
-// pass because nothing moved.
-const meshOwnedConcept = "v1:planner:rowauthzprobe"
+// meshOwnedConcept is namespaced under `agents` deliberately: forwarding is
+// decided by TOPIC, and `graph.node.*.v1:agents:*` is one of the WILDCARD
+// rules the mesh actually forwards. A fixture in an invented namespace would
+// not cross the mesh at all, so the test would assert nothing about the hop --
+// it would pass because nothing moved. The assertion in meshFixture is what
+// stops that being silent.
+//
+// It was `v1:planner:rowauthzprobe` until memql#5053, which NARROWED the
+// planner rules from `v1:planner:*` to `v1:planner:responsibility` -- and this
+// probe rode that wildcard without being visible to anyone reading the routing
+// table. Its own guard caught it.
+const meshOwnedConcept = "v1:agents:rowauthzprobe"
 
 func meshFixture(t *testing.T) {
 	t.Helper()

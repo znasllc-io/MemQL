@@ -10,8 +10,8 @@ shape invocation workerInvocationFull {
   ownerUserId
   workerId
   agentId
-  planId
-  taskId
+  runId
+  stepId
   correlationId
   tool
   action
@@ -72,8 +72,8 @@ shape appSession workerAppSessionFull {
   workerId
   app
   kind
-  planId
-  taskId
+  runId
+  stepId
   status
   workspace
   prompt
@@ -106,8 +106,8 @@ shape appSession workerAppSessionCard {
   workerId
   app
   kind
-  planId
-  taskId
+  runId
+  stepId
   status
   billing
   usage

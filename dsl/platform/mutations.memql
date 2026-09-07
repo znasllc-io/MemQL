@@ -150,7 +150,7 @@ mutate missingCapability logMissingCapability {
     kind            string!
     capability      string!
     description     string!
-    requestedFromPlanId  string
+    requestedFromRunId  string
     requestedByAgentId   string
     partitionId         string
     partitionScope  string
@@ -162,7 +162,7 @@ mutate missingCapability logMissingCapability {
     args.kind
     args.capability
     args.description
-    args.requestedFromPlanId
+    args.requestedFromRunId
     args.requestedByAgentId
     args.partitionId
     args.partitionScope

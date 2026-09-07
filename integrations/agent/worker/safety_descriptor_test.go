@@ -34,11 +34,11 @@ func TestBuildSafetyDescriptor_ExecSurfaceMapping(t *testing.T) {
 func TestBuildSafetyDescriptor_CallerContextPopulated(t *testing.T) {
 	req := Request{
 		Tool: "workerHost", Action: "exec", Args: map[string]any{"command": "ls"},
-		AgentId: "a1", OwnerUserId: "u1", PlanId: "p1", TaskId: "t1", CorrelationId: "c1",
+		AgentId: "a1", OwnerUserId: "u1", RunId: "p1", StepId: "t1", CorrelationId: "c1",
 	}
 	got := buildSafetyDescriptor(req, "full", "workerHost")
 	want := safety.CallerContext{
-		AgentID: "a1", OwnerUserID: "u1", PlanID: "p1", TaskID: "t1",
+		AgentID: "a1", OwnerUserID: "u1", RunID: "p1", StepID: "t1",
 		CorrelationID: "c1", Scope: "full", Capability: "workerHost",
 	}
 	if got.Caller != want {

@@ -50,7 +50,7 @@ import (
 //
 // This path dispatches the agent's whole tool surface, where the same field
 // name does NOT mean the same thing everywhere -- `space` vs `partitionId`, a
-// flat `planId` vs one nested in a card's `data`, an `agentId` that is the
+// flat `runId` vs one nested in a card's `data`, an `agentId` that is the
 // calling agent vs one that is an argument naming some other agent. And
 // applyToolDefaults' pass 2 fills ANY declared field a default names, not only
 // the auto-injected ones, so a turn-wide map would quietly populate optional
@@ -71,7 +71,7 @@ import (
 // absent and the handler saying so.
 //
 // Deliberately flat: only the fields applyToolDefaults can act on. The nested
-// and derived stamps (`actor`, `data.producedByPlanId`, the visibility pair)
+// and derived stamps (`actor`, `data.producedByRunId`, the visibility pair)
 // stay with injectAgentContext, which is also what keeps the overwrite
 // semantics for fields NOT marked @autoInjected -- applyToolDefaults' pass 2 is
 // fill-if-missing, so an LLM-supplied value would win there.
@@ -90,11 +90,11 @@ func agentToolDefaults(toolName string, turnCtx turnContext) map[string]any {
 	if stamp.SpaceField != "" && turnCtx.PartitionId != "" {
 		defaults[stamp.SpaceField] = turnCtx.PartitionId
 	}
-	if stamp.StampPlanId && turnCtx.PlanId != "" {
-		defaults["planId"] = turnCtx.PlanId
+	if stamp.StampRunId && turnCtx.RunId != "" {
+		defaults["runId"] = turnCtx.RunId
 	}
-	if stamp.StampProducedByPlanId && turnCtx.PlanId != "" {
-		defaults["producedByPlanId"] = turnCtx.PlanId
+	if stamp.StampProducedByRunId && turnCtx.RunId != "" {
+		defaults["producedByRunId"] = turnCtx.RunId
 	}
 	if len(defaults) == 0 {
 		return nil

@@ -1,5 +1,5 @@
 // Package workbench implements the agent-node-side handler for the
-// workbenchHost tool. It manages per-Plan isolated working
+// workbenchHost tool. It manages per-run isolated working
 // directories on the local filesystem and dispatches the six action
 // verbs (exec / fs_read / fs_write / fs_list / fs_stat / http_fetch)
 // against them.
@@ -38,9 +38,9 @@ const rootEnvVar = "MEMQL_WORKBENCH_ROOT"
 // version swaps this for a durable substrate (GCS-FUSE / Filestore).
 const defaultRoot = "/var/lib/memql/workbenches"
 
-// workspace is the in-memory handle for a single Plan's workspace.
+// workspace is the in-memory handle for a single run's workspace.
 type workspace struct {
-	planId     string
+	runId      string
 	rootPath   string
 	createdAt  time.Time
 	lastUsedAt time.Time
@@ -48,7 +48,7 @@ type workspace struct {
 }
 
 // Manager owns the workspace lifecycle: lazy provisioning on first
-// access, lookup by planId, future teardown hooks.
+// access, lookup by runId, future teardown hooks.
 type Manager struct {
 	root  string
 	mu    sync.Mutex
@@ -74,24 +74,24 @@ func NewManager() *Manager {
 // Root returns the manager's configured root directory.
 func (m *Manager) Root() string { return m.root }
 
-// provisionForPlan returns the workspace for planId, creating its
+// provisionForPlan returns the workspace for runId, creating its
 // directory tree lazily on first request. Idempotent.
-func (m *Manager) provisionForPlan(planId string) (*workspace, error) {
-	if strings.TrimSpace(planId) == "" {
-		return nil, errors.New("workbench: planId is required")
+func (m *Manager) provisionForPlan(runId string) (*workspace, error) {
+	if strings.TrimSpace(runId) == "" {
+		return nil, errors.New("workbench: runId is required")
 	}
-	if !safePlanId(planId) {
-		return nil, fmt.Errorf("workbench: planId %q has disallowed characters", planId)
+	if !safePlanId(runId) {
+		return nil, fmt.Errorf("workbench: runId %q has disallowed characters", runId)
 	}
 	m.mu.Lock()
-	ws, ok := m.cache[planId]
+	ws, ok := m.cache[runId]
 	if !ok {
 		ws = &workspace{
-			planId:    planId,
-			rootPath:  filepath.Join(m.root, planId),
+			runId:     runId,
+			rootPath:  filepath.Join(m.root, runId),
 			createdAt: m.clock(),
 		}
-		m.cache[planId] = ws
+		m.cache[runId] = ws
 	}
 	m.mu.Unlock()
 
@@ -105,15 +105,15 @@ func (m *Manager) provisionForPlan(planId string) (*workspace, error) {
 }
 
 // safePlanId guards against directory-traversal and shell-metachar
-// injection via the planId path component. Plan ids in this codebase
+// injection via the runId path component. Plan ids in this codebase
 // follow the partition:concept:hash convention -- alphanumerics +
 // `:` + `-` only. We accept that plus `_` and `.` and reject the
 // rest.
-func safePlanId(planId string) bool {
-	if planId == "" || planId == "." || planId == ".." {
+func safePlanId(runId string) bool {
+	if runId == "" || runId == "." || runId == ".." {
 		return false
 	}
-	for _, r := range planId {
+	for _, r := range runId {
 		switch {
 		case r >= 'a' && r <= 'z':
 		case r >= 'A' && r <= 'Z':
@@ -128,20 +128,20 @@ func safePlanId(planId string) bool {
 
 // tearDownForPlan removes the on-disk workspace directory for a
 // Plan and drops the in-memory cache entry. Idempotent: returns
-// (0, nil) when no workspace was ever provisioned for the planId.
+// (0, nil) when no workspace was ever provisioned for the runId.
 // Returns the byte-size of the removed tree on success (best-effort;
 // failure to compute size is non-fatal, returns 0 with no error).
-func (m *Manager) tearDownForPlan(planId string) (int64, error) {
-	if strings.TrimSpace(planId) == "" {
-		return 0, errors.New("workbench: planId is required")
+func (m *Manager) tearDownForPlan(runId string) (int64, error) {
+	if strings.TrimSpace(runId) == "" {
+		return 0, errors.New("workbench: runId is required")
 	}
-	if !safePlanId(planId) {
-		return 0, fmt.Errorf("workbench: planId %q has disallowed characters", planId)
+	if !safePlanId(runId) {
+		return 0, fmt.Errorf("workbench: runId %q has disallowed characters", runId)
 	}
 	m.mu.Lock()
-	ws, cached := m.cache[planId]
+	ws, cached := m.cache[runId]
 	if cached {
-		delete(m.cache, planId)
+		delete(m.cache, runId)
 	}
 	m.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (m *Manager) tearDownForPlan(planId string) (int64, error) {
 	if cached && ws != nil {
 		rootPath = ws.rootPath
 	} else {
-		rootPath = filepath.Join(m.root, planId)
+		rootPath = filepath.Join(m.root, runId)
 	}
 
 	info, err := os.Stat(rootPath)

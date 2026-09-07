@@ -82,7 +82,7 @@ func (r *Replier) rerouteWorkbenchMismatch(
 		"action", action,
 		"unmet_needs", mismatch.UnmetNeeds,
 		"require_labels", requireLabels,
-		"plan_id", turnCtx.PlanId,
+		"plan_id", turnCtx.RunId,
 	)
 
 	fleetArgs := plan.FleetArgs
@@ -237,7 +237,7 @@ func planWorkbenchReroute(result string, args map[string]any, turnCtx turnContex
 			"args":          inner,
 			"agentId":       turnCtx.AgentId,
 			"ownerUserId":   turnCtx.OwnerUserId,
-			"planId":        turnCtx.PlanId,
+			"planId":        turnCtx.RunId,
 			"requireLabels": requireLabels,
 			// The routing record's answer to "why did this run on the laptop".
 			"reroutedFrom": agentworker.ReroutedFromWorkbench,

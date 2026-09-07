@@ -201,13 +201,16 @@ func TestCallCapGate(t *testing.T) {
 	}
 }
 
-// planBudgetGate keeps the plan path exactly as it was, including its
-// deliberate fail-open on a plan-load error -- defensible where it is one of
-// two ceilings, and what was NOT defensible as the only ceiling on a path
-// with no plan at all.
-func TestPlanBudgetGateIsUnboundedWithoutAPlan(t *testing.T) {
-	l := &PlannerAgentLoop{engine: &countingCompileEngine{}}
-	if blocked, _ := l.planBudgetGate("")(context.Background(), 999); blocked {
-		t.Error("a gate with no plan blocked; there is no plan budget to be over")
+// TestUnboundedBudgetNeverBlocks pins the NAMED no-ceiling gate.
+//
+// It replaces TestPlanBudgetGateIsUnboundedWithoutAPlan: that asserted the
+// plan-scoped ceiling was unbounded when handed no plan, and the plan-scoped
+// ceiling went with the Plan (memql#5052). What is left to say is that the
+// gate a caller passes when NO ceiling applies is honest about it -- an
+// untyped nil would read the same as forgetting, which is why the function is
+// named at all.
+func TestUnboundedBudgetNeverBlocks(t *testing.T) {
+	if blocked, reason := unboundedBudget(context.Background(), 999); blocked {
+		t.Errorf("the unbounded gate blocked at %q; it is the gate that means there is no ceiling", reason)
 	}
 }

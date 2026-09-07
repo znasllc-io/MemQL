@@ -85,7 +85,7 @@ func (r SlogScreeningRecorder) Record(ctx context.Context, in ScreeningInput, re
 		slog.String("sample", sample),
 		slog.String("agent_id", in.Caller.AgentID),
 		slog.String("owner_user_id", in.Caller.OwnerUserID),
-		slog.String("plan_id", in.Caller.PlanID),
+		slog.String("run_id", in.Caller.RunID),
 		slog.String("correlation_id", in.Caller.CorrelationID),
 		slog.String("verdict", string(res.Verdict)),
 		slog.String("tier", res.Tier.String()),
@@ -168,10 +168,10 @@ func (g *OutputGate) Mode() OutputMode { return g.mode }
 // Screen is the entry every surface calls. Returns:
 //
 //   - verdict: what the gate ultimately decided.
-//     * In OutputModeOff: always Clean.
-//     * In OutputModeShadow: always Clean (the underlying screener
-//       result is recorded but not honoured).
-//     * In OutputModeEnforce: the screener's verdict, verbatim.
+//   - In OutputModeOff: always Clean.
+//   - In OutputModeShadow: always Clean (the underlying screener
+//     result is recorded but not honoured).
+//   - In OutputModeEnforce: the screener's verdict, verbatim.
 //   - result: the full ScreeningResult the screener produced, for
 //     callers that want to log/audit the underlying classification
 //     even when the verdict was overridden to Clean by shadow.

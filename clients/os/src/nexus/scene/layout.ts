@@ -66,6 +66,8 @@
 import {
   approvalNodeId,
   approvalsOfRun,
+  artifactNodeId,
+  artifactsOfRun,
   bindingNodeId,
   clusterNodeId,
   conceptIdForKind,
@@ -83,7 +85,7 @@ import {
   type StepRow,
 } from "./world";
 
-export type Lane = "road" | "binding" | "asked";
+export type Lane = "road" | "binding" | "asked" | "made";
 
 export interface LayoutNode {
   id: string;
@@ -128,7 +130,7 @@ export interface LayoutEdge {
    * the mark saying what ran it; `asked` ties a step to the approval it
    * raised. The road is NOT an edge kind -- it is a polyline, below.
    */
-  kind: "flow" | "ranBy" | "asked";
+  kind: "flow" | "ranBy" | "asked" | "made";
 }
 
 export interface Column {
@@ -234,10 +236,28 @@ const GOAL_GAP = 9;
 /** Vertical gap between two steps sharing a column. */
 const STEP_Y_GAP = 2.8;
 
+/**
+ * The lanes read top to bottom as: what went in, the work, what it needed
+ * from you, what came out.
+ *
+ * `made` sits below `asked` rather than beside it because the two are not the
+ * same kind of thing -- an approval is a DEMAND and belongs where a person
+ * scanning for something to do will find it, while an artifact is a RESULT
+ * and is read after the road has arrived. Putting a result above a pending
+ * demand would bury the one node on the map that is waiting on somebody.
+ *
+ * Its offset is `asked` PLUS one step-gap rather than a number chosen by eye:
+ * a produced thing sits exactly as far below the approvals as two stacked
+ * artifacts sit from each other, so the four lanes are one rhythm rather than
+ * four measurements. It is written as the sum for that reason -- an eyeballed
+ * 7.2 here is a value nobody can check, and this one moves correctly if the
+ * gap ever does.
+ */
 const LANE_OFFSET: Record<Lane, number> = {
   binding: -3.4,
   road: 0,
   asked: 3.6,
+  made: 3.6 + STEP_Y_GAP,
 };
 
 /** The density above which a column collapses to one node. */
@@ -543,6 +563,59 @@ export function layout(world: GoalWorld, options: LayoutOptions = {}): LayoutRes
   // -------------------------------------------------------------------------
   const goalX = (columns.length === 0 ? TEMPLATE_X : lastX) + GOAL_GAP;
   if (goal !== null) put(goalNode(goal.id, goal.statement, goal.status, goalX));
+
+  // -------------------------------------------------------------------------
+  // What came out of it, below the beacon
+  // -------------------------------------------------------------------------
+  // ANCHORED TO THE ARRIVAL, NOT TO A STEP, because that is what the row
+  // says: `producedByRunId` names the RUN. There is no step key to hang one
+  // off, and picking a step to attach it to -- the last one, the one that was
+  // running when the file appeared -- would be a guess drawn as a fact.
+  //
+  // So they sit under the beacon in creation order, and the edge runs from
+  // the goal. A run with no goal row draws them in the same place with no
+  // edge rather than not at all: the artifact exists either way, and a
+  // missing anchor is a reason to say less, not to hide a result.
+  //
+  // EVERY ONE OF THEM IS DRAWN, and the lane therefore grows linearly. That
+  // is the read's requirement rather than an oversight: `artifactsForRun` is
+  // `@unbounded` and its own header says why -- "a truncated page silently
+  // loses an artifact from the scene". A tall map is legible; a map missing
+  // a file is wrong, and wrong in the direction nobody can see.
+  //
+  // Measured, so the day it needs a cluster the decision has a number: at
+  // UNIT=22 the lane starts 6.4 units below the road and each further
+  // artifact adds STEP_Y_GAP, so five sit within the height of the beacon's
+  // own column and twenty run to roughly 1,400px -- past that the fit shrinks
+  // every other node to accommodate a list. The column device this file
+  // already has (`cluster`) is where that goes, and it wants evidence about
+  // how many artifacts a real run produces rather than a threshold picked
+  // now.
+  let madeIndex = 0;
+  for (const artifact of artifactsOfRun(world, run.id)) {
+    const id = artifactNodeId(artifact);
+    put({
+      id,
+      kind: "artifact",
+      lane: "made",
+      x: goalX,
+      y: LANE_OFFSET.made + madeIndex * STEP_Y_GAP,
+      label: artifact.title !== "" ? artifact.title : (artifact.kind !== "" ? artifact.kind : "artifact"),
+      rowId: artifact.id,
+      conceptId: conceptIdForKind("artifact"),
+      stepKey: "",
+      depth: -1,
+      // An archived artifact is drawn dimmed rather than dropped: a goal that
+      // produced something and had it archived is a different history from a
+      // goal that produced nothing, and only one of those is worth hiding.
+      status: artifact.archived ? "archived" : "produced",
+      standsFor: 0,
+    });
+    if (goal !== null) {
+      edges.push({ from: GOAL_NODE_ID, to: id, kind: "made" });
+    }
+    madeIndex += 1;
+  }
   // The last stretch, from the work to the beacon, is never `thought` and is
   // done only when the run is. It is the arrival, not a step.
   roadPoints.push({

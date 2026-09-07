@@ -108,7 +108,7 @@ describe("the data-origins table", () => {
       fakeConnection({
         dataOrigins: [
           NEVER_RUN,
-          dataOriginRow({ conceptId: "v1:planner:plan" }),
+          dataOriginRow({ conceptId: "v1:work:run" }),
           dataOriginRow({ conceptId: "v1:work:run" }),
         ],
       }),

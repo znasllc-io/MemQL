@@ -1,11 +1,11 @@
 // shapes.memql -- workbench namespace
 
-/// Full projection of a v1:workbench:workspace row. Used by workspaceForPlan (the integration's
+/// Full projection of a v1:workbench:workspace row. Used by workspaceForRun (the integration's
 /// existence-check) and provisionedWorkspaces (inventory).
 @row
 shape workspace workspaceFull {
   row.id
-  planId
+  runId
   ownerUserId
   nodeId
   status

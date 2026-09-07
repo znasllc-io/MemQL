@@ -362,7 +362,7 @@ message AiForwardCancel {
 //
 // WorkbenchForwardRequest carries an agent's workbenchHost.<action>
 // dispatch from the agent node to the workbench node that holds the
-// per-Plan workspace. Single round-trip semantics (no streaming);
+// per-run workspace. Single round-trip semantics (no streaming);
 // the agent's tool loop waits synchronously for the response.
 //
 // Unlike AiForward, this is a structured envelope (not a byte-wrapped
@@ -394,11 +394,17 @@ message WorkbenchForwardRequest {
   reserved "auth";
   reserved 3;
   reserved "partition";
-  string plan_id = 4;
+  // run_id was plan_id until memql#5053. It is RENAMED IN PLACE on field 4
+  // rather than reserved-and-re-added: this is a mesh-internal envelope with
+  // no external consumer, and pre-release rules carry no compatibility window.
+  // Both ends ship in the same binary set, so a rolling restart never has one
+  // side reading a field the other stopped writing.
+  string run_id = 4;
   string action = 5;
   bytes args_json = 6;
   string agent_id = 7;
-  string task_id = 8;
+  // step_id was task_id until memql#5053, renamed in place for run_id's reason.
+  string step_id = 8;
   // Optional timeout hint; the workbench node clamps to its own caps.
   int32 timeout_sec = 9;
   ForwardedAuthority authority = 10;
@@ -529,8 +535,10 @@ message WorkerForwardRequest {
   string action = 6;
   bytes args_json = 7;
   string agent_id = 8;
-  string plan_id = 9;
-  string task_id = 10;
+  // run_id / step_id were plan_id / task_id until memql#5053; renamed in
+  // place, mesh-internal envelope, no compatibility window pre-release.
+  string run_id = 9;
+  string step_id = 10;
   string correlation_id = 11;
   // Optional timeout hint; the receiver clamps to its own caps.
   int32 timeout_sec = 12;

@@ -295,6 +295,65 @@ describe("what a run's bar offers", () => {
     await openRun(conn);
     expect(screen.getByText("Lost")).toBeTruthy();
     expect(screen.getByText("The node running this went away.")).toBeTruthy();
+    // The sweep offers a silent run to another replica before closing it
+    // (memql#5054), so reaching this state means the offer was not taken --
+    // which is the difference between "try again" and "find out why nothing
+    // took it".
+    expect(screen.getByText(/was offered it before it was closed/)).toBeTruthy();
+    // AND IT MUST NOT PROMISE MORE THAN THE SYSTEM DOES. The old copy said "a
+    // resume picks up from it", naming an action with no button behind it,
+    // and "nothing was left half-done", which is not true of the step that
+    // was in flight when the node went away.
+    expect(screen.queryByText(/a resume picks up from it/)).toBeNull();
+    expect(screen.queryByText(/nothing was left half-done/)).toBeNull();
+  });
+
+  // memql#5054. Both of these close a run BEFORE any step runs, and under the
+  // generic notice both said "This run failed" and pointed at "the step it
+  // stopped at" -- of which there is none. They are also the two failures a
+  // reader is most likely to misdiagnose: one is a deploy, the other is the
+  // arguments, and neither is the machinery the error tone sends people to.
+  it("sends an unrunnable template at the deploy, not at the run", async () => {
+    const conn = fakeConnection({
+      runs: [
+        runRow({
+          id: "run-1",
+          status: "failed",
+          errorCode: "automation_not_runnable",
+          errorMessage: 'no automation named "invokeAgent" is registered on this node',
+        }),
+      ],
+      steps: [],
+    });
+    await openRun(conn);
+    expect(screen.getByText("Nothing here could run this.")).toBeTruthy();
+    expect(screen.queryByText("This run failed.")).toBeNull();
+    // The name is the whole of what the reader can act on.
+    expect(screen.getByText(/no automation named "invokeAgent" is registered/)).toBeTruthy();
+    // It must not invite a retry: retrying resolves the same nothing.
+    expect(screen.getByText(/wants a deploy, not another attempt/)).toBeTruthy();
+  });
+
+  it("calls a refusal a refusal, and keeps it out of the error tone", async () => {
+    const conn = fakeConnection({
+      runs: [
+        runRow({
+          id: "run-1",
+          status: "failed",
+          errorCode: "run_refused",
+          errorMessage: "agentId is required",
+        }),
+      ],
+      steps: [],
+    });
+    await openRun(conn);
+    expect(screen.getByText("This run was turned down before it started.")).toBeTruthy();
+    expect(screen.queryByText("This run failed.")).toBeNull();
+    expect(screen.getByText("agentId is required")).toBeTruthy();
+    // Nothing broke, so nothing raises an alert -- an error tone sends people
+    // to the logs, and the answer is in what was asked for.
+    expect(document.querySelector('.os-notice[data-tone="error"]')).toBeNull();
+    expect(document.querySelector('.os-notice[data-tone="warn"]')).toBeTruthy();
   });
 });
 

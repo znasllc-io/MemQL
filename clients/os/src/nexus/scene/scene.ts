@@ -148,6 +148,13 @@ export function scene(world: GoalWorld, at: string): GoalWorld {
     approvals: world.approvals
       .filter((approval) => existedAt(approval.createdAt, at))
       .map((approval) => ({ ...approval, decision: approvalDecisionAt(approval, at) })),
+    // AN ARTIFACT IS FILTERED AND NOT REWOUND. It existed or it did not:
+    // there is no field on the row saying when it was archived, so unlike an
+    // approval's decision there is nothing to answer "as of" with. Carrying
+    // the LIVE archived flag back would be worse than carrying none -- the
+    // map would show a moment at which the file was already struck through,
+    // which is a claim the rows cannot support.
+    artifacts: world.artifacts.filter((artifact) => existedAt(artifact.createdAt, at)),
   };
 }
 

@@ -61,7 +61,6 @@ type Store interface {
 
 	UserPreferences(ctx context.Context, userId string) (Preferences, error)
 	AgentAuthorization(ctx context.Context, agentId, ownerUserId string) (*Authorization, error)
-	PlanScope(ctx context.Context, planId string) (string, error)
 	WriteInvocation(ctx context.Context, row workerservice.InvocationRow) error
 }
 
@@ -103,8 +102,8 @@ type Request struct {
 	Args          map[string]any
 	AgentId       string
 	OwnerUserId   string
-	PlanId        string
-	TaskId        string
+	RunId         string
+	StepId        string
 	CorrelationId string
 	Timeout       time.Duration
 
@@ -558,7 +557,7 @@ type gateResult struct {
 // any wire traffic.
 //
 // Also enforces per-task approval as a hard server-side gate: every
-// workerHost / workerComputer dispatch MUST carry a PlanId
+// workerHost / workerComputer dispatch MUST carry a RunId
 // referencing an approved scope-elevation Plan. Without this check
 // an agent that REASONS AROUND the prompt's "always ask first" rule
 // (e.g. "the user already granted full standing scope, so I can
@@ -581,15 +580,15 @@ func (d *Dispatcher) preDispatchCheck(ctx context.Context, req Request) gateResu
 	}
 
 	// Per-task approval gate. workerHost / workerComputer require a
-	// PlanId; workerStatus and any future read-only probes don't.
-	// The PlanId arrives via agentContextStamps.StampPlanId in
-	// streaming.go, populated from msg.Hints["plan_id"] on
+	// RunId; workerStatus and any future read-only probes don't.
+	// The RunId arrives via agentContextStamps.StampPlanId in
+	// streaming.go, populated from msg.Hints["run_id"] on
 	// post-approval turns. If the agent dispatched without going
-	// through requestComputerUseScope first, PlanId is empty and we
+	// through requestComputerUseScope first, RunId is empty and we
 	// deny here -- the agent's reply text then surfaces "I tried to
 	// dispatch without asking permission first; please re-ask".
 	if req.Tool == "workerHost" || req.Tool == "workerComputer" {
-		if strings.TrimSpace(req.PlanId) == "" {
+		if strings.TrimSpace(req.RunId) == "" {
 			return gateResult{
 				deny:               true,
 				requiredCapability: required.Capability,
@@ -637,28 +636,21 @@ func (d *Dispatcher) preDispatchCheck(ctx context.Context, req Request) gateResu
 			standingScope = auth.ComputerUseScope
 		}
 
+		// THE PER-WORK-UNIT SCOPE OVERRIDE IS GONE (memql#5053).
+		//
+		// A Plan could carry its own `computerUseScope`, and this branch let
+		// it NARROW the agent's standing scope for that Plan's calls (a wider
+		// one was refused outright). v1:work:run carries no such field, so
+		// there is nothing left to read, and the standing scope on
+		// v1:agents:agentAuthorization is now the only scope.
+		//
+		// That is a real reduction in what policy can EXPRESS: a caller can no
+		// longer say "this particular piece of work gets less than the agent
+		// normally has". It is NOT a widening of what any call is ALLOWED --
+		// the override could only ever narrow, and the standing scope was
+		// always the ceiling. Restoring it means a scope field on the run and
+		// a decision about who may set it, which is design rather than a port.
 		effectiveScope := standingScope
-		if req.PlanId != "" {
-			planScope, err := d.store.PlanScope(ctx, req.PlanId)
-			if err != nil {
-				d.logger.Warn("plan scope lookup failed; falling back to standing scope",
-					"plan_id", req.PlanId,
-					"error", err,
-				)
-			} else if planScope != "" {
-				if !scopeIsNarrowerOrEqual(planScope, standingScope) {
-					return gateResult{
-						deny:               true,
-						requiredCapability: required.Capability,
-						requiredScope:      required.Scope,
-						errorCode:          "denied_by_scope",
-						errorMessage:       "plan scope wider than agent's standing scope",
-						outcome:            "denied_by_scope",
-					}
-				}
-				effectiveScope = planScope
-			}
-		}
 
 		if !scopeAllows(effectiveScope, required.Scope) {
 			return gateResult{
@@ -710,8 +702,8 @@ func buildToolDispatch(req Request, timeout time.Duration) *memqlv1.ToolDispatch
 	})
 	return &memqlv1.ToolDispatch{
 		CallId:        newCallId(),
-		PlanId:        req.PlanId,
-		TaskId:        req.TaskId,
+		RunId:         req.RunId,
+		StepId:        req.StepId,
 		AgentId:       req.AgentId,
 		CorrelationId: req.CorrelationId,
 		Tool:          req.Tool,
@@ -789,8 +781,8 @@ func (d *Dispatcher) recordInvocation(
 		OwnerUserId:   req.OwnerUserId,
 		WorkerId:      workerId,
 		AgentId:       req.AgentId,
-		PlanId:        req.PlanId,
-		TaskId:        req.TaskId,
+		RunId:         req.RunId,
+		StepId:        req.StepId,
 		CorrelationId: req.CorrelationId,
 		Tool:          req.Tool,
 		Action:        req.Action,
@@ -831,8 +823,8 @@ func (d *Dispatcher) emitDenied(ctx context.Context, req Request, gate gateResul
 				"requestedScope":      gate.requiredScope,
 				"requestedCapability": gate.requiredCapability,
 				"errorMessage":        gate.errorMessage,
-				"planId":              req.PlanId,
-				"taskId":              req.TaskId,
+				"runId":               req.RunId,
+				"stepId":              req.StepId,
 			},
 			Timestamp: d.clock(),
 		})

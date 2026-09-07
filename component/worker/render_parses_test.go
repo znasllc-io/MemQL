@@ -120,8 +120,8 @@ func writeDrivers() []driver {
 		WorkerId:            reg.ID,
 		App:                 "claude-code",
 		Kind:                "open",
-		PlanId:              "v1:planner:plan:p-1",
-		TaskId:              "v1:planner:task:t-1",
+		RunId:               "v1:work:run:p-1",
+		StepId:              "v1:work:step:t-1",
 		Status:              AppSessionStatusEnded,
 		Workspace:           "/Users/x/dev/my repo",
 		Prompt:              awkwardText,
@@ -166,8 +166,8 @@ func writeDrivers() []driver {
 		{"CreateInvocation", func(ctx context.Context, s *EngineStore) error {
 			return s.CreateInvocation(ctx, InvocationRow{
 				ID: "v1:worker:invocation:inv-1", OwnerUserId: testOwner, WorkerId: reg.ID,
-				AgentId: "v1:agents:agent:a-1", PlanId: "v1:planner:plan:p-1",
-				TaskId: "v1:planner:task:t-1", CorrelationId: "corr-1",
+				AgentId: "v1:agents:agent:a-1", RunId: "v1:work:run:p-1",
+				StepId: "v1:work:step:t-1", CorrelationId: "corr-1",
 				Tool: "workerHost", Action: "exec",
 				ArgsRedacted:  map[string]any{"command": awkwardText, "redacted": true},
 				StartedAt:     at,

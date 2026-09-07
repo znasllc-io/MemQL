@@ -28,7 +28,7 @@ package clustere2e
 // THIS file changed when cognition was deleted (memql#4988) -- notes and
 // v1:notes:note both survive -- but the sibling it contrasts with,
 // result_cache_invalidation_test.go, moved from v1:cognition:utterance to
-// v1:planner:plan, so the parenthetical above names the concept that is
+// v1:platform:missingCapability, so the parenthetical above names the concept that is
 // actually forwarded wholesale today.
 //
 // The deterministic, always-in-CI proof of the same wired path -- two

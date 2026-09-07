@@ -87,7 +87,7 @@ func (r SlogRecorder) Record(ctx context.Context, desc ActionDescriptor, cls Cla
 		slog.Any("paths", red.Paths),
 		slog.String("agent_id", desc.Caller.AgentID),
 		slog.String("owner_user_id", desc.Caller.OwnerUserID),
-		slog.String("plan_id", desc.Caller.PlanID),
+		slog.String("run_id", desc.Caller.RunID),
 		slog.String("correlation_id", desc.Caller.CorrelationID),
 		slog.String("scope", desc.Caller.Scope),
 		slog.String("capability", desc.Caller.Capability),

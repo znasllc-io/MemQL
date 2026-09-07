@@ -19,7 +19,7 @@ shape classification classificationFull {
   latencyMs
   agentId
   ownerUserId
-  planId
+  runId
   correlationId
   mode
 }
@@ -44,7 +44,7 @@ shape approvalRequest approvalRequestFull {
   decisionReason
   agentId
   ownerUserId
-  planId
+  runId
 }
 
 /// Comprehensive projection of every v1:safety:outputScreening field. Backs the retention sweep +
@@ -66,7 +66,7 @@ shape outputScreening outputScreeningFull {
   latencyMs
   agentId
   ownerUserId
-  planId
+  runId
   correlationId
   mode
 }

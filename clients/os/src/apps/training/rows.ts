@@ -63,8 +63,8 @@ export function fileFromRow(raw: Row): TrainingFile {
  *
  * NO `requestedBy` RESIDUAL, and that is the re-key's quiet security gain.
  * The old plan feed filtered other people's rows out CLIENT-SIDE, because
- * `v1:planner:plan` declares no row-authz tier and a concept that declares
- * nothing admits every subscriber. `v1:library:file` declares
+ * `v1:planner:plan` declared no row-authz tier and a concept that declares
+ * nothing admits every subscriber. (It is retired outright as of memql#5053.) `v1:library:file` declares
  * `@rowAuthz(owner="ownerUserId", clusterOwner)`, so admission runs on the
  * SUBSCRIPTION as well as the read (memql#4309) and other people's files
  * never arrive here at all. What is left is this app's own business: an

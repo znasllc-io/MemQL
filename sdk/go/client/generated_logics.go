@@ -380,26 +380,6 @@ func InstallDependencyVerdictBuild(args InstallDependencyVerdictArgs) string {
 	return b.String()
 }
 
-// KillSwitchSuspendsRunningPlans -- Pure decide for the kill-switch sweep: returns every running plan owned by the updated user. The suspend write + the gate (computerUseEnabled==false AND the plan has a computerUseScope) live in the killSwitchSuspendsRunningPlans automation's forEach step (#2235). Re-enable flips the flag back; resume is per-plan-explicit.
-type KillSwitchSuspendsRunningPlansArgs struct {
-	Event map[string]any
-}
-
-// KillSwitchSuspendsRunningPlans calls the engine logic killSwitchSuspendsRunningPlans.
-func (qc *QueryClient) KillSwitchSuspendsRunningPlans(ctx context.Context, args KillSwitchSuspendsRunningPlansArgs) (*Result, error) {
-	call := KillSwitchSuspendsRunningPlansBuild(args)
-	return qc.executeNamed(ctx, "killSwitchSuspendsRunningPlans", call)
-}
-
-func KillSwitchSuspendsRunningPlansBuild(args KillSwitchSuspendsRunningPlansArgs) string {
-	var b strings.Builder
-	b.WriteString("logic killSwitchSuspendsRunningPlans(")
-	b.WriteString("event: ")
-	b.WriteString(renderMemQLValue(args.Event))
-	b.WriteString(")")
-	return b.String()
-}
-
 // MagicLinkExpirySweep -- Hourly sweep that stamps consumedAt + consumedFromIP='system:expiry' on v1:identity:magiclink rows whose expiresAt is in the past, so the row reads as 'spent' in audit queries and any subsequent click is idempotently rejected by the consume handler's own expiresAt guard.
 type MagicLinkExpirySweepArgs struct {
 	Event map[string]any
@@ -468,26 +448,6 @@ func OnDelegationCreatedBuild(args OnDelegationCreatedArgs) string {
 	return b.String()
 }
 
-// PlanIsTerminal -- PURE terminal-status decision table for v1:planner:plan (#2370): returns true when the status is one of the terminal set (succeeded / failed / cancelled), false otherwise. THE single owner of that vocabulary -- the releaseWorkspaceOnPlanTerminal automation gates its release + teardown steps on this scalar instead of restating the ||-chain inline (v1:planner:plan has 9 statuses; inline copies drift).
-type PlanIsTerminalArgs struct {
-	Status any
-}
-
-// PlanIsTerminal calls the engine logic planIsTerminal.
-func (qc *QueryClient) PlanIsTerminal(ctx context.Context, args PlanIsTerminalArgs) (*Result, error) {
-	call := PlanIsTerminalBuild(args)
-	return qc.executeNamed(ctx, "planIsTerminal", call)
-}
-
-func PlanIsTerminalBuild(args PlanIsTerminalArgs) string {
-	var b strings.Builder
-	b.WriteString("logic planIsTerminal(")
-	b.WriteString("status: ")
-	b.WriteString(renderMemQLValue(args.Status))
-	b.WriteString(")")
-	return b.String()
-}
-
 // PruneStaleClusterNodes -- Decides which departed cluster nodes to retire (ADR S2.1 pure logic, #2235). Reads MEMQL_NODE_STALE_PRUNE_MINUTES (default 30), computes cutoff = now - window via addDuration with a negative ISO duration, and returns staleClusterNodes({olderThan: cutoff}).nodes() -- the LATEST non-stopped rows whose lastSeen is past the window (the olderThan arg pushes a payload.lastSeen<cutoff predicate onto the query, #1642). The calling automation appends the terminal health='stopped' row per returned node via a forEach updateNodeHealth step.
 type PruneStaleClusterNodesArgs struct {
 	Event map[string]any
@@ -548,20 +508,20 @@ func PurgeExpiredSafetyClassificationsBuild(args PurgeExpiredSafetyClassificatio
 	return b.String()
 }
 
-// ReleaseWorkspaceOnPlanTerminal -- Pure decide for the workspace-release sweep: returns every v1:workbench:workspace for the updated plan. The terminal-status gate, the per-row release write (provisioned workspaces only), and the unconditional on-disk teardown all live in the releaseWorkspaceOnPlanTerminal automation's steps (#2235).
-type ReleaseWorkspaceOnPlanTerminalArgs struct {
+// ReleaseWorkspaceOnRunTerminal -- Pure decide for the workspace-release sweep: returns every v1:workbench:workspace for the updated run. The terminal-status gate, the per-row release write (provisioned workspaces only), and the unconditional on-disk teardown all live in the releaseWorkspaceOnRunTerminal automation's steps (#2235).
+type ReleaseWorkspaceOnRunTerminalArgs struct {
 	Event map[string]any
 }
 
-// ReleaseWorkspaceOnPlanTerminal calls the engine logic releaseWorkspaceOnPlanTerminal.
-func (qc *QueryClient) ReleaseWorkspaceOnPlanTerminal(ctx context.Context, args ReleaseWorkspaceOnPlanTerminalArgs) (*Result, error) {
-	call := ReleaseWorkspaceOnPlanTerminalBuild(args)
-	return qc.executeNamed(ctx, "releaseWorkspaceOnPlanTerminal", call)
+// ReleaseWorkspaceOnRunTerminal calls the engine logic releaseWorkspaceOnRunTerminal.
+func (qc *QueryClient) ReleaseWorkspaceOnRunTerminal(ctx context.Context, args ReleaseWorkspaceOnRunTerminalArgs) (*Result, error) {
+	call := ReleaseWorkspaceOnRunTerminalBuild(args)
+	return qc.executeNamed(ctx, "releaseWorkspaceOnRunTerminal", call)
 }
 
-func ReleaseWorkspaceOnPlanTerminalBuild(args ReleaseWorkspaceOnPlanTerminalArgs) string {
+func ReleaseWorkspaceOnRunTerminalBuild(args ReleaseWorkspaceOnRunTerminalArgs) string {
 	var b strings.Builder
-	b.WriteString("logic releaseWorkspaceOnPlanTerminal(")
+	b.WriteString("logic releaseWorkspaceOnRunTerminal(")
 	b.WriteString("event: ")
 	b.WriteString(renderMemQLValue(args.Event))
 	b.WriteString(")")
@@ -631,6 +591,27 @@ func RevokeExpiredDelegationsBuild(args RevokeExpiredDelegationsArgs) string {
 	b.WriteString("logic revokeExpiredDelegations(")
 	b.WriteString("asOf: ")
 	b.WriteString(quoteMemQL(args.AsOf))
+	b.WriteString(")")
+	return b.String()
+}
+
+// RunIsTerminal -- PURE terminal-status decision table for v1:work:run (#2370): returns true when the status is one of the terminal set, false otherwise. THE single owner of that vocabulary -- the releaseWorkspaceOnRunTerminal automation gates its release + teardown steps on this scalar instead of restating the ||-chain inline.
+// FOUR values, not the Plan's three: `abandoned` is terminal for a run (the node stopped answering) and has no Plan equivalent. A workspace whose run was abandoned is exactly the one nobody is left to clean up by hand.
+type RunIsTerminalArgs struct {
+	Status any
+}
+
+// RunIsTerminal calls the engine logic runIsTerminal.
+func (qc *QueryClient) RunIsTerminal(ctx context.Context, args RunIsTerminalArgs) (*Result, error) {
+	call := RunIsTerminalBuild(args)
+	return qc.executeNamed(ctx, "runIsTerminal", call)
+}
+
+func RunIsTerminalBuild(args RunIsTerminalArgs) string {
+	var b strings.Builder
+	b.WriteString("logic runIsTerminal(")
+	b.WriteString("status: ")
+	b.WriteString(renderMemQLValue(args.Status))
 	b.WriteString(")")
 	return b.String()
 }

@@ -6,15 +6,15 @@ import (
 
 // buildSafetyDescriptor lowers a workbench dispatch into the
 // surface-agnostic safety.ActionDescriptor the classifier consumes.
-// Surface is always SurfaceWorkbench (the per-Plan sandbox).
+// Surface is always SurfaceWorkbench (the per-run sandbox).
 //
-// Caller context carries the planId; agent / owner / task fields
+// Caller context carries the runId; agent / owner / task fields
 // aren't exposed to the workbench dispatch path today, so they stay
 // empty in the descriptor (the gate's recorder logs what's
 // available; #234's persistence concept stores the same).
-func buildSafetyDescriptor(action, planId string, innerArgs map[string]any) safety.ActionDescriptor {
+func buildSafetyDescriptor(action, runId string, innerArgs map[string]any) safety.ActionDescriptor {
 	caller := safety.CallerContext{
-		PlanID:     planId,
+		RunID:      runId,
 		Capability: "workbench_use",
 	}
 	switch action {

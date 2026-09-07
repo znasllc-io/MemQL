@@ -171,16 +171,21 @@ type Request struct {
 	ScriptArtifactID string
 	// Args are appended to the entry command, already quoted by the caller's
 	// own rules. They are NOT interpolated into the script.
-	Args []string
-	// PlanID scopes the workbench workspace and is the fleet's per-task
-	// approval key. Both dispatchers refuse without it.
-	PlanID  string
+	Args    []string
 	AgentID string
 	OwnerID string
 	// StepID, when this call is a step of a run, is where the receipt is
 	// stamped. Empty for an ad-hoc call.
 	StepID string
-	RunID  string
+	// RunID scopes the workbench workspace, is the fleet's per-unit approval
+	// key, and attributes the call. Both dispatchers refuse without it.
+	//
+	// This used to be TWO fields: PlanID scoped the workspace and RunID
+	// attributed the call. They collapsed in memql#5053, because the
+	// workspace is keyed on the run now -- v1:workbench:workspace.runId --
+	// so the thing being scoped by and the thing being attributed to are the
+	// same thing.
+	RunID string
 	// Environment is the {os, needs[]} hint, passed through to the surface
 	// unchanged so the workbench's own mismatch rules apply.
 	Environment map[string]any

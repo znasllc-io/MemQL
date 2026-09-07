@@ -7,7 +7,7 @@ use accounts.concepts.{ account }
 use agents.concepts.{ agent }
 use identity.concepts.{ user }
 use library.concepts.{ artifact }
-use planner.concepts.{ plan }
+use work.concepts.{ run }
 
 /// Instance-wide encrypted secret. Lives in the reserved _system partition (via @scope("global")).
 /// The cleartext value is NEVER stored -- only a NaCl secretbox ciphertext (base64(nonce||ct))
@@ -117,7 +117,7 @@ concept missingCapability {
   kind            enum("tool", "integration", "liveSource", "connectorKind", "knowledgeDomain", "modelCapability", "other")! @description("What category of platform extension would close this gap. 'tool' = an agent-callable action that doesn't exist yet (e.g. 'sendSlackMessage'). 'integration' = a backing service we don't speak to yet (e.g. Jira). 'liveSource' = a volatile data source we'd want bound to agents but don't have a query for. 'connectorKind' = a brand-new liveConnector implementation kind (e.g. 'snowflake'). 'knowledgeDomain' = a category-level gap, e.g. agents trying to act in a domain we never seeded. 'modelCapability' = a model-level feature we don't support yet (e.g. structured-output with strict schemas on a new provider).")
   capability      string! @description("Short identifier for the missing thing, e.g. 'sendSlackMessage', 'jira.createIssue', 'erp.inventory.live'. Stable across multiple sightings so duplicate signals collapse onto one row.")
   description     string! @description("Human-readable description: what the platform was being asked to do that it couldn't. Surfaced in the product backlog view.")
-  requestedFromPlanId  string @description("v1:planner:plan.id where the gap was detected. Lets the platform team trace back to 'what was the user trying to accomplish when we hit this wall'.")
+  requestedFromRunId   string @description("v1:work:run.id where the gap was detected. Lets the platform team trace back to 'what was the user trying to accomplish when we hit this wall'.")
   requestedByAgentId   string @description("v1:agents:agent.id of the agent (typically the Planner Agent) that logged the gap. Empty for system-level detection.")
   partitionId         string  @description("Optional space scope where the gap was detected. Useful for attributing 'this gap blocked work in space X'.")
   partitionScope  string  @description("Partition where the gap was detected. Empty = unknown. Helps de-duplicate platform-wide vs tenant-specific gaps.")
@@ -128,7 +128,7 @@ concept missingCapability {
   resolution      string  @description("Free-text note when status='resolved' or 'wontfix' explaining what shipped (or why we won't ship it).")
   exampleGoals    []string @description("List of Plan.goal strings that triggered this gap. Capped at the most recent N (engine policy); gives the prioritization view 'real users wanted X, Y, Z'.")
 
-  @relationship(type="references", field="requestedFromPlanId", target=plan, direction="outgoing")
+  @relationship(type="references", field="requestedFromRunId", target=run, direction="outgoing")
   @relationship(type="references", field="requestedByAgentId", target=agent, direction="outgoing")
 }
 

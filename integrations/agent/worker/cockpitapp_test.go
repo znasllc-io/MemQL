@@ -64,7 +64,7 @@ func TestCockpitAppRequiresAnAppInTheBackendName(t *testing.T) {
 // TestCockpitAppRunsTheSharedConsentGates is D4: an app run gets
 // EXACTLY the gates a shell command through the same machine gets.
 // Here the per-task approval gate fires because the Task carries no
-// PlanId -- the same denial `workerHost` would produce.
+// RunId -- the same denial `workerHost` would produce.
 func TestCockpitAppRunsTheSharedConsentGates(t *testing.T) {
 	exec := newTestCockpitAppExecutor(t)
 	_, err := exec.Run(context.Background(), planner.ExecutorRequest{

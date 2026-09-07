@@ -18,8 +18,8 @@ mutate invocation createWorkerInvocation {
     invocationId   string!
     workerId       string!
     agentId        string!
-    planId         string
-    taskId         string
+    runId          string
+    stepId         string
     correlationId  string
     tool           string!
     action         string!
@@ -42,8 +42,8 @@ mutate invocation createWorkerInvocation {
     ownerUserId: actor.userId
     args.workerId
     args.agentId
-    planId: args.planId ?? ""
-    taskId: args.taskId ?? ""
+    runId: args.runId ?? ""
+    stepId: args.stepId ?? ""
     correlationId: args.correlationId ?? ""
     args.tool
     args.action
@@ -607,8 +607,8 @@ mutate appSession createAppSession {
     workerId       string!
     app            enum("claude-code", "codex")!
     kind           enum("run", "open", "attach")!
-    planId         string
-    taskId         string
+    runId          string
+    stepId         string
     workspace      string
     prompt         string
     inputArtifactIds  array
@@ -629,8 +629,8 @@ mutate appSession createAppSession {
     args.workerId
     args.app
     args.kind
-    planId: args.planId ?? ""
-    taskId: args.taskId ?? ""
+    runId: args.runId ?? ""
+    stepId: args.stepId ?? ""
     status: "starting"
     workspace: args.workspace ?? ""
     prompt: args.prompt ?? ""

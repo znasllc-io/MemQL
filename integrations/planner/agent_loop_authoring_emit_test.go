@@ -136,7 +136,7 @@ func TestEmitAndRepair_CleanFirstPass(t *testing.T) {
 		designDependency: designDependency{Kind: "spec", Name: "specDigestItemActive", CandidateSource: specCon.Source},
 		Disposition:      dispAuthor,
 	})
-	bundle, report, clean, err := l.emitAndRepairBundle(context.Background(), l.planBudgetGate("p1"), "digest", plan, sb)
+	bundle, report, clean, err := l.emitAndRepairBundle(context.Background(), unboundedBudget, "digest", plan, sb)
 	if err != nil {
 		t.Fatalf("emitAndRepairBundle: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestEmitAndRepair_RepairsThenClean(t *testing.T) {
 		designDependency: designDependency{Kind: "spec", Name: "specDigestItemActive", CandidateSource: brokenSpec.Source},
 		Disposition:      dispAuthor,
 	})
-	bundle, report, clean, err := l.emitAndRepairBundle(context.Background(), l.planBudgetGate("p1"), "digest", plan, sb)
+	bundle, report, clean, err := l.emitAndRepairBundle(context.Background(), unboundedBudget, "digest", plan, sb)
 	if err != nil {
 		t.Fatalf("emitAndRepairBundle: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestEmitAndRepair_ExhaustsAttemptCap(t *testing.T) {
 		designDependency: designDependency{Kind: "spec", Name: "specDigestItemActive", CandidateSource: brokenSpec.Source},
 		Disposition:      dispAuthor,
 	})
-	_, report, clean, err := l.emitAndRepairBundle(context.Background(), l.planBudgetGate("p1"), "digest", plan, sb)
+	_, report, clean, err := l.emitAndRepairBundle(context.Background(), unboundedBudget, "digest", plan, sb)
 	if err != nil {
 		t.Fatalf("exhausting the cap must not error: %v", err)
 	}
@@ -238,16 +238,28 @@ func TestEmitAndRepair_ExhaustsAttemptCap(t *testing.T) {
 	}
 }
 
-// TestEmitAndRepair_BudgetExhaustedStopsLoop: when the planner's cumulative
-// per-plan LLM ceiling is already reached, the repair loop must NOT make
-// another emit call -- it parks with the current diagnostics.
+// exhaustedBudget is a gate that reports the ceiling already reached.
+//
+// The test below used to drive this through planBudgetGate -- the planner's
+// cumulative PER-PLAN ceiling -- by seeding a plan row at its invocation cap.
+// That gate went with the Plan (memql#5052) and the ceiling that governs the
+// authoring job now is the RUN's, fed through callCapGate. The property is the
+// same and is about the LOOP rather than about which ceiling: when the gate
+// says exhausted, no repair call is made. Stating it with a stub gate says
+// that, and stops the test breaking again the next time the ceiling moves.
+func exhaustedBudget(context.Context, int) (bool, string) {
+	return true, "ceiling reached"
+}
+
+// TestEmitAndRepair_BudgetExhaustedStopsLoop: when the ceiling is already
+// reached, the repair loop must NOT make another emit call -- it parks with
+// the current diagnostics.
 func TestEmitAndRepair_BudgetExhaustedStopsLoop(t *testing.T) {
 	brokenSpec := memql.SandboxConstruct{Kind: "spec", Name: "specDigestItemActive", Source: "spec x {\n  broken\n}"}
-	// Plan already at the hard invocation ceiling -> budget gate blocks.
 	fe := emitFakeEngine(
 		emitJSON(t, []memql.SandboxConstruct{automationCon, brokenSpec}),
 		[]string{emitJSON(t, []memql.SandboxConstruct{brokenSpec})},
-		planRowWithCalls("p1", maxPlannerInvocationsPerPlan()),
+		nil,
 	)
 	l := newDesignLoop(fe)
 	sb := &fakeSandbox{reports: []memql.SandboxReport{
@@ -258,7 +270,7 @@ func TestEmitAndRepair_BudgetExhaustedStopsLoop(t *testing.T) {
 		designDependency: designDependency{Kind: "spec", Name: "specDigestItemActive", CandidateSource: brokenSpec.Source},
 		Disposition:      dispAuthor,
 	})
-	_, _, clean, err := l.emitAndRepairBundle(context.Background(), l.planBudgetGate("p1"), "digest", plan, sb)
+	_, _, clean, err := l.emitAndRepairBundle(context.Background(), exhaustedBudget, "digest", plan, sb)
 	if err != nil {
 		t.Fatalf("budget-exhausted stop must not error: %v", err)
 	}
@@ -348,7 +360,7 @@ func TestEmitAndRepair_RealGate1_RepairsToClean(t *testing.T) {
 		designDependency: designDependency{Kind: "trait", Name: "specDigestActive", CandidateSource: broken.Source},
 		Disposition:      dispAuthor,
 	})
-	bundle, report, clean, err := l.emitAndRepairBundle(context.Background(), l.planBudgetGate("p1"), "Send me a daily digest of active items.", plan, realSandbox{})
+	bundle, report, clean, err := l.emitAndRepairBundle(context.Background(), unboundedBudget, "Send me a daily digest of active items.", plan, realSandbox{})
 	if err != nil {
 		t.Fatalf("emitAndRepairBundle: %v", err)
 	}

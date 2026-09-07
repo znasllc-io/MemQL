@@ -166,9 +166,9 @@ func TestPerScopeCallBudgetsCountFleetCalls(t *testing.T) {
 // repetition look novel -- defeating the cheap catch entirely.
 func TestTheFingerprintIgnoresAttributionAndKeysOnThePrompt(t *testing.T) {
 	a := fleetReq("hello")
-	a.PlanId, a.TaskId, a.Purpose = "plan-1", "task-1", "planner"
+	a.RunId, a.StepId, a.Purpose = "plan-1", "task-1", "planner"
 	b := fleetReq("hello")
-	b.PlanId, b.TaskId, b.Purpose = "plan-2", "task-9", "conductor"
+	b.RunId, b.StepId, b.Purpose = "plan-2", "task-9", "conductor"
 	if FleetCallFingerprint(a) != FleetCallFingerprint(b) {
 		t.Fatal("two identical prompts must fingerprint the same; folding attribution in would " +
 			"make every repetition of a loop look novel")

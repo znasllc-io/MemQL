@@ -3,7 +3,13 @@ import { getRowByConceptAndId, type Row } from "@znasllc-io/memql-sdk-core/clien
 
 import { useOsConnection } from "../../live/connection";
 import { useLiveCollection, type LiveCollectionHandle } from "../../live/useLiveCollection";
-import { APPROVAL_CONCEPT, GOAL_CONCEPT, RUN_CONCEPT, STEP_CONCEPT } from "./concepts";
+import {
+  APPROVAL_CONCEPT,
+  ARTIFACT_CONCEPT,
+  GOAL_CONCEPT,
+  RUN_CONCEPT,
+  STEP_CONCEPT,
+} from "./concepts";
 import { modelCallFromRow, observationFromRow, type ModelCallRow, type ObservationRow } from "./rows";
 
 // The Nexus app's feeds, and the one read that is deliberately not a feed.
@@ -136,6 +142,40 @@ export function useRunSteps(runId: string): LiveCollectionHandle<Row> {
     },
     reread: async (rowId, signal) => {
       const row = await getRowByConceptAndId(connection.query, STEP_CONCEPT, rowId, { signal });
+      return (row as Row) ?? null;
+    },
+    paged: false,
+  }));
+}
+
+/**
+ * What ONE run produced -- the Library index rows, not the bytes.
+ *
+ * Retained by the page, keyed on the run, exactly like `useRunSteps` and for
+ * the same reason: the previous run's artifacts are not rows this one is
+ * missing.
+ *
+ * IT IS GENUINELY LIVE, which is why it is a collection rather than the
+ * on-demand read the journal gets. `v1:library:artifact` carries broadcast
+ * routing rules for all three verbs (component/node/routing.go), so a file
+ * that appears while somebody is watching appears on the map. Its sibling
+ * `v1:authoring:bundle` carries none, which is why the map draws artifacts
+ * and not authored constructs -- see src/nexus/concepts.ts.
+ *
+ * `artifactsForRun` is `@unbounded` on purpose: the map draws the whole set
+ * at once, and a truncated page would silently lose a file from the scene.
+ * So there is no cursor here and `paged` is false.
+ */
+export function useRunArtifacts(runId: string): LiveCollectionHandle<Row> {
+  const key = runId.trim() === "" ? null : `work:artifacts:${runId}`;
+  return useLiveCollection<Row>(key, (connection) => ({
+    concept: ARTIFACT_CONCEPT,
+    seed: async (_cursor, signal) => {
+      const result = await connection.query.artifactsForRun({ runId }, { signal });
+      return { rows: result.rows(), nextCursor: "" };
+    },
+    reread: async (rowId, signal) => {
+      const row = await getRowByConceptAndId(connection.query, ARTIFACT_CONCEPT, rowId, { signal });
       return (row as Row) ?? null;
     },
     paged: false,

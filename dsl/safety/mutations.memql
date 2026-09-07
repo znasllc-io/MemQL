@@ -22,12 +22,12 @@ mutate classification insertSafetyClassification {
     latencyMs     float
     agentId       string
     ownerUserId   string
-    planId        string
+    runId         string
     correlationId string
     mode          string!
   }
   insert {
-    accept { surface, action, argsRedacted, tier, categories, decision, source, ruleId, confidence, reason, latencyMs, agentId, ownerUserId, planId, correlationId, mode }
+    accept { surface, action, argsRedacted, tier, categories, decision, source, ruleId, confidence, reason, latencyMs, agentId, ownerUserId, runId, correlationId, mode }
   }
 }
 
@@ -48,10 +48,10 @@ mutate approvalRequest createApprovalRequest {
     expiresAt      string
     agentId        string
     ownerUserId    string
-    planId         string
+    runId          string
   }
   insert {
-    accept { correlationKey, surface, action, argsRedacted, tier, categories, reason, expiresAt, agentId, ownerUserId, planId }
+    accept { correlationKey, surface, action, argsRedacted, tier, categories, reason, expiresAt, agentId, ownerUserId, runId }
     stamp {
       status: "pending"
     }
@@ -97,11 +97,11 @@ mutate outputScreening insertOutputScreening {
     latencyMs      float
     agentId        string
     ownerUserId    string
-    planId         string
+    runId          string
     correlationId  string
     mode           string!
   }
   insert {
-    accept { contentType, contentLength, redactedSample, tier, categories, verdict, screener, ruleId, confidence, reason, latencyMs, agentId, ownerUserId, planId, correlationId, mode }
+    accept { contentType, contentLength, redactedSample, tier, categories, verdict, screener, ruleId, confidence, reason, latencyMs, agentId, ownerUserId, runId, correlationId, mode }
   }
 }

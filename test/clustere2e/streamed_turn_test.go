@@ -12,7 +12,7 @@
 // The live token stream is an LLM reply delta (component/memql CallStream),
 // which needs AI provider keys and is non-deterministic. The gate instead
 // drives the SAME substrate streaming path with synthetic, ordered chunks:
-// each chunk is a v1:planner:plan row whose id ENCODES its sequence
+// each chunk is a v1:platform:missingCapability row whose id ENCODES its sequence
 // (`...:<runID>-NNNN`), so ordering is observable from the graph event alone
 // via planIDFor (reused from delivery_test.go) -- no LLM, no provider
 // keys, fully deterministic. The synthetic chunks traverse the exact
@@ -24,7 +24,7 @@
 // file always encoded its chunk sequence into an ordinary graph row's ID
 // rather than using a real chunk concept -- when cognition existed the
 // carrier was a v1:cognition:utterance, and its header said so. Cognition is
-// deleted; the carrier is now a v1:planner:plan, minted with kind
+// deleted; the carrier is now a v1:platform:missingCapability, minted with kind
 // "adHocAction" so nothing claims it (see probePlanArgs in delivery_test.go).
 // The encoding, the split, and every assertion below are untouched.
 //
@@ -78,12 +78,12 @@ const streamChunkCount = 16
 // test run); the zero-padded suffix is the sequence. Padding keeps the ids
 // lexically sortable too, but we parse the integer to be exact.
 func chunkID(runID string, seq int) string {
-	return fmt.Sprintf("v1:planner:plan:%s-%04d", runID, seq)
+	return fmt.Sprintf("v1:platform:missingCapability:%s-%04d", runID, seq)
 }
 
 // seqFromChunkID recovers the sequence from a chunk id minted by chunkID for
 // THIS run (runID match), or -1 if the id isn't one of our chunks. It tolerates
-// ids carrying the full `v1:planner:plan:` prefix or just the
+// ids carrying the full `v1:platform:missingCapability:` prefix or just the
 // `<runID>-NNNN` tail.
 func seqFromChunkID(runID, uid string) int {
 	marker := runID + "-"
@@ -153,7 +153,7 @@ func TestClusterStreamedTurn(t *testing.T) {
 			who = "B(mid-stream switch)"
 		}
 		cid := chunkID(runID, seq)
-		if _, err := qc.CreatePlan(ctx, probePlanArgs(scope, cid,
+		if _, err := qc.LogMissingCapability(ctx, probeRowArgs(scope, cid,
 			fmt.Sprintf("clustere2e streamed-turn chunk seq=%d", seq), userID)); err != nil {
 			t.Fatalf("send chunk seq=%d from producer %s: %v", seq, who, err)
 		}

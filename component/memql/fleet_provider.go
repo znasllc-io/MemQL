@@ -128,8 +128,8 @@ type FleetCallRequest struct {
 	Schema         *common.StructuredSchema
 	EmbeddingInput []string
 	Purpose        string
-	PlanId         string
-	TaskId         string
+	RunId         string
+	StepId         string
 	// OnDelta, when set, receives streamed content as it arrives.
 	OnDelta func(string)
 }

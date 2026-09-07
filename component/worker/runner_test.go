@@ -121,8 +121,8 @@ func runSpec() RunSpec {
 		Kind:        AppSessionKindRun,
 		Prompt:      "do the thing",
 		Workspace:   "/w",
-		PlanId:      "plan-1",
-		TaskId:      "task-1",
+		RunId:       "plan-1",
+		StepId:      "task-1",
 	}
 }
 

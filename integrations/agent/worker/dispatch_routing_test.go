@@ -78,9 +78,9 @@ func approvedRequest() Request {
 		Args:        map[string]any{"path": "/tmp/x"},
 		AgentId:     "agent-1",
 		OwnerUserId: "user-1",
-		// The per-task approval gate requires a PlanId; without one every
+		// The per-task approval gate requires a RunId; without one every
 		// dispatch is denied before the router runs.
-		PlanId:  "plan-1",
+		RunId:   "plan-1",
 		Timeout: 2 * time.Second,
 	}
 }

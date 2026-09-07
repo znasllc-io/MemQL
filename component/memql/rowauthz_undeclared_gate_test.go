@@ -540,22 +540,27 @@ const undeclared4208CodeMetricReason = "memql#4208 -- prefix-scoped codeMetric r
 //	          from the actor, so a planner-provisioned specialist can carry
 //	          an empty one -- and the planner agent itself is owned by no
 //	          user at all. agentsForPlan is `@public` for exactly that
-//	          reason, narrowed by lineage.originatingPlanId, and every one
+//	          reason, narrowed by lineage.originatingRunId, and every one
 //	          of its eight already-listed siblings is here too.
 //
 // (memql#4369 listed a THIRD, `artifact`, on the same footing. memql#4340
 // declared v1:library:artifact's tier -- the composite
 // `@rowAuthz(owner="ownerUserId", clusterOwner)` -- so every read over it,
-// artifactsForPlan included, is measured now and none belongs on this list.
+// artifactsForRun included, is measured now and none belongs on this list.
 // That is why only two of the three reasons below survive.)
 //
 // What Nexus does about the residual is recorded where the long tail is
 // tracked rather than only here: docs/public/operate/auth/per-row-authz-audit.md
 // carries a table naming these concepts, and states that the client-side
 // filter the portal applies closes a deep-link hole and is NOT a gate.
-const undeclared4369NexusPlanReason = "memql#4366 -- the caller's own goals, newest first; v1:planner:plan cannot take an owned floor until the engine's internal actor is characterised (measured on that issue), and plansForSpace reads collaborators' rows by design"
+// undeclared4369NexusPlanReason is GONE with the construct that carried it
+// (plansForUser) and the concept it named (v1:planner:plan), in memql#5053.
+// The debt it described did not get paid -- the concept was retired, which is
+// the other way an entry leaves this list. The work spine's successor,
+// v1:work:goal, declares the composite owner tier, so the read that replaced
+// it is measured rather than grandfathered.
 
-const undeclared4369NexusAgentReason = "memql#4369 -- the agents one goal raised, narrowed by lineage.originatingPlanId; v1:agents:agent declares no tier and an owner conjunct here would return an empty set rather than a narrowed one (createAgent takes ownerUserId as a caller arg; the planner agent is owned by no user), so the declaration is #4366's successor work"
+const undeclared4369NexusAgentReason = "memql#4369 -- the agents one goal raised, narrowed by lineage.originatingRunId; v1:agents:agent declares no tier and an owner conjunct here would return an empty set rather than a narrowed one (createAgent takes ownerUserId as a caller arg; the planner agent is owned by no user), so the declaration is #4366's successor work"
 
 // undeclared2803ArtifactLabelReason covers libraryArtifactsByLabel, the
 // label-facet read the artifacts-labels feature added over
@@ -673,7 +678,7 @@ var undeclaredRowAuthzConstructs = map[string]struct {
 	// v1:authoring:bundle
 	"activeAuthoringBundles":           {"v1:authoring:bundle", undeclaredGrandfatherReason},
 	"authoringBundleById":              {"v1:authoring:bundle", undeclaredGrandfatherReason},
-	"authoringBundleForPlan":           {"v1:authoring:bundle", undeclaredGrandfatherReason},
+	"authoringBundleForRun":            {"v1:authoring:bundle", undeclaredGrandfatherReason},
 	"authoringBundleForResponsibility": {"v1:authoring:bundle", undeclaredGrandfatherReason},
 	"authoringBundlesForOwner":         {"v1:authoring:bundle", undeclaredGrandfatherReason},
 	"systemActiveAuthoringBundles":     {"v1:authoring:bundle", undeclaredGrandfatherReason},
@@ -852,17 +857,6 @@ var undeclaredRowAuthzConstructs = map[string]struct {
 	"codeMetricsInWindow": {"v1:observability:codeMetric", undeclared4208CodeMetricReason},
 
 	// v1:planner:plan
-	"activePlansForUser":               {"v1:planner:plan", undeclaredGrandfatherReason},
-	"allPlans":                         {"v1:planner:plan", undeclaredGrandfatherReason},
-	"awaitingFeedbackPlansPastTimeout": {"v1:planner:plan", undeclaredGrandfatherReason},
-	"historicalPlanMetrics":            {"v1:planner:plan", undeclaredGrandfatherReason},
-	"planById":                         {"v1:planner:plan", undeclaredGrandfatherReason},
-	"plansForResponsibility":           {"v1:planner:plan", undeclaredGrandfatherReason},
-	"plansForSpace":                    {"v1:planner:plan", undeclaredGrandfatherReason},
-	"plansForUser":                     {"v1:planner:plan", undeclared4369NexusPlanReason},
-	"runningPlansForUser":              {"v1:planner:plan", undeclaredGrandfatherReason},
-	"strandedCandidatePlans":           {"v1:planner:plan", undeclaredGrandfatherReason},
-	"waitingPlansForUser":              {"v1:planner:plan", undeclaredGrandfatherReason},
 
 	// v1:planner:responsibility
 	"activeResponsibilities":            {"v1:planner:responsibility", undeclaredGrandfatherReason},
@@ -872,10 +866,8 @@ var undeclaredRowAuthzConstructs = map[string]struct {
 	"responsibilityById":                {"v1:planner:responsibility", undeclaredGrandfatherReason},
 
 	// v1:planner:task
-	"tasksForPlan": {"v1:planner:task", undeclaredGrandfatherReason},
 
 	// v1:planner:taskState
-	"taskStateById": {"v1:planner:taskState", undeclaredGrandfatherReason},
 
 	// v1:platform:globalVariable
 	"globalVariable":  {"v1:platform:globalVariable", undeclaredGrandfatherReason},

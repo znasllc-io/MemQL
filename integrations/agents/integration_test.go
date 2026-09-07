@@ -123,16 +123,43 @@ func (e *recordingEngine) Execute(_ context.Context, query string) (*memql.Execu
 	return &memql.ExecuteResult{}, nil
 }
 
-// TestHandleProduceArtifact_NormalContextMintsExactlyOnePlan is the memql#1133
-// FIX-2 counterpart to the agent-side re-delegation guard: a produceArtifact
-// invocation from a NORMAL context still mints exactly one v1:planner:plan
-// (kind=produceArtifact) via the single createPlan write path. The
-// depth-1 cap lives on the agent turn loop (it refuses a SECOND produceArtifact
-// from within a produceArtifact executor turn), so the mint path itself is
-// unconditional -- this pins that the first delegation is unaffected.
-func TestHandleProduceArtifact_NormalContextMintsExactlyOnePlan(t *testing.T) {
+// fakeWorkGoals records the goals the two entry points open, and the
+// questions requestUserFeedback parks a run on.
+type fakeWorkGoals struct {
+	opened []DirectGoal
+	asked  []FeedbackApproval
+	err    error
+}
+
+func (f *fakeWorkGoals) OpenDirectGoal(_ context.Context, g DirectGoal) (string, string, error) {
+	if f.err != nil {
+		return "", "", f.err
+	}
+	f.opened = append(f.opened, g)
+	return "v1:work:goal:g1", "v1:work:run:r1", nil
+}
+
+func (f *fakeWorkGoals) RaiseFeedbackApproval(_ context.Context, _ string, a FeedbackApproval) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	f.asked = append(f.asked, a)
+	return "v1:work:approval:a1", nil
+}
+
+// TestHandleProduceArtifact_OpensExactlyOneGoal is the memql#1133 FIX-2
+// counterpart to the agent-side re-delegation guard, re-pointed onto the work
+// spine (memql#5048): a produceArtifact invocation from a NORMAL context opens
+// exactly ONE goal. The depth-1 cap lives on the agent turn loop (it refuses a
+// SECOND produceArtifact from within a produceArtifact executor turn), so the
+// path itself is unconditional -- this pins that the first delegation is
+// unaffected.
+func TestHandleProduceArtifact_OpensExactlyOneGoal(t *testing.T) {
 	eng := &recordingEngine{}
 	i := New(memql.NewAgentRegistry(), eng)
+	goals := &fakeWorkGoals{}
+	i.SetWorkGoals(goals)
+
 	nodes, err := i.handleProduceArtifact(context.Background(), map[string]any{
 		"goal":        "A markdown file listing 10 beautiful birds",
 		"ownerUserId": "u1",
@@ -141,18 +168,44 @@ func TestHandleProduceArtifact_NormalContextMintsExactlyOnePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleProduceArtifact (normal context): unexpected error: %v", err)
 	}
-	if len(eng.calls) != 1 {
-		t.Fatalf("expected EXACTLY ONE engine Execute (createPlan), got %d: %v", len(eng.calls), eng.calls)
+	if len(goals.opened) != 1 {
+		t.Fatalf("expected EXACTLY ONE goal opened, got %d: %+v", len(goals.opened), goals.opened)
 	}
-	if !strings.HasPrefix(eng.calls[0], "mutation createPlan(") {
-		t.Fatalf("the single write must be createPlan, got: %q", eng.calls[0])
+	g := goals.opened[0]
+	if g.AutomationName != templateProduceArtifact {
+		t.Errorf("goal named automation %q, want %q", g.AutomationName, templateProduceArtifact)
 	}
-	if !strings.Contains(eng.calls[0], `kind: "produceArtifact"`) {
-		t.Fatalf("minted plan must be kind=produceArtifact, got: %q", eng.calls[0])
+	if g.OwnerUserId != "u1" {
+		t.Errorf("goal owner %q, want u1", g.OwnerUserId)
 	}
-	// The handler returns the delegation ack envelope.
+	// NO Plan write, and no graph write at all: opening the goal is the work
+	// integration's job, through the seam.
+	if len(eng.calls) != 0 {
+		t.Errorf("the handler wrote to the engine directly: %v", eng.calls)
+	}
 	if len(nodes) != 1 {
 		t.Fatalf("expected one ack envelope node, got %d", len(nodes))
+	}
+}
+
+// TestHandleProduceArtifact_RefusesWithNoGoalSurface: the failure this whole
+// change exists to end is returning an id for work nothing executed. An ack
+// for a goal that was never opened is that failure with a new name, so the
+// handler refuses instead.
+func TestHandleProduceArtifact_RefusesWithNoGoalSurface(t *testing.T) {
+	i := New(memql.NewAgentRegistry(), &recordingEngine{})
+	// deliberately no SetWorkGoals
+
+	_, err := i.handleProduceArtifact(context.Background(), map[string]any{
+		"goal":        "A markdown file listing 10 birds",
+		"ownerUserId": "u1",
+		"partitionId": "s1",
+	}, 0)
+	if err == nil {
+		t.Fatal("handleProduceArtifact acked with no work-goal surface installed")
+	}
+	if !strings.Contains(err.Error(), "work-goal surface") {
+		t.Errorf("the refusal does not name what is missing: %v", err)
 	}
 }
 
@@ -212,27 +265,34 @@ func TestHandleRequestUserFeedback_RejectsBadKind(t *testing.T) {
 	_, err := i.handleRequestUserFeedback(context.Background(), map[string]any{
 		"question": "Which quarter?",
 		"kind":     "freeform",
-		"planId":   "plan-1",
+		"runId":    "v1:work:run:r1",
 	}, 0)
 	if err == nil || !strings.Contains(err.Error(), "must be choice / text / multi") {
 		t.Fatalf("expected bad-kind error, got: %v", err)
 	}
 }
 
-func TestHandleRequestUserFeedback_RequiresPlanId(t *testing.T) {
+func TestHandleRequestUserFeedback_RequiresRunId(t *testing.T) {
 	i := New(memql.NewAgentRegistry(), nil)
 	_, err := i.handleRequestUserFeedback(context.Background(), map[string]any{
 		"question": "Which quarter?",
 		"kind":     "text",
 	}, 0)
-	if err == nil || !strings.Contains(err.Error(), "'planId' required") {
-		t.Fatalf("expected missing-planId error, got: %v", err)
+	// The message must say what could not be found and WHY, because the tool
+	// does not take a run id from the model -- it is injected from the turn.
+	// "'runId' required" alone would send an agent author looking for an
+	// argument to pass.
+	if err == nil || !strings.Contains(err.Error(), "'runId' required") {
+		t.Fatalf("expected missing-runId error, got: %v", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "no active run in the turn context") {
+		t.Errorf("the error names no cause: %v", err)
 	}
 }
 
 // The handler's three early error paths are testable without a real
 // engine handle: registry-nil, missing required args, and missing
-// agent registration. The success path (which mints a Plan via
+// agent registration. The success path (which raises a v1:work:approval via
 // engine.Execute) needs a wired engine + database; that lives behind
 // an integration test that the planner integration's tests will pick
 // up, not here. Keeping the unit tests focused on contract-shape

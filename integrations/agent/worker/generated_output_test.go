@@ -26,8 +26,8 @@ func TestDeriveGeneratedOutputId_Deterministic(t *testing.T) {
 func TestDeriveGeneratedOutputId_DistinctInputs(t *testing.T) {
 	base := deriveGeneratedOutputId("computer_use", "user-1", "plan-1:/tmp/out.txt")
 	cases := map[string]string{
-		"different source":  deriveGeneratedOutputId("workbench_generated", "user-1", "plan-1:/tmp/out.txt"),
-		"different owner":    deriveGeneratedOutputId("computer_use", "user-2", "plan-1:/tmp/out.txt"),
+		"different source":    deriveGeneratedOutputId("workbench_generated", "user-1", "plan-1:/tmp/out.txt"),
+		"different owner":     deriveGeneratedOutputId("computer_use", "user-2", "plan-1:/tmp/out.txt"),
 		"different stableKey": deriveGeneratedOutputId("computer_use", "user-1", "plan-1:/tmp/other.txt"),
 	}
 	for name, got := range cases {
@@ -39,13 +39,13 @@ func TestDeriveGeneratedOutputId_DistinctInputs(t *testing.T) {
 
 func TestPathBasename(t *testing.T) {
 	cases := map[string]string{
-		"/tmp/out.txt":        "out.txt",
-		"out.txt":             "out.txt",
-		"a/b/c/report.md":     "report.md",
-		"/var/lib/dir/":       "dir",
-		"":                    "",
-		"   ":                 "",
-		"/only-root":          "only-root",
+		"/tmp/out.txt":    "out.txt",
+		"out.txt":         "out.txt",
+		"a/b/c/report.md": "report.md",
+		"/var/lib/dir/":   "dir",
+		"":                "",
+		"   ":             "",
+		"/only-root":      "only-root",
 	}
 	for in, want := range cases {
 		if got := pathBasename(in); got != want {
@@ -83,7 +83,7 @@ func TestPromoteWorkerOutput_NilEngineNoPanic(t *testing.T) {
 	i.promoteWorkerOutput(context.Background(), Request{
 		OwnerUserId: "user-1",
 		AgentId:     "agent-1",
-		PlanId:      "plan-1",
+		RunId:       "plan-1",
 		Args:        map[string]any{"path": "/tmp/out.txt", "content": "hello"},
 	})
 }

@@ -15,7 +15,6 @@ import (
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
-	"github.com/znasllc-io/memql/component/memql/taskstamp"
 	"github.com/znasllc-io/memql/component/router"
 	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/env"
@@ -47,7 +46,7 @@ func looksLikeCanonicalUserId(s string) bool {
 // writes a v1:router:call ledger row per call.
 type Replier struct {
 	engine  MemQLEngine
-	stamper *taskstamp.Stamper
+	stamper *toolRecorder
 	router  *router.Router
 	logger  *slog.Logger
 
@@ -99,7 +98,7 @@ func NewReplier(engine MemQLEngine, rtr *router.Router, log *slog.Logger) (*Repl
 	if log == nil {
 		log = logger.New(ComponentName, os.Stdout, resolveLoggerLevel())
 	}
-	stamper := taskstamp.New(engine, log)
+	stamper := newToolRecorder(engine, log)
 	return &Replier{engine: engine, stamper: stamper, router: rtr, logger: log}, nil
 }
 
@@ -696,14 +695,14 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	// On a post-approval execution turn the planner forwards
 	// hints["plan_id"] alongside hints["trigger"]="plan_approved".
 	// Pull it onto the turn context so worker tool dispatches stamp
-	// it onto args["planId"] (see agentContextStamps.StampPlanId).
-	// That id propagates through Request.PlanId into the
+	// it onto args["planId"] (see agentContextStamps.StampRunId).
+	// That id propagates through Request.RunId into the
 	// v1:worker:invocation row -- without it the planner's
 	// outcome detector sees zero rows for the plan and stamps
 	// Plan failed even when the worker tool succeeded.
 	if msg.Hints != nil {
 		if pid := strings.TrimSpace(msg.Hints["plan_id"]); pid != "" {
-			turnCtx.PlanId = pid
+			turnCtx.RunId = pid
 		}
 	}
 	r.logger.Info("agentReply: stage",
@@ -1874,11 +1873,13 @@ type citationFormatter func(domain map[string]any, sourceRef string) string
 
 // citationRegistry holds the per-source formatter. Sources without an
 // explicit entry fall back to citeAsDomainName.
-// "augment" chunks are produced by the augmentDomainContent prompt
-// from the Analyze-for-training flow. They live in the same
-// knowledgeDomain row as the original llmSeeded chunks (just generated
-// later, in response to a specific user-flagged gap), so they cite +
-// link identically. Without an explicit entry the source falls through
+// "augment" chunks came from the chat Analyze-for-training flow, which is
+// RETIRED -- the surface went with the chat epic (memql#4988) and its two
+// builtins with memql#5049, so nothing writes this source any more. The
+// entry stays because rows already carry it: those chunks live in the same
+// knowledgeDomain row as the original llmSeeded ones (just generated later,
+// in response to a specific user-flagged gap), so they cite + link
+// identically and must keep doing so. Without an explicit entry the source falls through
 // to citeAsTraining via the default branch -- correct for the human
 // label, but isLinkableSource also defaulted to false, which dropped
 // the [citationId=...] marker from the prompt template so the agent

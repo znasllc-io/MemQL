@@ -10,6 +10,7 @@ import {
 import { EMPTY_WORLD, GOAL_NODE_ID, YOU_NODE_ID } from "../../src/nexus/scene/world";
 import {
   approval,
+  artifact,
   chainWorld,
   fanOutWorld,
   moment,
@@ -286,5 +287,81 @@ describe("edges are real dependencies", () => {
   it("draws no edge to a step this run does not have", () => {
     const w = world({ steps: [step("a", { seq: 0, dependsOn: ["elsewhere"] })] });
     expect(layout(w).edges.filter((e) => e.kind === "flow")).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// THE FIFTH POPULATION (memql#5053 / #5000)
+// ===========================================================================
+// The portal's map hung produced things off the task that made them, and this
+// map could not: `artifact.producedByRunId` named `v1:planner:plan`, so
+// nothing pointed a produced thing at a run and drawing one would have meant
+// inventing a join. The epic re-pointed it at `v1:work:run`, which is what
+// made these tests writable at all.
+describe("what came out of it", () => {
+  it("hangs a produced artifact under the beacon, not off a step", () => {
+    const result = layout({ ...chainWorld(3), artifacts: [artifact({ title: "birds.md" })] });
+
+    const [node] = nodesOfKind(result, "artifact");
+    expect(node).toBeTruthy();
+    expect(node?.label).toBe("birds.md");
+    expect(node?.lane).toBe("made");
+    // ANCHORED TO THE ARRIVAL. `producedByRunId` names the run and no step,
+    // so attaching it to one -- the last, or the one that was running when
+    // the file appeared -- would be a guess drawn as a fact.
+    expect(node?.stepKey).toBe("");
+    expect(node?.x).toBe(result.goalX);
+    expect(result.edges).toContainEqual({ from: GOAL_NODE_ID, to: node!.id, kind: "made" });
+  });
+
+  it("draws them below the approvals, not above", () => {
+    const result = layout({
+      ...chainWorld(2),
+      approvals: [approval({ stepKey: "s0" })],
+      artifacts: [artifact()],
+    });
+    const [asked] = nodesOfKind(result, "approval");
+    const [made] = nodesOfKind(result, "artifact");
+    // An approval is a DEMAND and an artifact is a RESULT. Putting the result
+    // above the pending demand would bury the one node on the map that is
+    // waiting on somebody.
+    expect(made!.y).toBeGreaterThan(asked!.y);
+  });
+
+  it("stacks two artifacts in the order they appeared", () => {
+    const result = layout({
+      ...chainWorld(2),
+      artifacts: [
+        artifact({ id: "v1:library:artifact:af2", title: "second", createdAt: moment(9) }),
+        artifact({ id: "v1:library:artifact:af1", title: "first", createdAt: moment(7) }),
+      ],
+    });
+    const made = nodesOfKind(result, "artifact");
+    expect(made.map((n) => n.label)).toEqual(["first", "second"]);
+    expect(made[1]!.y).toBeGreaterThan(made[0]!.y);
+  });
+
+  it("draws an archived artifact dimmed rather than dropping it", () => {
+    const result = layout({ ...chainWorld(2), artifacts: [artifact({ archived: true })] });
+    // A goal that produced something and had it archived is a different
+    // history from a goal that produced nothing, and only one of those is
+    // worth hiding.
+    expect(nodesOfKind(result, "artifact")[0]?.status).toBe("archived");
+  });
+
+  it("draws an artifact of a goal that has none, with no edge to nothing", () => {
+    const result = layout({ ...chainWorld(2), goal: null, artifacts: [artifact()] });
+    // The artifact exists either way. A missing anchor is a reason to say
+    // less, not to hide a result.
+    expect(nodesOfKind(result, "artifact")).toHaveLength(1);
+    expect(result.edges.filter((e) => e.kind === "made")).toEqual([]);
+  });
+
+  it("ignores an artifact belonging to a different run", () => {
+    const result = layout({
+      ...chainWorld(2),
+      artifacts: [artifact({ runId: "v1:work:run:other" })],
+    });
+    expect(nodesOfKind(result, "artifact")).toHaveLength(0);
   });
 });

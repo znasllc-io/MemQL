@@ -51,9 +51,9 @@ func remoteIntegration(t *testing.T, root string) *Integration {
 	return i
 }
 
-func execArgs(planId string) map[string]any {
+func execArgs(runId string) map[string]any {
 	return map[string]any{
-		"planId": planId,
+		"runId":  runId,
 		"action": "exec",
 		"args":   map[string]any{"cmd": "true"},
 	}
@@ -69,7 +69,7 @@ func TestRemoteModeWithNoPeerFailsInsteadOfRunningLocally(t *testing.T) {
 	root := t.TempDir()
 	i := remoteIntegration(t, root)
 
-	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:planner:plan:p1"), 0)
+	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:work:run:p1"), 0)
 	if err != nil {
 		t.Fatalf("the call must fail as a structured tool result, not a Go error the tool loop crashes on: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestRemoteModeWithNoPeerFailsInsteadOfRunningLocally(t *testing.T) {
 func TestTheRefusalNamesThePeerAndTheEnvVarThatConfiguresIt(t *testing.T) {
 	i := remoteIntegration(t, t.TempDir())
 
-	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:planner:plan:p1"), 0)
+	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:work:run:p1"), 0)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestLocalFallbackIsReachableOnlyByExplicitOptIn(t *testing.T) {
 	i := remoteIntegration(t, root)
 	i.localFallback = true
 
-	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:planner:plan:p1"), 0)
+	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:work:run:p1"), 0)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestSingleNodeModeIsUnaffected(t *testing.T) {
 	i := NewIntegration(nil)
 	// remote deliberately left false: no assertion was made.
 
-	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:planner:plan:p1"), 0)
+	nodes, err := i.handleDispatchHost(context.Background(), execArgs("v1:work:run:p1"), 0)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}

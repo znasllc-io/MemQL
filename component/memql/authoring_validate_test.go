@@ -13,7 +13,7 @@ import (
 // clean per-construct diagnostic for each construct, and mutates NOTHING (it is
 // the pure Gate-1 sandbox).
 func TestValidateBundle_OK(t *testing.T) {
-	report := ValidateBundle(sessionConceptSrc + "\n\n" + sessionMutationSrc, "")
+	report := ValidateBundle(sessionConceptSrc+"\n\n"+sessionMutationSrc, "")
 	if !report.OK {
 		t.Fatalf("expected OK, got %+v", report)
 	}

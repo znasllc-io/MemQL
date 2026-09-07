@@ -11,13 +11,20 @@ import (
 
 // Reuses the mockStream helper from dispatcher_test.go (same package).
 
-// TestQueryAllPlansPage_RoundTrip proves the keyset-paginated wrapper
+// TestQueryAuthoringBundlesForOwnerPage_RoundTrip proves the keyset-paginated
+// wrapper.
+//
+// It drove AllPlansPage until memql#5053 deleted it with the allPlans query.
+// AuthoringBundlesForOwnerPage is the sibling wrapper in the same file and the
+// same shape, so the property -- a hand-written page wrapper threads the
+// cursor the "load more" path relies on -- is asserted on the one that is
+// left.
 // (1) sends the named query string with the inbound continuation cursor
 // stamped on ExecuteQueryMsg.cursor, and (2) returns the engine's
 // nextCursor + the page rows. This is the contract the cockpit Planner
-// "load more" relies on; the plain generated AllPlans can't carry a
+// "load more" relies on; the plain generated AuthoringBundlesForOwner can't carry a
 // cursor either way.
-func TestQueryAllPlansPage_RoundTrip(t *testing.T) {
+func TestQueryAuthoringBundlesForOwnerPage_RoundTrip(t *testing.T) {
 	stream := newMockStream()
 	d := NewDispatcher(stream, nil)
 	go d.Run()
@@ -30,7 +37,7 @@ func TestQueryAllPlansPage_RoundTrip(t *testing.T) {
 	}
 	done := make(chan out, 1)
 	go func() {
-		p, err := qc.AllPlansPage(context.Background(), AllPlansArgs{}, "cursor-from-page-1")
+		p, err := qc.AuthoringBundlesForOwnerPage(context.Background(), AuthoringBundlesForOwnerArgs{}, "cursor-from-page-1")
 		done <- out{page: p, err: err}
 	}()
 
@@ -39,8 +46,8 @@ func TestQueryAllPlansPage_RoundTrip(t *testing.T) {
 	if q == nil {
 		t.Fatalf("expected ExecuteQueryMsg payload, got %+v", sent.GetPayload())
 	}
-	if q.GetQuery() != "query allPlans()" {
-		t.Errorf("query: want %q, got %q (must stay on the named-primitive surface)", "query allPlans()", q.GetQuery())
+	if q.GetQuery() != "query authoringBundlesForOwner()" {
+		t.Errorf("query: want %q, got %q (must stay on the named-primitive surface)", "query authoringBundlesForOwner()", q.GetQuery())
 	}
 	if q.GetCursor() != "cursor-from-page-1" {
 		t.Errorf("cursor: want %q, got %q (inbound cursor must ride the request)", "cursor-from-page-1", q.GetCursor())
@@ -65,7 +72,7 @@ func TestQueryAllPlansPage_RoundTrip(t *testing.T) {
 	select {
 	case got := <-done:
 		if got.err != nil {
-			t.Fatalf("AllPlansPage: %v", got.err)
+			t.Fatalf("AuthoringBundlesForOwnerPage: %v", got.err)
 		}
 		if got.page.NextCursor != "cursor-to-page-2" {
 			t.Errorf("NextCursor: want cursor-to-page-2, got %q", got.page.NextCursor)
@@ -80,13 +87,13 @@ func TestQueryAllPlansPage_RoundTrip(t *testing.T) {
 			t.Errorf("row status not carried: %+v", got.page.Rows[0])
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for AllPlansPage to return")
+		t.Fatal("timed out waiting for AuthoringBundlesForOwnerPage to return")
 	}
 }
 
-// TestQueryAllPlansPage_LastPageNoCursor proves an exhausted set comes
+// TestQueryAuthoringBundlesForOwnerPage_LastPageNoCursor proves an exhausted set comes
 // back with an empty NextCursor so the "load more" affordance hides.
-func TestQueryAllPlansPage_LastPageNoCursor(t *testing.T) {
+func TestQueryAuthoringBundlesForOwnerPage_LastPageNoCursor(t *testing.T) {
 	stream := newMockStream()
 	d := NewDispatcher(stream, nil)
 	go d.Run()
@@ -95,7 +102,7 @@ func TestQueryAllPlansPage_LastPageNoCursor(t *testing.T) {
 
 	done := make(chan *PageResult, 1)
 	go func() {
-		p, _ := qc.AllPlansPage(context.Background(), AllPlansArgs{}, "")
+		p, _ := qc.AuthoringBundlesForOwnerPage(context.Background(), AuthoringBundlesForOwnerArgs{}, "")
 		done <- p
 	}()
 

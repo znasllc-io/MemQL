@@ -131,7 +131,7 @@ func newScriptHop(t *testing.T, disk *remoteDisk) (*skills.Runner, *hop) {
 func scriptRequest(h *hop) skills.Request {
 	return skills.Request{
 		SkillID:       "skill-1",
-		PlanID:        "plan-1",
+		RunID:         "plan-1",
 		AgentID:       "agent-1",
 		OwnerID:       h.owner,
 		RequireLabels: map[string]string{"os": "darwin"},

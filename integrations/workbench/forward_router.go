@@ -87,13 +87,13 @@ func (r *ForwardRouter) SelfNodeType() string {
 }
 
 // Forward dispatches a workbench call to a remote workbench peer
-// and waits for the response. Caller fills in (planId, action, args,
-// agentId, taskId, authority) on the request; this method stamps
+// and waits for the response. Caller fills in (runId, action, args,
+// agentId, stepId, authority) on the request; this method stamps
 // request_id, registers the inflight channel, sends, and awaits the
 // matching response or ctx cancellation.
 //
-// pinnedNodeId is the node id recorded on the plan's live workspace row, or ""
-// when the plan has no workspace yet (or the row could not be read). It is a
+// pinnedNodeId is the node id recorded on the run's live workspace row, or ""
+// when the run has no workspace yet (or the row could not be read). It is a
 // PREFERENCE, not a requirement: while that replica is healthy and connected
 // the call goes there, and when it is gone the call goes anywhere healthy and
 // the caller learns about the substitution from the returned node id.
@@ -185,12 +185,12 @@ func (r *ForwardRouter) Dispatch(resp *nodev1.WorkbenchForwardResponse) {
 // connection, or nil if none are available.
 //
 // AFFINITY FIRST (memql#4354). existingNodeId is the replica whose disk already
-// holds this plan's workspace directory; when it is healthy and connected, it
+// holds this run's workspace directory; when it is healthy and connected, it
 // is the only correct answer, because a workspace is a filesystem and a
 // filesystem does not follow the request.
 //
 // Selection used to be plain any-fit, which is the bug rather than a
-// simplification. The base manifest runs two workbench replicas, so a plan's
+// simplification. The base manifest runs two workbench replicas, so a run's
 // first call made a directory on one and its second call landed on the other
 // with even odds -- an fs_write followed by an fs_read of the same path,
 // answering "not found" with both calls reporting success. Nothing in either

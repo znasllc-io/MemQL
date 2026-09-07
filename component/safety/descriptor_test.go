@@ -3,14 +3,14 @@ package safety
 import "testing"
 
 func TestNewExecAction(t *testing.T) {
-	d := NewExecAction(SurfaceWorkbench, "ls -la", CallerContext{AgentID: "a1", PlanID: "p1"})
+	d := NewExecAction(SurfaceWorkbench, "ls -la", CallerContext{AgentID: "a1", RunID: "p1"})
 	if d.Surface != SurfaceWorkbench || d.Action != ActionExec {
 		t.Errorf("wrong surface/action: %+v", d)
 	}
 	if d.Payload.Command != "ls -la" {
 		t.Errorf("command not set: %q", d.Payload.Command)
 	}
-	if d.Caller.AgentID != "a1" || d.Caller.PlanID != "p1" {
+	if d.Caller.AgentID != "a1" || d.Caller.RunID != "p1" {
 		t.Errorf("caller context lost: %+v", d.Caller)
 	}
 }

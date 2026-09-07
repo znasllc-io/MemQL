@@ -4,7 +4,7 @@ import "testing"
 
 // TestPlanOwnerFromRow is the memql#952 guard: the produceArtifact deliverable
 // must be owned by the USER who requested it (payload.requestedBy), not the
-// row-intrinsic createdBy. On that path the Plan row is inserted by the
+// row-intrinsic createdBy. On that path the run row is inserted by the
 // planner's system actor, so createdBy is "system:planner"; using it stamped
 // the generatedOutput with the wrong owner -> invisible in the Library and a
 // false plan-failed from the owner-scoped success check (memql#939).

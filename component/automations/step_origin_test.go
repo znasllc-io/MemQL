@@ -187,15 +187,25 @@ func TestTreeLoadedAutomationReachesDispatchTrusted(t *testing.T) {
 		}
 	}
 
-	// Drive the MOTIVATING automation through the real execution path, by name.
+	// Drive a named automation through the real execution path.
 	//
 	// This used to take all[0] -- whatever the tree walk happened to yield
-	// first (bootstrapCluster). That pins an arbitrary fixture: adding a domain
-	// that sorts earlier, or giving that automation an input: block or a
-	// required arg, breaks this test for reasons unrelated to origin. Worse,
-	// the automation it did NOT cover is the only one that actually reaches a
-	// @serverOnly construct.
-	subject := automationNamed(t, all, "killSwitchSuspendsRunningPlans")
+	// first. That pins an arbitrary fixture: adding a domain that sorts
+	// earlier, or giving that automation an input: block or a required arg,
+	// breaks this test for reasons unrelated to origin.
+	//
+	// It then named killSwitchSuspendsRunningPlans, because that was the one
+	// automation whose step reached a @serverOnly construct DIRECTLY. That
+	// automation is deleted (memql#5053) and, checked rather than assumed, NO
+	// shipped automation reaches one directly any more: the constructs that
+	// need internal origin are now reached through BUILTINS, whose Go handlers
+	// stamp it at their own one site.
+	//
+	// So the fixture is chosen for being tree-loaded, single-step and
+	// argument-free -- and the property under test is unchanged and still
+	// worth a test: a tree-loaded automation must dispatch its steps at
+	// INTERNAL origin, or every one of those builtins is called as a client.
+	subject := automationNamed(t, all, "sweepWaitingWorkRuns")
 
 	reg := &originCapturingRegistry{}
 	e := NewExecutor(ExecutorOptions{Logger: logger, StepRegistry: reg})
@@ -228,8 +238,9 @@ func automationNamed(t *testing.T, all []*Automation, name string) *Automation {
 	for _, a := range all {
 		names = append(names, a.Name)
 	}
-	t.Fatalf("automation %q is not in the loaded tree -- it is the one that reaches a "+
-		"@serverOnly construct, so this test needs it or an equivalent. Loaded: %v", name, names)
+	t.Fatalf("automation %q is not in the loaded tree. This test needs SOME tree-loaded, "+
+		"single-step, argument-free automation to drive; pick another and say why here, "+
+		"rather than falling back to whatever sorts first. Loaded: %v", name, names)
 	return nil
 }
 

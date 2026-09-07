@@ -266,7 +266,7 @@ func TestRunRelay_TriggerFilterMissRefused(t *testing.T) {
 	auto := &Automation{
 		Name: "onlyCompleted",
 		Trigger: &TriggerConfig{
-			Event:  "graph.node.created.v1:planner:plan",
+			Event:  "graph.node.created.v1:work:run",
 			Filter: `event.payload.status == "completed"`,
 		},
 	}

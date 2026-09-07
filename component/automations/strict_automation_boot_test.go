@@ -88,7 +88,25 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // sweepWaitingWorkRuns (resume a due timer wait or re-claim an abandoned run)
 // and workJournalRetentionSweep (fold the run summary, then archive-then-delete
 // the journal) -- epic memql#4966.
-const shippedAutomationCount = 47
+//
+// The constant read 47 when memql#5048 arrived, not the 50 the line above
+// leaves you expecting: three automations went out between those changes
+// without a line recorded here. Noted rather than quietly overwritten, because
+// the history is the only thing that makes this number auditable, and a gap in
+// it is the reason to distrust the next entry.
+//
+// 47 -> 50 with the three work-spine TEMPLATES: invokeAgent and
+// produceArtifact (memql#5048), which `agent()` and the produceArtifact tool
+// open goals against, and trainSpecialist (memql#5051), which replaced the
+// Plan dispatcher. All three carry @template rather than a trigger -- they are
+// invoked by the run that names them.
+//
+// 50 -> 49 with killSwitchSuspendsRunningPlans, deleted in memql#5053 -- it
+// selected Plans on a field runs do not carry, and it had never fired
+// (memql#2870). The enforced computer-use kill switch is the pre-dispatch gate
+// in integrations/agent/worker/dispatch.go, which is untouched; memql#5066
+// decides whether in-flight cancellation is rebuilt.
+const shippedAutomationCount = 49
 
 // TestStrictAutomationBoot_MalformedAutomationRefusesBoot is the core
 // acceptance test: a malformed automation injected as a throwaway domain (the

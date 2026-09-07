@@ -231,6 +231,33 @@ export function RunPage({
             next="A request had no match in the journal, so it stopped rather than call a model and report a reproduction that did not happen. The step it parted at is below."
             detail={run.errorMessage}
           />
+        ) : run.status === "failed" && run.errorCode === "automation_not_runnable" ? (
+          /* THE MACHINE IS FINE AND THE READER MUST NOT GO LOOKING AT IT
+             (memql#5054). Compile chose a template by name and the node that
+             picked the run up cannot resolve that name -- a bundle that did
+             not ship it, or a node type that does not build it in. Under the
+             generic notice this said "this run failed" and pointed at a step,
+             and there is no step: nothing executed. Retrying resolves the
+             same nothing, so the notice says so rather than implying a
+             retry. */
+          <Notice
+            tone="error"
+            sentence="Nothing here could run this."
+            next="It was compiled to a template no node in this cluster can resolve, so no step ran and retrying finds the same nothing. The name is below -- it wants a deploy, not another attempt."
+            detail={run.errorMessage}
+          />
+        ) : run.status === "failed" && run.errorCode === "run_refused" ? (
+          /* REFUSED IS NOT BROKEN (memql#5054). The automation's own gate
+             turned this down on its arguments -- the executor reported a skip
+             -- so the answer is in what was asked for, not in the run. Kept
+             out of the error tone for that reason: an error tone sends people
+             to the logs. */
+          <Notice
+            tone="warn"
+            sentence="This run was turned down before it started."
+            next="Its own gate refused the arguments it was given, so no step ran and nothing was changed. The reason is below; it is about what was asked for."
+            detail={run.errorMessage}
+          />
         ) : run.status === "failed" && run.errorMessage !== "" ? (
           <Notice
             tone="error"
@@ -240,11 +267,22 @@ export function RunPage({
           />
         ) : null}
 
+        {/* WHAT `abandoned` MEANS CHANGED, SO THIS SENTENCE HAD TO
+            (memql#5054). The sweep now offers a silent run to another replica
+            before closing it, so reaching this state means the offer was made
+            and not taken -- worth saying, because it is the difference between
+            "try again" and "look at why nothing took it".
+
+            The old copy also promised more than the system does. "Nothing was
+            left half-done" is not true of a step that was in flight when the
+            node went away: the journal holds it at `running` with no receipt,
+            which is exactly what makes it findable. And "a resume picks up
+            from it" named an action with no button behind it. */}
         {run.status === "abandoned" ? (
           <Notice
             tone="warn"
             sentence="The node running this went away."
-            next="Nothing failed and nothing was left half-done -- the journal holds every step that finished, and a resume picks up from it."
+            next="Another replica was offered it before it was closed, and did not take it. Every step that finished is in the journal below; the one still marked running is where it stopped."
           />
         ) : null}
 

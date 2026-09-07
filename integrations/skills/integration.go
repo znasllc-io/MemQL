@@ -60,11 +60,10 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"skillId":          "string (required) -- the v1:skills:skill whose script to run",
 				"scriptArtifactId": "string -- pin one entry; empty picks by platform",
 				"args":             "array -- arguments appended to the entry, quoted individually",
-				"planId":           "string (required) -- the workspace / per-task approval scope",
 				"agentId":          "string -- the calling agent, for the fleet's gate",
 				"ownerUserId":      "string -- whose fleet to route on",
 				"stepId":           "string -- the v1:work:step to stamp the receipt onto",
-				"runId":            "string -- the v1:work:run the step belongs to",
+				"runId":            "string (required) -- the v1:work:run: the workspace scope, the per-unit approval key, and the attribution, all one thing since memql#5053",
 				"environment":      "object -- {os, needs[]}, passed through to the surface unchanged",
 				"requireLabels":    "object -- labels that MUST match; a non-empty map moves the call to the fleet",
 				"timeoutSec":       "integer -- exec timeout; absent takes the surface's default",
@@ -80,7 +79,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"platform":      "string -- linux / darwin / windows / any; empty records `any`",
 				"entry":         "string -- the command line, {script} standing for the shipped path",
 				"name":          "string -- the Library file name; empty uses the base name",
-				"planId":        "string (required) -- scopes the surface it is read from",
+				"runId":         "string (required) -- scopes the surface it is read from",
 				"agentId":       "string",
 				"ownerUserId":   "string",
 				"requireLabels": "object -- read it from a fleet machine rather than the workbench",
@@ -138,7 +137,6 @@ func requestFromArgs(args map[string]any) Request {
 		SkillID:          asString(args["skillId"]),
 		ScriptArtifactID: asString(args["scriptArtifactId"]),
 		Args:             asStringList(args["args"]),
-		PlanID:           asString(args["planId"]),
 		AgentID:          asString(args["agentId"]),
 		OwnerID:          asString(args["ownerUserId"]),
 		StepID:           asString(args["stepId"]),
@@ -163,7 +161,7 @@ func NewWorkbenchSurface(handler CapabilityHandler, platform string) Surface {
 			out := map[string]any{
 				"action":  action,
 				"args":    args,
-				"planId":  req.PlanID,
+				"runId":   req.RunID,
 				"agentId": req.AgentID,
 			}
 			if len(req.Environment) > 0 {
@@ -202,7 +200,7 @@ func NewFleetSurface(handler CapabilityHandler) Surface {
 			out := map[string]any{
 				"action":      action,
 				"args":        args,
-				"planId":      req.PlanID,
+				"runId":       req.RunID,
 				"agentId":     req.AgentID,
 				"ownerUserId": req.OwnerID,
 			}

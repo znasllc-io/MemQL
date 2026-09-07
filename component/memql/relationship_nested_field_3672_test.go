@@ -16,13 +16,13 @@ func nestedRelationshipEngine(t *testing.T) *MemQLEngine {
 	t.Helper()
 	return newTestEngineWithConcepts(t, map[string]*memoryNodes.Concept{
 		"v1:identity:identity": {Name: "v1:identity:identity"},
-		"v1:planner:plan":      {Name: "v1:planner:plan"},
+		"v1:work:run":          {Name: "v1:work:run"},
 		"v1:agents:agent": {
 			Name: "v1:agents:agent",
 			Relationships: []memoryNodes.RelationshipDefinition{
 				{Type: "references", Field: "identity.identityId", TargetConcept: "v1:identity:identity", Direction: "outgoing"},
-				{Type: "createdBy", Field: "lineage.originatingPlanId", TargetConcept: "v1:planner:plan", Direction: "outgoing"},
-				{Type: "references", Field: "lineage.sourcePlanIds", TargetConcept: "v1:planner:plan", Direction: "outgoing"},
+				{Type: "createdBy", Field: "lineage.originatingRunId", TargetConcept: "v1:work:run", Direction: "outgoing"},
+				{Type: "references", Field: "lineage.sourceRunIds", TargetConcept: "v1:work:run", Direction: "outgoing"},
 			},
 		},
 	})
@@ -58,13 +58,13 @@ func TestCanonicalizeNestedRelationshipField(t *testing.T) {
 	t.Run("nested array canonicalizes every entry", func(t *testing.T) {
 		payload := map[string]any{
 			"lineage": map[string]any{
-				"sourcePlanIds": []any{"plan-1", "plan-2"},
+				"sourceRunIds": []any{"run-1", "run-2"},
 			},
 		}
 		require.NoError(t, engine.canonicalizeRelationshipFields(ctx, "v1:agents:agent", payload))
 
-		got := payload["lineage"].(map[string]any)["sourcePlanIds"].([]any)
-		require.Equal(t, []any{"v1:planner:plan:plan-1", "v1:planner:plan:plan-2"}, got)
+		got := payload["lineage"].(map[string]any)["sourceRunIds"].([]any)
+		require.Equal(t, []any{"v1:work:run:run-1", "v1:work:run:run-2"}, got)
 	})
 
 	t.Run("already-canonical nested value passes through", func(t *testing.T) {
@@ -142,14 +142,14 @@ func TestShippedNestedRelationshipsNowFire(t *testing.T) {
 			payload["identity"].(map[string]any)["identityId"])
 	})
 
-	t.Run("agent.lineage.originatingPlanId and extendedFromAgentId", func(t *testing.T) {
+	t.Run("agent.lineage.originatingRunId and extendedFromAgentId", func(t *testing.T) {
 		payload := map[string]any{"lineage": map[string]any{
-			"originatingPlanId":   "plan-1",
+			"originatingRunId":    "run-1",
 			"extendedFromAgentId": "agent-1",
 		}}
 		require.NoError(t, engine.canonicalizeRelationshipFields(ctx, "v1:agents:agent", payload))
 		lineage := payload["lineage"].(map[string]any)
-		require.Equal(t, "v1:planner:plan:plan-1", lineage["originatingPlanId"])
+		require.Equal(t, "v1:work:run:run-1", lineage["originatingRunId"])
 		require.Equal(t, "v1:agents:agent:agent-1", lineage["extendedFromAgentId"])
 	})
 

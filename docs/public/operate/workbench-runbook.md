@@ -10,7 +10,7 @@ owner: znas
 # Workbench Runbook
 
 Operational guide for the workbench capability -- the sandboxed
-per-Plan Linux working environment that is the default first
+per-run Linux working environment that is the default first
 choice for any HEADLESS work an agent needs to do (writing files,
 running shell commands, fetching URLs).
 
@@ -26,7 +26,7 @@ Three execution surfaces, in preference order:
 
 1. **In-server MemQL tools** -- exhaust first when the work fits.
 2. **Workbench** (this doc) -- default for any headless task that
-   needs a shell or filesystem. Linux, sandboxed, per-Plan.
+   needs a shell or filesystem. Linux, sandboxed, per-run.
 3. **Computer-use** -- the user's actual machine. Reserved for
    tasks the workbench cannot do: macOS-only tooling (Xcode,
    AppleScript), computer-use control / screenshots / mouse + keyboard,
@@ -44,14 +44,14 @@ Two distinct lifetimes inside the workbench:
   namespace runs for each Task. Today the "container" is the agent
   node's own process; in cluster mode it will be a per-Task
   goroutine on the workbench node.
-- **Per-Plan workspace (persistent filesystem).** One directory
-  tree per Plan, mounted into every container that runs under it.
-  Outlasts individual Tasks. Released when the parent Plan reaches
+- **Per-run workspace (persistent filesystem).** One directory
+  tree per run, mounted into every container that runs under it.
+  Outlasts individual steps. Released when the parent run reaches
   a terminal status (succeeded / failed / cancelled).
 
 Workspace root: `MEMQL_WORKBENCH_ROOT` env var, default
-`/var/lib/memql/workbenches/`. Each Plan gets a subdirectory keyed
-by `planId`.
+`/var/lib/memql/workbenches/`. Each run gets a subdirectory keyed
+by `runId`.
 
 ## 3. Tool surface
 
@@ -70,7 +70,7 @@ All paths are RELATIVE to the workspace root; absolute paths and
 `..` traversal are rejected.
 
 The dispatch builtin behind the tool (`workbenchDispatchHost`) also takes an
-optional `environment` hint alongside `action` / `args` / `planId` / `agentId` /
+optional `environment` hint alongside `action` / `args` / `runId` / `agentId` /
 `taskId`. Section 10 is what it does.
 
 ### 3.1 The build entry, which is not a tool
@@ -82,8 +82,8 @@ memql#4900): the deploy pipeline's, reached from Go and from nowhere else.
 |---|---|---|
 | Reached by | an agent's tool loop, through `workbenchDispatchHost` | `component/packages`, through `workbench.Integration.RunBuild` |
 | A DSL construct? | yes, `tool workbenchHost` | **no**, deliberately -- there is nothing for a model to name |
-| Keyed on | a Plan | a **deployment**, plus the deployable's name |
-| Workspace row | `v1:workbench:workspace`, released on the Plan's terminal status | **none** -- the directory lives for one call and is torn down whatever happens |
+| Keyed on | a run | a **deployment**, plus the deployable's name |
+| Workspace row | `v1:workbench:workspace`, released on the run's terminal status | **none** -- the directory lives for one call and is torn down whatever happens |
 | The command | allowlisted binaries only (section 4.1) | the manifest's own, whatever it is |
 | The environment | the node's, plus what the call passes | **constructed**: PATH, a HOME inside the directory, the locale, `CI=true`, and nothing of the node's |
 | Runs as | the engine's user | uid `MEMQL_PACKAGES_BUILD_UID` (10001), so `/proc/1/environ` is unreadable |
@@ -114,7 +114,7 @@ environment, root reads it out of `/proc/1/environ` and uid 10001 gets
 Universal -- `workbench_use` is injected into every role's
 `lockedToolSlugs` (see `dsl/agents/roles/*.memql`) so every agent
 has it. No scope grants, no kill switch, no per-agent gating. The
-blast radius is contained to the per-Plan directory tree.
+blast radius is contained to the per-run directory tree.
 
 ### 4.1 Exec allowlist
 
@@ -176,7 +176,7 @@ Then:
 1. Create an agent (or pick an existing one). All newly-created
    agents include `workbench_use` automatically; legacy agents
    need the slug added to their `capabilities.tools` once.
-2. Open a Plan-anchored chat and ask the agent to do something
+2. Open a run-anchored chat and ask the agent to do something
    file-y or shell-y. Example: "Write a markdown file listing the
    ten most beautiful birds on earth and save it as `birds.md`."
 3. The agent calls `workbenchHost` with `action=fs_write` (and
@@ -188,7 +188,7 @@ Then:
 
    ```bash
    kubectl exec -n memql deploy/workbench -- ls /var/lib/memql/workbenches/
-   kubectl exec -n memql deploy/workbench -- cat /var/lib/memql/workbenches/<planId>/birds.md
+   kubectl exec -n memql deploy/workbench -- cat /var/lib/memql/workbenches/<runId>/birds.md
    ```
 
    `deploy/k8s/base/workbench.yaml` runs **2 replicas**, so name the pod
@@ -197,25 +197,31 @@ Then:
 
 ## 7. Teardown
 
-When the parent Plan reaches a terminal status (succeeded /
-failed / cancelled), the `releaseWorkspaceOnPlanTerminal`
-automation fires:
+When the parent run reaches a terminal status (succeeded / failed /
+cancelled / **abandoned**), the `releaseWorkspaceOnRunTerminal` automation
+fires.
+
+The FOURTH value is the one to notice: a Plan had three terminal statuses and a
+run has four, because `abandoned` -- the node stopped answering -- is terminal
+for a run and has no Plan equivalent. A workspace whose run was abandoned is
+exactly the one nobody is left to clean up by hand, so missing it would leak a
+directory per lost node, silently (memql#5053).
 
 1. The `releaseWorkspace` mutation flips the `v1:workbench:workspace`
    row to `status=released`. Since memql#4354 that row is really
    written -- the concept was declared and written by nothing before
    then (section 11).
 2. The `workbenchTeardownDirectory` builtin calls the integration's
-   `teardownDirectory` capability which `rm -rf`s the per-Plan
+   `teardownDirectory` capability which `rm -rf`s the per-run
    directory.
 
-Idempotent: a Plan that never provisioned a workspace is a no-op.
+Idempotent: a run that never provisioned a workspace is a no-op.
 
 ## 8. Configuration
 
 | Env var                    | Default                            | Effect |
 |----------------------------|------------------------------------|--------|
-| `MEMQL_WORKBENCH_ROOT`     | `/var/lib/memql/workbenches`       | Root directory for per-Plan workspaces. Override for dev (project-local path) or Docker volume mounts. |
+| `MEMQL_WORKBENCH_ROOT`     | `/var/lib/memql/workbenches`       | Root directory for per-run workspaces. Override for dev (project-local path) or Docker volume mounts. |
 | `MEMQL_WORKBENCH_REMOTE`   | unset (false)                      | When truthy, the agent's dispatch delegates to a remote workbench node via NodeService.Stream. **This is an assertion, not a preference** -- see below. See [production.md](../../internal/ops/workbench-production.md). Leave unset for the MVP path. |
 | `MEMQL_WORKBENCH_LOCAL_FALLBACK` | unset (false)                | Opt-in escape valve: in remote mode, run the call on the agent node when no workbench peer is reachable, instead of refusing. Off by default. |
 
@@ -463,7 +469,7 @@ records why**:
    node, and flips that row to `status=released`,
    `releasedReason=node_lost`.
 3. It inserts a successor row naming itself, at an id derived from
-   `(planId, nodeId)` -- one row cannot be both released and provisioned.
+   `(runId, nodeId)` -- one row cannot be both released and provisioned.
 4. The plan continues on an **empty** workspace, and the serving node logs the
    takeover too.
 
@@ -488,17 +494,17 @@ reason spelled out; without the row there is no record that anything moved.
 
 `v1:workbench:workspace` now declares
 `@rowAuthz(owner="ownerUserId", clusterOwner)`, and `ownerUserId` is stamped
-from the parent plan's `requestedBy` at provision time -- never from a caller
+from the parent run's owner at provision time -- never from a caller
 argument.
 
-WARNING: a workbench call whose `planId` does not resolve to a readable
-`v1:planner:plan` row is now **refused** with
+WARNING: a workbench call whose `runId` does not resolve to a readable
+`v1:work:run` row is now **refused** with
 `errorCode: workspace_owner_unresolved` rather than run. This is a behaviour
 change. Writing the row anyway would stamp `ownerUserId: ""`, and the row tier
 then hides it from the person whose files it describes AND from the operator;
 the next call would read no row and provision a second workspace, bringing the
-split back wearing a bookkeeping layer. A workspace keyed on a plan that does
-not exist also never reaches the `releaseWorkspaceOnPlanTerminal` automation, so
+split back wearing a bookkeeping layer. A workspace keyed on a run that does
+not exist also never reaches the `releaseWorkspaceOnRunTerminal` automation, so
 its directory is never reclaimed.
 
 The same tier is why every workspace read and write runs under

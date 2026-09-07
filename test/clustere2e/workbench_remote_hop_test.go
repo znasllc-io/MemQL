@@ -44,14 +44,14 @@ import (
 // tool surface would be testing whether a bundle happened to be mounted. The
 // builtin is engine-owned and sits directly on top of the integration
 // capability, which is the seam the hop actually crosses.
-func buildWorkbenchExec(planID, cmd string) string {
+func buildWorkbenchExec(runID, cmd string) string {
 	// @args(profile="object") -- the builtin takes one JSON object, not a
 	// bare string or a named-arg list. Hop tests that passed
 	// workbenchDispatchHost("env") (or the named-arg form) fail argument
 	// validation (memql#4212). Values are rendered with the MemQL lexer's own
 	// quoting, not Go's %q, whose escape grammar the lexer rejects.
-	return fmt.Sprintf(`workbenchDispatchHost({action: "exec", planId: %s, args: {cmd: %s}})`,
-		langparser.QuoteString(planID), langparser.QuoteString(cmd))
+	return fmt.Sprintf(`workbenchDispatchHost({action: "exec", runId: %s, args: {cmd: %s}})`,
+		langparser.QuoteString(runID), langparser.QuoteString(cmd))
 }
 
 // workbenchDispatch is the dispatchResult shape the integration returns,
@@ -65,9 +65,9 @@ type workbenchDispatch struct {
 }
 
 // runWorkbenchExec dispatches one exec and decodes the single result node.
-func runWorkbenchExec(ctx context.Context, t *testing.T, qc *memqlclient.QueryClient, planID, cmd string) workbenchDispatch {
+func runWorkbenchExec(ctx context.Context, t *testing.T, qc *memqlclient.QueryClient, runID, cmd string) workbenchDispatch {
 	t.Helper()
-	res, err := qc.ExecuteNamed(ctx, "workbenchDispatchHost", buildWorkbenchExec(planID, cmd))
+	res, err := qc.ExecuteNamed(ctx, "workbenchDispatchHost", buildWorkbenchExec(runID, cmd))
 	if err != nil {
 		t.Fatalf("workbenchDispatchHost(%q): %v", cmd, err)
 	}
@@ -118,9 +118,9 @@ func TestWorkbenchExecRunsOnTheWorkbenchNodeNotTheAgent(t *testing.T) {
 	defer conns[0].Close()
 	qc := memqlclient.NewQueryClient(conns[0].Dispatcher())
 
-	planID := "v1:planner:plan:" + id.NewShortId()
+	runID := "v1:work:run:" + id.NewShortId()
 
-	res := runWorkbenchExec(ctx, t, qc, planID, "env")
+	res := runWorkbenchExec(ctx, t, qc, runID, "env")
 	if !res.OK {
 		// A refusal here is itself the memql#3506 signal, and it is worth
 		// reporting in full: on a cluster whose agent has MEMQL_WORKBENCH_REMOTE
@@ -172,14 +172,14 @@ func TestWorkbenchWorkspacePersistsAcrossCallsOnTheRemoteNode(t *testing.T) {
 	defer conns[0].Close()
 	qc := memqlclient.NewQueryClient(conns[0].Dispatcher())
 
-	planID := "v1:planner:plan:" + id.NewShortId()
+	runID := "v1:work:run:" + id.NewShortId()
 	marker := "workbench-hop-probe-" + id.NewShortId()
 
-	if res := runWorkbenchExec(ctx, t, qc, planID, "echo "+marker+" > marker.txt"); !res.OK {
+	if res := runWorkbenchExec(ctx, t, qc, runID, "echo "+marker+" > marker.txt"); !res.OK {
 		t.Fatalf("writing the marker: %s / %s", res.ErrorCode, res.ErrorMsg)
 	}
 
-	res := runWorkbenchExec(ctx, t, qc, planID, "cat marker.txt")
+	res := runWorkbenchExec(ctx, t, qc, runID, "cat marker.txt")
 	if !res.OK {
 		t.Fatalf("reading the marker back: %s / %s -- the second call did not see the first call's "+
 			"workspace, so the per-Plan directory is not persisting on the workbench node",

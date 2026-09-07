@@ -696,7 +696,7 @@ from a tier that was never stated. That is what the report's
 you no blast radius" is too strong and this paragraph used to say it
 (memql#2984). The concepts
 graph expansion actually walks into — `v1:identity:user` (46 inbound
-relationships), `v1:agents:agent` (19), `v1:planner:plan` (11) — are
+relationships), `v1:agents:agent` (19) — are
 all in that undeclared set.
 
 ### The write path: a declared owner tier is gated (memql#2982)
@@ -908,10 +908,10 @@ a browser, which is recorded here rather than left to be discovered:
 
 | Concept | State | What Nexus does |
 |---|---|---|
-| `v1:planner:plan` | undeclared; blocked on #4366 | the client refuses to draw a goal whose `requestedBy` is not the caller's own user id, and says so on the page |
-| `v1:planner:task` | undeclared; blocked on #4366 | filtered by `planId` client-side |
-| `v1:agents:agent` | undeclared, long tail | `agentsForPlan` is `@public` and narrows by `lineage.originatingPlanId`; filtered again client-side |
-| `v1:authoring:bundle` | undeclared, long tail | narrowed by `sourcePlanId` on an owner-gated read; filtered again client-side |
+| ~~`v1:planner:plan`~~ | **RETIRED, epic memql#5000** | Nexus reads `v1:work:run`, which declares the composite owner tier |
+| ~~`v1:planner:task`~~ | **RETIRED, epic memql#5000** | Nexus reads `v1:work:step`, same tier |
+| `v1:agents:agent` | undeclared, long tail | `agentsForPlan` is `@public` and narrows by `lineage.originatingRunId`; filtered again client-side |
+| `v1:authoring:bundle` | undeclared, long tail | narrowed by `sourceRunId` on an owner-gated read; filtered again client-side |
 
 Two things follow, and neither is a criticism of the surface:
 
@@ -951,9 +951,9 @@ subscriptions through the same function it gates reads with (memql#4309), so
 other people's rows never arrive and there is nothing left for a client-side
 filter to drop. `planBelongsHere` and its viewer-id check are deleted.
 
-`v1:planner:plan` itself is UNCHANGED and still undeclared: Nexus's entry above
-still stands, and this is one consumer leaving rather than the concept being
-fixed.
+`v1:planner:plan` itself was never declared: it was RETIRED instead (epic
+memql#5000), which is why the table above strikes it through rather than
+recording a tier.
 
 The second is a different shape and is worth stating plainly rather than
 filing under the long tail. `setChunkValidationStatus`
@@ -1355,33 +1355,43 @@ is evidence rather than a claim.
 
 ### What is still undeclared, and what it is waiting for
 
-memql#4366 named five concepts. Three are now settled:
+memql#4366 named five concepts. Four are now settled:
 `v1:worker:registration` (memql#4349), `v1:worker:invocation`
-(memql#4406) and `v1:identity:auditEvent` (above). The **planner
-trio — `v1:planner:plan`, `v1:planner:task`, `v1:planner:taskState` —
-is not**, and the reason is specific enough to write down so the next
-attempt starts from it:
+(memql#4406), `v1:identity:auditEvent` (above) — and the **planner trio**,
+which is settled by RETIREMENT rather than by declaration.
 
-- **Every internal reader is chicken-and-egg.** `planById` has six Go
-  call sites (`integrations/workbench`, `integrations/agent/worker` and
-  four in `integrations/planner`), and every one of them is a
-  `loadPlan(ctx, planId)` helper that takes a plan id and *no owner*.
-  `integrations/workbench`'s `resolvePlanOwner` is the clearest case: it
-  reads the plan **in order to discover the owner**, which an owner-gated
-  read cannot answer. So the fix is not a stamp at each call site — the
-  value to stamp is not in hand.
-- **The maintenance principal is the wrong tool here.** It would work
-  mechanically and make the tier decorative for exactly the code that
-  touches plans most: declared, and unenforced where it matters. The
-  right shape is threading the owner down from wherever the plan id
-  came from, which is a refactor of the planner's dispatch plumbing.
-- `task` and `taskState` additionally need a new `ownerUserId` field
-  with server stamping at four mutations.
+`v1:planner:plan`, `v1:planner:task` and `v1:planner:taskState` are deleted
+(epic memql#5000). The debt described here was never paid; the concepts went
+away, which is the other way a row leaves this list, and it is worth being
+explicit about that because the two outcomes look the same in a table and are
+not the same thing.
 
-And it touches the planner agent loop, which
-[llm-cost-control.md](../../ai/llm-cost-control.md) asks to be read
-first. Nexus's client-side filters (memql#4369, above) stand in
-meanwhile and need no change when the tier lands.
+The reasoning recorded here is still the most useful part of the entry, because
+the successor did not inherit the problem — and the contrast says why:
+
+- **Every internal reader was chicken-and-egg.** `planById` had six Go call
+  sites, and every one was a `loadPlan(ctx, planId)` helper taking a plan id
+  and *no owner*. `integrations/workbench`'s `resolvePlanOwner` was the
+  clearest: it read the plan **in order to discover the owner**, which an
+  owner-gated read cannot answer. So the fix was never a stamp at each call
+  site — the value to stamp was not in hand.
+- `v1:work:run` does not have that shape. It carries `ownerUserId` as a
+  `@serverSet` field on the row itself, stamped from the goal at open, so the
+  owner is IN HAND at every read and the concept declares
+  `@rowAuthz(owner="ownerUserId", clusterOwner)` from the start. The
+  denormalisation is what made the tier declarable, and
+  `v1:workbench:workspace` reached the same conclusion independently
+  (memql#4354): its `ownerUserId` comment says the gate "decides one row at a
+  time and cannot follow planId to find out whose it is".
+- The maintenance principal would have worked mechanically and made the tier
+  decorative for exactly the code that touched plans most. That reading still
+  holds, and is why the work sweeps are named in `maintenanceAutomations`
+  individually rather than the concept being left undeclared.
+
+Nexus's client-side filters (memql#4369) stood in meanwhile. They are
+unnecessary for the successor: `v1:work:run` and `v1:work:goal` declare their
+tier, and row admission gates SUBSCRIPTIONS through the same function
+(memql#4309), so other people's rows never arrive.
 
 ## Related issues
 

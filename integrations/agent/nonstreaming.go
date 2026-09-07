@@ -9,7 +9,6 @@ import (
 
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	"github.com/znasllc-io/memql/component/memql"
-	"github.com/znasllc-io/memql/component/memql/taskstamp"
 	"github.com/znasllc-io/memql/component/router"
 	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/env"
@@ -112,10 +111,10 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 	// no saved state (or a lookup miss) just runs a fresh turn. The slot
 	// re-admission itself is Session B's (#902 controller + queue).
 	if IsResume(msg.Hints) {
-		if block, ok := r.loadResumeContext(ctx, prep.turnCtx.PlanId); ok {
+		if block, ok := r.loadResumeContext(ctx, prep.turnCtx.RunId); ok {
 			prep.messages = injectResumeContext(prep.messages, block)
 			r.logger.Info("agent background: resuming from persisted taskState",
-				"plan_id", prep.turnCtx.PlanId, "requestId", msg.RequestId)
+				"plan_id", prep.turnCtx.RunId, "requestId", msg.RequestId)
 		}
 	}
 
@@ -231,15 +230,15 @@ func (r *Replier) runNonStreamingToolLoop(
 	requestId string,
 	turnCtx turnContext,
 ) (*TurnResult, error) {
-	// Same engine-side auto-stamping of v1:planner:task rows the streaming
-	// loop installs. On a post-approval Plan dispatch turnCtx.PlanId is set,
-	// so tool calls attach to a semantic wrapper under that Plan.
-	ctx = taskstamp.WithPlanContext(ctx, taskstamp.PlanContext{
-		PlanId:      turnCtx.PlanId,
-		AgentId:     turnCtx.AgentId,
-		OwnerUserId: turnCtx.OwnerUserId,
-		PartitionId: turnCtx.PartitionId,
-	})
+	// NOTHING IS INSTALLED HERE ANY MORE (memql#5050). This used to stamp a
+	// taskstamp.PlanContext so every tool call wrote a v1:planner:task row,
+	// minting a synthetic ad-hoc Plan when turnCtx.RunId was empty -- which
+	// it was for every chat-driven turn.
+	//
+	// Tool calls are recorded against the RUN now, and a run context is
+	// stamped by whoever opened the run (component/automations' executor per
+	// step, integrations/work at dispatch). A turn that no run asked for
+	// carries none, and records nothing rather than inventing a parent.
 
 	// Tag the lane so every model HTTP call this loop makes counts against
 	// the background si_guard rate bucket, not the interactive one
@@ -253,7 +252,7 @@ func (r *Replier) runNonStreamingToolLoop(
 	// loops is latched on its own, without touching other conversations.
 	ctx = memql.ContextWithBudgetScope(ctx,
 		memql.BudgetScopeId("space", turnCtx.PartitionId),
-		memql.BudgetScopeId("plan", turnCtx.PlanId))
+		memql.BudgetScopeId("plan", turnCtx.RunId))
 
 	// Cooperative preemption (memql#906): clear any pause flag for this
 	// turn's requestId on exit so a stale "pass" can never leak into a later

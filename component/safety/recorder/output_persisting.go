@@ -99,7 +99,7 @@ func buildOutputArgs(in safety.ScreeningInput, res safety.ScreeningResult, mode 
 		"latencyMs":      res.LatencyMs,
 		"agentId":        in.Caller.AgentID,
 		"ownerUserId":    in.Caller.OwnerUserID,
-		"planId":         in.Caller.PlanID,
+		"runId":          in.Caller.RunID,
 		"correlationId":  in.Caller.CorrelationID,
 		"mode":           string(mode),
 	}

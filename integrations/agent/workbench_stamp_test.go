@@ -18,7 +18,7 @@ func TestInjectAgentContext_WorkbenchHostStampsPlanId(t *testing.T) {
 	}
 	tc := turnContext{
 		AgentId: "v1:agents:agent:abc",
-		PlanId:  "v1:planner:plan:p1",
+		RunId:   "v1:planner:plan:p1",
 	}
 
 	injectAgentContext("workbenchHost", args, tc)
@@ -62,7 +62,7 @@ func TestInjectAgentContext_CanvasPublishStampsDataPlanId(t *testing.T) {
 	tc := turnContext{
 		AgentId:     "v1:agents:agent:abc",
 		PartitionId: "v1:cognition:space:s1",
-		PlanId:      "v1:planner:plan:p1",
+		RunId:       "v1:planner:plan:p1",
 	}
 
 	injectAgentContext("canvasPublish", args, tc)
@@ -90,7 +90,7 @@ func TestInjectAgentContext_CanvasPublishCreatesDataWhenMissing(t *testing.T) {
 
 	injectAgentContext("canvasPublish", args, turnContext{
 		AgentId: "v1:agents:agent:abc",
-		PlanId:  "v1:planner:plan:p1",
+		RunId:   "v1:planner:plan:p1",
 	})
 
 	gotData, ok := args["data"].(map[string]any)

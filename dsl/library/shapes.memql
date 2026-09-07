@@ -22,7 +22,7 @@ shape artifact artifactFull {
   folderId
   partitionId
   agentId
-  producedByPlanId
+  producedByRunId
   producedByWorkerId
   producedByWorkerName
   validationStatus
@@ -45,7 +45,7 @@ shape generatedOutput generatedOutputFull {
   mimeType
   source
   partitionId
-  producedByPlanId
+  producedByRunId
   producedByAgentId
   row.createdAt
 }
@@ -79,7 +79,7 @@ shape documentVersion documentVersionSummary {
   note
   parentVersionId
   attachmentId
-  producedByPlanId
+  producedByRunId
   partitionId
   row.createdAt
 }
@@ -99,7 +99,7 @@ shape documentVersion documentVersionFull {
   authorId
   note
   parentVersionId
-  producedByPlanId
+  producedByRunId
   partitionId
   row.createdAt
 }

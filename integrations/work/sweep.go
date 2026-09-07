@@ -108,6 +108,9 @@ type WaitSweepResult struct {
 	Checked   int `json:"checked"`
 	Resumed   int `json:"resumed"`
 	Abandoned int `json:"abandoned"`
+	// Redispatched counts runs that looked abandoned and were handed back to
+	// a live replica instead of being closed. See redispatchStale.
+	Redispatched int `json:"redispatched"`
 }
 
 func (i *Integration) handleSweepWaiting(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
@@ -120,9 +123,10 @@ func (i *Integration) handleSweepWaiting(ctx context.Context, args map[string]an
 		return nil, err
 	}
 	return i.resultNode(map[string]any{
-		"checked":   res.Checked,
-		"resumed":   res.Resumed,
-		"abandoned": res.Abandoned,
+		"checked":      res.Checked,
+		"resumed":      res.Resumed,
+		"abandoned":    res.Abandoned,
+		"redispatched": res.Redispatched,
 	}), nil
 }
 
@@ -188,6 +192,29 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		if last.After(cutoff) {
 			continue
 		}
+		// ONE ATTEMPT TO HAND IT BACK BEFORE CLOSING IT. A run goes silent
+		// for two reasons that look identical from here: the replica running
+		// it died, or nothing ever picked it up (every agent replica was down
+		// when it flipped to `running`, so the dispatch event reached
+		// nobody). The second is recoverable and was being closed as though
+		// it were the first.
+		//
+		// THE CLAIM LEASE IS WHAT BOUNDS THIS, and it is why there is no
+		// attempt counter on the row. runClaimTTL is 4x this sweep's window,
+		// so a replica that takes the run and immediately dies still HOLDS
+		// the claim at the next pass -- the re-dispatch is refused there and
+		// the run is abandoned as it would have been. A run can therefore be
+		// handed back at most once per lease, and a run nobody can execute
+		// still reaches `abandoned` a pass later rather than being retried
+		// forever.
+		//
+		// A takeover RESUMES rather than restarts: the seam loads the run's
+		// journal and resumes from the step that was in flight, so the steps
+		// that already ran are not re-executed.
+		if i.redispatchStale(writeCtx, run, runId, owner) {
+			res.Redispatched++
+			continue
+		}
 		if err := st.updateRun(writeCtx, runId, map[string]any{
 			"status":       runStatusAbandoned,
 			"errorCode":    "run_abandoned",
@@ -205,6 +232,31 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		res.Abandoned++
 	}
 	return res, nil
+}
+
+// redispatchStale offers a silent run back to the cluster and reports whether
+// a replica took it.
+//
+// It is a no-op on every node that runs no steps: DispatchRun returns false
+// with no dispatcher installed, so a bff replica running this sweep abandons
+// exactly as it did before. That is the honest default -- the alternative,
+// treating "I cannot dispatch" as "somebody else will", would leave dead runs
+// open forever on a cluster whose agent nodes are gone.
+func (i *Integration) redispatchStale(ctx context.Context, run map[string]any, runId, owner string) bool {
+	// Only a run that HAS an automation to execute can be handed back. A run
+	// at `running` with no template is the compile-failed shape, and
+	// dispatching it would claim a run the seam then refuses -- burning a
+	// lease and delaying the close by one pass for nothing.
+	if rowString(run, "automationName") == "" {
+		return false
+	}
+	if !i.DispatchRun(ctx, runId, owner) {
+		return false
+	}
+	i.log().Info("work: handed a silent run back to the cluster instead of abandoning it",
+		"component", "work.sweep", "run", runId, "owner", owner,
+		"node", rowString(run, "nodeId"))
+	return true
 }
 
 // timerDue reads waitingOn and answers (due, isTimer).

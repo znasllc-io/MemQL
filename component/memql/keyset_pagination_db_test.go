@@ -33,11 +33,14 @@ import (
 // keysetConcept is the concept the fixtures write under. Nothing about keyset
 // pagination is specific to it -- any append-only, ungated concept proves the
 // same property -- but two things about the choice ARE load-bearing:
-// v1:planner:plan declares no @rowAuthz tier, so a read is not narrowed by the
+// v1:platform:missingCapability declares no @rowAuthz tier, so a read is not narrowed by the
 // actor before the cursor is even consulted, and the fixtures write RAW rows
 // straight through bun, so the planner never sees a plan.created event and no
 // agent loop is armed by anything seeded here.
-const keysetConcept = "v1:planner:plan"
+// Re-pointed off v1:planner:plan (memql#5053). The tier-free property above
+// is what had to be preserved: on a gated concept a short page would be
+// indistinguishable from a page the actor was not admitted to.
+const keysetConcept = "v1:platform:missingCapability"
 
 // seedKeysetRow inserts ONE append-only row directly at a fixed createdAt so
 // the test controls the exact (createdAt, id) ordering. Bypasses the mutation

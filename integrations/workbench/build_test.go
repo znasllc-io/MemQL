@@ -299,7 +299,7 @@ func TestTheBuildActionIsNotAWorkbenchHostAction(t *testing.T) {
 	i, _ := buildIntegration(t)
 	nodes, err := i.handleDispatchHost(context.Background(), map[string]any{
 		"action": BuildAction,
-		"planId": "v1:planner:plan:p1",
+		"runId":  "v1:work:run:p1",
 		"args":   map[string]any{"cmd": "echo hi"},
 	}, 0)
 	if err != nil {
@@ -317,7 +317,7 @@ func TestTheBuildActionIsNotAWorkbenchHostAction(t *testing.T) {
 	// every call this fixture makes.
 	nodes, err = i.handleDispatchHost(context.Background(), map[string]any{
 		"action": "fs_list",
-		"planId": "v1:planner:plan:p1",
+		"runId":  "v1:work:run:p1",
 		"args":   map[string]any{"path": "."},
 	}, 0)
 	if err != nil {
@@ -485,7 +485,7 @@ func TestTheBuildEntryAnswersOnlyToTheEngine(t *testing.T) {
 	var got *nodev1.WorkbenchForwardResponse
 	handler.HandleForwardedRequest(context.Background(), &nodev1.WorkbenchForwardRequest{
 		RequestId: "r1",
-		PlanId:    "deployment:abc-storefront",
+		RunId:     "deployment:abc-storefront",
 		Action:    BuildAction,
 		ArgsJson:  payload,
 		Authority: node.ForwardedAuthorityToProto(userAuthority, "agent-1", "agent"),
@@ -513,7 +513,7 @@ func TestTheBuildEntryAnswersOnlyToTheEngine(t *testing.T) {
 	got = nil
 	handler.HandleForwardedRequest(context.Background(), &nodev1.WorkbenchForwardRequest{
 		RequestId: "r2",
-		PlanId:    "deployment:abc-storefront",
+		RunId:     "deployment:abc-storefront",
 		Action:    BuildAction,
 		ArgsJson:  payload,
 		Authority: node.ForwardedAuthorityToProto(systemAuthority, "bff-1", "bff"),
