@@ -398,26 +398,6 @@ QueryClient.prototype.activeDelegationsForAgent = function (this: QueryClient, a
   return this.executeNamed("activeDelegationsForAgent", buildActiveDelegationsForAgent(args), opts);
 };
 
-/** The caller's currently-RUNNING Plans -- the account's active tasks occupying concurrency slots (epic memql#902 / #909). Owned tier: payload.requestedBy==actor.userId binds server-side so a caller only sees their own. The active count is the result length; pair with accountEntitlement for the cap and waitingPlansForUser for the queue. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["activePlansForUser"] in generated_concepts.ts).
-export interface ActivePlansForUserArgs {
-}
-
-export function buildActivePlansForUser(args: ActivePlansForUserArgs): string {
-  void args;
-  return "query activePlansForUser()";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    activePlansForUser(args?: ActivePlansForUserArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.activePlansForUser = function (this: QueryClient, args: ActivePlansForUserArgs = {} as ActivePlansForUserArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("activePlansForUser", buildActivePlansForUser(args), opts);
-};
-
 /** List active v1:forge:project rows. */
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["activeProjects"] in generated_concepts.ts).
 export interface ActiveProjectsArgs {
@@ -726,26 +706,6 @@ QueryClient.prototype.allOutputScreenings = function (this: QueryClient, args: A
   return this.executeNamed("allOutputScreenings", buildAllOutputScreenings(args), opts);
 };
 
-/** Every Plan. Backs the global Tasks panel; the frontend pins current-space rows to the top of each lifecycle group. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["allPlans"] in generated_concepts.ts).
-export interface AllPlansArgs {
-}
-
-export function buildAllPlans(args: AllPlansArgs): string {
-  void args;
-  return "query allPlans()";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    allPlans(args?: AllPlansArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.allPlans = function (this: QueryClient, args: AllPlansArgs = {} as AllPlansArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("allPlans", buildAllPlans(args), opts);
-};
-
 /** Returns every v1:safety:classification row. Used by the retention sweep; a future cockpit Command Safety view will layer more targeted queries on top. */
 // Bound concept: v1:safety:classification (machine-readable: BoundConcepts["allSafetyClassifications"] in generated_concepts.ts).
 export interface AllSafetyClassificationsArgs {
@@ -833,26 +793,26 @@ QueryClient.prototype.appSessionById = function (this: QueryClient, args: AppSes
   return this.executeNamed("appSessionById", buildAppSessionById(args), opts);
 };
 
-/** appSessionsForTask wraps the query named "appSessionsForTask". */
-// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["appSessionsForTask"] in generated_concepts.ts).
-export interface AppSessionsForTaskArgs {
-  taskId: string;
+/** appSessionsForStep wraps the query named "appSessionsForStep". */
+// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["appSessionsForStep"] in generated_concepts.ts).
+export interface AppSessionsForStepArgs {
+  stepId: string;
 }
 
-export function buildAppSessionsForTask(args: AppSessionsForTaskArgs): string {
+export function buildAppSessionsForStep(args: AppSessionsForStepArgs): string {
   const parts: string[] = [];
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  return "query appSessionsForTask(" + parts.join(", ") + ")";
+  parts.push("stepId: " + renderMemQLValue(args.stepId));
+  return "query appSessionsForStep(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    appSessionsForTask(args: AppSessionsForTaskArgs, opts?: QueryCallOptions): Promise<Result>;
+    appSessionsForStep(args: AppSessionsForStepArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
-QueryClient.prototype.appSessionsForTask = function (this: QueryClient, args: AppSessionsForTaskArgs = {} as AppSessionsForTaskArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("appSessionsForTask", buildAppSessionsForTask(args), opts);
+QueryClient.prototype.appSessionsForStep = function (this: QueryClient, args: AppSessionsForStepArgs = {} as AppSessionsForStepArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("appSessionsForStep", buildAppSessionsForStep(args), opts);
 };
 
 /** appSessionsForUser wraps the query named "appSessionsForUser". */
@@ -963,26 +923,26 @@ QueryClient.prototype.approvalRequestById = function (this: QueryClient, args: A
   return this.executeNamed("approvalRequestById", buildApprovalRequestById(args), opts);
 };
 
-/** The Library artifacts one goal produced -- index rows whose producedByPlanId names the plan. Owned: ownerUserId==actor.userId gates the row set server-side and the plan id narrows it. Backs the Nexus map's artifact lane (memql#4371) and the completion card's "artifacts produced" count (memql#4376). Reads the Library INDEX rows, not the backing generatedOutput rows that generatedOutputsForPlan returns. */
-// Bound concept: v1:library:artifact (machine-readable: BoundConcepts["artifactsForPlan"] in generated_concepts.ts).
-export interface ArtifactsForPlanArgs {
-  planId: string;
+/** The Library artifacts one goal produced -- index rows whose producedByRunId names the plan. Owned: ownerUserId==actor.userId gates the row set server-side and the plan id narrows it. Backs the Nexus map's artifact lane (memql#4371) and the completion card's "artifacts produced" count (memql#4376). Reads the Library INDEX rows, not the backing generatedOutput rows that generatedOutputsForRun returns. */
+// Bound concept: v1:library:artifact (machine-readable: BoundConcepts["artifactsForRun"] in generated_concepts.ts).
+export interface ArtifactsForRunArgs {
+  runId: string;
 }
 
-export function buildArtifactsForPlan(args: ArtifactsForPlanArgs): string {
+export function buildArtifactsForRun(args: ArtifactsForRunArgs): string {
   const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "query artifactsForPlan(" + parts.join(", ") + ")";
+  parts.push("runId: " + renderMemQLValue(args.runId));
+  return "query artifactsForRun(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    artifactsForPlan(args: ArtifactsForPlanArgs, opts?: QueryCallOptions): Promise<Result>;
+    artifactsForRun(args: ArtifactsForRunArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
-QueryClient.prototype.artifactsForPlan = function (this: QueryClient, args: ArtifactsForPlanArgs = {} as ArtifactsForPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("artifactsForPlan", buildArtifactsForPlan(args), opts);
+QueryClient.prototype.artifactsForRun = function (this: QueryClient, args: ArtifactsForRunArgs = {} as ArtifactsForRunArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("artifactsForRun", buildArtifactsForRun(args), opts);
 };
 
 /** Resolve the active General Assistant agent owned by a user. Returns 0 or 1 rows. Used by autoJoinAI to derive a canonical agent id consistent across all callers of mutationCreateDailySpace -- the space row's ownerUserId is the same regardless of who triggered the mutation, while args.event.payload.actor (createdBy) varies. memql#273. */
@@ -1398,26 +1358,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.authoringConstructsForBundle = function (this: QueryClient, args: AuthoringConstructsForBundleArgs = {} as AuthoringConstructsForBundleArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("authoringConstructsForBundle", buildAuthoringConstructsForBundle(args), opts);
-};
-
-/** Plans in awaitingFeedback whose feedbackRequest.timeoutAt is in the past. Backs feedbackTimeoutAutoPause. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["awaitingFeedbackPlansPastTimeout"] in generated_concepts.ts).
-export interface AwaitingFeedbackPlansPastTimeoutArgs {
-}
-
-export function buildAwaitingFeedbackPlansPastTimeout(args: AwaitingFeedbackPlansPastTimeoutArgs): string {
-  void args;
-  return "query awaitingFeedbackPlansPastTimeout()";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    awaitingFeedbackPlansPastTimeout(args?: AwaitingFeedbackPlansPastTimeoutArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.awaitingFeedbackPlansPastTimeout = function (this: QueryClient, args: AwaitingFeedbackPlansPastTimeoutArgs = {} as AwaitingFeedbackPlansPastTimeoutArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("awaitingFeedbackPlansPastTimeout", buildAwaitingFeedbackPlansPastTimeout(args), opts);
 };
 
 /** Hot-path badge lookup by keyHash for the operator grant exchange. Returns active + inactive rows. */
@@ -3328,26 +3268,26 @@ QueryClient.prototype.generatedOutputById = function (this: QueryClient, args: G
   return this.executeNamed("generatedOutputById", buildGeneratedOutputById(args), opts);
 };
 
-/** List the generated-output rows a Plan produced. Owned: ownerUserId==actor.userId. The planner reads this as the authoritative 'did the deliverable actually get written?' signal for a produceArtifact plan -- promoteWorkbenchOutput stamps producedByPlanId on the row when a workbench fs_write is promoted. The planner stamps the plan's owner as actor before calling, so the read stays inside the owned-row authz model. (memql#939) */
-// Bound concept: v1:library:generatedOutput (machine-readable: BoundConcepts["generatedOutputsForPlan"] in generated_concepts.ts).
-export interface GeneratedOutputsForPlanArgs {
-  planId: string;
+/** List the generated-output rows a Plan produced. Owned: ownerUserId==actor.userId. The planner reads this as the authoritative 'did the deliverable actually get written?' signal for a produceArtifact plan -- promoteWorkbenchOutput stamps producedByRunId on the row when a workbench fs_write is promoted. The planner stamps the plan's owner as actor before calling, so the read stays inside the owned-row authz model. (memql#939) */
+// Bound concept: v1:library:generatedOutput (machine-readable: BoundConcepts["generatedOutputsForRun"] in generated_concepts.ts).
+export interface GeneratedOutputsForRunArgs {
+  runId: string;
 }
 
-export function buildGeneratedOutputsForPlan(args: GeneratedOutputsForPlanArgs): string {
+export function buildGeneratedOutputsForRun(args: GeneratedOutputsForRunArgs): string {
   const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "query generatedOutputsForPlan(" + parts.join(", ") + ")";
+  parts.push("runId: " + renderMemQLValue(args.runId));
+  return "query generatedOutputsForRun(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    generatedOutputsForPlan(args: GeneratedOutputsForPlanArgs, opts?: QueryCallOptions): Promise<Result>;
+    generatedOutputsForRun(args: GeneratedOutputsForRunArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
-QueryClient.prototype.generatedOutputsForPlan = function (this: QueryClient, args: GeneratedOutputsForPlanArgs = {} as GeneratedOutputsForPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("generatedOutputsForPlan", buildGeneratedOutputsForPlan(args), opts);
+QueryClient.prototype.generatedOutputsForRun = function (this: QueryClient, args: GeneratedOutputsForRunArgs = {} as GeneratedOutputsForRunArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("generatedOutputsForRun", buildGeneratedOutputsForRun(args), opts);
 };
 
 /** Get a single instance-wide configuration variable by name (v1:platform:globalVariable) */
@@ -3392,28 +3332,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.globalVariables = function (this: QueryClient, args: GlobalVariablesArgs = {} as GlobalVariablesArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("globalVariables", buildGlobalVariables(args), opts);
-};
-
-/** Succeeded Plans of a kind, with metrics, for estimation bucket queries. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["historicalPlanMetrics"] in generated_concepts.ts).
-export interface HistoricalPlanMetricsArgs {
-  planKind: string;
-}
-
-export function buildHistoricalPlanMetrics(args: HistoricalPlanMetricsArgs): string {
-  const parts: string[] = [];
-  parts.push("planKind: " + renderMemQLValue(args.planKind));
-  return "query historicalPlanMetrics(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    historicalPlanMetrics(args: HistoricalPlanMetricsArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.historicalPlanMetrics = function (this: QueryClient, args: HistoricalPlanMetricsArgs = {} as HistoricalPlanMetricsArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("historicalPlanMetrics", buildHistoricalPlanMetrics(args), opts);
 };
 
 /** The host's bookings, newest first. Owned. Projects @pii bookerEmail, so the caller constraint is load-bearing. */
@@ -3554,25 +3472,25 @@ QueryClient.prototype.invitationsForAccount = function (this: QueryClient, args:
 
 /** List the CALLER'S worker invocations belonging to a Plan.
 The `ownerUserId==actor.userId` conjunct is the caller scope v1:worker:invocation's composite tier now injects anyway (memql#4406); stating it is what makes the read's scope checkable (TestRowAuthzEnforcementLandGate) instead of implicit. There is deliberately no operator counterpart: the pair shape exists where an operator surface needs it (invocationsForWorker / invocationsForWorkerAsOperator, for /fleet/machines), and adding an unused second variant here would be surface nothing reads. */
-// Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["invocationsForPlan"] in generated_concepts.ts).
-export interface InvocationsForPlanArgs {
-  planId: string;
+// Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["invocationsForRun"] in generated_concepts.ts).
+export interface InvocationsForRunArgs {
+  runId: string;
 }
 
-export function buildInvocationsForPlan(args: InvocationsForPlanArgs): string {
+export function buildInvocationsForRun(args: InvocationsForRunArgs): string {
   const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "query invocationsForPlan(" + parts.join(", ") + ")";
+  parts.push("runId: " + renderMemQLValue(args.runId));
+  return "query invocationsForRun(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    invocationsForPlan(args: InvocationsForPlanArgs, opts?: QueryCallOptions): Promise<Result>;
+    invocationsForRun(args: InvocationsForRunArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
-QueryClient.prototype.invocationsForPlan = function (this: QueryClient, args: InvocationsForPlanArgs = {} as InvocationsForPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("invocationsForPlan", buildInvocationsForPlan(args), opts);
+QueryClient.prototype.invocationsForRun = function (this: QueryClient, args: InvocationsForRunArgs = {} as InvocationsForRunArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("invocationsForRun", buildInvocationsForRun(args), opts);
 };
 
 /** List the caller's worker invocations, across every machine they own. */
@@ -5219,92 +5137,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.pendingUserInvitations = function (this: QueryClient, args: PendingUserInvitationsArgs = {} as PendingUserInvitationsArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("pendingUserInvitations", buildPendingUserInvitations(args), opts);
-};
-
-/** Single Plan by id. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["planById"] in generated_concepts.ts).
-export interface PlanByIdArgs {
-  planId: string;
-}
-
-export function buildPlanById(args: PlanByIdArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "query planById(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    planById(args: PlanByIdArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.planById = function (this: QueryClient, args: PlanByIdArgs = {} as PlanByIdArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("planById", buildPlanById(args), opts);
-};
-
-/** Every Plan the reactive loop spawned for a responsibility, matched on the input.responsibilityId back-pointer. Backs the C1 dedup guard (one live Plan per continuous responsibility). Terminal-vs-live filtering happens Go-side (no NOT/OR in MemQL filters). */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["plansForResponsibility"] in generated_concepts.ts).
-export interface PlansForResponsibilityArgs {
-  responsibilityId: string;
-}
-
-export function buildPlansForResponsibility(args: PlansForResponsibilityArgs): string {
-  const parts: string[] = [];
-  parts.push("responsibilityId: " + renderMemQLValue(args.responsibilityId));
-  return "query plansForResponsibility(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    plansForResponsibility(args: PlansForResponsibilityArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.plansForResponsibility = function (this: QueryClient, args: PlansForResponsibilityArgs = {} as PlansForResponsibilityArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("plansForResponsibility", buildPlansForResponsibility(args), opts);
-};
-
-/** All Plans in a space (Tasks page list). Frontend groups by status and applies the Done-window visual filter. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["plansForSpace"] in generated_concepts.ts).
-export interface PlansForSpaceArgs {
-  partitionId: string;
-}
-
-export function buildPlansForSpace(args: PlansForSpaceArgs): string {
-  const parts: string[] = [];
-  parts.push("partitionId: " + renderMemQLValue(args.partitionId));
-  return "query plansForSpace(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    plansForSpace(args: PlansForSpaceArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.plansForSpace = function (this: QueryClient, args: PlansForSpaceArgs = {} as PlansForSpaceArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("plansForSpace", buildPlansForSpace(args), opts);
-};
-
-/** Every Plan the caller requested, newest first, whatever its status. Owned: requestedBy==actor.userId binds server-side so a caller only ever sees their own. Backs the Nexus goal picker and its recent-goals strip (memql#4373), which pin the running ones to the top client-side from the status already on each row -- distinct from activePlansForUser / waitingPlansForUser, neither of which can name a goal that has finished. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["plansForUser"] in generated_concepts.ts).
-export interface PlansForUserArgs {
-}
-
-export function buildPlansForUser(args: PlansForUserArgs): string {
-  void args;
-  return "query plansForUser()";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    plansForUser(args?: PlansForUserArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.plansForUser = function (this: QueryClient, args: PlansForUserArgs = {} as PlansForUserArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("plansForUser", buildPlansForUser(args), opts);
 };
 
 /** Returns the validation policy for a record type. Space-specific policies take precedence over global. */
@@ -9855,26 +9687,6 @@ QueryClient.prototype.stores = function (this: QueryClient, args: StoresArgs = {
   return this.executeNamed("stores", buildStores(args), opts);
 };
 
-/** Plans still in a pre-dispatch status (planning / queued). Backs the stranded-plan watchdog (memql#1389); the age + dedup check runs Go-side. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["strandedCandidatePlans"] in generated_concepts.ts).
-export interface StrandedCandidatePlansArgs {
-}
-
-export function buildStrandedCandidatePlans(args: StrandedCandidatePlansArgs): string {
-  void args;
-  return "query strandedCandidatePlans()";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    strandedCandidatePlans(args?: StrandedCandidatePlansArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.strandedCandidatePlans = function (this: QueryClient, args: StrandedCandidatePlansArgs = {} as StrandedCandidatePlansArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("strandedCandidatePlans", buildStrandedCandidatePlans(args), opts);
-};
-
 /** Latest-per-deploymentId deployment rows whose status is terminal-not-active (superseded / failed / rolled_back) -- the deployments whose still-registered nodes are orphans. Feeds the active-topology reaper (#1874). asOf latest -> current status per deployment. */
 // Bound concept: v1:cluster:deployment (machine-readable: BoundConcepts["supersededDeployments"] in generated_concepts.ts).
 export interface SupersededDeploymentsArgs {
@@ -10003,50 +9815,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.systemActiveAuthoringBundles = function (this: QueryClient, args: SystemActiveAuthoringBundlesArgs = {} as SystemActiveAuthoringBundlesArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("systemActiveAuthoringBundles", buildSystemActiveAuthoringBundles(args), opts);
-};
-
-/** Latest persisted state for a Task (planner reads this on resume). */
-// Bound concept: v1:planner:taskState (machine-readable: BoundConcepts["taskStateById"] in generated_concepts.ts).
-export interface TaskStateByIdArgs {
-  taskId: string;
-}
-
-export function buildTaskStateById(args: TaskStateByIdArgs): string {
-  const parts: string[] = [];
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  return "query taskStateById(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    taskStateById(args: TaskStateByIdArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.taskStateById = function (this: QueryClient, args: TaskStateByIdArgs = {} as TaskStateByIdArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("taskStateById", buildTaskStateById(args), opts);
-};
-
-/** All Tasks for a Plan, in seq order. */
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["tasksForPlan"] in generated_concepts.ts).
-export interface TasksForPlanArgs {
-  planId: string;
-}
-
-export function buildTasksForPlan(args: TasksForPlanArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "query tasksForPlan(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    tasksForPlan(args: TasksForPlanArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.tasksForPlan = function (this: QueryClient, args: TasksForPlanArgs = {} as TasksForPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("tasksForPlan", buildTasksForPlan(args), opts);
 };
 
 /** One template by id, gated to its owner. Backs the template editor and the campaign editor's preview. Owned. */
@@ -10384,26 +10152,6 @@ QueryClient.prototype.validationQueue = function (this: QueryClient, args: Valid
   return this.executeNamed("validationQueue", buildValidationQueue(args), opts);
 };
 
-/** The caller's Plans parked in the per-account waiting queue (status=waitingForSlot) because the account is at its concurrency cap (epic memql#902 / #909). Owned tier (payload.requestedBy==actor.userId). FIFO order is by row.createdAt of the waitingForSlot version (carried in planFull); the frontend derives each Plan's queue position from that ascending order -- MemQL has no in-query window/rank function. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["waitingPlansForUser"] in generated_concepts.ts).
-export interface WaitingPlansForUserArgs {
-}
-
-export function buildWaitingPlansForUser(args: WaitingPlansForUserArgs): string {
-  void args;
-  return "query waitingPlansForUser()";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    waitingPlansForUser(args?: WaitingPlansForUserArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.waitingPlansForUser = function (this: QueryClient, args: WaitingPlansForUserArgs = {} as WaitingPlansForUserArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("waitingPlansForUser", buildWaitingPlansForUser(args), opts);
-};
-
 /** ENGINE: the warming ramp's state for one sending identity (the id IS the identity). Cluster-owner gated. Backs both the ramp's own evaluation and an operator asking which step it is on and why it last held. */
 // Bound concept: v1:campaigns:warmupState (machine-readable: BoundConcepts["warmupStateForIdentity"] in generated_concepts.ts).
 export interface WarmupStateForIdentityArgs {
@@ -10733,24 +10481,24 @@ QueryClient.prototype.workersForUser = function (this: QueryClient, args: Worker
 
 /** Look up the workbench workspace row for a Plan. Returns empty when no workspace has been provisioned yet -- the integration uses this to decide whether to call provisionWorkspace on the first workbenchHost dispatch.
 The `ownerUserId==actor.userId` conjunct keeps this read's result set the SAME before and after the concept's tier is enforced (TestRowAuthzEnforcementLandGate). It is satisfied at runtime because the integration runs under auth.ContextWithUserActor for the parent plan's requestedBy -- which it has already resolved in order to know whose plan it is executing. Without that stamp this returns nothing, and "no workspace row" is indistinguishable from "not provisioned yet", so the integration would provision a second directory on every call. */
-// Bound concept: v1:workbench:workspace (machine-readable: BoundConcepts["workspaceForPlan"] in generated_concepts.ts).
-export interface WorkspaceForPlanArgs {
-  planId: string;
+// Bound concept: v1:workbench:workspace (machine-readable: BoundConcepts["workspaceForRun"] in generated_concepts.ts).
+export interface WorkspaceForRunArgs {
+  runId: string;
 }
 
-export function buildWorkspaceForPlan(args: WorkspaceForPlanArgs): string {
+export function buildWorkspaceForRun(args: WorkspaceForRunArgs): string {
   const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "query workspaceForPlan(" + parts.join(", ") + ")";
+  parts.push("runId: " + renderMemQLValue(args.runId));
+  return "query workspaceForRun(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    workspaceForPlan(args: WorkspaceForPlanArgs, opts?: QueryCallOptions): Promise<Result>;
+    workspaceForRun(args: WorkspaceForRunArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
-QueryClient.prototype.workspaceForPlan = function (this: QueryClient, args: WorkspaceForPlanArgs = {} as WorkspaceForPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("workspaceForPlan", buildWorkspaceForPlan(args), opts);
+QueryClient.prototype.workspaceForRun = function (this: QueryClient, args: WorkspaceForRunArgs = {} as WorkspaceForRunArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("workspaceForRun", buildWorkspaceForRun(args), opts);
 };
 

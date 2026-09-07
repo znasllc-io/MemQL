@@ -117,7 +117,7 @@ func TestTrigger_RawTopicWithoutStrayKwargsStillLoads(t *testing.T) {
 		"system.shutdown",
 		"deploy.requested",
 		"cognition.response.requested",
-		"graph.node.updated.v1:planner:plan",
+		"graph.node.updated.v1:planner:responsibility",
 	} {
 		t.Run(topic, func(t *testing.T) {
 			src := `@trigger(event="` + topic + `")` + "\nautomation rawTopicProbe" + triggerProbeBody

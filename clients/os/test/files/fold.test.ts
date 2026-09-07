@@ -160,7 +160,7 @@ function archivedFile(over: Partial<ArtifactRow> & { id: string }): ArtifactRow 
     accountIds: [],
     folderId: over.folderId ?? "",
     archived: true,
-    producedByPlanId: "",
+    producedByRunId: "",
     producedByWorkerId: "",
     producedByWorkerName: "",
     validationStatus: "",

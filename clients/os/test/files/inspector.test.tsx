@@ -170,7 +170,7 @@ describe("a copyable value", () => {
     h.connection = fakeConnection({
       // No plan produced this file, so the Plan fact does not render at all
       // and the id is the only copyable value on the panel.
-      artifacts: [artifactRow({ id: LONG_ID, title: "brief.pdf", producedByPlanId: "" })],
+      artifacts: [artifactRow({ id: LONG_ID, title: "brief.pdf", producedByRunId: "" })],
     });
     await renderFiles();
     const inspector = await openInspector("brief\\.pdf");

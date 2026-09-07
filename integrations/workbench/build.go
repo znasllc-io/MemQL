@@ -31,7 +31,7 @@ import (
 // WHY A SECOND ENTRY RATHER THAN SIX MORE TOOL CALLS
 // ===========================================================================
 // The agent tool loop reaches this integration through workbenchHost, keyed on
-// a Plan, with a per-Plan workspace and the exec allowlist between it and the
+// a run, with a per-run workspace and the exec allowlist between it and the
 // shell. A package build is a different caller with a different contract: the
 // command is the manifest's (somebody else's code, run where that is assumed
 // rather than hoped), the key is the DEPLOYMENT, the owner is the package's,
@@ -50,7 +50,7 @@ import (
 // A build directory lives for exactly one call: provisioned, filled from the
 // snapshot, built, packed, torn down -- whether the build succeeded, failed or
 // timed out. No v1:workbench:workspace row is written for it (that row's
-// planId! and its parent relationship to a plan would point at nothing), no
+// runId! and its parent relationship to a plan would point at nothing), no
 // teardown waits on the deployment's terminal status, and a node lost mid-run
 // leaks nothing but a directory on a pod that is already gone. Affinity is a
 // preference the CALLER carries between the deployables of one run (the node
@@ -401,7 +401,7 @@ func (i *Integration) forwardBuild(ctx context.Context, fwd buildForwarder, req 
 		return BuildResult{}, err
 	}
 	wire := &nodev1.WorkbenchForwardRequest{
-		PlanId:     buildKey(req),
+		RunId:      buildKey(req),
 		Action:     BuildAction,
 		ArgsJson:   payload,
 		TimeoutSec: int32(req.timeout() / time.Second),

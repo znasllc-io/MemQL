@@ -100,7 +100,13 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // open goals against, and trainSpecialist (memql#5051), which replaced the
 // Plan dispatcher. All three carry @template rather than a trigger -- they are
 // invoked by the run that names them.
-const shippedAutomationCount = 50
+//
+// 50 -> 49 with killSwitchSuspendsRunningPlans, deleted in memql#5053 -- it
+// selected Plans on a field runs do not carry, and it had never fired
+// (memql#2870). The enforced computer-use kill switch is the pre-dispatch gate
+// in integrations/agent/worker/dispatch.go, which is untouched; memql#5066
+// decides whether in-flight cancellation is rebuilt.
+const shippedAutomationCount = 49
 
 // TestStrictAutomationBoot_MalformedAutomationRefusesBoot is the core
 // acceptance test: a malformed automation injected as a throwaway domain (the

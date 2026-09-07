@@ -122,7 +122,7 @@ func TestPromoteCanvasOutput_SkipsNoOwner(t *testing.T) {
 func TestPromoteCanvasOutput_PromotesRealCard(t *testing.T) {
 	ce := &captureEngine{}
 	r := newTestReplier(ce)
-	tc := turnContext{OwnerUserId: "user-1", AgentId: "agent-1", PartitionId: "space-1", PlanId: "plan-1"}
+	tc := turnContext{OwnerUserId: "user-1", AgentId: "agent-1", PartitionId: "space-1", RunId: "plan-1"}
 	r.promoteCanvasOutput(context.Background(), tc, map[string]any{
 		"data": map[string]any{"title": "Report", "source": "# Heading\nbody"},
 	})

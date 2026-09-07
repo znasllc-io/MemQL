@@ -172,8 +172,8 @@ func (h *ForwardHandler) HandleForwardedRequest(
 		Args:          innerArgs,
 		AgentId:       req.GetAgentId(),
 		OwnerUserId:   owner,
-		PlanId:        req.GetPlanId(),
-		TaskId:        req.GetTaskId(),
+		RunId:         req.GetRunId(),
+		StepId:        req.GetStepId(),
 		CorrelationId: req.GetCorrelationId(),
 	}, timeout)
 

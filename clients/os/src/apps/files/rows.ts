@@ -35,7 +35,7 @@ export interface ArtifactRow {
   /** "" = root. Absent on every pre-folders row, which is the same answer. */
   folderId: string;
   archived: boolean;
-  producedByPlanId: string;
+  producedByRunId: string;
   producedByWorkerId: string;
   producedByWorkerName: string;
   /** Documents carry the training pipeline's verdict; others answer "". */
@@ -63,7 +63,7 @@ export function artifactFromRow(raw: Row): ArtifactRow {
     // `archived` member at all, and a fold that read absence as true would
     // empty the list on the first event that did not touch the field.
     archived: boolOr(row, "archived", false),
-    producedByPlanId: rowString(row, "producedByPlanId"),
+    producedByRunId: rowString(row, "producedByRunId"),
     producedByWorkerId: rowString(row, "producedByWorkerId"),
     producedByWorkerName: rowString(row, "producedByWorkerName"),
     validationStatus: rowString(row, "validationStatus"),
@@ -229,7 +229,7 @@ export function fileStory(row: ArtifactRow, machine: MachinePresence | null): Fi
     // Made by computer use, machine unrecorded: honest and dot-less.
     return { sentence: "Made by computer use", tone: "unknown", machineNamed: false };
   }
-  if (row.producedByPlanId !== "") {
+  if (row.producedByRunId !== "") {
     // THE ID IS NOT IN THE SENTENCE, and that is the whole of the fix.
     //
     // This read `Produced by plan ${id}`, which put a 32-character opaque

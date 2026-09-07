@@ -39,8 +39,8 @@ import (
 
 // conceptForgeRequest is the canonical concept id for v1:forge:request.
 // Defined here (not in concept_ids.go) because forge is a product DSL
-// bundle, not a filesystem-concept constant -- the same pattern used by
-// conceptPlannerPlan.
+// bundle, not a filesystem-concept constant. conceptPlannerPlan used to be the
+// sibling this pointed at; it went with the plan concepts in memql#5053.
 const conceptForgeRequest = "v1:forge:request"
 
 // Forge request status enum values. Must stay in lockstep with the

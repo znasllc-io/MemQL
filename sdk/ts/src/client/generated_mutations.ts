@@ -128,7 +128,7 @@ export interface AppendDocumentVersionArgs {
   authorId?: string;
   note?: string;
   parentVersionId?: string;
-  producedByPlanId?: string;
+  producedByRunId?: string;
   partitionId?: string;
 }
 
@@ -143,7 +143,7 @@ export function buildAppendDocumentVersion(args: AppendDocumentVersionArgs): str
   if (args.authorId !== undefined) parts.push("authorId: " + renderMemQLValue(args.authorId));
   if (args.note !== undefined) parts.push("note: " + renderMemQLValue(args.note));
   if (args.parentVersionId !== undefined) parts.push("parentVersionId: " + renderMemQLValue(args.parentVersionId));
-  if (args.producedByPlanId !== undefined) parts.push("producedByPlanId: " + renderMemQLValue(args.producedByPlanId));
+  if (args.producedByRunId !== undefined) parts.push("producedByRunId: " + renderMemQLValue(args.producedByRunId));
   if (args.partitionId !== undefined) parts.push("partitionId: " + renderMemQLValue(args.partitionId));
   return "mutation appendDocumentVersion(" + parts.join(", ") + ")";
 }
@@ -551,30 +551,6 @@ QueryClient.prototype.assignResponsibility = function (this: QueryClient, args: 
   return this.executeNamed("assignResponsibility", buildAssignResponsibility(args), opts);
 };
 
-/** Attach a user's free-text feedback to a Plan parked in awaitingFeedback and resume it (epic memql#1404 / #1405). Stamps feedbackResponse{response, respondedBy, respondedAt}, transitions awaitingFeedback -> running (fresh startedAt for a clean cross-replica resume claim), and clears feedbackReason/feedbackRequest so the request is consumed. The engine guard (validateFeedbackIntakeTransition) rejects the write unless the prior status is awaitingFeedback and the actor owns the Plan. The owning agent is re-invoked with the feedback in its resume context. Callable by the needs-feedback card AND the assistant chat path (#1406). */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["attachPlanFeedback"] in generated_concepts.ts).
-export interface AttachPlanFeedbackArgs {
-  planId: string;
-  feedback: string;
-}
-
-export function buildAttachPlanFeedback(args: AttachPlanFeedbackArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("feedback: " + renderMemQLValue(args.feedback));
-  return "mutation attachPlanFeedback(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    attachPlanFeedback(args: AttachPlanFeedbackArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.attachPlanFeedback = function (this: QueryClient, args: AttachPlanFeedbackArgs = {} as AttachPlanFeedbackArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("attachPlanFeedback", buildAttachPlanFeedback(args), opts);
-};
-
 /** Attach ONE v1:common:attachment to a v1:forge:request by appending its id to attachmentIds (no clobbering of existing attachments). Backed by @appendFields -- the update executor appends to the stored array. update read-merges all other request fields. */
 // Bound concept: v1:forge:request (machine-readable: BoundConcepts["attachToRequest"] in generated_concepts.ts).
 export interface AttachToRequestArgs {
@@ -887,36 +863,6 @@ QueryClient.prototype.completeTodo = function (this: QueryClient, args: Complete
   return this.executeNamed("completeTodo", buildCompleteTodo(args), opts);
 };
 
-/** Update a toolInvocation Task to a terminal state with its result or error. Companion to createToolInvocationTask. Status MUST be 'succeeded' or 'failed' (the only terminal transitions a toolInvocation can take -- there is no 'paused' or 'cancelled' on a tool call). On succeeded: toolResult populated. On failed: errorMessage populated. */
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["completeToolInvocation"] in generated_concepts.ts).
-export interface CompleteToolInvocationArgs {
-  taskId: string;
-  status: string;
-  toolResult?: Record<string, unknown>;
-  errorMessage?: string;
-  completedAt?: string;
-}
-
-export function buildCompleteToolInvocation(args: CompleteToolInvocationArgs): string {
-  const parts: string[] = [];
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  parts.push("status: " + renderMemQLValue(args.status));
-  if (args.toolResult !== undefined) parts.push("toolResult: " + renderMemQLValue(args.toolResult));
-  if (args.errorMessage !== undefined) parts.push("errorMessage: " + renderMemQLValue(args.errorMessage));
-  if (args.completedAt !== undefined) parts.push("completedAt: " + renderMemQLValue(args.completedAt));
-  return "mutation completeToolInvocation(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    completeToolInvocation(args: CompleteToolInvocationArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.completeToolInvocation = function (this: QueryClient, args: CompleteToolInvocationArgs = {} as CompleteToolInvocationArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("completeToolInvocation", buildCompleteToolInvocation(args), opts);
-};
-
 /** Human confirm a data record, updating confirm count and validation state */
 // Bound concept: v1:data:record (machine-readable: BoundConcepts["confirmRecord"] in generated_concepts.ts).
 export interface ConfirmRecordArgs {
@@ -1117,36 +1063,6 @@ QueryClient.prototype.createAccountTokenIdentity = function (this: QueryClient, 
   return this.executeNamed("createAccountTokenIdentity", buildCreateAccountTokenIdentity(args), opts);
 };
 
-/** Create a synthetic Plan that wraps an ad-hoc tool call made outside any user-initiated planning context. Per Q5: every tool call must produce a Task; Tasks must have a parent Plan; chat-driven tool calls (no user-facing Plan) get a synthetic Plan with kind='adHocAction' so the invariant holds. Status is set to running and completes immediately when the synthetic semantic Task wrapping the tool call resolves. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["createAdHocPlan"] in generated_concepts.ts).
-export interface CreateAdHocPlanArgs {
-  planId: string;
-  partitionId: string;
-  agentId: string;
-  ownerUserId: string;
-  goal: string;
-}
-
-export function buildCreateAdHocPlan(args: CreateAdHocPlanArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("partitionId: " + renderMemQLValue(args.partitionId));
-  parts.push("agentId: " + renderMemQLValue(args.agentId));
-  parts.push("ownerUserId: " + renderMemQLValue(args.ownerUserId));
-  parts.push("goal: " + renderMemQLValue(args.goal));
-  return "mutation createAdHocPlan(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createAdHocPlan(args: CreateAdHocPlanArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createAdHocPlan = function (this: QueryClient, args: CreateAdHocPlanArgs = {} as CreateAdHocPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createAdHocPlan", buildCreateAdHocPlan(args), opts);
-};
-
 /** Create a new AI agent template. The `kind` arg defaults to `assistant` -- the safe value for the frontend's create-agent modal flow. The SeedMaterializer (running under the `system:seedMaterializer` actor) passes `kind: "system"` when materializing platform agents (MemQL Planner / MemQL Trainer). The planner integration (running under the `system:planner` actor; memql#399) passes `kind: "specialist"` when auto-provisioning a specialist for a Plan's capability gap. User-actor calls that try to pass `kind in ("system", "specialist")` are rejected pre-insert by an engine-level actor-scope guard (component/memql/agent_kind_actor_validation.go, memql#403); the mutation surface itself stays permissive on `kind` so the seed + planner paths can keep writing their values with the rejection one layer up. */
 // Bound concept: v1:agents:agent (machine-readable: BoundConcepts["createAgent"] in generated_concepts.ts).
 export interface CreateAgentArgs {
@@ -1341,7 +1257,7 @@ export interface CreateArtifactArgs {
   folderId?: string;
   partitionId?: string;
   agentId?: string;
-  producedByPlanId?: string;
+  producedByRunId?: string;
   producedByWorkerId?: string;
   producedByWorkerName?: string;
   // Enum: none | unvalidated | validated | rejected | partiallyValidated | superseded
@@ -1366,7 +1282,7 @@ export function buildCreateArtifact(args: CreateArtifactArgs): string {
   if (args.folderId !== undefined) parts.push("folderId: " + renderMemQLValue(args.folderId));
   if (args.partitionId !== undefined) parts.push("partitionId: " + renderMemQLValue(args.partitionId));
   if (args.agentId !== undefined) parts.push("agentId: " + renderMemQLValue(args.agentId));
-  if (args.producedByPlanId !== undefined) parts.push("producedByPlanId: " + renderMemQLValue(args.producedByPlanId));
+  if (args.producedByRunId !== undefined) parts.push("producedByRunId: " + renderMemQLValue(args.producedByRunId));
   if (args.producedByWorkerId !== undefined) parts.push("producedByWorkerId: " + renderMemQLValue(args.producedByWorkerId));
   if (args.producedByWorkerName !== undefined) parts.push("producedByWorkerName: " + renderMemQLValue(args.producedByWorkerName));
   if (args.validationStatus !== undefined) parts.push("validationStatus: " + renderMemQLValue(args.validationStatus));
@@ -2351,7 +2267,7 @@ export interface CreateGeneratedOutputArgs {
   // Enum: workbench_generated | computer_use | agent_generated | derived | user_created
   source: string;
   partitionId?: string;
-  producedByPlanId?: string;
+  producedByRunId?: string;
   producedByAgentId?: string;
   producedByWorkerId?: string;
   producedByWorkerName?: string;
@@ -2368,7 +2284,7 @@ export function buildCreateGeneratedOutput(args: CreateGeneratedOutputArgs): str
   if (args.mimeType !== undefined) parts.push("mimeType: " + renderMemQLValue(args.mimeType));
   parts.push("source: " + renderMemQLValue(args.source));
   if (args.partitionId !== undefined) parts.push("partitionId: " + renderMemQLValue(args.partitionId));
-  if (args.producedByPlanId !== undefined) parts.push("producedByPlanId: " + renderMemQLValue(args.producedByPlanId));
+  if (args.producedByRunId !== undefined) parts.push("producedByRunId: " + renderMemQLValue(args.producedByRunId));
   if (args.producedByAgentId !== undefined) parts.push("producedByAgentId: " + renderMemQLValue(args.producedByAgentId));
   if (args.producedByWorkerId !== undefined) parts.push("producedByWorkerId: " + renderMemQLValue(args.producedByWorkerId));
   if (args.producedByWorkerName !== undefined) parts.push("producedByWorkerName: " + renderMemQLValue(args.producedByWorkerName));
@@ -2950,54 +2866,6 @@ QueryClient.prototype.createPasskeyIdentity = function (this: QueryClient, args:
   return this.executeNamed("createPasskeyIdentity", buildCreatePasskeyIdentity(args), opts);
 };
 
-/** Insert a v1:planner:plan row in status='planning'. Single write path for Plan creation across all trigger sources; the planner claims it off the node-created event. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["createPlan"] in generated_concepts.ts).
-export interface CreatePlanArgs {
-  planId?: string;
-  partitionId: string;
-  parentPlanId?: string;
-  kind: string;
-  goal: string;
-  requestedBy: string;
-  triggerSource?: string;
-  authorizedBy?: string;
-  ownerAgentId?: string;
-  input: Record<string, unknown>;
-  refinementContext?: Record<string, unknown>;
-  tokenBudget?: number;
-  pauseExtendsDeadline?: boolean;
-  chatAnchorMessageId?: string;
-}
-
-export function buildCreatePlan(args: CreatePlanArgs): string {
-  const parts: string[] = [];
-  if (args.planId !== undefined) parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("partitionId: " + renderMemQLValue(args.partitionId));
-  if (args.parentPlanId !== undefined) parts.push("parentPlanId: " + renderMemQLValue(args.parentPlanId));
-  parts.push("kind: " + renderMemQLValue(args.kind));
-  parts.push("goal: " + renderMemQLValue(args.goal));
-  parts.push("requestedBy: " + renderMemQLValue(args.requestedBy));
-  if (args.triggerSource !== undefined) parts.push("triggerSource: " + renderMemQLValue(args.triggerSource));
-  if (args.authorizedBy !== undefined) parts.push("authorizedBy: " + renderMemQLValue(args.authorizedBy));
-  if (args.ownerAgentId !== undefined) parts.push("ownerAgentId: " + renderMemQLValue(args.ownerAgentId));
-  parts.push("input: " + renderMemQLValue(args.input));
-  if (args.refinementContext !== undefined) parts.push("refinementContext: " + renderMemQLValue(args.refinementContext));
-  if (args.tokenBudget !== undefined) parts.push("tokenBudget: " + renderMemQLValue(args.tokenBudget));
-  if (args.pauseExtendsDeadline !== undefined) parts.push("pauseExtendsDeadline: " + renderMemQLValue(args.pauseExtendsDeadline));
-  if (args.chatAnchorMessageId !== undefined) parts.push("chatAnchorMessageId: " + renderMemQLValue(args.chatAnchorMessageId));
-  return "mutation createPlan(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createPlan(args: CreatePlanArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createPlan = function (this: QueryClient, args: CreatePlanArgs = {} as CreatePlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createPlan", buildCreatePlan(args), opts);
-};
-
 /** Register a v1:forge:project. createdByUserId is stamped from actor.userId. */
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["createProject"] in generated_concepts.ts).
 export interface CreateProjectArgs {
@@ -3311,88 +3179,6 @@ QueryClient.prototype.createRoutingPolicy = function (this: QueryClient, args: C
   return this.executeNamed("createRoutingPolicy", buildCreateRoutingPolicy(args), opts);
 };
 
-/** Insert a Plan in awaitingFeedback / scope_elevation_required for a pending computer_use task. The emitScopeElevationCanvasCard automation lands the canvas card; the user approves or denies via the card's buttons. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["createScopeElevationPlan"] in generated_concepts.ts).
-export interface CreateScopeElevationPlanArgs {
-  planId: string;
-  agentId: string;
-  ownerUserId: string;
-  partitionId?: string;
-  intent: string;
-  summary: string;
-  requestedScope: string;
-}
-
-export function buildCreateScopeElevationPlan(args: CreateScopeElevationPlanArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("agentId: " + renderMemQLValue(args.agentId));
-  parts.push("ownerUserId: " + renderMemQLValue(args.ownerUserId));
-  if (args.partitionId !== undefined) parts.push("partitionId: " + renderMemQLValue(args.partitionId));
-  parts.push("intent: " + renderMemQLValue(args.intent));
-  parts.push("summary: " + renderMemQLValue(args.summary));
-  parts.push("requestedScope: " + renderMemQLValue(args.requestedScope));
-  return "mutation createScopeElevationPlan(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createScopeElevationPlan(args: CreateScopeElevationPlanArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createScopeElevationPlan = function (this: QueryClient, args: CreateScopeElevationPlanArgs = {} as CreateScopeElevationPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createScopeElevationPlan", buildCreateScopeElevationPlan(args), opts);
-};
-
-/** Create a semantic Task -- the Planner-decision unit. Differs from createTask (in the product pack) by carrying the new category/logicalStepId/attemptNumber fields explicitly. Used by the Planner Agent at decomposition time and by the taskstamp Stamper to materialize the parent semantic Task for ad-hoc tool calls. */
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["createSemanticTask"] in generated_concepts.ts).
-export interface CreateSemanticTaskArgs {
-  taskId: string;
-  planId: string;
-  kind: string;
-  seq: number;
-  logicalStepId?: string;
-  attemptNumber?: number;
-  phase?: string;
-  dependsOn?: string[];
-  input: Record<string, unknown>;
-  /** inProcess (the default) or containerExecutor when the delegation triage found a machine with an allowed, signed-in app online. */
-  // Enum: inProcess | containerExecutor
-  executionSurface?: string;
-  /** The registered backend, e.g. "cockpit-app:claude-code". Empty for an inProcess task. */
-  executorBackend?: string;
-  /** Why this Task got the surface it did -- recorded on BOTH branches. */
-  delegationReason?: string;
-}
-
-export function buildCreateSemanticTask(args: CreateSemanticTaskArgs): string {
-  const parts: string[] = [];
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("kind: " + renderMemQLValue(args.kind));
-  parts.push("seq: " + renderMemQLValue(args.seq));
-  if (args.logicalStepId !== undefined) parts.push("logicalStepId: " + renderMemQLValue(args.logicalStepId));
-  if (args.attemptNumber !== undefined) parts.push("attemptNumber: " + renderMemQLValue(args.attemptNumber));
-  if (args.phase !== undefined) parts.push("phase: " + renderMemQLValue(args.phase));
-  if (args.dependsOn !== undefined) parts.push("dependsOn: " + renderMemQLValue(args.dependsOn));
-  parts.push("input: " + renderMemQLValue(args.input));
-  if (args.executionSurface !== undefined) parts.push("executionSurface: " + renderMemQLValue(args.executionSurface));
-  if (args.executorBackend !== undefined) parts.push("executorBackend: " + renderMemQLValue(args.executorBackend));
-  if (args.delegationReason !== undefined) parts.push("delegationReason: " + renderMemQLValue(args.delegationReason));
-  return "mutation createSemanticTask(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createSemanticTask(args: CreateSemanticTaskArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createSemanticTask = function (this: QueryClient, args: CreateSemanticTaskArgs = {} as CreateSemanticTaskArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createSemanticTask", buildCreateSemanticTask(args), opts);
-};
-
 /** Declare a mailbox this deployment may send campaign mail as. Owned: ownerUserId is stamped from actor.userId, so a caller can only ever declare their own.
 NO CREDENTIAL CROSSES THIS BOUNDARY, which is why it is an ordinary client-reachable mutation rather than a @serverOnly one. Authentication stays the cluster's single Graph credential; this row says a mailbox exists and may be used. What it CANNOT do is make a mailbox sendable -- that is the tenant's ApplicationAccessPolicy, and an address declared here but missing from that group surfaces as Graph's own 403 on the campaign's lastError. The engine validates the address for RFC shape and header safety before it is stored: it becomes a From header and a URL path segment, and a CR or LF in it would be header injection into every message the identity ever sends. */
 // Bound concept: v1:campaigns:senderIdentity (machine-readable: BoundConcepts["createSenderIdentity"] in generated_concepts.ts).
@@ -3543,7 +3329,7 @@ export interface CreateSkillChangeEventArgs {
   after?: Record<string, unknown>;
   actorAgentId?: string;
   actorUserId?: string;
-  planId?: string;
+  runId?: string;
 }
 
 export function buildCreateSkillChangeEvent(args: CreateSkillChangeEventArgs): string {
@@ -3556,7 +3342,7 @@ export function buildCreateSkillChangeEvent(args: CreateSkillChangeEventArgs): s
   if (args.after !== undefined) parts.push("after: " + renderMemQLValue(args.after));
   if (args.actorAgentId !== undefined) parts.push("actorAgentId: " + renderMemQLValue(args.actorAgentId));
   if (args.actorUserId !== undefined) parts.push("actorUserId: " + renderMemQLValue(args.actorUserId));
-  if (args.planId !== undefined) parts.push("planId: " + renderMemQLValue(args.planId));
+  if (args.runId !== undefined) parts.push("runId: " + renderMemQLValue(args.runId));
   return "mutation createSkillChangeEvent(" + parts.join(", ") + ")";
 }
 
@@ -3644,48 +3430,6 @@ QueryClient.prototype.createStore = function (this: QueryClient, args: CreateSto
   return this.executeNamed("createStore", buildCreateStore(args), opts);
 };
 
-/** Insert a v1:planner:task row in status='queued'. Single write path for Task creation, called by the planner during decomposition. */
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["createTask"] in generated_concepts.ts).
-export interface CreateTaskArgs {
-  taskId?: string;
-  planId: string;
-  // Enum: semantic | toolInvocation
-  category?: string;
-  kind: string;
-  seq: number;
-  phase?: string;
-  executionSurface?: string;
-  executorBackend?: string;
-  /** Why this Task got the surface it did (memql#4362). */
-  delegationReason?: string;
-  input: Record<string, unknown>;
-}
-
-export function buildCreateTask(args: CreateTaskArgs): string {
-  const parts: string[] = [];
-  if (args.taskId !== undefined) parts.push("taskId: " + renderMemQLValue(args.taskId));
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  if (args.category !== undefined) parts.push("category: " + renderMemQLValue(args.category));
-  parts.push("kind: " + renderMemQLValue(args.kind));
-  parts.push("seq: " + renderMemQLValue(args.seq));
-  if (args.phase !== undefined) parts.push("phase: " + renderMemQLValue(args.phase));
-  if (args.executionSurface !== undefined) parts.push("executionSurface: " + renderMemQLValue(args.executionSurface));
-  if (args.executorBackend !== undefined) parts.push("executorBackend: " + renderMemQLValue(args.executorBackend));
-  if (args.delegationReason !== undefined) parts.push("delegationReason: " + renderMemQLValue(args.delegationReason));
-  parts.push("input: " + renderMemQLValue(args.input));
-  return "mutation createTask(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createTask(args: CreateTaskArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createTask = function (this: QueryClient, args: CreateTaskArgs = {} as CreateTaskArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createTask", buildCreateTask(args), opts);
-};
-
 /** Create an email template owned by the caller. Lands as a draft; an operator marks it ready with updateTemplate once the copy is finished. Owned. */
 // Bound concept: v1:campaigns:template (machine-readable: BoundConcepts["createTemplate"] in generated_concepts.ts).
 export interface CreateTemplateArgs {
@@ -3747,38 +3491,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.createTodo = function (this: QueryClient, args: CreateTodoArgs = {} as CreateTodoArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("createTodo", buildCreateTodo(args), opts);
-};
-
-/** Create a toolInvocation Task -- the engine-auto-stamped record of an agent tool call. Per Q5+Q6: every tool call by an executing agent produces one of these, parented to the semantic Task that was executing when the tool fired. The engine's tool-dispatch wrapper inserts this row at dispatch time then calls completeToolInvocation when the call returns. parentTaskId is required (a toolInvocation row must have a semantic parent); the engine enforces this invariant. */
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["createToolInvocationTask"] in generated_concepts.ts).
-export interface CreateToolInvocationTaskArgs {
-  taskId: string;
-  planId: string;
-  parentTaskId: string;
-  toolName: string;
-  toolArgs?: Record<string, unknown>;
-  seq: number;
-}
-
-export function buildCreateToolInvocationTask(args: CreateToolInvocationTaskArgs): string {
-  const parts: string[] = [];
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("parentTaskId: " + renderMemQLValue(args.parentTaskId));
-  parts.push("toolName: " + renderMemQLValue(args.toolName));
-  if (args.toolArgs !== undefined) parts.push("toolArgs: " + renderMemQLValue(args.toolArgs));
-  parts.push("seq: " + renderMemQLValue(args.seq));
-  return "mutation createToolInvocationTask(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createToolInvocationTask(args: CreateToolInvocationTaskArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createToolInvocationTask = function (this: QueryClient, args: CreateToolInvocationTaskArgs = {} as CreateToolInvocationTaskArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createToolInvocationTask", buildCreateToolInvocationTask(args), opts);
 };
 
 /** Create a new user (person / synthetic principal). */
@@ -3870,8 +3582,8 @@ export interface CreateWorkerInvocationArgs {
   invocationId: string;
   workerId: string;
   agentId: string;
-  planId?: string;
-  taskId?: string;
+  runId?: string;
+  stepId?: string;
   correlationId?: string;
   tool: string;
   action: string;
@@ -3895,8 +3607,8 @@ export function buildCreateWorkerInvocation(args: CreateWorkerInvocationArgs): s
   parts.push("invocationId: " + renderMemQLValue(args.invocationId));
   parts.push("workerId: " + renderMemQLValue(args.workerId));
   parts.push("agentId: " + renderMemQLValue(args.agentId));
-  if (args.planId !== undefined) parts.push("planId: " + renderMemQLValue(args.planId));
-  if (args.taskId !== undefined) parts.push("taskId: " + renderMemQLValue(args.taskId));
+  if (args.runId !== undefined) parts.push("runId: " + renderMemQLValue(args.runId));
+  if (args.stepId !== undefined) parts.push("stepId: " + renderMemQLValue(args.stepId));
   if (args.correlationId !== undefined) parts.push("correlationId: " + renderMemQLValue(args.correlationId));
   parts.push("tool: " + renderMemQLValue(args.tool));
   parts.push("action: " + renderMemQLValue(args.action));
@@ -4508,7 +4220,7 @@ export interface LogMissingCapabilityArgs {
   kind: string;
   capability: string;
   description: string;
-  requestedFromPlanId?: string;
+  requestedFromRunId?: string;
   requestedByAgentId?: string;
   partitionId?: string;
   partitionScope?: string;
@@ -4522,7 +4234,7 @@ export function buildLogMissingCapability(args: LogMissingCapabilityArgs): strin
   parts.push("kind: " + renderMemQLValue(args.kind));
   parts.push("capability: " + renderMemQLValue(args.capability));
   parts.push("description: " + renderMemQLValue(args.description));
-  if (args.requestedFromPlanId !== undefined) parts.push("requestedFromPlanId: " + renderMemQLValue(args.requestedFromPlanId));
+  if (args.requestedFromRunId !== undefined) parts.push("requestedFromRunId: " + renderMemQLValue(args.requestedFromRunId));
   if (args.requestedByAgentId !== undefined) parts.push("requestedByAgentId: " + renderMemQLValue(args.requestedByAgentId));
   if (args.partitionId !== undefined) parts.push("partitionId: " + renderMemQLValue(args.partitionId));
   if (args.partitionScope !== undefined) parts.push("partitionScope: " + renderMemQLValue(args.partitionScope));
@@ -4761,38 +4473,6 @@ QueryClient.prototype.moveLibraryFolder = function (this: QueryClient, args: Mov
   return this.executeNamed("moveLibraryFolder", buildMoveLibraryFolder(args), opts);
 };
 
-/** Persist a Task's working state for async parking + planner re-invocation. Called when a Task transitions to paused / awaitingFeedback. */
-// Bound concept: v1:planner:taskState (machine-readable: BoundConcepts["persistTaskState"] in generated_concepts.ts).
-export interface PersistTaskStateArgs {
-  stateId?: string;
-  taskId: string;
-  workingMemory?: Record<string, unknown>;
-  reasoningChain?: string;
-  toolCallHistory?: Record<string, unknown>[];
-  pendingSubPlanIds?: string[];
-}
-
-export function buildPersistTaskState(args: PersistTaskStateArgs): string {
-  const parts: string[] = [];
-  if (args.stateId !== undefined) parts.push("stateId: " + renderMemQLValue(args.stateId));
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  if (args.workingMemory !== undefined) parts.push("workingMemory: " + renderMemQLValue(args.workingMemory));
-  if (args.reasoningChain !== undefined) parts.push("reasoningChain: " + renderMemQLValue(args.reasoningChain));
-  if (args.toolCallHistory !== undefined) parts.push("toolCallHistory: " + renderMemQLValue(args.toolCallHistory));
-  if (args.pendingSubPlanIds !== undefined) parts.push("pendingSubPlanIds: " + renderMemQLValue(args.pendingSubPlanIds));
-  return "mutation persistTaskState(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    persistTaskState(args: PersistTaskStateArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.persistTaskState = function (this: QueryClient, args: PersistTaskStateArgs = {} as PersistTaskStateArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("persistTaskState", buildPersistTaskState(args), opts);
-};
-
 /** Propose a healed OVERLAY override for a base construct (E4.2 / memql#2140). Writes a tier=overlay row with valid=false -- the repair loop proposes the heal, but it is INVISIBLE to resolution until human validation (E4.5) flips valid=true. Owned: ownerUserId is stamped from actor.userId so a caller can only propose overrides for their own constructs. tier is fixed to overlay (a base row can only be materialized by a system actor); the validateHealingBaseImmutable guard rejects any attempt to write tier=base here. */
 // Bound concept: v1:healing:healedOverride (machine-readable: BoundConcepts["proposeOverride"] in generated_concepts.ts).
 export interface ProposeOverrideArgs {
@@ -4828,13 +4508,13 @@ QueryClient.prototype.proposeOverride = function (this: QueryClient, args: Propo
   return this.executeNamed("proposeOverride", buildProposeOverride(args), opts);
 };
 
-/** Create the v1:workbench:workspace row for a Plan on first workbenchHost call. Storage root is supplied by the workbench integration which has already created the directory on disk.
+/** Create the v1:workbench:workspace row for a run on first workbenchHost call. Storage root is supplied by the workbench integration which has already created the directory on disk.
 ownerUserId is STAMPED FROM THE ACTOR (memql#4354). The concept declares @rowAuthz(owner="ownerUserId", clusterOwner), and a declared owner field written from caller args fails TestDeclaredOwnerFieldsAreServerStamped. The workbench integration therefore runs this write under auth.ContextWithUserActor for the parent plan's requestedBy, which it has already resolved in order to know whose plan it is executing.
 nodeId is the serving replica's own MEMQL_NODE_ID, supplied by the node that just made the directory. It is an arg rather than a stamp because only that node knows it, and it is not forgeable to any useful end: naming another replica would send the picker somewhere the directory is not, which reads as a node loss and re-provisions. */
 // Bound concept: v1:workbench:workspace (machine-readable: BoundConcepts["provisionWorkspace"] in generated_concepts.ts).
 export interface ProvisionWorkspaceArgs {
   workspaceId: string;
-  planId: string;
+  runId: string;
   storageRoot: string;
   nodeId?: string;
 }
@@ -4842,7 +4522,7 @@ export interface ProvisionWorkspaceArgs {
 export function buildProvisionWorkspace(args: ProvisionWorkspaceArgs): string {
   const parts: string[] = [];
   parts.push("workspaceId: " + renderMemQLValue(args.workspaceId));
-  parts.push("planId: " + renderMemQLValue(args.planId));
+  parts.push("runId: " + renderMemQLValue(args.runId));
   parts.push("storageRoot: " + renderMemQLValue(args.storageRoot));
   if (args.nodeId !== undefined) parts.push("nodeId: " + renderMemQLValue(args.nodeId));
   return "mutation provisionWorkspace(" + parts.join(", ") + ")";
@@ -5251,39 +4931,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.recordPasskeyAssertion = function (this: QueryClient, args: RecordPasskeyAssertionArgs = {} as RecordPasskeyAssertionArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("recordPasskeyAssertion", buildRecordPasskeyAssertion(args), opts);
-};
-
-/** Record a planner-agent LLM invocation against a Plan: advance metrics.llmCallCount + tokenSpent without changing status. Caller computes the new totals Go-side (the parser has no arithmetic). */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["recordPlannerInvocation"] in generated_concepts.ts).
-export interface RecordPlannerInvocationArgs {
-  planId: string;
-  tokenSpent?: number;
-  /** Tokens the call spent through an app the user already pays for (memql#4362). Off the dollar ceiling, on the loop caps. */
-  tokenSpentSubscription?: number;
-  /** Tokens the call spent on a model hosted by one of the user's own machines (memql#4681). Same two-caps split as the field above. */
-  /** ABSENT IS NOT ZERO: a runtime that reported no usage leaves this unpassed, so the counter keeps the total it had. Passing 0 would be indistinguishable from a call that genuinely spent nothing, and update{} is a read-merge, so an omitted field is exactly the right way to say "nobody counted". */
-  tokenSpentLocal?: number;
-  metrics?: Record<string, unknown>;
-}
-
-export function buildRecordPlannerInvocation(args: RecordPlannerInvocationArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  if (args.tokenSpent !== undefined) parts.push("tokenSpent: " + renderMemQLValue(args.tokenSpent));
-  if (args.tokenSpentSubscription !== undefined) parts.push("tokenSpentSubscription: " + renderMemQLValue(args.tokenSpentSubscription));
-  if (args.tokenSpentLocal !== undefined) parts.push("tokenSpentLocal: " + renderMemQLValue(args.tokenSpentLocal));
-  if (args.metrics !== undefined) parts.push("metrics: " + renderMemQLValue(args.metrics));
-  return "mutation recordPlannerInvocation(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    recordPlannerInvocation(args: RecordPlannerInvocationArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.recordPlannerInvocation = function (this: QueryClient, args: RecordPlannerInvocationArgs = {} as RecordPlannerInvocationArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("recordPlannerInvocation", buildRecordPlannerInvocation(args), opts);
 };
 
 /** ENGINE: write one replica's counters for one (sending identity, domain, day) bucket (memql#3462).
@@ -5943,30 +5590,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.requestChanges = function (this: QueryClient, args: RequestChangesArgs = {} as RequestChangesArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("requestChanges", buildRequestChanges(args), opts);
-};
-
-/** Transition an existing running Plan to awaitingFeedback / feedback_required with a feedbackRequest{question, kind, options?, timeoutAt}. Backs the requestUserFeedback agent tool. Partial-update via update() -- only status / feedbackReason / feedbackRequest change; required fields inherit from the prior row. The user's answer (feedbackResponse + status->running) resumes the Plan via the existing planner re-invocation path. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["requestPlanFeedback"] in generated_concepts.ts).
-export interface RequestPlanFeedbackArgs {
-  planId: string;
-  feedbackRequest: Record<string, unknown>;
-}
-
-export function buildRequestPlanFeedback(args: RequestPlanFeedbackArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("feedbackRequest: " + renderMemQLValue(args.feedbackRequest));
-  return "mutation requestPlanFeedback(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    requestPlanFeedback(args: RequestPlanFeedbackArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.requestPlanFeedback = function (this: QueryClient, args: RequestPlanFeedbackArgs = {} as RequestPlanFeedbackArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("requestPlanFeedback", buildRequestPlanFeedback(args), opts);
 };
 
 /** Mark a booking rescheduled and point at the replacement row. The replacement is created by a separate takeBooking call. */
@@ -7573,28 +7196,6 @@ QueryClient.prototype.stampNodeTokenBootstrap = function (this: QueryClient, arg
   return this.executeNamed("stampNodeTokenBootstrap", buildStampNodeTokenBootstrap(args), opts);
 };
 
-/** Promote a Plan from queued (planning complete, tasks emitted) to running. Triggered by the user clicking Run in the cockpit Planner tab, or by an automation that auto-runs plans on the user's behalf. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["startPlan"] in generated_concepts.ts).
-export interface StartPlanArgs {
-  planId: string;
-}
-
-export function buildStartPlan(args: StartPlanArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  return "mutation startPlan(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    startPlan(args: StartPlanArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.startPlan = function (this: QueryClient, args: StartPlanArgs = {} as StartPlanArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("startPlan", buildStartPlan(args), opts);
-};
-
 /** Take a booking against the host's published hours. The host is the caller -- this is the portal operations path (memql#4142). Booker identity is payload. */
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["takeBooking"] in generated_concepts.ts).
 export interface TakeBookingArgs {
@@ -8231,7 +7832,7 @@ export interface UpdateGeneratedOutputContentArgs {
   // Enum: workbench_generated | computer_use | agent_generated | derived | user_created
   source: string;
   partitionId?: string;
-  producedByPlanId?: string;
+  producedByRunId?: string;
   producedByAgentId?: string;
 }
 
@@ -8246,7 +7847,7 @@ export function buildUpdateGeneratedOutputContent(args: UpdateGeneratedOutputCon
   if (args.mimeType !== undefined) parts.push("mimeType: " + renderMemQLValue(args.mimeType));
   parts.push("source: " + renderMemQLValue(args.source));
   if (args.partitionId !== undefined) parts.push("partitionId: " + renderMemQLValue(args.partitionId));
-  if (args.producedByPlanId !== undefined) parts.push("producedByPlanId: " + renderMemQLValue(args.producedByPlanId));
+  if (args.producedByRunId !== undefined) parts.push("producedByRunId: " + renderMemQLValue(args.producedByRunId));
   if (args.producedByAgentId !== undefined) parts.push("producedByAgentId: " + renderMemQLValue(args.producedByAgentId));
   return "mutation updateGeneratedOutputContent(" + parts.join(", ") + ")";
 }
@@ -8529,72 +8130,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.updatePackageSource = function (this: QueryClient, args: UpdatePackageSourceArgs = {} as UpdatePackageSourceArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("updatePackageSource", buildUpdatePackageSource(args), opts);
-};
-
-/** Update a Plan's status with the full v1 lifecycle field set (paused/awaitingFeedback/needsAgent + metrics + estimate + token spend). Partial-update via update() -- only the fields you pass are changed; required fields inherit from the prior row. */
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["updatePlanStatus"] in generated_concepts.ts).
-export interface UpdatePlanStatusArgs {
-  planId: string;
-  status: string;
-  ownerAgentId?: string;
-  output?: Record<string, unknown>;
-  errorMessage?: string;
-  startedAt?: string;
-  completedAt?: string;
-  cancelledBy?: string;
-  pausedAt?: string;
-  totalPausedMs?: number;
-  feedbackRequest?: Record<string, unknown>;
-  feedbackResponse?: Record<string, unknown>;
-  feedbackReason?: string;
-  recommendationCardId?: string;
-  phases?: Record<string, unknown>[];
-  estimate?: Record<string, unknown>;
-  estimatedAt?: string;
-  tokenSpent?: number;
-  tokenSpentSubscription?: number;
-  tokenSpentLocal?: number;
-  tokenAllocatedToChildren?: number;
-  metrics?: Record<string, unknown>;
-  computerUseScope?: string;
-}
-
-export function buildUpdatePlanStatus(args: UpdatePlanStatusArgs): string {
-  const parts: string[] = [];
-  parts.push("planId: " + renderMemQLValue(args.planId));
-  parts.push("status: " + renderMemQLValue(args.status));
-  if (args.ownerAgentId !== undefined) parts.push("ownerAgentId: " + renderMemQLValue(args.ownerAgentId));
-  if (args.output !== undefined) parts.push("output: " + renderMemQLValue(args.output));
-  if (args.errorMessage !== undefined) parts.push("errorMessage: " + renderMemQLValue(args.errorMessage));
-  if (args.startedAt !== undefined) parts.push("startedAt: " + renderMemQLValue(args.startedAt));
-  if (args.completedAt !== undefined) parts.push("completedAt: " + renderMemQLValue(args.completedAt));
-  if (args.cancelledBy !== undefined) parts.push("cancelledBy: " + renderMemQLValue(args.cancelledBy));
-  if (args.pausedAt !== undefined) parts.push("pausedAt: " + renderMemQLValue(args.pausedAt));
-  if (args.totalPausedMs !== undefined) parts.push("totalPausedMs: " + renderMemQLValue(args.totalPausedMs));
-  if (args.feedbackRequest !== undefined) parts.push("feedbackRequest: " + renderMemQLValue(args.feedbackRequest));
-  if (args.feedbackResponse !== undefined) parts.push("feedbackResponse: " + renderMemQLValue(args.feedbackResponse));
-  if (args.feedbackReason !== undefined) parts.push("feedbackReason: " + renderMemQLValue(args.feedbackReason));
-  if (args.recommendationCardId !== undefined) parts.push("recommendationCardId: " + renderMemQLValue(args.recommendationCardId));
-  if (args.phases !== undefined) parts.push("phases: " + renderMemQLValue(args.phases));
-  if (args.estimate !== undefined) parts.push("estimate: " + renderMemQLValue(args.estimate));
-  if (args.estimatedAt !== undefined) parts.push("estimatedAt: " + renderMemQLValue(args.estimatedAt));
-  if (args.tokenSpent !== undefined) parts.push("tokenSpent: " + renderMemQLValue(args.tokenSpent));
-  if (args.tokenSpentSubscription !== undefined) parts.push("tokenSpentSubscription: " + renderMemQLValue(args.tokenSpentSubscription));
-  if (args.tokenSpentLocal !== undefined) parts.push("tokenSpentLocal: " + renderMemQLValue(args.tokenSpentLocal));
-  if (args.tokenAllocatedToChildren !== undefined) parts.push("tokenAllocatedToChildren: " + renderMemQLValue(args.tokenAllocatedToChildren));
-  if (args.metrics !== undefined) parts.push("metrics: " + renderMemQLValue(args.metrics));
-  if (args.computerUseScope !== undefined) parts.push("computerUseScope: " + renderMemQLValue(args.computerUseScope));
-  return "mutation updatePlanStatus(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    updatePlanStatus(args: UpdatePlanStatusArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.updatePlanStatus = function (this: QueryClient, args: UpdatePlanStatusArgs = {} as UpdatePlanStatusArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("updatePlanStatus", buildUpdatePlanStatus(args), opts);
 };
 
 /** Edit a draft quote's lines and terms. */
@@ -8962,44 +8497,6 @@ declare module "./query.js" {
 
 QueryClient.prototype.updateStore = function (this: QueryClient, args: UpdateStoreArgs = {} as UpdateStoreArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("updateStore", buildUpdateStore(args), opts);
-};
-
-/** Update a Task's status with optional output / error / lifecycle / metrics / parking fields. Partial-update via update() -- only the fields you pass change; required fields inherit from the prior row. */
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["updateTaskStatus"] in generated_concepts.ts).
-export interface UpdateTaskStatusArgs {
-  taskId: string;
-  status: string;
-  output?: Record<string, unknown>;
-  errorMessage?: string;
-  startedAt?: string;
-  completedAt?: string;
-  parkedAt?: string;
-  parkedAtCheckpoint?: string;
-  metrics?: Record<string, unknown>;
-}
-
-export function buildUpdateTaskStatus(args: UpdateTaskStatusArgs): string {
-  const parts: string[] = [];
-  parts.push("taskId: " + renderMemQLValue(args.taskId));
-  parts.push("status: " + renderMemQLValue(args.status));
-  if (args.output !== undefined) parts.push("output: " + renderMemQLValue(args.output));
-  if (args.errorMessage !== undefined) parts.push("errorMessage: " + renderMemQLValue(args.errorMessage));
-  if (args.startedAt !== undefined) parts.push("startedAt: " + renderMemQLValue(args.startedAt));
-  if (args.completedAt !== undefined) parts.push("completedAt: " + renderMemQLValue(args.completedAt));
-  if (args.parkedAt !== undefined) parts.push("parkedAt: " + renderMemQLValue(args.parkedAt));
-  if (args.parkedAtCheckpoint !== undefined) parts.push("parkedAtCheckpoint: " + renderMemQLValue(args.parkedAtCheckpoint));
-  if (args.metrics !== undefined) parts.push("metrics: " + renderMemQLValue(args.metrics));
-  return "mutation updateTaskStatus(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    updateTaskStatus(args: UpdateTaskStatusArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.updateTaskStatus = function (this: QueryClient, args: UpdateTaskStatusArgs = {} as UpdateTaskStatusArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("updateTaskStatus", buildUpdateTaskStatus(args), opts);
 };
 
 /** Edit a template's copy or move it along its lifecycle (draft -> ready -> archived). Owned. */

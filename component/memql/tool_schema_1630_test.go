@@ -16,8 +16,6 @@ import (
 // Affected (all array concept fields mis-declared as `object` in the
 // mutation args block, plus the delegation payload/field mismatches):
 //   - recordLegalAcceptance.legalAcceptance  (user.legalAcceptance []object)
-//   - persistTaskState.toolCallHistory       (taskState.toolCallHistory []object)
-//   - persistTaskState.pendingSubPlanIds     (taskState.pendingSubPlanIds []string)
 //   - mutationCreateDomainEntitySchema.keyFields/displayFields (domainEntitySchema []string)
 //   - createDelegation.scopes (delegation.scopes []string),
 //     roleCeiling enum, missing createdBySubject, spurious agentSubject.
@@ -66,18 +64,12 @@ func TestToolSchema1630_ArgConceptTypesReconciled(t *testing.T) {
 		}
 	})
 
-	t.Run("persistTaskState accepts toolCallHistory + pendingSubPlanIds arrays", func(t *testing.T) {
-		s := schemaFor(t, "persistTaskState")
-		args := map[string]any{
-			"taskId":            "v1:planner:task:abc",
-			"workingMemory":     map[string]any{"step": 1},
-			"toolCallHistory":   []any{map[string]any{"toolName": "x", "args": map[string]any{}, "result": "ok"}},
-			"pendingSubPlanIds": []any{"v1:planner:plan:a", "v1:planner:plan:b"},
-		}
-		if err := s.Validate(args); err != nil {
-			t.Fatalf("concept-valid taskState arrays rejected: %v", err)
-		}
-	})
+	// The persistTaskState subtest that stood here went with v1:planner:taskState
+	// in memql#5053. It asserted the SAME property the other subtests assert --
+	// a concept-valid ARRAY validates against the mutation's reflected tool
+	// schema, which fails when the DSL declares the arg as `object` -- and
+	// that property is still covered three times over below and above. Nothing
+	// was re-pointed because nothing was lost.
 
 	t.Run("createDelegation typed-create is self-consistent", func(t *testing.T) {
 		s := schemaFor(t, "createDelegation")

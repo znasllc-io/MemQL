@@ -39,8 +39,8 @@ func buildSafetyDescriptor(req Request, effectiveScope, capability string) safet
 	caller := safety.CallerContext{
 		AgentID:       req.AgentId,
 		OwnerUserID:   req.OwnerUserId,
-		PlanID:        req.PlanId,
-		TaskID:        req.TaskId,
+		RunID:         req.RunId,
+		StepID:        req.StepId,
 		CorrelationID: req.CorrelationId,
 		Scope:         effectiveScope,
 		Capability:    capability,

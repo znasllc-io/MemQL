@@ -310,15 +310,14 @@ func (s *Sink) Check(ctx context.Context, desc safety.ActionDescriptor, cls safe
 	}
 	key := safety.ApprovalCorrelationKey(desc)
 
-	// The run is the descriptor's PlanID, which is what every safety caller
-	// populates today and is the field the work spine's run replaces.
+	// The run is the descriptor's RunID, which every safety caller populates.
 	//
 	// A blank one answers Unconfigured rather than inventing a run: runId is
 	// required on v1:work:approval, the row would be refused, and a refused
 	// row reported as "pending" would park a step on an approval nobody can
 	// ever see. Unconfigured keeps the Gate's own refusal, which is the
 	// behaviour a cluster with no sink has always had.
-	runId := trim(desc.Caller.PlanID)
+	runId := trim(desc.Caller.RunID)
 	if runId == "" {
 		s.logger.Warn("work: a side-effect approval has no run to attach to; the safety gate keeps its own refusal",
 			"component", "work.approval_sink", "surface", string(desc.Surface), "action", string(desc.Action))
@@ -353,7 +352,7 @@ func (s *Sink) Check(ctx context.Context, desc safety.ActionDescriptor, cls safe
 
 	now := s.integ.clock().UTC()
 	approvalId := newRowId(approvalConcept)
-	req := work.SideEffectApproval(runId, trim(desc.Caller.TaskID), key,
+	req := work.SideEffectApproval(runId, trim(desc.Caller.StepID), key,
 		evidenceFrom(cls), subjectFrom(desc), now, s.ttl)
 
 	if err := s.integ.store().createApprovalRow(actorCtx, approvalSeed{

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/znasllc-io/memql/core/component"
 	memoryNodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	"github.com/znasllc-io/memql/core/component"
 )
 
 // tool_execution_secret_redaction_test.go is memql#3182's proof, and it is

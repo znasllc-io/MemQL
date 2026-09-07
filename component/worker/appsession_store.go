@@ -34,8 +34,8 @@ type AppSessionRow struct {
 	WorkerId            string
 	App                 string
 	Kind                string
-	PlanId              string
-	TaskId              string
+	RunId               string
+	StepId              string
 	Status              string
 	Workspace           string
 	Prompt              string
@@ -85,8 +85,8 @@ func (s *EngineStore) CreateAppSession(ctx context.Context, row AppSessionRow) e
 		"workerId":         row.WorkerId,
 		"app":              row.App,
 		"kind":             row.Kind,
-		"planId":           row.PlanId,
-		"taskId":           row.TaskId,
+		"runId":            row.RunId,
+		"stepId":           row.StepId,
 		"workspace":        row.Workspace,
 		"prompt":           row.Prompt,
 		"inputArtifactIds": stringsOrEmpty(row.InputArtifactIds),

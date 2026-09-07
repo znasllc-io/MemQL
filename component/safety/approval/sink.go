@@ -243,7 +243,7 @@ func (s *Sink) createPending(ctx context.Context, key string, desc safety.Action
 		"expiresAt":      expiresAt,
 		"agentId":        desc.Caller.AgentID,
 		"ownerUserId":    desc.Caller.OwnerUserID,
-		"planId":         desc.Caller.PlanID,
+		"runId":          desc.Caller.RunID,
 	}
 	query := buildNamedCall("createApprovalRequest", args)
 	res, err := s.engine.Execute(ctx, query)

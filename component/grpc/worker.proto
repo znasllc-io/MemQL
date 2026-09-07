@@ -167,8 +167,11 @@ message Heartbeat {
 
 message ToolDispatch {
   string call_id = 1;
-  string plan_id = 2;
-  string task_id = 3;
+  // run_id / step_id were plan_id / task_id until memql#5053. Renamed in
+  // place: this is a mesh-internal envelope with no external consumer, and
+  // pre-release rules carry no compatibility window.
+  string run_id = 2;
+  string step_id = 3;
   string agent_id = 4;
   string correlation_id = 5;
   // tool = "workerHost" or "workerComputer"
@@ -294,9 +297,9 @@ message AppSessionStart {
   string mcp_endpoint = 8;
   // limits carries the delegation policy's ceilings for this run.
   AppSessionLimits limits = 9;
-  // plan_id / task_id attribute the session for the portal and the ledger.
-  string plan_id = 10;
-  string task_id = 11;
+  // run_id / step_id attribute the session for the ledger (memql#5053).
+  string run_id = 10;
+  string step_id = 11;
   // app_session_ref names the app's OWN session id on the kind=attach
   // path. Empty for run and open.
   string app_session_ref = 12;
@@ -414,9 +417,9 @@ message ModelCallStart {
   // embedding_input is the kind="embedding" payload.
   repeated string embedding_input = 7;
   ModelCallLimits limits = 8;
-  // plan_id / task_id attribute the call for the ledger and the portal.
-  string plan_id = 9;
-  string task_id = 10;
+  // run_id / step_id attribute the call for the ledger (memql#5053).
+  string run_id = 9;
+  string step_id = 10;
   // purpose names the platform operation this call serves (planner,
   // conductor, suggest, embeddings). Carried for the ledger and for the
   // machine's own logs; it steers nothing.

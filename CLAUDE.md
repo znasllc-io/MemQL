@@ -894,7 +894,7 @@ first-choice surface for headless work is the Workbench, below.
 - **Permission model:** three layers checked BEFORE dispatch -- the agent
   capability flag, standing scope on
   `v1:agents:agentAuthorization.computerUseScope` (observe / full; `interact` is
-  RETIRED, kept in the enum for old rows and read as `full`), and the per-Plan
+  RETIRED, kept in the enum for old rows and read as `full`), and the per-user
   kill switch `v1:identity:user.preferences.computerUseEnabled`. Out-of-scope
   calls park the Plan at `awaitingFeedback` with
   `feedbackReason=scope_elevation_required`. Consent is decided BEFORE routing,
@@ -949,7 +949,7 @@ first-choice surface for headless work is the Workbench, below.
 ### Workbench (workbench_use)
 
 The default first-choice surface for HEADLESS agent work -- writing files,
-running shell commands, fetching URLs -- as a per-Plan sandboxed Linux working
+running shell commands, fetching URLs -- as a per-RUN sandboxed Linux working
 directory in the cluster. Nothing on the user's machine is touched. Computer-use
 is the FALLBACK for what the workbench cannot do (macOS-only tooling,
 computer-use control, files already on the user's computer).
@@ -958,7 +958,7 @@ computer-use control, files already on the user's computer).
 
 - **Capability:** `workbench_use`, universal -- injected into every role's
   `lockedToolSlugs`. No scope grants, no kill switch; the blast radius is the
-  per-Plan directory tree.
+  per-run directory tree.
 - **Tool:** `workbenchHost`, discriminated by `action` (exec / fs_read /
   fs_write / fs_list / fs_stat / http_fetch). It lives in a product DSL bundle,
   not the engine tree; the wire path is the `workbenchDispatchHost` builtin in
@@ -977,22 +977,25 @@ computer-use control, files already on the user's computer).
   everything else is the answer, `kill_switch_engaged` included. `needs` ->
   scope/labels is `integrations/agent/worker/scope.go` (`user_files` alone is
   `observe`; everything else and anything unrecognised is `full`).
-- **Per-Plan workspace** under `MEMQL_WORKBENCH_ROOT/{planId}/` (default
+- **Per-RUN workspace** under `MEMQL_WORKBENCH_ROOT/{runId}/` (default
   `/var/lib/memql/workbenches/`): lazy-provisioned on first call, persists across
-  calls within a Plan, torn down on Plan terminal status by the
-  `releaseWorkspaceOnPlanTerminal` automation. The row is
+  calls within a run, torn down on run terminal status by the
+  `releaseWorkspaceOnRunTerminal` automation -- whose terminal set has FOUR
+  values, not the Plan's three, because `abandoned` is terminal for a run and a
+  workspace whose run was abandoned is exactly the one nobody is left to clean
+  up by hand. The row is
   `v1:workbench:workspace` (status, storageRoot, lifecycle timestamps, `nodeId`,
   `ownerUserId`), declaring `@rowAuthz(owner=..., clusterOwner)`. `ownerUserId`
-  is stamped from the parent plan's `requestedBy`, and a call whose `planId`
-  does not resolve to a readable plan is REFUSED
+  is stamped from the parent run's owner, and a call whose `runId`
+  does not resolve to a readable run is REFUSED
   (`workspace_owner_unresolved`) rather than run -- a row written under a blank
   actor is readable by nobody, including the operator answering "where did my
   file go" (memql#4354).
 - **Replica affinity (memql#4354).** Base runs 2 workbench replicas and a
   workspace is a FILESYSTEM, which does not follow the request. `nodeId` names
   the replica holding the directory and the peer picker prefers it, falling back
-  to any-fit only when that node is gone -- any-fit alone gave one plan two
-  directories on two disks and told neither side. On node loss the orphan row is
+  to any-fit only when that node is gone -- any-fit alone gave one unit of work
+  two directories on two disks and told neither side. On node loss the orphan row is
   released `node_lost` and a FRESH workspace is provisioned: **files are NOT
   migrated.** The log line and the row state ship; a canvas card does not
   (canvas is pack-only).
@@ -1005,7 +1008,7 @@ computer-use control, files already on the user's computer).
   (`no_workbench_peer`) rather than run on the agent's own disk. In-process
   fallback is the flag unset, or the explicit
   `MEMQL_WORKBENCH_LOCAL_FALLBACK=1` under it.
-- **Operator surface:** `/fleet/workbenches` (replicas + per-plan workspaces,
+- **Operator surface:** `/fleet/workbenches` (replicas + per-run workspaces,
   live and released); `/fleet/machines` is its worker counterpart. Both are live
   because the `graph.node.*` events for `v1:worker:registration`,
   `v1:worker:routingPolicy` and `v1:workbench:workspace` carry broadcast routing
@@ -1799,11 +1802,11 @@ Go integration named by `@executor`.
 
 ```memql
 @enabled
-@description("Run one command on a per-plan workbench workspace")
+@description("Run one command on a per-run workbench workspace")
 @executor("integration.workbench.dispatchHost")
 @args(environment="object")
 builtin workbenchDispatchHost {
-  planId   string  @required
+  runId    string  @required
   action   string  @required
   command  string
 }
@@ -2283,16 +2286,15 @@ touches rows.
   The work concepts declare the composite owner tier, so under the default
   reader actor these reads answer ZERO ROWS AND NO ERROR: a sweep that resumes
   nothing is indistinguishable from a cluster with nothing parked.
-- **`v1:planner:plan`, `task` and `taskState` are NOT retired YET, and the
-  reason is no longer the one written here.** A3 landed and the Training app is
-  already re-pointed, so the gate that sentence named is gone; what remains is
-  the size (memql#5000). Roughly forty production files still WRITE those rows
-  -- `integrations/planner`'s whole orchestration loop, the `agent()` and
-  `produceArtifact()` builtins, and the taskstamp that fires on every agent
-  tool call -- and FOUR of those paths fail OPEN, so a partial retirement
-  removes bounds silently rather than breaking loudly. It ships replacement
-  first: the reactive loop opens a `v1:work:goal` for a due responsibility
-  rather than a Plan, and `component/planner` stays until the loop does.
+- **`v1:planner:plan`, `task` and `taskState` ARE RETIRED** (epic memql#5000,
+  shipped). The spine is the only model now: `agent()` and `produceArtifact`
+  open goals, a tool call is a `v1:work:observation`, training is a goal, and
+  the plan-driven orchestration loop is gone (~7,300 lines). `v1:planner:responsibility`
+  STAYS -- it is what the reactive loop reads, and the mesh routing rules were
+  NARROWED to it rather than deleted, because deleting them would have taken
+  the responsibility intake dispatcher dark cross-replica, silently.
+  `component/planner` keeps exactly two things, both named by design-record
+  section F: the container-executor seam and the delegation resolver.
 
 ### The proving suite -- what the platform measures about itself (epic memql#4993)
 
@@ -2379,13 +2381,8 @@ never a best case" is unrepresentable rather than merely discouraged.
 ### Planner / Knowledge / Validation
 
 The schema is stable, so new features add fields/automations without migrations.
-Fields are in the `.memql` files; the concepts are `v1:planner:plan` (a
-user-visible unit of work, with sub-plan nesting, a nine-value status, phases,
-estimate and token budget/spend bookkeeping), `v1:planner:task` (one executable
-step, never recursive, carrying `executionSurface` inProcess |
-containerExecutor + `executorBackend`), `v1:planner:taskState` (persisted
-working state for async parking), `v1:agents:agentAuthorization` (standing
-tiered-trust authorization), the `v1:knowledge:*` family (`document`,
+Fields are in the `.memql` files; the concepts are `v1:agents:agentAuthorization`
+(standing tiered-trust authorization), the `v1:knowledge:*` family (`document`,
 `spreadsheetRow` / `imageRegion`, the append-only `validationEvent`, and
 `domainEntitySchema` / `entityIndex` for cross-file dedup), plus
 `v1:common:knowledgeDomain` and `v1:common:documentChunk`.
@@ -2397,9 +2394,9 @@ after, under a synthetic cluster actor (`component/automations/journal.go`);
 resume reads those rows back instead of the retired 24-hour checkpoint
 side-record, on the SAME run id. A step at `running` with no receipt is a
 crash mid-step and resumes from there. A sandboxed dry-run holds no journal
-at all, so a preview leaves nothing resumable. The work rows are the spine
-`v1:planner:plan` / `task` are replaced BY -- that replacement is epic A2, and
-until it lands both models are live.
+at all, so a preview leaves nothing resumable. The work rows ARE the model now
+-- `v1:planner:plan` / `task` were replaced by them and are retired
+(memql#5000).
 
 **Analysis path.** A file's analysis is a system-origin work GOAL running the
 deterministic template (extract, chunk, embed, summarize), so the Training
@@ -2409,29 +2406,41 @@ G, shipped in epic A3. The attachment handler that created a queued Plan and a
 `component/server/plan_store.go`, which described that flow and had no caller
 left in the tree (memql#5000).
 
-**Planner Agent loop.** `integrations/planner/agent_loop.go` invokes the
-`plannerAgent` prompt on a new userGoal Plan; the prompt emits a structured
-decision (decompose / dispatchTask / createSpecialist / markPlanSucceeded /
-escalate) and the loop dispatches it, re-invoking until terminal.
+**The planner agent loop is GONE** (memql#5052). It invoked the `plannerAgent`
+prompt on a new userGoal Plan and dispatched a structured decision
+(decompose / dispatchTask / createSpecialist / markPlanSucceeded / escalate),
+re-invoking until terminal. There are no Plans, so there is no loop; what is
+left of `integrations/planner` is the compile pass, the healing subscriber, the
+responsibility intake, the reactive loop and the authoring pipeline.
 
-**The cost-safety structure around that loop is the part to respect.** It is
-defense in depth and every layer is load-bearing: a process-wide LLM rate
-ceiling and an identical-request circuit breaker at the provider HTTP chokepoint
-(`component/memql/ai_guard.go`); a CUMULATIVE per-plan token/call budget checked
-before every `plannerAgent` call and persisted so it survives cycles and
-retries, parking the Plan rather than making another call
-(`component/planner/budget.go`); complexity triage that routes a trivial
-deliverable to ONE cheap path; model tiering that defaults cheap and escalates
-only on an explicit stuck signal; an up-front estimate + approval gate; gated
-specialist creation/training; phased execution with per-phase checkpoints;
-deterministic-first verification; and a no-task-`markPlanSucceeded` convergence
-guard. Read [llm-cost-control.md](docs/public/ai/llm-cost-control.md) before
-touching any of it.
+**The cost-safety layers it carried each moved, or say where they went.** That
+accounting is the point -- a retirement that quietly drops a ceiling is the
+failure `docs/public/ai/llm-cost-control.md` exists to prevent:
 
-`produceArtifact` rides the unified loop rather than a bypass: triage shortcuts
-to ONE direct production turn (`startPlanDirect`), with the rate ceiling, caps
-and tiering as structural backstops. An earlier hardcoded bypass was reverted
-precisely because those backstops did not yet exist -- do not reintroduce one.
+- The process-wide LLM rate ceiling and the identical-request circuit breaker
+  are UNTOUCHED, at the provider HTTP chokepoint
+  (`component/memql/ai_guard.go`). They never knew about Plans.
+- The cumulative per-PLAN token/call budget is REPLACED by
+  `component/work/budget.go`, which reads the RUN's ceilings. Its invariant --
+  the dollar ceiling excludes subscription and local spend, the loop caps
+  include every call -- is asserted on the successor
+  (`TestCheckCeilings_TokenBudgetExcludesSubscriptionAndLocal`).
+- Complexity triage SURVIVES as the compile order's third tier: an exact
+  catalog hit reaches no model at all, and the classifier runs only when the
+  cheaper tiers miss.
+- Model tiering, the up-front estimate gate, phased checkpoints,
+  deterministic-first verification and the convergence guard went WITH the loop
+  they governed. They gated a decompose cycle that no longer exists.
+- The specialist-creation gate went with its trigger, and is RECORDED rather
+  than dropped: memql#5063 carries the two properties a replacement must keep.
+- The per-work-unit computer-use scope override went with the Plan field it
+  read (memql#5053). It could only ever NARROW the agent's standing scope, so
+  its loss reduces what policy can express, not what a call is allowed.
+
+`produceArtifact` no longer decomposes and never did: it opened a Plan the loop
+ran directly (`startPlanDirect`). It now opens a goal naming a deterministic
+template, which reaches no model to decide anything -- the same property, with
+one fewer moving part.
 
 ## Notes for Claude Code CLI
 

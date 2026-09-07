@@ -47,7 +47,7 @@ describe("the Bin's order", () => {
     fileId: "",
     producedByWorkerId: "",
     producedByWorkerName: "",
-    producedByPlanId: "",
+    producedByRunId: "",
     labels: [],
     folderId: "",
     changedAt: "",

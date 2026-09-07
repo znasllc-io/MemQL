@@ -111,10 +111,10 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 	// no saved state (or a lookup miss) just runs a fresh turn. The slot
 	// re-admission itself is Session B's (#902 controller + queue).
 	if IsResume(msg.Hints) {
-		if block, ok := r.loadResumeContext(ctx, prep.turnCtx.PlanId); ok {
+		if block, ok := r.loadResumeContext(ctx, prep.turnCtx.RunId); ok {
 			prep.messages = injectResumeContext(prep.messages, block)
 			r.logger.Info("agent background: resuming from persisted taskState",
-				"plan_id", prep.turnCtx.PlanId, "requestId", msg.RequestId)
+				"plan_id", prep.turnCtx.RunId, "requestId", msg.RequestId)
 		}
 	}
 
@@ -232,7 +232,7 @@ func (r *Replier) runNonStreamingToolLoop(
 ) (*TurnResult, error) {
 	// NOTHING IS INSTALLED HERE ANY MORE (memql#5050). This used to stamp a
 	// taskstamp.PlanContext so every tool call wrote a v1:planner:task row,
-	// minting a synthetic ad-hoc Plan when turnCtx.PlanId was empty -- which
+	// minting a synthetic ad-hoc Plan when turnCtx.RunId was empty -- which
 	// it was for every chat-driven turn.
 	//
 	// Tool calls are recorded against the RUN now, and a run context is
@@ -252,7 +252,7 @@ func (r *Replier) runNonStreamingToolLoop(
 	// loops is latched on its own, without touching other conversations.
 	ctx = memql.ContextWithBudgetScope(ctx,
 		memql.BudgetScopeId("space", turnCtx.PartitionId),
-		memql.BudgetScopeId("plan", turnCtx.PlanId))
+		memql.BudgetScopeId("plan", turnCtx.RunId))
 
 	// Cooperative preemption (memql#906): clear any pause flag for this
 	// turn's requestId on exit so a stale "pass" can never leak into a later

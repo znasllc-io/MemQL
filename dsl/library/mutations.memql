@@ -38,7 +38,7 @@ mutate artifact createArtifact {
     folderId          string
     partitionId           string
     agentId           string
-    producedByPlanId  string
+    producedByRunId  string
     producedByWorkerId   string
     producedByWorkerName string
     validationStatus  enum("none", "unvalidated", "validated", "rejected", "partiallyValidated", "superseded")
@@ -68,7 +68,7 @@ mutate artifact createArtifact {
     archived: args.archived ?? false
     args.partitionId
     args.agentId
-    args.producedByPlanId
+    args.producedByRunId
     args.producedByWorkerId
     args.producedByWorkerName
     validationStatus: args.validationStatus ?? "none"
@@ -99,13 +99,13 @@ mutate generatedOutput createGeneratedOutput {
     mimeType          string
     source            enum("workbench_generated", "computer_use", "agent_generated", "derived", "user_created")!
     partitionId           string
-    producedByPlanId  string
+    producedByRunId  string
     producedByAgentId string
     producedByWorkerId   string
     producedByWorkerName string
   }
   insert {
-    accept { title, summary, body, attachmentId, mimeType, source, partitionId, producedByPlanId, producedByAgentId, producedByWorkerId, producedByWorkerName }
+    accept { title, summary, body, attachmentId, mimeType, source, partitionId, producedByRunId, producedByAgentId, producedByWorkerId, producedByWorkerName }
     stamp {
       id: args.outputId
       ownerUserId: actor.userId
@@ -172,7 +172,7 @@ mutate documentVersion appendDocumentVersion {
     authorId         string
     note             string
     parentVersionId  string
-    producedByPlanId string
+    producedByRunId string
     partitionId          string
   }
   insert {
@@ -186,7 +186,7 @@ mutate documentVersion appendDocumentVersion {
     args.authorId
     args.note
     args.parentVersionId
-    args.producedByPlanId
+    args.producedByRunId
     args.partitionId
     // now, NOT bare `now`: this mutation is invoked from the Go
     // edit/restore handlers; the hypertable time dimension + history
@@ -213,11 +213,11 @@ mutate generatedOutput updateGeneratedOutputContent {
     mimeType      string
     source        enum("workbench_generated", "computer_use", "agent_generated", "derived", "user_created")!
     partitionId       string
-    producedByPlanId  string
+    producedByRunId  string
     producedByAgentId string
   }
   insert {
-    accept { title, summary, body, attachmentId, mimeType, source, partitionId, producedByPlanId, producedByAgentId }
+    accept { title, summary, body, attachmentId, mimeType, source, partitionId, producedByRunId, producedByAgentId }
     stamp {
       id: args.outputId
       ownerUserId: actor.userId

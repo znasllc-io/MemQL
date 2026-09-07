@@ -194,12 +194,12 @@ type AppendDocumentVersionArgs struct {
 	Content       string
 	AttachmentId  string
 	// Enum: user | assistant | system
-	AuthorKind       string
-	AuthorId         string
-	Note             string
-	ParentVersionId  string
-	ProducedByPlanId string
-	PartitionId      string
+	AuthorKind      string
+	AuthorId        string
+	Note            string
+	ParentVersionId string
+	ProducedByRunId string
+	PartitionId     string
 }
 
 // AppendDocumentVersion calls the engine mutation appendDocumentVersion.
@@ -263,12 +263,12 @@ func AppendDocumentVersionBuild(args AppendDocumentVersionArgs) string {
 		b.WriteString("parentVersionId: ")
 		b.WriteString(quoteMemQL(args.ParentVersionId))
 	}
-	if args.ProducedByPlanId != "" {
+	if args.ProducedByRunId != "" {
 		if b.Len() > 31 {
 			b.WriteString(", ")
 		}
-		b.WriteString("producedByPlanId: ")
-		b.WriteString(quoteMemQL(args.ProducedByPlanId))
+		b.WriteString("producedByRunId: ")
+		b.WriteString(quoteMemQL(args.ProducedByRunId))
 	}
 	if args.PartitionId != "" {
 		if b.Len() > 31 {
@@ -768,34 +768,6 @@ func AssignResponsibilityBuild(args AssignResponsibilityArgs) string {
 	return b.String()
 }
 
-// AttachPlanFeedback -- Attach a user's free-text feedback to a Plan parked in awaitingFeedback and resume it (epic memql#1404 / #1405). Stamps feedbackResponse{response, respondedBy, respondedAt}, transitions awaitingFeedback -> running (fresh startedAt for a clean cross-replica resume claim), and clears feedbackReason/feedbackRequest so the request is consumed. The engine guard (validateFeedbackIntakeTransition) rejects the write unless the prior status is awaitingFeedback and the actor owns the Plan. The owning agent is re-invoked with the feedback in its resume context. Callable by the needs-feedback card AND the assistant chat path (#1406).
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["attachPlanFeedback"] in generated_concepts.go).
-type AttachPlanFeedbackArgs struct {
-	PlanId   string
-	Feedback string
-}
-
-// AttachPlanFeedback calls the engine mutation attachPlanFeedback.
-func (qc *QueryClient) AttachPlanFeedback(ctx context.Context, args AttachPlanFeedbackArgs) (*Result, error) {
-	call := AttachPlanFeedbackBuild(args)
-	return qc.executeNamed(ctx, "attachPlanFeedback", call)
-}
-
-func AttachPlanFeedbackBuild(args AttachPlanFeedbackArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation attachPlanFeedback(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 28 {
-		b.WriteString(", ")
-	}
-	b.WriteString("feedback: ")
-	b.WriteString(quoteMemQL(args.Feedback))
-	b.WriteString(")")
-	return b.String()
-}
-
 // AttachToRequest -- Attach ONE v1:common:attachment to a v1:forge:request by appending its id to attachmentIds (no clobbering of existing attachments). Backed by @appendFields -- the update executor appends to the stored array. update read-merges all other request fields.
 //
 // Bound concept: v1:forge:request (machine-readable: BoundConcepts["attachToRequest"] in generated_concepts.go).
@@ -1160,58 +1132,6 @@ func CompleteTodoBuild(args CompleteTodoArgs) string {
 	return b.String()
 }
 
-// CompleteToolInvocation -- Update a toolInvocation Task to a terminal state with its result or error. Companion to createToolInvocationTask. Status MUST be 'succeeded' or 'failed' (the only terminal transitions a toolInvocation can take -- there is no 'paused' or 'cancelled' on a tool call). On succeeded: toolResult populated. On failed: errorMessage populated.
-//
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["completeToolInvocation"] in generated_concepts.go).
-type CompleteToolInvocationArgs struct {
-	TaskId       string
-	Status       string
-	ToolResult   map[string]any
-	ErrorMessage string
-	CompletedAt  string
-}
-
-// CompleteToolInvocation calls the engine mutation completeToolInvocation.
-func (qc *QueryClient) CompleteToolInvocation(ctx context.Context, args CompleteToolInvocationArgs) (*Result, error) {
-	call := CompleteToolInvocationBuild(args)
-	return qc.executeNamed(ctx, "completeToolInvocation", call)
-}
-
-func CompleteToolInvocationBuild(args CompleteToolInvocationArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation completeToolInvocation(")
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
-	if b.Len() > 32 {
-		b.WriteString(", ")
-	}
-	b.WriteString("status: ")
-	b.WriteString(quoteMemQL(args.Status))
-	if args.ToolResult != nil {
-		if b.Len() > 32 {
-			b.WriteString(", ")
-		}
-		b.WriteString("toolResult: ")
-		b.WriteString(renderMemQLValue(args.ToolResult))
-	}
-	if args.ErrorMessage != "" {
-		if b.Len() > 32 {
-			b.WriteString(", ")
-		}
-		b.WriteString("errorMessage: ")
-		b.WriteString(quoteMemQL(args.ErrorMessage))
-	}
-	if args.CompletedAt != "" {
-		if b.Len() > 32 {
-			b.WriteString(", ")
-		}
-		b.WriteString("completedAt: ")
-		b.WriteString(quoteMemQL(args.CompletedAt))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // ConfirmRecord -- Human confirm a data record, updating confirm count and validation state
 //
 // Bound concept: v1:data:record (machine-readable: BoundConcepts["confirmRecord"] in generated_concepts.go).
@@ -1528,52 +1448,6 @@ func CreateAccountTokenIdentityBuild(args CreateAccountTokenIdentityArgs) string
 		b.WriteString("expiresAt: ")
 		b.WriteString(quoteMemQL(args.ExpiresAt))
 	}
-	b.WriteString(")")
-	return b.String()
-}
-
-// CreateAdHocPlan -- Create a synthetic Plan that wraps an ad-hoc tool call made outside any user-initiated planning context. Per Q5: every tool call must produce a Task; Tasks must have a parent Plan; chat-driven tool calls (no user-facing Plan) get a synthetic Plan with kind='adHocAction' so the invariant holds. Status is set to running and completes immediately when the synthetic semantic Task wrapping the tool call resolves.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["createAdHocPlan"] in generated_concepts.go).
-type CreateAdHocPlanArgs struct {
-	PlanId      string
-	PartitionId string
-	AgentId     string
-	OwnerUserId string
-	Goal        string
-}
-
-// CreateAdHocPlan calls the engine mutation createAdHocPlan.
-func (qc *QueryClient) CreateAdHocPlan(ctx context.Context, args CreateAdHocPlanArgs) (*Result, error) {
-	call := CreateAdHocPlanBuild(args)
-	return qc.executeNamed(ctx, "createAdHocPlan", call)
-}
-
-func CreateAdHocPlanBuild(args CreateAdHocPlanArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createAdHocPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 25 {
-		b.WriteString(", ")
-	}
-	b.WriteString("partitionId: ")
-	b.WriteString(quoteMemQL(args.PartitionId))
-	if b.Len() > 25 {
-		b.WriteString(", ")
-	}
-	b.WriteString("agentId: ")
-	b.WriteString(quoteMemQL(args.AgentId))
-	if b.Len() > 25 {
-		b.WriteString(", ")
-	}
-	b.WriteString("ownerUserId: ")
-	b.WriteString(quoteMemQL(args.OwnerUserId))
-	if b.Len() > 25 {
-		b.WriteString(", ")
-	}
-	b.WriteString("goal: ")
-	b.WriteString(quoteMemQL(args.Goal))
 	b.WriteString(")")
 	return b.String()
 }
@@ -2013,7 +1887,7 @@ type CreateArtifactArgs struct {
 	FolderId             string
 	PartitionId          string
 	AgentId              string
-	ProducedByPlanId     string
+	ProducedByRunId      string
 	ProducedByWorkerId   string
 	ProducedByWorkerName string
 	// Enum: none | unvalidated | validated | rejected | partiallyValidated | superseded
@@ -2126,12 +2000,12 @@ func CreateArtifactBuild(args CreateArtifactArgs) string {
 		b.WriteString("agentId: ")
 		b.WriteString(quoteMemQL(args.AgentId))
 	}
-	if args.ProducedByPlanId != "" {
+	if args.ProducedByRunId != "" {
 		if b.Len() > 24 {
 			b.WriteString(", ")
 		}
-		b.WriteString("producedByPlanId: ")
-		b.WriteString(quoteMemQL(args.ProducedByPlanId))
+		b.WriteString("producedByRunId: ")
+		b.WriteString(quoteMemQL(args.ProducedByRunId))
 	}
 	if args.ProducedByWorkerId != "" {
 		if b.Len() > 24 {
@@ -4196,7 +4070,7 @@ type CreateGeneratedOutputArgs struct {
 	// Enum: workbench_generated | computer_use | agent_generated | derived | user_created
 	Source               string
 	PartitionId          string
-	ProducedByPlanId     string
+	ProducedByRunId      string
 	ProducedByAgentId    string
 	ProducedByWorkerId   string
 	ProducedByWorkerName string
@@ -4265,12 +4139,12 @@ func CreateGeneratedOutputBuild(args CreateGeneratedOutputArgs) string {
 		b.WriteString("partitionId: ")
 		b.WriteString(quoteMemQL(args.PartitionId))
 	}
-	if args.ProducedByPlanId != "" {
+	if args.ProducedByRunId != "" {
 		if b.Len() > 31 {
 			b.WriteString(", ")
 		}
-		b.WriteString("producedByPlanId: ")
-		b.WriteString(quoteMemQL(args.ProducedByPlanId))
+		b.WriteString("producedByRunId: ")
+		b.WriteString(quoteMemQL(args.ProducedByRunId))
 	}
 	if args.ProducedByAgentId != "" {
 		if b.Len() > 31 {
@@ -5373,125 +5247,6 @@ func CreatePasskeyIdentityBuild(args CreatePasskeyIdentityArgs) string {
 	return b.String()
 }
 
-// CreatePlan -- Insert a v1:planner:plan row in status='planning'. Single write path for Plan creation across all trigger sources; the planner claims it off the node-created event.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["createPlan"] in generated_concepts.go).
-type CreatePlanArgs struct {
-	PlanId                  string
-	PartitionId             string
-	ParentPlanId            string
-	Kind                    string
-	Goal                    string
-	RequestedBy             string
-	TriggerSource           string
-	AuthorizedBy            string
-	OwnerAgentId            string
-	Input                   map[string]any
-	RefinementContext       map[string]any
-	TokenBudget             int
-	PauseExtendsDeadline    bool
-	PauseExtendsDeadlineSet bool // set true to send pauseExtendsDeadline; required because zero-value bool is ambiguous
-	ChatAnchorMessageId     string
-}
-
-// CreatePlan calls the engine mutation createPlan.
-func (qc *QueryClient) CreatePlan(ctx context.Context, args CreatePlanArgs) (*Result, error) {
-	call := CreatePlanBuild(args)
-	return qc.executeNamed(ctx, "createPlan", call)
-}
-
-func CreatePlanBuild(args CreatePlanArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createPlan(")
-	if args.PlanId != "" {
-		b.WriteString("planId: ")
-		b.WriteString(quoteMemQL(args.PlanId))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("partitionId: ")
-	b.WriteString(quoteMemQL(args.PartitionId))
-	if args.ParentPlanId != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("parentPlanId: ")
-		b.WriteString(quoteMemQL(args.ParentPlanId))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("kind: ")
-	b.WriteString(quoteMemQL(args.Kind))
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("goal: ")
-	b.WriteString(quoteMemQL(args.Goal))
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("requestedBy: ")
-	b.WriteString(quoteMemQL(args.RequestedBy))
-	if args.TriggerSource != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("triggerSource: ")
-		b.WriteString(quoteMemQL(args.TriggerSource))
-	}
-	if args.AuthorizedBy != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("authorizedBy: ")
-		b.WriteString(quoteMemQL(args.AuthorizedBy))
-	}
-	if args.OwnerAgentId != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("ownerAgentId: ")
-		b.WriteString(quoteMemQL(args.OwnerAgentId))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("input: ")
-	b.WriteString(renderMemQLValue(args.Input))
-	if args.RefinementContext != nil {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("refinementContext: ")
-		b.WriteString(renderMemQLValue(args.RefinementContext))
-	}
-	if args.TokenBudget != 0 {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenBudget: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenBudget))
-	}
-	if args.PauseExtendsDeadlineSet {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("pauseExtendsDeadline: ")
-		b.WriteString(fmt.Sprintf("%v", args.PauseExtendsDeadline))
-	}
-	if args.ChatAnchorMessageId != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("chatAnchorMessageId: ")
-		b.WriteString(quoteMemQL(args.ChatAnchorMessageId))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // CreateProject -- Register a v1:forge:project. createdByUserId is stamped from actor.userId.
 //
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["createProject"] in generated_concepts.go).
@@ -6154,172 +5909,6 @@ func CreateRoutingPolicyBuild(args CreateRoutingPolicyArgs) string {
 	return b.String()
 }
 
-// CreateScopeElevationPlan -- Insert a Plan in awaitingFeedback / scope_elevation_required for a pending computer_use task. The emitScopeElevationCanvasCard automation lands the canvas card; the user approves or denies via the card's buttons.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["createScopeElevationPlan"] in generated_concepts.go).
-type CreateScopeElevationPlanArgs struct {
-	PlanId         string
-	AgentId        string
-	OwnerUserId    string
-	PartitionId    string
-	Intent         string
-	Summary        string
-	RequestedScope string
-}
-
-// CreateScopeElevationPlan calls the engine mutation createScopeElevationPlan.
-func (qc *QueryClient) CreateScopeElevationPlan(ctx context.Context, args CreateScopeElevationPlanArgs) (*Result, error) {
-	call := CreateScopeElevationPlanBuild(args)
-	return qc.executeNamed(ctx, "createScopeElevationPlan", call)
-}
-
-func CreateScopeElevationPlanBuild(args CreateScopeElevationPlanArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createScopeElevationPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("agentId: ")
-	b.WriteString(quoteMemQL(args.AgentId))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("ownerUserId: ")
-	b.WriteString(quoteMemQL(args.OwnerUserId))
-	if args.PartitionId != "" {
-		if b.Len() > 34 {
-			b.WriteString(", ")
-		}
-		b.WriteString("partitionId: ")
-		b.WriteString(quoteMemQL(args.PartitionId))
-	}
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("intent: ")
-	b.WriteString(quoteMemQL(args.Intent))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("summary: ")
-	b.WriteString(quoteMemQL(args.Summary))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("requestedScope: ")
-	b.WriteString(quoteMemQL(args.RequestedScope))
-	b.WriteString(")")
-	return b.String()
-}
-
-// CreateSemanticTask -- Create a semantic Task -- the Planner-decision unit. Differs from createTask (in the product pack) by carrying the new category/logicalStepId/attemptNumber fields explicitly. Used by the Planner Agent at decomposition time and by the taskstamp Stamper to materialize the parent semantic Task for ad-hoc tool calls.
-//
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["createSemanticTask"] in generated_concepts.go).
-type CreateSemanticTaskArgs struct {
-	TaskId        string
-	PlanId        string
-	Kind          string
-	Seq           int
-	LogicalStepId string
-	AttemptNumber int
-	Phase         string
-	DependsOn     []string
-	Input         map[string]any
-	// inProcess (the default) or containerExecutor when the delegation triage found a machine with an allowed, signed-in app online.
-	// Enum: inProcess | containerExecutor
-	ExecutionSurface string
-	// The registered backend, e.g. "cockpit-app:claude-code". Empty for an inProcess task.
-	ExecutorBackend string
-	// Why this Task got the surface it did -- recorded on BOTH branches.
-	DelegationReason string
-}
-
-// CreateSemanticTask calls the engine mutation createSemanticTask.
-func (qc *QueryClient) CreateSemanticTask(ctx context.Context, args CreateSemanticTaskArgs) (*Result, error) {
-	call := CreateSemanticTaskBuild(args)
-	return qc.executeNamed(ctx, "createSemanticTask", call)
-}
-
-func CreateSemanticTaskBuild(args CreateSemanticTaskArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createSemanticTask(")
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
-	if b.Len() > 28 {
-		b.WriteString(", ")
-	}
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 28 {
-		b.WriteString(", ")
-	}
-	b.WriteString("kind: ")
-	b.WriteString(quoteMemQL(args.Kind))
-	if b.Len() > 28 {
-		b.WriteString(", ")
-	}
-	b.WriteString("seq: ")
-	b.WriteString(fmt.Sprintf("%v", args.Seq))
-	if args.LogicalStepId != "" {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("logicalStepId: ")
-		b.WriteString(quoteMemQL(args.LogicalStepId))
-	}
-	if args.AttemptNumber != 0 {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("attemptNumber: ")
-		b.WriteString(fmt.Sprintf("%v", args.AttemptNumber))
-	}
-	if args.Phase != "" {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("phase: ")
-		b.WriteString(quoteMemQL(args.Phase))
-	}
-	if args.DependsOn != nil {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("dependsOn: ")
-		b.WriteString(renderMemQLValue(args.DependsOn))
-	}
-	if b.Len() > 28 {
-		b.WriteString(", ")
-	}
-	b.WriteString("input: ")
-	b.WriteString(renderMemQLValue(args.Input))
-	if args.ExecutionSurface != "" {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("executionSurface: ")
-		b.WriteString(quoteMemQL(args.ExecutionSurface))
-	}
-	if args.ExecutorBackend != "" {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("executorBackend: ")
-		b.WriteString(quoteMemQL(args.ExecutorBackend))
-	}
-	if args.DelegationReason != "" {
-		if b.Len() > 28 {
-			b.WriteString(", ")
-		}
-		b.WriteString("delegationReason: ")
-		b.WriteString(quoteMemQL(args.DelegationReason))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // CreateSenderIdentity -- Declare a mailbox this deployment may send campaign mail as. Owned: ownerUserId is stamped from actor.userId, so a caller can only ever declare their own.
 // NO CREDENTIAL CROSSES THIS BOUNDARY, which is why it is an ordinary client-reachable mutation rather than a @serverOnly one. Authentication stays the cluster's single Graph credential; this row says a mailbox exists and may be used. What it CANNOT do is make a mailbox sendable -- that is the tenant's ApplicationAccessPolicy, and an address declared here but missing from that group surfaces as Graph's own 403 on the campaign's lastError. The engine validates the address for RFC shape and header safety before it is stored: it becomes a From header and a URL path segment, and a CR or LF in it would be header injection into every message the identity ever sends.
 //
@@ -6655,7 +6244,7 @@ type CreateSkillChangeEventArgs struct {
 	After              map[string]any
 	ActorAgentId       string
 	ActorUserId        string
-	PlanId             string
+	RunId              string
 }
 
 // CreateSkillChangeEvent calls the engine mutation createSkillChangeEvent.
@@ -6714,12 +6303,12 @@ func CreateSkillChangeEventBuild(args CreateSkillChangeEventArgs) string {
 		b.WriteString("actorUserId: ")
 		b.WriteString(quoteMemQL(args.ActorUserId))
 	}
-	if args.PlanId != "" {
+	if args.RunId != "" {
 		if b.Len() > 32 {
 			b.WriteString(", ")
 		}
-		b.WriteString("planId: ")
-		b.WriteString(quoteMemQL(args.PlanId))
+		b.WriteString("runId: ")
+		b.WriteString(quoteMemQL(args.RunId))
 	}
 	b.WriteString(")")
 	return b.String()
@@ -6883,96 +6472,6 @@ func CreateStoreBuild(args CreateStoreArgs) string {
 	return b.String()
 }
 
-// CreateTask -- Insert a v1:planner:task row in status='queued'. Single write path for Task creation, called by the planner during decomposition.
-//
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["createTask"] in generated_concepts.go).
-type CreateTaskArgs struct {
-	TaskId string
-	PlanId string
-	// Enum: semantic | toolInvocation
-	Category         string
-	Kind             string
-	Seq              int
-	Phase            string
-	ExecutionSurface string
-	ExecutorBackend  string
-	// Why this Task got the surface it did (memql#4362).
-	DelegationReason string
-	Input            map[string]any
-}
-
-// CreateTask calls the engine mutation createTask.
-func (qc *QueryClient) CreateTask(ctx context.Context, args CreateTaskArgs) (*Result, error) {
-	call := CreateTaskBuild(args)
-	return qc.executeNamed(ctx, "createTask", call)
-}
-
-func CreateTaskBuild(args CreateTaskArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createTask(")
-	if args.TaskId != "" {
-		b.WriteString("taskId: ")
-		b.WriteString(quoteMemQL(args.TaskId))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if args.Category != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("category: ")
-		b.WriteString(quoteMemQL(args.Category))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("kind: ")
-	b.WriteString(quoteMemQL(args.Kind))
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("seq: ")
-	b.WriteString(fmt.Sprintf("%v", args.Seq))
-	if args.Phase != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("phase: ")
-		b.WriteString(quoteMemQL(args.Phase))
-	}
-	if args.ExecutionSurface != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("executionSurface: ")
-		b.WriteString(quoteMemQL(args.ExecutionSurface))
-	}
-	if args.ExecutorBackend != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("executorBackend: ")
-		b.WriteString(quoteMemQL(args.ExecutorBackend))
-	}
-	if args.DelegationReason != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("delegationReason: ")
-		b.WriteString(quoteMemQL(args.DelegationReason))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("input: ")
-	b.WriteString(renderMemQLValue(args.Input))
-	b.WriteString(")")
-	return b.String()
-}
-
 // CreateTemplate -- Create an email template owned by the caller. Lands as a draft; an operator marks it ready with updateTemplate once the copy is finished. Owned.
 //
 // Bound concept: v1:campaigns:template (machine-readable: BoundConcepts["createTemplate"] in generated_concepts.go).
@@ -7076,60 +6575,6 @@ func CreateTodoBuild(args CreateTodoArgs) string {
 		b.WriteString("sourceResponsibilityId: ")
 		b.WriteString(quoteMemQL(args.SourceResponsibilityId))
 	}
-	b.WriteString(")")
-	return b.String()
-}
-
-// CreateToolInvocationTask -- Create a toolInvocation Task -- the engine-auto-stamped record of an agent tool call. Per Q5+Q6: every tool call by an executing agent produces one of these, parented to the semantic Task that was executing when the tool fired. The engine's tool-dispatch wrapper inserts this row at dispatch time then calls completeToolInvocation when the call returns. parentTaskId is required (a toolInvocation row must have a semantic parent); the engine enforces this invariant.
-//
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["createToolInvocationTask"] in generated_concepts.go).
-type CreateToolInvocationTaskArgs struct {
-	TaskId       string
-	PlanId       string
-	ParentTaskId string
-	ToolName     string
-	ToolArgs     map[string]any
-	Seq          int
-}
-
-// CreateToolInvocationTask calls the engine mutation createToolInvocationTask.
-func (qc *QueryClient) CreateToolInvocationTask(ctx context.Context, args CreateToolInvocationTaskArgs) (*Result, error) {
-	call := CreateToolInvocationTaskBuild(args)
-	return qc.executeNamed(ctx, "createToolInvocationTask", call)
-}
-
-func CreateToolInvocationTaskBuild(args CreateToolInvocationTaskArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createToolInvocationTask(")
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("parentTaskId: ")
-	b.WriteString(quoteMemQL(args.ParentTaskId))
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("toolName: ")
-	b.WriteString(quoteMemQL(args.ToolName))
-	if args.ToolArgs != nil {
-		if b.Len() > 34 {
-			b.WriteString(", ")
-		}
-		b.WriteString("toolArgs: ")
-		b.WriteString(renderMemQLValue(args.ToolArgs))
-	}
-	if b.Len() > 34 {
-		b.WriteString(", ")
-	}
-	b.WriteString("seq: ")
-	b.WriteString(fmt.Sprintf("%v", args.Seq))
 	b.WriteString(")")
 	return b.String()
 }
@@ -7323,8 +6768,8 @@ type CreateWorkerInvocationArgs struct {
 	InvocationId  string
 	WorkerId      string
 	AgentId       string
-	PlanId        string
-	TaskId        string
+	RunId         string
+	StepId        string
 	CorrelationId string
 	Tool          string
 	Action        string
@@ -7364,19 +6809,19 @@ func CreateWorkerInvocationBuild(args CreateWorkerInvocationArgs) string {
 	}
 	b.WriteString("agentId: ")
 	b.WriteString(quoteMemQL(args.AgentId))
-	if args.PlanId != "" {
+	if args.RunId != "" {
 		if b.Len() > 32 {
 			b.WriteString(", ")
 		}
-		b.WriteString("planId: ")
-		b.WriteString(quoteMemQL(args.PlanId))
+		b.WriteString("runId: ")
+		b.WriteString(quoteMemQL(args.RunId))
 	}
-	if args.TaskId != "" {
+	if args.StepId != "" {
 		if b.Len() > 32 {
 			b.WriteString(", ")
 		}
-		b.WriteString("taskId: ")
-		b.WriteString(quoteMemQL(args.TaskId))
+		b.WriteString("stepId: ")
+		b.WriteString(quoteMemQL(args.StepId))
 	}
 	if args.CorrelationId != "" {
 		if b.Len() > 32 {
@@ -8433,16 +7878,16 @@ func InsertSafetyClassificationBuild(args InsertSafetyClassificationArgs) string
 //
 // Bound concept: v1:platform:missingCapability (machine-readable: BoundConcepts["logMissingCapability"] in generated_concepts.go).
 type LogMissingCapabilityArgs struct {
-	MissingId           string
-	Kind                string
-	Capability          string
-	Description         string
-	RequestedFromPlanId string
-	RequestedByAgentId  string
-	PartitionId         string
-	PartitionScope      string
-	FirstSeenAt         string
-	ExampleGoal         string
+	MissingId          string
+	Kind               string
+	Capability         string
+	Description        string
+	RequestedFromRunId string
+	RequestedByAgentId string
+	PartitionId        string
+	PartitionScope     string
+	FirstSeenAt        string
+	ExampleGoal        string
 }
 
 // LogMissingCapability calls the engine mutation logMissingCapability.
@@ -8471,12 +7916,12 @@ func LogMissingCapabilityBuild(args LogMissingCapabilityArgs) string {
 	}
 	b.WriteString("description: ")
 	b.WriteString(quoteMemQL(args.Description))
-	if args.RequestedFromPlanId != "" {
+	if args.RequestedFromRunId != "" {
 		if b.Len() > 30 {
 			b.WriteString(", ")
 		}
-		b.WriteString("requestedFromPlanId: ")
-		b.WriteString(quoteMemQL(args.RequestedFromPlanId))
+		b.WriteString("requestedFromRunId: ")
+		b.WriteString(quoteMemQL(args.RequestedFromRunId))
 	}
 	if args.RequestedByAgentId != "" {
 		if b.Len() > 30 {
@@ -8859,68 +8304,6 @@ func MoveLibraryFolderBuild(args MoveLibraryFolderArgs) string {
 	return b.String()
 }
 
-// PersistTaskState -- Persist a Task's working state for async parking + planner re-invocation. Called when a Task transitions to paused / awaitingFeedback.
-//
-// Bound concept: v1:planner:taskState (machine-readable: BoundConcepts["persistTaskState"] in generated_concepts.go).
-type PersistTaskStateArgs struct {
-	StateId           string
-	TaskId            string
-	WorkingMemory     map[string]any
-	ReasoningChain    string
-	ToolCallHistory   []map[string]any
-	PendingSubPlanIds []string
-}
-
-// PersistTaskState calls the engine mutation persistTaskState.
-func (qc *QueryClient) PersistTaskState(ctx context.Context, args PersistTaskStateArgs) (*Result, error) {
-	call := PersistTaskStateBuild(args)
-	return qc.executeNamed(ctx, "persistTaskState", call)
-}
-
-func PersistTaskStateBuild(args PersistTaskStateArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation persistTaskState(")
-	if args.StateId != "" {
-		b.WriteString("stateId: ")
-		b.WriteString(quoteMemQL(args.StateId))
-	}
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
-	if args.WorkingMemory != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("workingMemory: ")
-		b.WriteString(renderMemQLValue(args.WorkingMemory))
-	}
-	if args.ReasoningChain != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("reasoningChain: ")
-		b.WriteString(quoteMemQL(args.ReasoningChain))
-	}
-	if args.ToolCallHistory != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("toolCallHistory: ")
-		b.WriteString(renderMemQLValue(args.ToolCallHistory))
-	}
-	if args.PendingSubPlanIds != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("pendingSubPlanIds: ")
-		b.WriteString(renderMemQLValue(args.PendingSubPlanIds))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // ProposeOverride -- Propose a healed OVERLAY override for a base construct (E4.2 / memql#2140). Writes a tier=overlay row with valid=false -- the repair loop proposes the heal, but it is INVISIBLE to resolution until human validation (E4.5) flips valid=true. Owned: ownerUserId is stamped from actor.userId so a caller can only propose overrides for their own constructs. tier is fixed to overlay (a base row can only be materialized by a system actor); the validateHealingBaseImmutable guard rejects any attempt to write tier=base here.
 //
 // Bound concept: v1:healing:healedOverride (machine-readable: BoundConcepts["proposeOverride"] in generated_concepts.go).
@@ -8986,14 +8369,14 @@ func ProposeOverrideBuild(args ProposeOverrideArgs) string {
 	return b.String()
 }
 
-// ProvisionWorkspace -- Create the v1:workbench:workspace row for a Plan on first workbenchHost call. Storage root is supplied by the workbench integration which has already created the directory on disk.
+// ProvisionWorkspace -- Create the v1:workbench:workspace row for a run on first workbenchHost call. Storage root is supplied by the workbench integration which has already created the directory on disk.
 // ownerUserId is STAMPED FROM THE ACTOR (memql#4354). The concept declares @rowAuthz(owner="ownerUserId", clusterOwner), and a declared owner field written from caller args fails TestDeclaredOwnerFieldsAreServerStamped. The workbench integration therefore runs this write under auth.ContextWithUserActor for the parent plan's requestedBy, which it has already resolved in order to know whose plan it is executing.
 // nodeId is the serving replica's own MEMQL_NODE_ID, supplied by the node that just made the directory. It is an arg rather than a stamp because only that node knows it, and it is not forgeable to any useful end: naming another replica would send the picker somewhere the directory is not, which reads as a node loss and re-provisions.
 //
 // Bound concept: v1:workbench:workspace (machine-readable: BoundConcepts["provisionWorkspace"] in generated_concepts.go).
 type ProvisionWorkspaceArgs struct {
 	WorkspaceId string
-	PlanId      string
+	RunId       string
 	StorageRoot string
 	NodeId      string
 }
@@ -9012,8 +8395,8 @@ func ProvisionWorkspaceBuild(args ProvisionWorkspaceArgs) string {
 	if b.Len() > 28 {
 		b.WriteString(", ")
 	}
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
+	b.WriteString("runId: ")
+	b.WriteString(quoteMemQL(args.RunId))
 	if b.Len() > 28 {
 		b.WriteString(", ")
 	}
@@ -9669,63 +9052,6 @@ func RecordPasskeyAssertionBuild(args RecordPasskeyAssertionArgs) string {
 	}
 	b.WriteString("lastUsedAt: ")
 	b.WriteString(quoteMemQL(args.LastUsedAt))
-	b.WriteString(")")
-	return b.String()
-}
-
-// RecordPlannerInvocation -- Record a planner-agent LLM invocation against a Plan: advance metrics.llmCallCount + tokenSpent without changing status. Caller computes the new totals Go-side (the parser has no arithmetic).
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["recordPlannerInvocation"] in generated_concepts.go).
-type RecordPlannerInvocationArgs struct {
-	PlanId     string
-	TokenSpent int
-	// Tokens the call spent through an app the user already pays for (memql#4362). Off the dollar ceiling, on the loop caps.
-	TokenSpentSubscription int
-	// Tokens the call spent on a model hosted by one of the user's own machines (memql#4681). Same two-caps split as the field above.
-	// ABSENT IS NOT ZERO: a runtime that reported no usage leaves this unpassed, so the counter keeps the total it had. Passing 0 would be indistinguishable from a call that genuinely spent nothing, and update{} is a read-merge, so an omitted field is exactly the right way to say "nobody counted".
-	TokenSpentLocal int
-	Metrics         map[string]any
-}
-
-// RecordPlannerInvocation calls the engine mutation recordPlannerInvocation.
-func (qc *QueryClient) RecordPlannerInvocation(ctx context.Context, args RecordPlannerInvocationArgs) (*Result, error) {
-	call := RecordPlannerInvocationBuild(args)
-	return qc.executeNamed(ctx, "recordPlannerInvocation", call)
-}
-
-func RecordPlannerInvocationBuild(args RecordPlannerInvocationArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation recordPlannerInvocation(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if args.TokenSpent != 0 {
-		if b.Len() > 33 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenSpent: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenSpent))
-	}
-	if args.TokenSpentSubscription != 0 {
-		if b.Len() > 33 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenSpentSubscription: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenSpentSubscription))
-	}
-	if args.TokenSpentLocal != 0 {
-		if b.Len() > 33 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenSpentLocal: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenSpentLocal))
-	}
-	if args.Metrics != nil {
-		if b.Len() > 33 {
-			b.WriteString(", ")
-		}
-		b.WriteString("metrics: ")
-		b.WriteString(renderMemQLValue(args.Metrics))
-	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -10848,34 +10174,6 @@ func RequestChangesBuild(args RequestChangesArgs) string {
 	}
 	b.WriteString("resolution: ")
 	b.WriteString(quoteMemQL(args.Resolution))
-	b.WriteString(")")
-	return b.String()
-}
-
-// RequestPlanFeedback -- Transition an existing running Plan to awaitingFeedback / feedback_required with a feedbackRequest{question, kind, options?, timeoutAt}. Backs the requestUserFeedback agent tool. Partial-update via update() -- only status / feedbackReason / feedbackRequest change; required fields inherit from the prior row. The user's answer (feedbackResponse + status->running) resumes the Plan via the existing planner re-invocation path.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["requestPlanFeedback"] in generated_concepts.go).
-type RequestPlanFeedbackArgs struct {
-	PlanId          string
-	FeedbackRequest map[string]any
-}
-
-// RequestPlanFeedback calls the engine mutation requestPlanFeedback.
-func (qc *QueryClient) RequestPlanFeedback(ctx context.Context, args RequestPlanFeedbackArgs) (*Result, error) {
-	call := RequestPlanFeedbackBuild(args)
-	return qc.executeNamed(ctx, "requestPlanFeedback", call)
-}
-
-func RequestPlanFeedbackBuild(args RequestPlanFeedbackArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation requestPlanFeedback(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 29 {
-		b.WriteString(", ")
-	}
-	b.WriteString("feedbackRequest: ")
-	b.WriteString(renderMemQLValue(args.FeedbackRequest))
 	b.WriteString(")")
 	return b.String()
 }
@@ -13067,28 +12365,6 @@ func StampNodeTokenBootstrapBuild(args StampNodeTokenBootstrapArgs) string {
 	return b.String()
 }
 
-// StartPlan -- Promote a Plan from queued (planning complete, tasks emitted) to running. Triggered by the user clicking Run in the cockpit Planner tab, or by an automation that auto-runs plans on the user's behalf.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["startPlan"] in generated_concepts.go).
-type StartPlanArgs struct {
-	PlanId string
-}
-
-// StartPlan calls the engine mutation startPlan.
-func (qc *QueryClient) StartPlan(ctx context.Context, args StartPlanArgs) (*Result, error) {
-	call := StartPlanBuild(args)
-	return qc.executeNamed(ctx, "startPlan", call)
-}
-
-func StartPlanBuild(args StartPlanArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation startPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	b.WriteString(")")
-	return b.String()
-}
-
 // TakeBooking -- Take a booking against the host's published hours. The host is the caller -- this is the portal operations path (memql#4142). Booker identity is payload.
 //
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["takeBooking"] in generated_concepts.go).
@@ -14211,7 +13487,7 @@ type UpdateGeneratedOutputContentArgs struct {
 	// Enum: workbench_generated | computer_use | agent_generated | derived | user_created
 	Source            string
 	PartitionId       string
-	ProducedByPlanId  string
+	ProducedByRunId   string
 	ProducedByAgentId string
 }
 
@@ -14278,12 +13554,12 @@ func UpdateGeneratedOutputContentBuild(args UpdateGeneratedOutputContentArgs) st
 		b.WriteString("partitionId: ")
 		b.WriteString(quoteMemQL(args.PartitionId))
 	}
-	if args.ProducedByPlanId != "" {
+	if args.ProducedByRunId != "" {
 		if b.Len() > 38 {
 			b.WriteString(", ")
 		}
-		b.WriteString("producedByPlanId: ")
-		b.WriteString(quoteMemQL(args.ProducedByPlanId))
+		b.WriteString("producedByRunId: ")
+		b.WriteString(quoteMemQL(args.ProducedByRunId))
 	}
 	if args.ProducedByAgentId != "" {
 		if b.Len() > 38 {
@@ -14720,202 +13996,6 @@ func UpdatePackageSourceBuild(args UpdatePackageSourceArgs) string {
 		}
 		b.WriteString("credentialId: ")
 		b.WriteString(quoteMemQL(args.CredentialId))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
-// UpdatePlanStatus -- Update a Plan's status with the full v1 lifecycle field set (paused/awaitingFeedback/needsAgent + metrics + estimate + token spend). Partial-update via update() -- only the fields you pass are changed; required fields inherit from the prior row.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["updatePlanStatus"] in generated_concepts.go).
-type UpdatePlanStatusArgs struct {
-	PlanId                   string
-	Status                   string
-	OwnerAgentId             string
-	Output                   map[string]any
-	ErrorMessage             string
-	StartedAt                string
-	CompletedAt              string
-	CancelledBy              string
-	PausedAt                 string
-	TotalPausedMs            int
-	FeedbackRequest          map[string]any
-	FeedbackResponse         map[string]any
-	FeedbackReason           string
-	RecommendationCardId     string
-	Phases                   []map[string]any
-	Estimate                 map[string]any
-	EstimatedAt              string
-	TokenSpent               int
-	TokenSpentSubscription   int
-	TokenSpentLocal          int
-	TokenAllocatedToChildren int
-	Metrics                  map[string]any
-	ComputerUseScope         string
-}
-
-// UpdatePlanStatus calls the engine mutation updatePlanStatus.
-func (qc *QueryClient) UpdatePlanStatus(ctx context.Context, args UpdatePlanStatusArgs) (*Result, error) {
-	call := UpdatePlanStatusBuild(args)
-	return qc.executeNamed(ctx, "updatePlanStatus", call)
-}
-
-func UpdatePlanStatusBuild(args UpdatePlanStatusArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation updatePlanStatus(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("status: ")
-	b.WriteString(quoteMemQL(args.Status))
-	if args.OwnerAgentId != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("ownerAgentId: ")
-		b.WriteString(quoteMemQL(args.OwnerAgentId))
-	}
-	if args.Output != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("output: ")
-		b.WriteString(renderMemQLValue(args.Output))
-	}
-	if args.ErrorMessage != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("errorMessage: ")
-		b.WriteString(quoteMemQL(args.ErrorMessage))
-	}
-	if args.StartedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("startedAt: ")
-		b.WriteString(quoteMemQL(args.StartedAt))
-	}
-	if args.CompletedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("completedAt: ")
-		b.WriteString(quoteMemQL(args.CompletedAt))
-	}
-	if args.CancelledBy != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("cancelledBy: ")
-		b.WriteString(quoteMemQL(args.CancelledBy))
-	}
-	if args.PausedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("pausedAt: ")
-		b.WriteString(quoteMemQL(args.PausedAt))
-	}
-	if args.TotalPausedMs != 0 {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("totalPausedMs: ")
-		b.WriteString(fmt.Sprintf("%v", args.TotalPausedMs))
-	}
-	if args.FeedbackRequest != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("feedbackRequest: ")
-		b.WriteString(renderMemQLValue(args.FeedbackRequest))
-	}
-	if args.FeedbackResponse != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("feedbackResponse: ")
-		b.WriteString(renderMemQLValue(args.FeedbackResponse))
-	}
-	if args.FeedbackReason != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("feedbackReason: ")
-		b.WriteString(quoteMemQL(args.FeedbackReason))
-	}
-	if args.RecommendationCardId != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("recommendationCardId: ")
-		b.WriteString(quoteMemQL(args.RecommendationCardId))
-	}
-	if args.Phases != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("phases: ")
-		b.WriteString(renderMemQLValue(args.Phases))
-	}
-	if args.Estimate != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("estimate: ")
-		b.WriteString(renderMemQLValue(args.Estimate))
-	}
-	if args.EstimatedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("estimatedAt: ")
-		b.WriteString(quoteMemQL(args.EstimatedAt))
-	}
-	if args.TokenSpent != 0 {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenSpent: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenSpent))
-	}
-	if args.TokenSpentSubscription != 0 {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenSpentSubscription: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenSpentSubscription))
-	}
-	if args.TokenSpentLocal != 0 {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenSpentLocal: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenSpentLocal))
-	}
-	if args.TokenAllocatedToChildren != 0 {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("tokenAllocatedToChildren: ")
-		b.WriteString(fmt.Sprintf("%v", args.TokenAllocatedToChildren))
-	}
-	if args.Metrics != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("metrics: ")
-		b.WriteString(renderMemQLValue(args.Metrics))
-	}
-	if args.ComputerUseScope != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("computerUseScope: ")
-		b.WriteString(quoteMemQL(args.ComputerUseScope))
 	}
 	b.WriteString(")")
 	return b.String()
@@ -15593,90 +14673,6 @@ func UpdateStoreBuild(args UpdateStoreArgs) string {
 		}
 		b.WriteString("ownerUserId: ")
 		b.WriteString(quoteMemQL(args.OwnerUserId))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
-// UpdateTaskStatus -- Update a Task's status with optional output / error / lifecycle / metrics / parking fields. Partial-update via update() -- only the fields you pass change; required fields inherit from the prior row.
-//
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["updateTaskStatus"] in generated_concepts.go).
-type UpdateTaskStatusArgs struct {
-	TaskId             string
-	Status             string
-	Output             map[string]any
-	ErrorMessage       string
-	StartedAt          string
-	CompletedAt        string
-	ParkedAt           string
-	ParkedAtCheckpoint string
-	Metrics            map[string]any
-}
-
-// UpdateTaskStatus calls the engine mutation updateTaskStatus.
-func (qc *QueryClient) UpdateTaskStatus(ctx context.Context, args UpdateTaskStatusArgs) (*Result, error) {
-	call := UpdateTaskStatusBuild(args)
-	return qc.executeNamed(ctx, "updateTaskStatus", call)
-}
-
-func UpdateTaskStatusBuild(args UpdateTaskStatusArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation updateTaskStatus(")
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("status: ")
-	b.WriteString(quoteMemQL(args.Status))
-	if args.Output != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("output: ")
-		b.WriteString(renderMemQLValue(args.Output))
-	}
-	if args.ErrorMessage != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("errorMessage: ")
-		b.WriteString(quoteMemQL(args.ErrorMessage))
-	}
-	if args.StartedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("startedAt: ")
-		b.WriteString(quoteMemQL(args.StartedAt))
-	}
-	if args.CompletedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("completedAt: ")
-		b.WriteString(quoteMemQL(args.CompletedAt))
-	}
-	if args.ParkedAt != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("parkedAt: ")
-		b.WriteString(quoteMemQL(args.ParkedAt))
-	}
-	if args.ParkedAtCheckpoint != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("parkedAtCheckpoint: ")
-		b.WriteString(quoteMemQL(args.ParkedAtCheckpoint))
-	}
-	if args.Metrics != nil {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("metrics: ")
-		b.WriteString(renderMemQLValue(args.Metrics))
 	}
 	b.WriteString(")")
 	return b.String()

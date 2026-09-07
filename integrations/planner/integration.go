@@ -142,7 +142,7 @@ func WithEngine(engine Engine) PlannerArg {
 }
 
 // WithEventBus wires the event bus the integration subscribes on
-// for graph.node.updated.v1:planner:plan events.
+// for graph.node.updated.v1:planner:responsibility events.
 func WithEventBus(bus *events.Bus) PlannerArg {
 	return func(p *PlannerIntegration) { p.eventBus = bus }
 }
@@ -301,16 +301,9 @@ func (p *PlannerIntegration) Start(ctx context.Context) {
 		p.mu.Unlock()
 		p.logger.Info("planner integration: subscriptions registered",
 			"patterns", []string{
-				"graph.node.updated.v1:planner:plan (scope-elevation)",
-				"graph.node.created.v1:planner:plan (agent loop)",
-				"graph.node.updated.v1:planner:plan (agent loop)",
-				"graph.node.created.v1:planner:plan (trainSpecialist)",
-				"graph.node.updated.v1:planner:plan (trainSpecialist)",
-				"graph.node.created.v1:planner:plan (embedDomainItems)",
-				"graph.node.updated.v1:planner:plan (embedDomainItems)",
 				"graph.node.created.v1:planner:responsibility (intake)",
 				"graph.node.updated.v1:planner:responsibility (intake)",
-				"graph.node.updated.v1:planner:plan (authoring capture)",
+				"graph.node.updated.v1:work:run (authoring capture)",
 			},
 		)
 		// Start the daily-refresh cron poller (#644). Polls

@@ -1991,7 +1991,7 @@ func (x *AiForwardCancel) GetRequestId() string {
 //
 // WorkbenchForwardRequest carries an agent's workbenchHost.<action>
 // dispatch from the agent node to the workbench node that holds the
-// per-Plan workspace. Single round-trip semantics (no streaming);
+// per-run workspace. Single round-trip semantics (no streaming);
 // the agent's tool loop waits synchronously for the response.
 //
 // Unlike AiForward, this is a structured envelope (not a byte-wrapped
@@ -2020,11 +2020,17 @@ func (x *AiForwardCancel) GetRequestId() string {
 type WorkbenchForwardRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	PlanId    string                 `protobuf:"bytes,4,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
-	Action    string                 `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
-	ArgsJson  []byte                 `protobuf:"bytes,6,opt,name=args_json,json=argsJson,proto3" json:"args_json,omitempty"`
-	AgentId   string                 `protobuf:"bytes,7,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	TaskId    string                 `protobuf:"bytes,8,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// run_id was plan_id until memql#5053. It is RENAMED IN PLACE on field 4
+	// rather than reserved-and-re-added: this is a mesh-internal envelope with
+	// no external consumer, and pre-release rules carry no compatibility window.
+	// Both ends ship in the same binary set, so a rolling restart never has one
+	// side reading a field the other stopped writing.
+	RunId    string `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Action   string `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
+	ArgsJson []byte `protobuf:"bytes,6,opt,name=args_json,json=argsJson,proto3" json:"args_json,omitempty"`
+	AgentId  string `protobuf:"bytes,7,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// step_id was task_id until memql#5053, renamed in place for run_id's reason.
+	StepId string `protobuf:"bytes,8,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
 	// Optional timeout hint; the workbench node clamps to its own caps.
 	TimeoutSec    int32               `protobuf:"varint,9,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"`
 	Authority     *ForwardedAuthority `protobuf:"bytes,10,opt,name=authority,proto3" json:"authority,omitempty"`
@@ -2069,9 +2075,9 @@ func (x *WorkbenchForwardRequest) GetRequestId() string {
 	return ""
 }
 
-func (x *WorkbenchForwardRequest) GetPlanId() string {
+func (x *WorkbenchForwardRequest) GetRunId() string {
 	if x != nil {
-		return x.PlanId
+		return x.RunId
 	}
 	return ""
 }
@@ -2097,9 +2103,9 @@ func (x *WorkbenchForwardRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *WorkbenchForwardRequest) GetTaskId() string {
+func (x *WorkbenchForwardRequest) GetStepId() string {
 	if x != nil {
-		return x.TaskId
+		return x.StepId
 	}
 	return ""
 }
@@ -2498,13 +2504,15 @@ type WorkerForwardRequest struct {
 	// HEADLESS / COMPUTERUSE. The receiver acquires the concurrency slot for
 	// this capability, which is a local fact about a local stream and therefore
 	// cannot be decided by the sender.
-	Capability    string `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
-	Tool          string `protobuf:"bytes,5,opt,name=tool,proto3" json:"tool,omitempty"`
-	Action        string `protobuf:"bytes,6,opt,name=action,proto3" json:"action,omitempty"`
-	ArgsJson      []byte `protobuf:"bytes,7,opt,name=args_json,json=argsJson,proto3" json:"args_json,omitempty"`
-	AgentId       string `protobuf:"bytes,8,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	PlanId        string `protobuf:"bytes,9,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
-	TaskId        string `protobuf:"bytes,10,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Capability string `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
+	Tool       string `protobuf:"bytes,5,opt,name=tool,proto3" json:"tool,omitempty"`
+	Action     string `protobuf:"bytes,6,opt,name=action,proto3" json:"action,omitempty"`
+	ArgsJson   []byte `protobuf:"bytes,7,opt,name=args_json,json=argsJson,proto3" json:"args_json,omitempty"`
+	AgentId    string `protobuf:"bytes,8,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// run_id / step_id were plan_id / task_id until memql#5053; renamed in
+	// place, mesh-internal envelope, no compatibility window pre-release.
+	RunId         string `protobuf:"bytes,9,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	StepId        string `protobuf:"bytes,10,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
 	CorrelationId string `protobuf:"bytes,11,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
 	// Optional timeout hint; the receiver clamps to its own caps.
 	TimeoutSec    int32               `protobuf:"varint,12,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"`
@@ -2599,16 +2607,16 @@ func (x *WorkerForwardRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *WorkerForwardRequest) GetPlanId() string {
+func (x *WorkerForwardRequest) GetRunId() string {
 	if x != nil {
-		return x.PlanId
+		return x.RunId
 	}
 	return ""
 }
 
-func (x *WorkerForwardRequest) GetTaskId() string {
+func (x *WorkerForwardRequest) GetStepId() string {
 	if x != nil {
-		return x.TaskId
+		return x.StepId
 	}
 	return ""
 }
@@ -3412,15 +3420,15 @@ const file_node_proto_rawDesc = "" +
 	"\x04done\x18\x03 \x01(\bR\x04done\"0\n" +
 	"\x0fAiForwardCancel\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xc1\x02\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xbf\x02\n" +
 	"\x17WorkbenchForwardRequest\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
-	"\aplan_id\x18\x04 \x01(\tR\x06planId\x12\x16\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
+	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06action\x18\x05 \x01(\tR\x06action\x12\x1b\n" +
 	"\targs_json\x18\x06 \x01(\fR\bargsJson\x12\x19\n" +
 	"\bagent_id\x18\a \x01(\tR\aagentId\x12\x17\n" +
-	"\atask_id\x18\b \x01(\tR\x06taskId\x12\x1f\n" +
+	"\astep_id\x18\b \x01(\tR\x06stepId\x12\x1f\n" +
 	"\vtimeout_sec\x18\t \x01(\x05R\n" +
 	"timeoutSec\x12G\n" +
 	"\tauthority\x18\n" +
@@ -3449,7 +3457,7 @@ const file_node_proto_rawDesc = "" +
 	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"K\n" +
 	"\fNodeShutdown\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12#\n" +
-	"\rgrace_seconds\x18\x02 \x01(\x05R\fgraceSeconds\"\xc9\x03\n" +
+	"\rgrace_seconds\x18\x02 \x01(\x05R\fgraceSeconds\"\xc7\x03\n" +
 	"\x14WorkerForwardRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
@@ -3461,10 +3469,10 @@ const file_node_proto_rawDesc = "" +
 	"\x04tool\x18\x05 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06action\x18\x06 \x01(\tR\x06action\x12\x1b\n" +
 	"\targs_json\x18\a \x01(\fR\bargsJson\x12\x19\n" +
-	"\bagent_id\x18\b \x01(\tR\aagentId\x12\x17\n" +
-	"\aplan_id\x18\t \x01(\tR\x06planId\x12\x17\n" +
-	"\atask_id\x18\n" +
-	" \x01(\tR\x06taskId\x12%\n" +
+	"\bagent_id\x18\b \x01(\tR\aagentId\x12\x15\n" +
+	"\x06run_id\x18\t \x01(\tR\x05runId\x12\x17\n" +
+	"\astep_id\x18\n" +
+	" \x01(\tR\x06stepId\x12%\n" +
 	"\x0ecorrelation_id\x18\v \x01(\tR\rcorrelationId\x12\x1f\n" +
 	"\vtimeout_sec\x18\f \x01(\x05R\n" +
 	"timeoutSec\x12G\n" +

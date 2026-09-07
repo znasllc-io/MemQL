@@ -661,11 +661,11 @@ func TestAssistantEdit_LandsAssistantAuthorKind(t *testing.T) {
 	ctx := context.Background()
 
 	out, err := i.handleEditDocumentAsAssistant(ctx, map[string]any{
-		"documentId":       "doc-1",
-		"content":          "assistant revision",
-		"agentId":          "agent-7",
-		"producedByPlanId": "plan-9",
-		"note":             "added three more birds",
+		"documentId":      "doc-1",
+		"content":         "assistant revision",
+		"agentId":         "agent-7",
+		"producedByRunId": "plan-9",
+		"note":            "added three more birds",
 	}, 0)
 	if err != nil {
 		t.Fatalf("assistant edit: %v", err)
@@ -681,8 +681,8 @@ func TestAssistantEdit_LandsAssistantAuthorKind(t *testing.T) {
 	if v["authorId"] != "agent-7" {
 		t.Fatalf("version authorId = %v, want agent-7 (the injected agentId)", v["authorId"])
 	}
-	if v["producedByPlanId"] != "plan-9" {
-		t.Fatalf("version producedByPlanId = %v, want plan-9", v["producedByPlanId"])
+	if v["producedByRunId"] != "plan-9" {
+		t.Fatalf("version producedByRunId = %v, want plan-9", v["producedByRunId"])
 	}
 }
 
@@ -917,7 +917,7 @@ func seededArtifact() map[string]any {
 		"labels":               []any{"reports", "q3"},
 		"partitionId":          "space-1",
 		"agentId":              "agent-1",
-		"producedByPlanId":     "plan-1",
+		"producedByRunId":      "run-1",
 		"producedByWorkerId":   "worker-1",
 		"producedByWorkerName": "MacBook-Pro",
 		"validationStatus":     "validated",

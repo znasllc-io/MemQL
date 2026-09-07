@@ -69,7 +69,7 @@ concept run {
   status                 enum("compiling", "running", "waiting", "succeeded", "failed", "cancelled", "abandoned")!  @description("Where the run is.")
   waitingOn              object  @description("{kind: approval|feedback|timer|external|subrun, subject, since} while status is waiting.")
   spent                  object  @description("{tokens, tokensSubscription, tokensLocal, cost, modelCalls, retries, events, wallClockMs} so far.")
-  nodeId                 string  @description("MEMQL_NODE_ID of the replica running this run. Stamped at open, never rewritten.")
+  nodeId                 string  @description("MEMQL_NODE_ID of the replica running this run. Stamped at open by whichever node OPENED it, and rewritten by the replica that CLAIMS it for execution (memql#5054). It used to say 'stamped at open, never rewritten' -- and under design-record section H those are different nodes, the planner opening and an agent running, so the field held the opener while claiming to hold the runner. The abandoned sweep names this node when it closes a run, which is the reader that was being misled.")
   heartbeatAt            datetime  @description("When the running node last wrote a step boundary.")
   cancelRequested        bool  @default("false")  @description("Somebody asked for this run to stop.")
   cancelledBy            string  @description("v1:identity:user.id when a person cancelled, or a system sentinel.")

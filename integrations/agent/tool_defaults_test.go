@@ -42,7 +42,7 @@ func turnCtxAllFields() turnContext {
 		AgentId:     "v1:agents:agent:runtime",
 		OwnerUserId: "v1:identity:user:owner",
 		PartitionId: "v1:cognition:space:s1",
-		PlanId:      "v1:planner:plan:p1",
+		RunId:       "v1:work:run:r1",
 	}
 }
 
@@ -163,12 +163,12 @@ func TestAgentToolCallContextDeliversTheStamp(t *testing.T) {
 			"agentId":     "v1:agents:agent:runtime",
 			"ownerUserId": "v1:identity:user:owner",
 			"partitionId": "v1:cognition:space:s1",
-			"planId":      "v1:planner:plan:p1",
+			"runId":       "v1:work:run:r1",
 		}},
 		{"editDocument", map[string]string{
-			"agentId":          "v1:agents:agent:runtime",
-			"producedByPlanId": "v1:planner:plan:p1",
-			"partitionId":      "v1:cognition:space:s1",
+			"agentId":         "v1:agents:agent:runtime",
+			"producedByRunId": "v1:work:run:r1",
+			"partitionId":     "v1:cognition:space:s1",
 		}},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -211,8 +211,8 @@ func TestAgentToolDefaultsOmitUnresolvedFields(t *testing.T) {
 	partial := turnContext{AgentId: "v1:agents:agent:runtime"}
 
 	got := agentToolDefaults("requestUserFeedback", partial)
-	if _, present := got["planId"]; present {
-		t.Errorf("planId defaulted to %v on a turn that resolved none", got["planId"])
+	if _, present := got["runId"]; present {
+		t.Errorf("runId defaulted to %v on a turn that resolved none", got["runId"])
 	}
 	if _, present := got["ownerUserId"]; present {
 		t.Errorf("ownerUserId defaulted to %v on a turn that resolved none", got["ownerUserId"])

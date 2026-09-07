@@ -198,7 +198,7 @@ mutate skillChangeEvent createSkillChangeEvent {
     after               object
     actorAgentId        string
     actorUserId         string
-    planId              string
+    runId               string
   }
   insert {
     id: args.skillChangeEventId
@@ -209,7 +209,7 @@ mutate skillChangeEvent createSkillChangeEvent {
     after: args.after ?? {}
     args.actorAgentId
     args.actorUserId
-    args.planId
+    args.runId
   }
 }
 

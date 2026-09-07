@@ -40,7 +40,7 @@ func TestRecordEmitsExpectedQueryShape(t *testing.T) {
 	p := New(runner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	p.Record(context.Background(),
 		safety.NewExecAction(safety.SurfaceWorkbench, "ls -la", safety.CallerContext{
-			AgentID: "a1", OwnerUserID: "u1", PlanID: "p1", CorrelationID: "c1",
+			AgentID: "a1", OwnerUserID: "u1", RunID: "p1", CorrelationID: "c1",
 		}),
 		safety.Classification{
 			Tier: safety.TierLow, Categories: []safety.Category{safety.CategoryDestructive},

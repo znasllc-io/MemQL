@@ -520,9 +520,9 @@ func TestPositionalBuiltinEvaluatorsAgree(t *testing.T) {
 	t.Run("concat", func(t *testing.T) {
 		for _, operands := range [][]any{
 			{"P-", "mid", "-S"},
-			{"P-", nil, "-S"},   // the divergence the cleanup would introduce
-			{nil, nil},          // all-nil
-			{"", "x"},           // empty string is not nil
+			{"P-", nil, "-S"}, // the divergence the cleanup would introduce
+			{nil, nil},        // all-nil
+			{"", "x"},         // empty string is not nil
 			{"n=", 42, " ok", true},
 		} {
 			args := map[string]any{}
@@ -546,10 +546,10 @@ func TestPositionalBuiltinEvaluatorsAgree(t *testing.T) {
 	t.Run("coalesce", func(t *testing.T) {
 		for _, operands := range [][]any{
 			{nil, "fallback"},
-			{"", "fallback"},        // empty non-final is treated as missing
+			{"", "fallback"}, // empty non-final is treated as missing
 			{"first", "second"},
-			{nil, nil, ""},          // final operand wins even when empty (memql#1614)
-			{nil, ""},               // ditto, two operands
+			{nil, nil, ""}, // final operand wins even when empty (memql#1614)
+			{nil, ""},      // ditto, two operands
 			{"only"},
 		} {
 			node := &FunctionCallExpression{Name: "coalesce", Args: map[string]any{}}

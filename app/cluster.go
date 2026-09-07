@@ -240,33 +240,36 @@ func (a *App) cluster() {
 		// deliberately not swept (see pgOutboxStore.SweepOlderThan).
 		a.Dependencies = append(a.Dependencies, node.NewOutboxRetention(dbGetter, a.Logger))
 
-		// Plan-lifecycle path on the durable substrate (memql#1495): plan
-		// graph events (graph.node.created/updated.v1:planner:plan) get a real
-		// at-least-once delivery leg, mirroring ChatReplyDelivery. Before this
-		// they rode the EventBridge mesh broadcast ONLY -- a broadcast dropped
-		// while the planner was routeless (the #1388 peer-decay incident)
-		// stranded the Plan, recovered only by the #1389 DB-poll watchdog (a
-		// backstop, not a guarantee). Now:
-		//   - Producer side (every mesh node): on a locally-produced plan
-		//     graph event, PlanDelivery durably Publishes a Deliverable keyed
-		//     by the fixed plan:lifecycle key. The BFF writes new Plans and the
-		//     planner writes status transitions, so both run the producer.
-		//   - Consumer side (planner only): the planner Subscribes once and
-		//     fans the durable stream back onto its local bus, where the
-		//     PlannerAgentLoop subscribers already consume it -- catching up on
+		// Run-lifecycle path on the durable substrate (memql#1495, ported from
+		// the plan lifecycle in memql#5053): run graph events
+		// (graph.node.created/updated.v1:work:run) get a real at-least-once
+		// delivery leg. Before the port they rode the EventBridge mesh
+		// broadcast ONLY -- and a broadcast dropped while a consumer was
+		// routeless (the #1388 peer-decay incident) is exactly what leaves a
+		// compiled run unexecuted, which the abandoned sweep then closes with
+		// a message about a node going away.
+		//   - Producer side (every mesh node): on a locally-produced run graph
+		//     event, RunDelivery durably Publishes a Deliverable keyed by the
+		//     fixed run:lifecycle key. A run row is written by the node that
+		//     opened it and by the node executing it, so both produce.
+		//   - Consumer side (the replicas that EXECUTE runs): Subscribe once
+		//     and fan the durable stream back onto the local bus, where the
+		//     run dispatcher's subscription consumes it -- catching up on
 		//     cursor-pull replay after a route gap.
-		// The mesh broadcast is left fully intact as the latency fast-path; the
-		// inbound copy is NOT suppressed (unlike chat-reply) because the
-		// planner's consumers are already idempotent -- the per-plan once-guard
-		// (memql#1155) + the cross-replica ClusterExecutionGuard
-		// (planId@startedAt, memql#1363) make a duplicate (mesh + replay)
-		// collapse downstream, so PlanDelivery can only ever ADD a missed
+		// The mesh broadcast is left fully intact as the latency fast-path and
+		// the inbound copy is NOT suppressed (unlike chat-reply), because the
+		// dispatcher CLAIMS a run before executing it: a duplicate (mesh +
+		// replay) collapses at that claim, so this can only ever ADD a missed
 		// delivery, never double-execute.
-		isPlanner := nodeIdentity.Type == node.NodeTypePlanner
-		if pd := node.NewPlanDelivery(nodeIdentity, substrate, a.eventBus, isPlanner, a.Logger); pd != nil {
-			a.Dependencies = append(a.Dependencies, pd)
-			a.Logger.Info("plan-lifecycle path routed through durable delivery substrate",
-				"node_id", nodeIdentity.ID, "node_type", string(nodeIdentity.Type), "is_planner", isPlanner)
+		//
+		// The consumer is the AGENT node, not the planner: design-record
+		// section H puts step execution there, and it is the run dispatcher
+		// that consumes these events.
+		runsSteps := nodeIdentity.Type == node.NodeTypeAgent
+		if rd := node.NewRunDelivery(nodeIdentity, substrate, a.eventBus, runsSteps, a.Logger); rd != nil {
+			a.Dependencies = append(a.Dependencies, rd)
+			a.Logger.Info("run-lifecycle path routed through durable delivery substrate",
+				"node_id", nodeIdentity.ID, "node_type", string(nodeIdentity.Type), "runs_steps", runsSteps)
 		}
 	}
 

@@ -9769,15 +9769,15 @@ type ConceptInfo struct {
 	// The data-origins declaration (epic memql#4378): what MemQL's
 	// relationship is to this concept's data. Three states, no fourth.
 	//
-	//	data_state = "mirror"  -- an external system owns it; MemQL holds
-	//	                          a faithful copy and REFUSES every write
-	//	                          that does not come from that system's
-	//	                          connector. A client rendering an editor
-	//	                          over such a concept is offering an
-	//	                          action the server will refuse.
-	//	data_state = "origin"  -- MemQL owns it and pushes changes out to
-	//	                          the connectors in mirrored_to.
-	//	data_state = "native"  -- MemQL owns it and nobody else has a copy.
+	//   data_state = "mirror"  -- an external system owns it; MemQL holds
+	//                             a faithful copy and REFUSES every write
+	//                             that does not come from that system's
+	//                             connector. A client rendering an editor
+	//                             over such a concept is offering an
+	//                             action the server will refuse.
+	//   data_state = "origin"  -- MemQL owns it and pushes changes out to
+	//                             the connectors in mirrored_to.
+	//   data_state = "native"  -- MemQL owns it and nobody else has a copy.
 	//
 	// data_origin is never empty: a concept that declared nothing reports
 	// "memql", so a client renders a badge without re-deriving the
@@ -10753,10 +10753,9 @@ type AgentGenerateTurnMsg struct {
 	// Pre-extracted attachment summaries (optional).
 	Attachments []*AgentTurnAttachment `protobuf:"bytes,30,rep,name=attachments,proto3" json:"attachments,omitempty"`
 	// Caller hints. Known keys:
-	//
-	//	"tools_disabled"    -- "true" to skip tool loop (polyphon text / voice paths)
-	//	"streaming"         -- "false" to force non-streaming generation
-	//	"text_only_fallback" -- "true" to suppress canvas directives
+	//   "tools_disabled"    -- "true" to skip tool loop (polyphon text / voice paths)
+	//   "streaming"         -- "false" to force non-streaming generation
+	//   "text_only_fallback" -- "true" to suppress canvas directives
 	Hints         map[string]string `protobuf:"bytes,40,rep,name=hints,proto3" json:"hints,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -11047,14 +11046,12 @@ type AgentTurnRoutingContext struct {
 	PeerActivity    []*AgentTurnPeerActivity `protobuf:"bytes,6,rep,name=peer_activity,json=peerActivity,proto3" json:"peer_activity,omitempty"`
 	// Guardrail turn mode set by the cognition router. Drives the three
 	// branches in the agentReply template:
-	//
-	//	"answer"            -- specialist in scope; answer normally.
-	//	"fallback_attempt"  -- assistant stretching on a soft gap;
-	//	                       try with general knowledge, flag uncertainty.
-	//	"escalation_notice" -- assistant cannot help (hard gap);
-	//	                       acknowledge + flag for humans, do not attempt
-	//	                       the substantive answer.
-	//
+	//   "answer"            -- specialist in scope; answer normally.
+	//   "fallback_attempt"  -- assistant stretching on a soft gap;
+	//                          try with general knowledge, flag uncertainty.
+	//   "escalation_notice" -- assistant cannot help (hard gap);
+	//                          acknowledge + flag for humans, do not attempt
+	//                          the substantive answer.
 	// Empty string defaults to "answer" on the consumer side.
 	TurnMode string `protobuf:"bytes,8,opt,name=turn_mode,json=turnMode,proto3" json:"turn_mode,omitempty"`
 	// Depth of the current handoff chain (0 on a fresh turn, increments on

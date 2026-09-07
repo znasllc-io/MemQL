@@ -45,7 +45,7 @@ func TestNullCoalesce_StepCallNamedArg(t *testing.T) {
 		{
 			name: "query step named arg",
 			src: "logic probe {\n  args {\n    event object!\n  }\n  body {\n" +
-				"    return query workspaceForPlan( planId: args.event.node.id ?? \"\" )\n  }\n}\n",
+				"    return query workspaceForRun( runId: args.event.node.id ?? \"\" )\n  }\n}\n",
 		},
 		{
 			name: "builtin step named arg, second of two",

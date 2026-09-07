@@ -25,7 +25,7 @@
 use identity.concepts.{ user }
 use agents.concepts.{ agent }
 use common.concepts.{ attachment }
-use planner.concepts.{ plan }
+use work.concepts.{ run }
 use worker.concepts.{ registration }
 
 /// A single Library index row pointing at one underlying source concept (document / generated
@@ -72,7 +72,7 @@ concept artifact {
 
   agentId          string  @description("v1:agents:agent.id associated with this item, when one applies (e.g. the agent that produced a generated output or owns a memory). Backs the per-agent facet filter.")
 
-  producedByPlanId string  @description("v1:planner:plan.id that produced this item, when it came from a plan (documents carry document.planId; generated outputs carry the producing plan). Provenance back-pointer surfaced in the detail view.")
+  producedByRunId  string  @description("v1:work:run.id that produced this item, when a run produced it. Provenance back-pointer surfaced in the detail view. Was producedByPlanId until memql#5053 -- and clients/os/README recorded the cost of that: with the field naming a Plan, nothing could point a produced thing at the RUN that made it, so Nexus could draw nothing below the road except approvals.")
 
   producedByWorkerId string  @description("v1:worker:registration.id of the worker MACHINE this item is associated with, WHEN A MACHINE IS KNOWN (memql#4781 generalized this from its original computer-use-only meaning): the machine a computer-use output was produced on, or the machine a file was uploaded from (indexFileOnCreate forwards the file row's verified uploadedFromWorkerId here). Lets the Files app say WHICH of the user's registered computers an item came from, and detect when it is the machine the user is currently on. Empty when no machine is honestly known -- a browser upload names none.")
 
@@ -86,7 +86,7 @@ concept artifact {
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="references", field="agentId", target=agent, direction="outgoing")
-  @relationship(type="references", field="producedByPlanId", target=plan, direction="outgoing")
+  @relationship(type="references", field="producedByRunId", target=run, direction="outgoing")
   @relationship(type="references", field="producedByWorkerId", target=registration, direction="outgoing")
   @relationship(type="references", field="folderId", target=folder, direction="outgoing")
 }
@@ -124,14 +124,14 @@ concept generatedOutput {
   mimeType          string  @description("MIME type of the backing bytes when attachment-backed.")
   source            enum("workbench_generated", "computer_use", "agent_generated", "derived", "user_created")!  @description("Provenance -- where the output was produced. Copied onto the artifact index row's source field. user_created is the portal's own create path: a person typed the content rather than a tool producing it, and calling that 'derived' would render a false provenance label on their own row.")
   partitionId           string  @description("Optional product scope tag, carried through from the artifact index. The engine derives nothing from it.")
-  producedByPlanId  string  @description("v1:planner:plan.id that produced this output, when it came from a plan.")
+  producedByRunId   string  @description("v1:work:run.id that produced this output, when a run produced it.")
   producedByAgentId string  @description("v1:agents:agent.id that produced this output, when an agent emitted it.")
   producedByWorkerId   string  @description("v1:worker:registration.id of the worker MACHINE that produced this output, when source=computer_use. Empty otherwise. Copied onto the artifact index row.")
   producedByWorkerName string  @description("Human-readable name of the producing worker machine, copied from the worker registration at production time. Empty unless producedByWorkerId is set.")
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="references", field="attachmentId", target=attachment, direction="outgoing")
-  @relationship(type="references", field="producedByPlanId", target=plan, direction="outgoing")
+  @relationship(type="references", field="producedByRunId", target=run, direction="outgoing")
   @relationship(type="references", field="producedByAgentId", target=agent, direction="outgoing")
   @relationship(type="references", field="producedByWorkerId", target=registration, direction="outgoing")
 }
@@ -202,7 +202,7 @@ concept documentVersion {
 
   parentVersionId  string  @description("Id of the documentVersion row this one was derived from (the previous latest at append time, or the chosen source version for a restore). The append-only history's back-pointer chain -- empty only for the very first version of a document.")
 
-  producedByPlanId string  @description("v1:planner:plan.id that produced this version, when an assistant/agent edit came through the planner. Provenance back-pointer mirroring the artifact/generatedOutput spine.")
+  producedByRunId  string  @description("v1:work:run.id that produced this version, when an assistant/agent edit came through a run. Provenance back-pointer mirroring the artifact/generatedOutput spine.")
 
   partitionId          string  @description("Optional product scope tag, carried for facet parity with the artifact index. The engine derives nothing from it.")
 
@@ -216,7 +216,7 @@ concept documentVersion {
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="references", field="attachmentId", target=attachment, direction="outgoing")
   @relationship(type="parent", field="authorId", target=user, direction="outgoing")
-  @relationship(type="references", field="producedByPlanId", target=plan, direction="outgoing")
+  @relationship(type="references", field="producedByRunId", target=run, direction="outgoing")
 }
 
 // ---- memory: user-facing assistant (LLM) memory ----

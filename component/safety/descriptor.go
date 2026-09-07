@@ -40,8 +40,8 @@ const (
 type CallerContext struct {
 	AgentID       string
 	OwnerUserID   string
-	PlanID        string
-	TaskID        string
+	RunID         string
+	StepID        string
 	CorrelationID string
 	// Scope is the effective scope already resolved by the existing
 	// scope/kill-switch gate (observe / interact / full / ""). The

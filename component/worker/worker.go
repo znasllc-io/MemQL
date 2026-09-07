@@ -221,8 +221,8 @@ type InvocationRow struct {
 	OwnerUserId   string
 	WorkerId      string
 	AgentId       string
-	PlanId        string
-	TaskId        string
+	RunId         string
+	StepId        string
 	CorrelationId string
 	Tool          string
 	Action        string

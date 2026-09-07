@@ -23,12 +23,29 @@ package agents
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // WorkGoals is the narrow surface this package needs from integrations/work.
-// *work.Integration satisfies it.
+// *work.Integration satisfies it (through a thin adapter in app/, which is
+// where both types are in scope).
 type WorkGoals interface {
 	OpenDirectGoal(ctx context.Context, g DirectGoal) (goalId, runId string, err error)
+	// RaiseFeedbackApproval parks a run on a question for a person
+	// (memql#5053). It is on the SAME seam as OpenDirectGoal because a node
+	// either has the work spine or it does not; two seams would make "can
+	// open work but cannot ask about it" representable, and nothing is in
+	// that state.
+	RaiseFeedbackApproval(ctx context.Context, ownerUserId string, a FeedbackApproval) (approvalId string, err error)
+}
+
+// FeedbackApproval is one question put to a person, mid-run.
+type FeedbackApproval struct {
+	RunId     string
+	Question  string
+	Kind      string
+	Options   []map[string]any
+	ExpiresAt time.Time
 }
 
 // DirectGoal mirrors integrations/work.DirectGoal. It is redeclared rather

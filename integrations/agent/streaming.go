@@ -229,18 +229,18 @@ func maxStreamingToolLoopIterations() int {
 // fields are resolved once per turn at the top of handleStreaming
 // and are immutable for the rest of the loop.
 //
-// PlanId is set ONLY on a post-approval execution turn (the
+// RunId is set ONLY on a post-approval execution turn (the
 // planner-driven dispatch with hints["trigger"]="plan_approved");
 // every other turn leaves it empty. workerHost / workerComputer
 // dispatches on that turn carry the plan id through to the
 // v1:worker:invocation row, which is what makes
-// invocationsForPlan(planId) return rows so the planner's
+// invocationsForRun(runId) return rows so the planner's
 // outcome detector can stamp Plan succeeded/failed correctly.
 type turnContext struct {
 	AgentId     string
 	OwnerUserId string
 	PartitionId string
-	PlanId      string
+	RunId       string
 	// ThreadVisibility names which chat thread is dispatching this turn:
 	// "public" for Group-thread dispatches, "private" for per-user
 	// Team-thread dispatches (Phase 9 of the chat-architecture plan).
@@ -304,7 +304,7 @@ func (r *Replier) runStreamingToolLoop(
 	// loops is latched on its own, without touching other conversations.
 	ctx = memql.ContextWithBudgetScope(ctx,
 		memql.BudgetScopeId("space", turnCtx.PartitionId),
-		memql.BudgetScopeId("plan", turnCtx.PlanId))
+		memql.BudgetScopeId("plan", turnCtx.RunId))
 
 	start := time.Now()
 
@@ -992,14 +992,14 @@ type agentContextStamp struct {
 	// object rather than a flat string id, so this gets its own
 	// flag separate from StampAgentId.
 	StampActor bool
-	// StampPlanId stamps args["planId"] when the turnContext carries
+	// StampRunId stamps args["planId"] when the turnContext carries
 	// one (set on post-approval execution turns -- see turnContext
 	// docs). Used by worker tools so the v1:worker:invocation row
 	// they persist downstream is filed under the right Plan id;
 	// without it the row lands with planId="" and the planner's
 	// invocationsForPlan filter misses it, surfacing as
 	// Plan-stamped-failed even when the worker tool succeeded.
-	StampPlanId bool
+	StampRunId bool
 	// StampThreadVisibility stamps args["visibility"] from the
 	// turnContext's ThreadVisibility, and args["forUserId"] from the
 	// turnContext's ForUserId when visibility == "private". Phase 9
@@ -1018,27 +1018,27 @@ type agentContextStamp struct {
 	// data.producedByPlanId (frontend#393), but only when present.
 	// The agent knows the plan id authoritatively (post-approval
 	// execution turns); the LLM never does, so we stamp it server-side
-	// in the publish path. Distinct from the flat StampPlanId
+	// in the publish path. Distinct from the flat StampRunId
 	// (args["planId"]) the worker tools use -- canvasPublish has no
 	// top-level planId in its schema, the provenance rides inside the
 	// card data.
 	StampDataPlanId bool
-	// StampProducedByPlanId stamps the FLAT args["producedByPlanId"] from
+	// StampProducedByRunId stamps the FLAT args["producedByPlanId"] from
 	// the turnContext's plan id. editDocument records it as the new
 	// version's provenance, and declares it @autoInjected -- so before
 	// memql#3237 it was stripped at dispatch AND never stamped in the first
 	// place, editDocument having had no entry in this table at all. Distinct
 	// from StampDataPlanId, which writes the same value into a nested card
-	// `data` object, and from StampPlanId, which names a DIFFERENT field.
-	StampProducedByPlanId bool
+	// `data` object, and from StampRunId, which names a DIFFERENT field.
+	StampProducedByRunId bool
 }
 
 // agentContextStamps drives the per-tool injection. Adding a new
 // tool that needs runtime context: pick which fields its @input
 // declares, set the matching flags + space-field name here.
 var agentContextStamps = map[string]agentContextStamp{
-	"workerHost":     {StampAgentId: true, StampOwnerUserId: true, StampPlanId: true},
-	"workerComputer": {StampAgentId: true, StampOwnerUserId: true, StampPlanId: true},
+	"workerHost":     {StampAgentId: true, StampOwnerUserId: true, StampRunId: true},
+	"workerComputer": {StampAgentId: true, StampOwnerUserId: true, StampRunId: true},
 	"workerStatus":   {StampAgentId: true, StampOwnerUserId: true},
 	// workbenchHost runs HEADLESS work in the per-Plan sandbox. planId is
 	// REQUIRED -- it keys the workspace AND is the producedByPlanId stamped
@@ -1048,13 +1048,13 @@ var agentContextStamps = map[string]agentContextStamp{
 	// attributes the output and overwrites any value the LLM hallucinated
 	// (the schema marks both @autoInjected -- LLM-supplied values are not
 	// trusted). taskId stays optional (invocation filing only).
-	"workbenchHost":           {StampAgentId: true, StampPlanId: true},
+	"workbenchHost":           {StampAgentId: true, StampRunId: true},
 	"requestComputerUseScope": {StampAgentId: true, StampOwnerUserId: true, SpaceField: "partitionId"},
 	// requestUserFeedback parks the ACTIVE Plan, so it needs the
 	// turn-context planId stamped (the LLM never knows its own Plan id);
 	// agentId / ownerUserId scope the mutation's owner attribution and
 	// partitionId targets the canvas card.
-	"requestUserFeedback": {StampAgentId: true, StampOwnerUserId: true, StampPlanId: true, SpaceField: "partitionId"},
+	"requestUserFeedback": {StampAgentId: true, StampOwnerUserId: true, StampRunId: true, SpaceField: "partitionId"},
 	// produceArtifact CREATES a new plan (it doesn't park the active one),
 	// so it needs the calling agent, the owning user (-> the new plan's
 	// requestedBy), and the space the plan lives in. No planId stamp -- the
@@ -1067,7 +1067,7 @@ var agentContextStamps = map[string]agentContextStamp{
 	// the runtime stamped nothing and applyToolDefaults then stripped
 	// whatever the model had supplied, which meant every editDocument
 	// version landed with an empty author and no plan provenance.
-	"editDocument": {StampAgentId: true, StampProducedByPlanId: true, SpaceField: "partitionId"},
+	"editDocument": {StampAgentId: true, StampProducedByRunId: true, SpaceField: "partitionId"},
 	// askSpecialist resolves a specialist by (owner, roleSlug), so the owner
 	// is the half the model must not choose (memql#3216). ownerUserId is
 	// @autoInjected in the tool schema -- applyToolDefaults deletes whatever
@@ -1116,11 +1116,11 @@ func injectAgentContext(toolName string, args map[string]any, ctx turnContext) {
 			"agentId": ctx.AgentId,
 		}
 	}
-	if stamp.StampPlanId && ctx.PlanId != "" {
+	if stamp.StampRunId && ctx.RunId != "" {
 		// Always overwrite -- the LLM may have hallucinated a plan
 		// id (or left it empty); the runtime turn-context value is
 		// the source of truth.
-		args["planId"] = ctx.PlanId
+		args["planId"] = ctx.RunId
 	}
 	if stamp.StampThreadVisibility && ctx.ThreadVisibility != "" {
 		// Phase 9 visibility inheritance: stamp the dispatching
@@ -1133,12 +1133,12 @@ func injectAgentContext(toolName string, args map[string]any, ctx turnContext) {
 			args["forUserId"] = ctx.ForUserId
 		}
 	}
-	if stamp.StampProducedByPlanId && ctx.PlanId != "" {
+	if stamp.StampProducedByRunId && ctx.RunId != "" {
 		// Always overwrite -- the runtime turn-context plan id is the source
 		// of truth for provenance; the LLM never knows its own plan id.
-		args["producedByPlanId"] = ctx.PlanId
+		args["producedByPlanId"] = ctx.RunId
 	}
-	if stamp.StampDataPlanId && ctx.PlanId != "" {
+	if stamp.StampDataPlanId && ctx.RunId != "" {
 		// Stamp producedByPlanId onto the nested card `data` object so
 		// the published canvasState document card carries the plan
 		// provenance the frontend DocumentCard turns into a "View task"
@@ -1151,7 +1151,7 @@ func injectAgentContext(toolName string, args map[string]any, ctx turnContext) {
 			data = map[string]any{}
 			args["data"] = data
 		}
-		data["producedByPlanId"] = ctx.PlanId
+		data["producedByPlanId"] = ctx.RunId
 	}
 }
 
@@ -1214,8 +1214,8 @@ func (r *Replier) promoteCanvasOutput(ctx context.Context, turnCtx turnContext, 
 	if turnCtx.AgentId != "" {
 		fmt.Fprintf(&b, `, producedByAgentId:%s`, langparser.QuoteString(turnCtx.AgentId))
 	}
-	if turnCtx.PlanId != "" {
-		fmt.Fprintf(&b, `, producedByPlanId:%s`, langparser.QuoteString(turnCtx.PlanId))
+	if turnCtx.RunId != "" {
+		fmt.Fprintf(&b, `, producedByPlanId:%s`, langparser.QuoteString(turnCtx.RunId))
 	}
 	if turnCtx.PartitionId != "" {
 		fmt.Fprintf(&b, `, partitionId:%s`, langparser.QuoteString(turnCtx.PartitionId))

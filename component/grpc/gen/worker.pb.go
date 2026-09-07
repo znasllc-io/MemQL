@@ -508,13 +508,11 @@ type Register struct {
 	BuildTag string `protobuf:"bytes,8,opt,name=build_tag,json=buildTag,proto3" json:"build_tag,omitempty"`
 	// Optional structured capability self-description, serialized as
 	// JSON (memql#1330 / memql-cockpit#162). Shape (schemaVersion 1):
-	//
-	//	{"platform": "<GOOS>",
-	//	 "displayServer": "quartz"|"x11"|"wayland"|"none",
-	//	 "computerUseAvailable": bool,
-	//	 "actions": ["<workerComputer action name>", ...],
-	//	 "schemaVersion": 1}
-	//
+	//   {"platform": "<GOOS>",
+	//    "displayServer": "quartz"|"x11"|"wayland"|"none",
+	//    "computerUseAvailable": bool,
+	//    "actions": ["<workerComputer action name>", ...],
+	//    "schemaVersion": 1}
 	// Validated server-side (size cap, schemaVersion, displayServer
 	// enum, action-name pattern -- see component/worker). Workers that
 	// omit it register exactly as before; HEADLESS/COMPUTERUSE capability
@@ -1044,12 +1042,15 @@ func (x *Heartbeat) GetAppsPresent() bool {
 }
 
 type ToolDispatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CallId        string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
-	PlanId        string                 `protobuf:"bytes,2,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
-	TaskId        string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	AgentId       string                 `protobuf:"bytes,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	CorrelationId string                 `protobuf:"bytes,5,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	CallId string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	// run_id / step_id were plan_id / task_id until memql#5053. Renamed in
+	// place: this is a mesh-internal envelope with no external consumer, and
+	// pre-release rules carry no compatibility window.
+	RunId         string `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	StepId        string `protobuf:"bytes,3,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
+	AgentId       string `protobuf:"bytes,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	CorrelationId string `protobuf:"bytes,5,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
 	// tool = "workerHost" or "workerComputer"
 	Tool   string `protobuf:"bytes,6,opt,name=tool,proto3" json:"tool,omitempty"`
 	Action string `protobuf:"bytes,7,opt,name=action,proto3" json:"action,omitempty"`
@@ -1097,16 +1098,16 @@ func (x *ToolDispatch) GetCallId() string {
 	return ""
 }
 
-func (x *ToolDispatch) GetPlanId() string {
+func (x *ToolDispatch) GetRunId() string {
 	if x != nil {
-		return x.PlanId
+		return x.RunId
 	}
 	return ""
 }
 
-func (x *ToolDispatch) GetTaskId() string {
+func (x *ToolDispatch) GetStepId() string {
 	if x != nil {
-		return x.TaskId
+		return x.StepId
 	}
 	return ""
 }
@@ -1518,16 +1519,15 @@ func (x *Success) GetOutputPreview() string {
 type Failure struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Common error codes:
-	//
-	//	worker_disconnected
-	//	scope_exceeded
-	//	denied_by_policy
-	//	timeout
-	//	exec_failed
-	//	fs_denied
-	//	http_blocked
-	//	kill_switch_engaged
-	//	no_worker_available
+	//   worker_disconnected
+	//   scope_exceeded
+	//   denied_by_policy
+	//   timeout
+	//   exec_failed
+	//   fs_denied
+	//   http_blocked
+	//   kill_switch_engaged
+	//   no_worker_available
 	ErrorCode     string `protobuf:"bytes,1,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1743,12 +1743,11 @@ type AppSessionStart struct {
 	// app is one of the engine's closed ids ("claude-code", "codex").
 	App string `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`
 	// kind selects what opening the app means:
-	//
-	//	run    -- headless and autonomous; the engine reads the output.
-	//	open   -- launch it for the HUMAN with the workspace and prompt
-	//	          loaded; ends when the window closes, or immediately
-	//	          with a failure if the app cannot be opened.
-	//	attach -- stream a run the human started, named by app_session_ref.
+	//   run    -- headless and autonomous; the engine reads the output.
+	//   open   -- launch it for the HUMAN with the workspace and prompt
+	//             loaded; ends when the window closes, or immediately
+	//             with a failure if the app cannot be opened.
+	//   attach -- stream a run the human started, named by app_session_ref.
 	Kind   string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
 	Prompt string `protobuf:"bytes,4,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	// inputs are Library artifact ids the cockpit pulls with the
@@ -1764,9 +1763,9 @@ type AppSessionStart struct {
 	McpEndpoint string `protobuf:"bytes,8,opt,name=mcp_endpoint,json=mcpEndpoint,proto3" json:"mcp_endpoint,omitempty"`
 	// limits carries the delegation policy's ceilings for this run.
 	Limits *AppSessionLimits `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
-	// plan_id / task_id attribute the session for the portal and the ledger.
-	PlanId string `protobuf:"bytes,10,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
-	TaskId string `protobuf:"bytes,11,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// run_id / step_id attribute the session for the ledger (memql#5053).
+	RunId  string `protobuf:"bytes,10,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	StepId string `protobuf:"bytes,11,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
 	// app_session_ref names the app's OWN session id on the kind=attach
 	// path. Empty for run and open.
 	AppSessionRef string `protobuf:"bytes,12,opt,name=app_session_ref,json=appSessionRef,proto3" json:"app_session_ref,omitempty"`
@@ -1867,16 +1866,16 @@ func (x *AppSessionStart) GetLimits() *AppSessionLimits {
 	return nil
 }
 
-func (x *AppSessionStart) GetPlanId() string {
+func (x *AppSessionStart) GetRunId() string {
 	if x != nil {
-		return x.PlanId
+		return x.RunId
 	}
 	return ""
 }
 
-func (x *AppSessionStart) GetTaskId() string {
+func (x *AppSessionStart) GetStepId() string {
 	if x != nil {
-		return x.TaskId
+		return x.StepId
 	}
 	return ""
 }
@@ -2286,9 +2285,9 @@ type ModelCallStart struct {
 	// embedding_input is the kind="embedding" payload.
 	EmbeddingInput []string         `protobuf:"bytes,7,rep,name=embedding_input,json=embeddingInput,proto3" json:"embedding_input,omitempty"`
 	Limits         *ModelCallLimits `protobuf:"bytes,8,opt,name=limits,proto3" json:"limits,omitempty"`
-	// plan_id / task_id attribute the call for the ledger and the portal.
-	PlanId string `protobuf:"bytes,9,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
-	TaskId string `protobuf:"bytes,10,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// run_id / step_id attribute the call for the ledger (memql#5053).
+	RunId  string `protobuf:"bytes,9,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	StepId string `protobuf:"bytes,10,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
 	// purpose names the platform operation this call serves (planner,
 	// conductor, suggest, embeddings). Carried for the ledger and for the
 	// machine's own logs; it steers nothing.
@@ -2383,16 +2382,16 @@ func (x *ModelCallStart) GetLimits() *ModelCallLimits {
 	return nil
 }
 
-func (x *ModelCallStart) GetPlanId() string {
+func (x *ModelCallStart) GetRunId() string {
 	if x != nil {
-		return x.PlanId
+		return x.RunId
 	}
 	return ""
 }
 
-func (x *ModelCallStart) GetTaskId() string {
+func (x *ModelCallStart) GetStepId() string {
 	if x != nil {
-		return x.TaskId
+		return x.StepId
 	}
 	return ""
 }
@@ -3091,11 +3090,11 @@ const file_worker_proto_rawDesc = "" +
 	"\fapps_present\x18\x05 \x01(\bR\vappsPresent\x1aK\n" +
 	"\x1dActiveCallsPerCapabilityEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x99\x02\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x97\x02\n" +
 	"\fToolDispatch\x12\x17\n" +
-	"\acall_id\x18\x01 \x01(\tR\x06callId\x12\x17\n" +
-	"\aplan_id\x18\x02 \x01(\tR\x06planId\x12\x17\n" +
-	"\atask_id\x18\x03 \x01(\tR\x06taskId\x12\x19\n" +
+	"\acall_id\x18\x01 \x01(\tR\x06callId\x12\x15\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x17\n" +
+	"\astep_id\x18\x03 \x01(\tR\x06stepId\x12\x19\n" +
 	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12%\n" +
 	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId\x12\x12\n" +
 	"\x04tool\x18\x06 \x01(\tR\x04tool\x12\x16\n" +
@@ -3142,7 +3141,7 @@ const file_worker_proto_rawDesc = "" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x1f\n" +
 	"\vdetail_json\x18\x02 \x01(\fR\n" +
 	"detailJson\x12*\n" +
-	"\x02ts\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\x84\x03\n" +
+	"\x02ts\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\x82\x03\n" +
 	"\x0fAppSessionStart\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x10\n" +
@@ -3155,10 +3154,10 @@ const file_worker_proto_rawDesc = "" +
 	"credential\x18\a \x01(\tR\n" +
 	"credential\x12!\n" +
 	"\fmcp_endpoint\x18\b \x01(\tR\vmcpEndpoint\x12A\n" +
-	"\x06limits\x18\t \x01(\v2).znasllc.memql.worker.v1.AppSessionLimitsR\x06limits\x12\x17\n" +
-	"\aplan_id\x18\n" +
-	" \x01(\tR\x06planId\x12\x17\n" +
-	"\atask_id\x18\v \x01(\tR\x06taskId\x12&\n" +
+	"\x06limits\x18\t \x01(\v2).znasllc.memql.worker.v1.AppSessionLimitsR\x06limits\x12\x15\n" +
+	"\x06run_id\x18\n" +
+	" \x01(\tR\x05runId\x12\x17\n" +
+	"\astep_id\x18\v \x01(\tR\x06stepId\x12&\n" +
 	"\x0fapp_session_ref\x18\f \x01(\tR\rappSessionRef\"\xb6\x01\n" +
 	"\x10AppSessionLimits\x12>\n" +
 	"\x1bcredential_lifetime_seconds\x18\x01 \x01(\x03R\x19credentialLifetimeSeconds\x120\n" +
@@ -3190,7 +3189,7 @@ const file_worker_proto_rawDesc = "" +
 	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x02 \x01(\x03R\foutputTokens\x12\x19\n" +
 	"\bcost_usd\x18\x03 \x01(\x01R\acostUsd\x12\x14\n" +
-	"\x05known\x18\x04 \x01(\bR\x05known\"\xcf\x03\n" +
+	"\x05known\x18\x04 \x01(\bR\x05known\"\xcd\x03\n" +
 	"\x0eModelCallStart\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x14\n" +
@@ -3200,10 +3199,10 @@ const file_worker_proto_rawDesc = "" +
 	"\x06params\x18\x05 \x01(\v2(.znasllc.memql.worker.v1.ModelCallParamsR\x06params\x124\n" +
 	"\x16response_format_schema\x18\x06 \x01(\fR\x14responseFormatSchema\x12'\n" +
 	"\x0fembedding_input\x18\a \x03(\tR\x0eembeddingInput\x12@\n" +
-	"\x06limits\x18\b \x01(\v2(.znasllc.memql.worker.v1.ModelCallLimitsR\x06limits\x12\x17\n" +
-	"\aplan_id\x18\t \x01(\tR\x06planId\x12\x17\n" +
-	"\atask_id\x18\n" +
-	" \x01(\tR\x06taskId\x12\x18\n" +
+	"\x06limits\x18\b \x01(\v2(.znasllc.memql.worker.v1.ModelCallLimitsR\x06limits\x12\x15\n" +
+	"\x06run_id\x18\t \x01(\tR\x05runId\x12\x17\n" +
+	"\astep_id\x18\n" +
+	" \x01(\tR\x06stepId\x12\x18\n" +
 	"\apurpose\x18\v \x01(\tR\apurpose\"@\n" +
 	"\x10ModelCallMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +

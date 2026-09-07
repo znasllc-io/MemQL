@@ -235,7 +235,7 @@ func stringList(raw any) ([]string, error) {
 //
 // THIS FUNCTION REFUSES; IT DOES NOT REDIRECT. The decision to run the work on
 // the user's own machine instead belongs to the agent tool loop, which is the
-// only layer that can see whether the plan already holds standing scope and
+// only layer that can see whether the run already holds standing scope and
 // whether the task was approved. The knowledge corpus states the rule the
 // refusal exists to keep enforceable (integrations/knowledge/seed.go, the
 // `workbench:failureFallback` chunk):

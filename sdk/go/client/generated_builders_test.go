@@ -53,16 +53,23 @@ func TestGeneratedBuilder_OmittedLeadingOptionalHasNoDanglingComma(t *testing.T)
 // real empty value and runs through concept validation). With a real
 // map the field must render. This is what makes a multi-object mutation
 // callable from the Go SDK both
-// with the optional objects omitted and with a real object. It used to drive
-// createSessionForParticipant, which went with the cognition concepts (epic
-// memql#4988).
+// with the optional objects omitted and with a real object.
+//
+// The fixture has moved twice for the same reason -- it follows whichever
+// client-reachable mutation still carries SEVERAL optional object args, which
+// is the shape under test. It was createSessionForParticipant until the
+// cognition concepts went (epic memql#4988), then updatePlanStatus until
+// memql#5053 retired the plan concept. createWorkerRegistration has five.
 func TestGeneratedBuilder_NilObjectArgsAreOmitted(t *testing.T) {
 	// All optional objects nil -> none of them appear.
-	got := UpdatePlanStatusBuild(UpdatePlanStatusArgs{
-		PlanId: "v1:planner:plan:p1",
-		Status: "running",
+	got := CreateWorkerRegistrationBuild(CreateWorkerRegistrationArgs{
+		RegistrationId: "v1:worker:registration:w1",
+		IdentityId:     "v1:identity:identity:i1",
+		Name:           "laptop",
 	})
-	for _, absent := range []string{"output", "feedbackRequest", "feedbackResponse", "phases", "estimate", "metrics"} {
+	// concurrency is REQUIRED on this mutation, so it renders either way
+	// and is not part of the property under test.
+	for _, absent := range []string{"capabilityDescriptor", "labels", "platformInfo", "permissions"} {
 		if strings.Contains(got, absent) {
 			t.Errorf("nil optional object %q must be omitted, got: %s", absent, got)
 		}
@@ -73,13 +80,14 @@ func TestGeneratedBuilder_NilObjectArgsAreOmitted(t *testing.T) {
 	mustParseCall(t, got)
 
 	// Real object -> the field renders with its content.
-	got = UpdatePlanStatusBuild(UpdatePlanStatusArgs{
-		PlanId:  "v1:planner:plan:p1",
-		Status:  "running",
-		Metrics: map[string]any{"tokensSpent": "12"},
+	got = CreateWorkerRegistrationBuild(CreateWorkerRegistrationArgs{
+		RegistrationId: "v1:worker:registration:w1",
+		IdentityId:     "v1:identity:identity:i1",
+		Name:           "laptop",
+		Labels:         map[string]any{"os": "linux"},
 	})
-	if !strings.Contains(got, `metrics: {tokensSpent: "12"}`) {
-		t.Errorf("real metrics object must render, got: %s", got)
+	if !strings.Contains(got, `labels: {os: "linux"}`) {
+		t.Errorf("real labels object must render, got: %s", got)
 	}
 	mustParseCall(t, got)
 }

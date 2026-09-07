@@ -304,7 +304,6 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "identity/queries.memql", Name: "githubConnectStateByHash"}:    true,
 		{Path: "identity/mutations.memql", Name: "createGithubConnectState"}:  true,
 		{Path: "identity/mutations.memql", Name: "consumeGithubConnectState"}: true,
-		{Path: "worker/queries.memql", Name: "runningPlansForUser"}:           true,
 		// epic memql#4378, the SYNC RUNTIME's own bookkeeping. Eight
 		// writers over two engine-owned concepts -- an outbox queue and a
 		// health timeline -- and the argument is one argument, not eight.

@@ -64,8 +64,14 @@ func TestDryRunCompileResolvesLogicConstructUseImports(t *testing.T) {
 		// cognition namespace in epic memql#4988; the library and
 		// per-namespace importers below still exercise the branch.
 		// the remaining per-namespace logic concepts
+		// killSwitchSuspendsRunningPlans was here until memql#5053 deleted it
+		// (see dsl/worker/automations.memql for why, and memql#5066 for the
+		// follow-up). releaseWorkspaceOnRunTerminal takes its place in this
+		// list: it is the same shape -- an automation whose steps call logic
+		// constructs from its own namespace -- so the branch it exercises is
+		// the one the deleted entry exercised.
 		"consolidateMemory": false, "conflictDetection": false,
-		"killSwitchSuspendsRunningPlans": false, "onDelegationCreated": false,
+		"releaseWorkspaceOnRunTerminal": false, "onDelegationCreated": false,
 	}
 
 	automationFiles := 0

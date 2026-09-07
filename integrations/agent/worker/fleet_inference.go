@@ -229,8 +229,8 @@ func (f *FleetInference) buildStart(req memqlengine.FleetCallRequest) *memqlv1.M
 		Model:          req.ModelId,
 		Kind:           req.Kind,
 		EmbeddingInput: req.EmbeddingInput,
-		PlanId:         req.PlanId,
-		TaskId:         req.TaskId,
+		RunId:          req.RunId,
+		StepId:         req.StepId,
 		Purpose:        req.Purpose,
 		// Deliberately temperature 0 by default for the platform's own
 		// operations: every one of them (conductor, planner, suggest) parses

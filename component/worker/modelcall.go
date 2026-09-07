@@ -166,8 +166,8 @@ type ModelCallRequest struct {
 	ResponseFormatSchema []byte
 	EmbeddingInput       []string
 	Limits               ModelCallLimits
-	PlanId               string
-	TaskId               string
+	RunId                string
+	StepId               string
 	Purpose              string
 }
 

@@ -392,7 +392,6 @@ func TestLandGateReportsOnlyDeclaredTiers(t *testing.T) {
 	}
 }
 
-
 // filterIsCallerScoped reports whether a filter carries a TOP-LEVEL conjunct
 // that scopes the read to the caller.
 //

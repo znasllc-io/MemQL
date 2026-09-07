@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/events"
+	langparser "github.com/znasllc-io/memql/component/language/parser"
 )
 
 // The two credential-WRITING builtins (epic memql#4440, task memql#4444).

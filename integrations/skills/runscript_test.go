@@ -165,7 +165,7 @@ func fixture(t *testing.T) (*Runner, *fakeSurface, *fakeSurface, *fakeSkills, *f
 }
 
 func req() Request {
-	return Request{SkillID: "skill-1", PlanID: "plan-1", OwnerID: "user-1"}
+	return Request{SkillID: "skill-1", RunID: "plan-1", OwnerID: "user-1"}
 }
 
 func TestAScriptIsShippedVerifiedAndRunOnTheWorkbenchByDefault(t *testing.T) {

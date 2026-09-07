@@ -3,35 +3,6 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-// killSwitchSuspendsRunningPlans
-// ===============================
-//
-// Triggered when a v1:identity:user row updates. Detects the
-// User.preferences.computerUseEnabled flip from true -> false and
-// transitions every running plan owned by that user (with
-// computerUseScope set) to awaitingFeedback with reason=
-// kill_switch_engaged.
-//
-// The frontend's plan card surfaces a "re-enable computer use" link
-// that flips the flag back; the user then explicitly resumes each
-// affected plan (we deliberately do NOT auto-resume on flag flip --
-// the kill switch is the emergency-stop, and re-enable is the
-// confirmation, but resume is per-plan-explicit).
-use platform.queries.{ globalVariable }
-
-/// Pure decide for the kill-switch sweep: returns every running plan owned by the updated user. The
-/// suspend write + the gate (computerUseEnabled==false AND the plan has a computerUseScope) live in
-/// the killSwitchSuspendsRunningPlans automation's forEach step (#2235). Re-enable flips the flag
-/// back; resume is per-plan-explicit.
-logic killSwitchSuspendsRunningPlans {
-  args {
-    event object!
-  }
-  body {
-  return query runningPlansForUser( userId: args.event.payload.id ?? "", withComputerUseScope: true )
-  }
-}
-
 // workerInvocationRetentionSweep
 // ===============================
 //

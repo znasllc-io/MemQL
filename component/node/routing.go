@@ -120,15 +120,6 @@ func defaultRoutingRules() []RoutingRule {
 		// other message. That is strictly harder to diagnose than "the key
 		// did not take anywhere".
 		{Pattern: "providers.reload.*", TargetType: ""},
-		// Planner graph events: BFF owns the writes (createPlan
-		// fires on BFF), the planner-tagged binary subscribes
-		// graph.node.created.v1:planner:plan in its
-		// PlannerAgentLoop.HandlePlanCreated. Without this forward
-		// rule, default-deny in the mesh meant the planner node never
-		// saw plan-creation events from the BFF -- the user-cockpit's
-		// submitted plans showed status=queued in the DB forever
-		// because no subscriber was listening on the right node.
-		// Broadcast so any planner-tagged peer in the mesh hears it.
 		// The Fleet's rows (epic memql#4349). A registration is WRITTEN by
 		// the agent node -- every heartbeat flush moves lastSeenAt,
 		// connectedNodeId and activeCount -- and READ by the Fleet page,
@@ -140,9 +131,9 @@ func defaultRoutingRules() []RoutingRule {
 		//
 		// SAFE TO BROADCAST, checked rather than assumed: no automation in
 		// the tree triggers on v1:worker:* or v1:workbench:* node events
-		// (dsl/worker/automations.memql triggers on v1:identity:user and a
-		// schedule; dsl/workbench/automations.memql on v1:planner:plan), so
-		// there is no consumer to double-fire.
+		// (dsl/worker/automations.memql triggers on a schedule;
+		// dsl/workbench/automations.memql on v1:work:run), so there is no
+		// consumer to double-fire.
 		//
 		// v1:worker:invocation is deliberately NOT here. One row per tool
 		// call is a volume the mesh does not need to carry, and the page
@@ -168,9 +159,21 @@ func defaultRoutingRules() []RoutingRule {
 		{Pattern: "graph.node.deleted.v1:worker:registration", TargetType: ""},
 		{Pattern: "graph.node.deleted.v1:worker:routingPolicy", TargetType: ""},
 		{Pattern: "graph.node.deleted.v1:workbench:workspace", TargetType: ""},
-		{Pattern: "graph.node.created.v1:planner:*", TargetType: ""},
-		{Pattern: "graph.node.updated.v1:planner:*", TargetType: ""},
-		{Pattern: "graph.node.deleted.v1:planner:*", TargetType: ""},
+		// RESPONSIBILITY, not the whole planner namespace (memql#5053).
+		//
+		// These were `v1:planner:*` WILDCARDS, added for the plan-lifecycle
+		// events the retired agent loop subscribed to. The wildcard also
+		// carried v1:planner:responsibility, which the responsibility intake
+		// dispatcher subscribes through -- so deleting them wholesale, rather
+		// than narrowing them, would take that dispatcher dark cross-replica.
+		// Default-deny means it would fail SILENTLY: the intake would simply
+		// never run for a responsibility written on another replica.
+		//
+		// The BFF writes a responsibility and the planner-tagged binary
+		// subscribes; broadcast so any planner peer in the mesh hears it.
+		{Pattern: "graph.node.created.v1:planner:responsibility", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:planner:responsibility", TargetType: ""},
+		{Pattern: "graph.node.deleted.v1:planner:responsibility", TargetType: ""},
 		// THE WORK SPINE (design record
 		// docs/superpowers/specs/2026-09-05-work-spine-design.md, section D
 		// "Live feeds"): goal, run, step and approval broadcast so the OS

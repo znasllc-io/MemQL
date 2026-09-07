@@ -248,7 +248,7 @@ func TestDecideApprovalRefusesAnApprovalTheCallerCannotSee(t *testing.T) {
 // unbounded inbox.
 func TestSinkRaisesOneApprovalPerCorrelationKey(t *testing.T) {
 	desc := safety.NewExecAction(safety.SurfaceWorkbench, "rm -rf /tmp/scratch", safety.CallerContext{
-		PlanID: "v1:work:run:r1", TaskID: "step-3", OwnerUserID: "u-alice",
+		RunID: "v1:work:run:r1", StepID: "step-3", OwnerUserID: "u-alice",
 	})
 	cls := safety.Classification{Reason: "destructive shell command", RuleID: "shell.destructive"}
 	key := safety.ApprovalCorrelationKey(desc)
@@ -303,7 +303,7 @@ func TestSinkRaisesOneApprovalPerCorrelationKey(t *testing.T) {
 			"id": "v1:work:approval:existing", "artifactHash": key, "kind": work.ApprovalKindSideEffect,
 		})
 		modified := safety.NewExecAction(safety.SurfaceWorkbench, "rm -rf /", safety.CallerContext{
-			PlanID: "v1:work:run:r1", TaskID: "step-3", OwnerUserID: "u-alice",
+			RunID: "v1:work:run:r1", StepID: "step-3", OwnerUserID: "u-alice",
 		})
 		v := i.NewSink(SinkOptions{Logger: testLogger()}).Check(callerContext("u-alice"), modified, cls)
 		if v.State != safety.ApprovalStatePending {
@@ -338,7 +338,7 @@ func TestSinkAnswersUnconfiguredRatherThanInventingARun(t *testing.T) {
 // the graph, and a raw payload can carry a credential.
 func TestSinkRedactsTheSubject(t *testing.T) {
 	desc := safety.NewHTTPAction(safety.SurfaceWorkbench, "POST", "https://api.example.com/x?token=hunter2", "", safety.CallerContext{
-		PlanID: "v1:work:run:r1", OwnerUserID: "u-alice",
+		RunID: "v1:work:run:r1", OwnerUserID: "u-alice",
 	})
 	subject := subjectFrom(desc)
 	redacted := safety.RedactedPayload(desc.Payload)
@@ -353,7 +353,7 @@ func TestSinkFailureIsUnconfiguredNotAnError(t *testing.T) {
 	i, eng := newTestIntegration(t)
 	eng.refuse("createWorkApproval", errRefused)
 	desc := safety.NewExecAction(safety.SurfaceWorkbench, "ls", safety.CallerContext{
-		PlanID: "v1:work:run:r1", OwnerUserID: "u-alice",
+		RunID: "v1:work:run:r1", OwnerUserID: "u-alice",
 	})
 	v := i.NewSink(SinkOptions{Logger: testLogger()}).Check(callerContext("u-alice"), desc, safety.Classification{})
 	if v.State != safety.ApprovalStateUnconfigured {

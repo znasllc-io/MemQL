@@ -76,8 +76,8 @@ type AppSessionRequest struct {
 	Workspace     string
 	Credential    string
 	MCPEndpoint   string
-	PlanId        string
-	TaskId        string
+	RunId         string
+	StepId        string
 	AppSessionRef string
 	Limits        AppSessionLimits
 }

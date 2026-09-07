@@ -440,8 +440,8 @@ func modelCallRequestFromProto(localId string, start *memqlv1.ModelCallStart, ti
 		Kind:                 start.GetKind(),
 		ResponseFormatSchema: start.GetResponseFormatSchema(),
 		EmbeddingInput:       start.GetEmbeddingInput(),
-		PlanId:               start.GetPlanId(),
-		TaskId:               start.GetTaskId(),
+		RunId:                start.GetRunId(),
+		StepId:               start.GetStepId(),
 		Purpose:              start.GetPurpose(),
 	}
 	for _, m := range start.GetMessages() {

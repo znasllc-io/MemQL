@@ -1152,15 +1152,6 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 	// Generic feedback-intake guard (epic memql#1404 / memql#1405): the
 	// resume produced by attachPlanFeedback (a feedbackResponse with
 	// a respondedBy + status=running) is only legal when the Plan is
-	// currently awaitingFeedback AND the actor owns it (or is privileged).
-	// The append-only DSL cannot reject a conditional transition on its own,
-	// so the rule lives here. A no-op for every non-intake plan write. See
-	// planner_feedback_validation.go.
-	if conceptMeta.Name == conceptPlannerPlan {
-		if err := e.validateFeedbackIntakeTransition(ctx, payload, mutation.ID, actor); err != nil {
-			return nil, meta, err
-		}
-	}
 	// Forge request guard (issue #1787): enforces the v1:forge:request
 	// approval-pipeline state machine and role authority. The append-only
 	// DSL cannot gate a transition on actor.role, so the rule lives here.

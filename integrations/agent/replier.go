@@ -695,14 +695,14 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	// On a post-approval execution turn the planner forwards
 	// hints["plan_id"] alongside hints["trigger"]="plan_approved".
 	// Pull it onto the turn context so worker tool dispatches stamp
-	// it onto args["planId"] (see agentContextStamps.StampPlanId).
-	// That id propagates through Request.PlanId into the
+	// it onto args["planId"] (see agentContextStamps.StampRunId).
+	// That id propagates through Request.RunId into the
 	// v1:worker:invocation row -- without it the planner's
 	// outcome detector sees zero rows for the plan and stamps
 	// Plan failed even when the worker tool succeeded.
 	if msg.Hints != nil {
 		if pid := strings.TrimSpace(msg.Hints["plan_id"]); pid != "" {
-			turnCtx.PlanId = pid
+			turnCtx.RunId = pid
 		}
 	}
 	r.logger.Info("agentReply: stage",

@@ -222,8 +222,8 @@ export function BinDetail({
           />
         ) : null}
         {facts.loaded && facts.size > 0 ? <Fact label="Size" value={formatBytes(facts.size)} /> : null}
-        {item.producedByPlanId !== "" ? (
-          <Fact label="Plan" value={item.producedByPlanId} mono />
+        {item.producedByRunId !== "" ? (
+          <Fact label="Run" value={item.producedByRunId} mono />
         ) : null}
         {item.changedAt !== "" ? (
           <Fact

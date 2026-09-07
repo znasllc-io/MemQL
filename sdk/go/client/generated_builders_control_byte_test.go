@@ -58,19 +58,21 @@ func TestGeneratedBuilder_ControlByteStringArgParses(t *testing.T) {
 // the emitter renders as string literals: several required strings, plus the
 // []string and object args that route through renderMemQLValue in support.go.
 func TestGeneratedBuilder_ControlByteAcrossArgKinds(t *testing.T) {
-	// Was AddHarnessStepBuild until the work spine's epic A1 retired the
-	// harness spine. createSemanticTask is the replacement because it has the
-	// same ARG SHAPES, which is what this test is about: several required
-	// strings, a []string, and an object routed through renderMemQLValue.
-	// (createWorkStep would be the closer analogue by meaning, but it is
-	// @serverOnly and therefore generates no builder at all.)
-	call := CreateSemanticTaskBuild(CreateSemanticTaskArgs{
-		TaskId:        "v1:planner:task:t1",
-		PlanId:        "v1:planner:plan:p1",
-		Kind:          "execute",
-		LogicalStepId: sdkControlByteFixture,
-		DependsOn:     []string{"a\vb"},
-		Input:         map[string]any{"note": "r\ax"},
+	// The fixture has moved twice, and for the same reason each time: this
+	// test is about ARG SHAPES, not about any one mutation, so it follows
+	// whichever client-reachable builder still has them. It was
+	// AddHarnessStepBuild until epic A1 retired the harness spine, then
+	// CreateSemanticTaskBuild until memql#5053 retired the task concept.
+	// createWorkerRegistration has the shapes: several required strings, a
+	// []string, and an object routed through renderMemQLValue. (createWorkStep
+	// would be the closer analogue by meaning, but it is @serverOnly and
+	// therefore generates no builder at all.)
+	call := CreateWorkerRegistrationBuild(CreateWorkerRegistrationArgs{
+		RegistrationId: "v1:worker:registration:w1",
+		IdentityId:     "v1:identity:identity:i1",
+		Name:           sdkControlByteFixture,
+		Capabilities:   []any{"a\vb"},
+		Labels:         map[string]any{"note": "r\ax"},
 	})
 
 	parsed, err := langparser.ParseExpression(call)
@@ -81,14 +83,14 @@ func TestGeneratedBuilder_ControlByteAcrossArgKinds(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *FunctionCallExpr, got %T", parsed)
 	}
-	if fn.Args["logicalStepId"] != sdkControlByteFixture {
-		t.Errorf("logicalStepId did not round-trip: %#v", fn.Args["logicalStepId"])
+	if fn.Args["name"] != sdkControlByteFixture {
+		t.Errorf("name did not round-trip: %#v", fn.Args["name"])
 	}
-	if deps, ok := fn.Args["dependsOn"].([]any); !ok || len(deps) != 1 || deps[0] != "a\vb" {
-		t.Errorf("dependsOn did not round-trip: %#v", fn.Args["dependsOn"])
+	if caps, ok := fn.Args["capabilities"].([]any); !ok || len(caps) != 1 || caps[0] != "a\vb" {
+		t.Errorf("capabilities did not round-trip: %#v", fn.Args["capabilities"])
 	}
-	if in, ok := fn.Args["input"].(map[string]any); !ok || in["note"] != "r\ax" {
-		t.Errorf("input did not round-trip: %#v", fn.Args["input"])
+	if in, ok := fn.Args["labels"].(map[string]any); !ok || in["note"] != "r\ax" {
+		t.Errorf("labels did not round-trip: %#v", fn.Args["labels"])
 	}
 }
 

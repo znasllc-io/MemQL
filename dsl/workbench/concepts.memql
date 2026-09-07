@@ -19,10 +19,10 @@
 // state is in-process on the agent node and not persisted.
 
 use identity.concepts.{ user }
-use planner.concepts.{ plan }
+use work.concepts.{ run }
 
 /// Per-Plan workbench workspace. Tracks the persistent filesystem mounted into every per-Task
-/// container running under the Plan. Created lazily on first workbenchHost call; released when the
+/// container running under the run. Created lazily on first workbenchHost call; released when the
 /// parent Plan transitions to a terminal status (succeeded / failed / cancelled). Universal
 /// authorization -- no scope grants, no kill switch, no per-agent gating; the workbench is
 /// sandboxed inside the cluster and the blast radius is contained to the per-Plan directory tree.
@@ -31,22 +31,22 @@ use planner.concepts.{ plan }
 /// answer "why is this workbench node full" needs to see all of them. ownerUserId is stamped from
 /// the parent plan's requestedBy at provision time and never from a caller argument.
 @rowAuthz(owner="ownerUserId", clusterOwner)
-@displayCard(primary="planId", secondary="storageRoot", tertiary="lastUsedAt", status="status")
+@displayCard(primary="runId", secondary="storageRoot", tertiary="lastUsedAt", status="status")
 concept workspace {
-  planId          string! @description("v1:planner:plan.id this workspace belongs to. One workspace per Plan; the unique key.")
+  runId           string! @description("v1:work:run.id this workspace belongs to. One workspace per run; the unique key. Was planId until memql#5053: a run is the unit of execution the spine dispatches, and a workspace is torn down when its run reaches a terminal status. A fork or a replay is a DIFFERENT run and therefore gets a clean tree, which is what replay means.")
   status          enum("provisioned", "released")! @default("provisioned") @description("Lifecycle. provisioned = workspace directory exists and is mountable. released = Plan reached terminal, directory torn down.")
-  storageRoot     string! @description("Absolute path to the workspace's root directory on the workbench node's local filesystem. Implementation default: /var/lib/memql/workbenches/{planId}/. Per-Plan isolation is filesystem-level; cgroup / user-namespace isolation is per-call.")
+  storageRoot     string! @description("Absolute path to the workspace's root directory on the workbench node's local filesystem. Implementation default: /var/lib/memql/workbenches/{runId}/. Per-run isolation is filesystem-level; cgroup / user-namespace isolation is per-call.")
   // Provisioning time is the row's intrinsic `createdAt` (set by the
   // engine at insert) -- the workspace row is created lazily on the
   // first workbenchHost call, so the intrinsic IS the provision time.
   // A user-declared `createdAt` field is rejected as reserved.
-  lastUsedAt      datetime @description("Bumped on every successful workbenchHost dispatch. Backs idle-detection metrics; not used to drive teardown (teardown is Plan-terminal-driven).")
+  lastUsedAt      datetime @description("Bumped on every successful workbenchHost dispatch. Backs idle-detection metrics; not used to drive teardown (teardown is run-terminal-driven).")
   releasedAt      datetime @description("When the workspace was released and the directory torn down. Empty for status=provisioned.")
-  releasedReason  enum("", "plan_terminal", "explicit", "ttl_expired", "node_lost") @default("") @description("Discriminator for status=released rows. plan_terminal = the releaseWorkspaceOnPlanTerminal automation fired. explicit = an admin / mutation explicitly released. ttl_expired = future ttl-driven sweep. node_lost = the workbench replica this workspace lived on left the mesh, so the directory is gone with it and the plan was given a fresh workspace elsewhere (memql#4354). The files are NOT migrated: the design accepts a fresh directory and records why, because a file tree cannot be recovered from a node that is no longer there.")
+  releasedReason  enum("", "run_terminal", "explicit", "ttl_expired", "node_lost") @default("") @description("Discriminator for status=released rows. run_terminal = the releaseWorkspaceOnRunTerminal automation fired. explicit = an admin / mutation explicitly released. ttl_expired = future ttl-driven sweep. node_lost = the workbench replica this workspace lived on left the mesh, so the directory is gone with it and the run was given a fresh workspace elsewhere (memql#4354). The files are NOT migrated: the design accepts a fresh directory and records why, because a file tree cannot be recovered from a node that is no longer there.")
 
   nodeId          string @description("MEMQL_NODE_ID of the workbench replica whose disk holds this directory (memql#4354). Stamped at provision time by the serving node. THE FIX FOR THE TWO-WORKSPACES-PER-PLAN SPLIT: pickWorkbenchPeer was any-fit, so with two workbench replicas one plan got a directory on each and neither side was told -- a call would write a file and the next call, landing on the other replica, would not find it. The picker now prefers this node, and falls back only when it is gone.")
-  ownerUserId     string! @serverSet @description("v1:identity:user.id this workspace's files belong to, taken from the parent plan's requestedBy at provision time. THE ROW-AUTHZ OWNER FIELD. Denormalized rather than joined because the row gate decides one row at a time and cannot follow planId to find out whose it is.")
+  ownerUserId     string! @serverSet @description("v1:identity:user.id this workspace's files belong to, taken from the parent run's ownerUserId at provision time. THE ROW-AUTHZ OWNER FIELD. Denormalized rather than joined because the row gate decides one row at a time and cannot follow runId to find out whose it is.")
 
-  @relationship(type="parent", field="planId", target=plan, direction="outgoing")
+  @relationship(type="parent", field="runId", target=run, direction="outgoing")
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
 }

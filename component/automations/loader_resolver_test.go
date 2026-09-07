@@ -52,7 +52,6 @@ func TestLoadByName_CanonicalResolution(t *testing.T) {
 		// bare, so this is the only invocation form.
 		{name: "revokeExpiredDelegations", wantAuto: "expireDelegations"},
 
-
 		// Genuinely unknown name -> plain "not found" (and NOT the
 		// not-a-runnable-entry-point error).
 		{name: "totallyBogusConstructXyz", wantErr: "not found"},

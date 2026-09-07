@@ -141,7 +141,7 @@ describe("fileStory -- the provenance sentence and its dot", () => {
         id: "a-1",
         kind: "generated_output",
         source: "agent_generated",
-        producedByPlanId: "pl-9",
+        producedByRunId: "pl-9",
       }),
     );
     const story = fileStory(row, null);

@@ -122,6 +122,6 @@ shape skillChangeEvent skillChangeEventFull {
   after
   actorAgentId
   actorUserId
-  planId
+  runId
   row.createdAt
 }

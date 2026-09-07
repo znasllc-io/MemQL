@@ -25,14 +25,6 @@ import "context"
 // epic #1964). Add a wrapper here only for a named query that genuinely
 // renders an unbounded list AND declares `sort` + `paginate`.
 
-// AllPlansPage returns ONE keyset page of allPlans plus the
-// cursor to continue. Pass an empty cursor for the first page; thread
-// PageResult.NextCursor back in for "load more". An empty NextCursor
-// means the plan set is exhausted. Backs the cockpit Planner list view.
-func (qc *QueryClient) AllPlansPage(ctx context.Context, args AllPlansArgs, cursor string) (*PageResult, error) {
-	return qc.ExecutePaginated(ctx, AllPlansBuild(args), cursor)
-}
-
 // AuthoringBundlesForOwnerPage returns ONE keyset page of
 // authoringBundlesForOwner plus the continuation cursor. Backs the
 // cockpit Bundles list view, whose per-owner bundle set accumulates

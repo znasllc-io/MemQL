@@ -116,8 +116,8 @@ func TestAppSessionRoundTrip(t *testing.T) {
 		Workspace:   "/home/u/work",
 		Credential:  "bearer-1",
 		MCPEndpoint: "https://mcp.example.com/mcp",
-		PlanId:      "plan-1",
-		TaskId:      "task-1",
+		RunId:       "plan-1",
+		StepId:      "task-1",
 		Limits:      AppSessionLimits{CredentialLifetime: 4 * time.Hour},
 	})
 	if err != nil {

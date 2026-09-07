@@ -405,8 +405,13 @@ func TestThePerConceptGuardsStillFire(t *testing.T) {
 		"conceptRbacRole":         {"validateRbacBaseRoleImmutable(", "validateRbacCustomRoleRankBound("},
 		"conceptIdentityIdentity": {"validateIdentityCredentialActorScope("},
 		"conceptHealingOverride":  {"validateHealingBaseImmutable(", "validateHealingValidationRankBound("},
-		"conceptPlannerPlan":      {"validateFeedbackIntakeTransition("},
 		"conceptForgeRequest":     {"validateForgeRequestTransition("},
+		// conceptPlannerPlan / validateFeedbackIntakeTransition was here until
+		// memql#5053. It gated the plan feedback-intake transition -- prior
+		// status awaitingFeedback, and the actor owns the Plan -- and went
+		// with the concept. Its successor is v1:work:approval, whose gate is
+		// the artifact-hash comparison on resume rather than a pre-insert
+		// guard, so there is nothing to add back here.
 	}
 	names := make([]string, 0, len(guards))
 	for name := range guards {

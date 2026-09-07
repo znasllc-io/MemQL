@@ -54,7 +54,7 @@ func envIntegration(t *testing.T) (*Integration, string) {
 // empty.
 func execWithEnvironment(env any) map[string]any {
 	return map[string]any{
-		"planId":      "v1:planner:plan:p4353",
+		"runId":       "v1:work:run:p4353",
 		"action":      "fs_write",
 		"args":        map[string]any{"path": "ran.marker", "content": "the action executed"},
 		"environment": env,
@@ -181,7 +181,7 @@ func TestAMatchingOSWithNoNeedsRuns(t *testing.T) {
 	if res := decodeDispatch(t, nodes); !res.OK {
 		t.Fatalf("a hint the workbench satisfies was refused: %s / %s", res.ErrorCode, res.ErrorMsg)
 	}
-	if _, err := os.Stat(filepath.Join(root, "v1:planner:plan:p4353", "ran.marker")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "v1:work:run:p4353", "ran.marker")); err != nil {
 		t.Errorf("the action did not run: %v", err)
 	}
 }
@@ -200,7 +200,7 @@ func TestNoHintRunsExactlyAsBefore(t *testing.T) {
 		if res := decodeDispatch(t, nodes); !res.OK {
 			t.Fatalf("a call with no hint (%v) was refused: %s / %s", absent, res.ErrorCode, res.ErrorMsg)
 		}
-		if _, err := os.Stat(filepath.Join(root, "v1:planner:plan:p4353", "ran.marker")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "v1:work:run:p4353", "ran.marker")); err != nil {
 			t.Errorf("the action did not run for hint %v: %v", absent, err)
 		}
 	}

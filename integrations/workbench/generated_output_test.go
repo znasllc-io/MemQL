@@ -118,7 +118,7 @@ func TestPromoteWorkbenchOutput_ResolvesPlanOwner(t *testing.T) {
 	i.SetEngine(ce)
 
 	// local=true but with no uploader configured: the upload path is
-	// skipped and the promotion still resolves the plan owner as before.
+	// skipped and the promotion still resolves the run owner as before.
 	i.promoteWorkbenchOutput(context.Background(), "plan-1", "agent-1",
 		map[string]any{"path": "/ws/out.txt"}, true)
 
@@ -129,7 +129,7 @@ func TestPromoteWorkbenchOutput_ResolvesPlanOwner(t *testing.T) {
 		t.Errorf("expected planById, got %q", ce.queries[0])
 	}
 	if !strings.Contains(ce.queries[0], "plan-1") {
-		t.Errorf("planById missing planId: %q", ce.queries[0])
+		t.Errorf("planById missing runId: %q", ce.queries[0])
 	}
 }
 
@@ -238,7 +238,7 @@ func TestUploadAttachmentBytes_HappyPath(t *testing.T) {
 		t.Errorf("attachment mutation missing id/url: %q", ce.queries[0])
 	}
 
-	// Idempotent: the same (planId, path) yields the same deterministic id.
+	// Idempotent: the same (runId, path) yields the same deterministic id.
 	up2 := &fakeUploader{url: "gs://test-bucket/obj"}
 	i2, _ := newTestIntegration(t, up2, "report.pdf", "%PDF-1.4 body")
 	attID2, _ := i2.uploadAttachmentBytes(context.Background(), "plan-1", "report.pdf", "report.pdf", "space-1", "user-1", data)

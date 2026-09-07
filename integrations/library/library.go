@@ -118,15 +118,15 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Description: "Append a new version of a Library document with new content (memql#1229 user edit / memql#1231 assistant edit). Reads the current latest version, computes the next versionNumber + parentVersionId, appends an immutable v1:library:documentVersion snapshot (authorKind=user|assistant), and re-inserts the backing generatedOutput so the Library viewer reflects the edit. Optimistic concurrency: pass expectedVersion to fail the edit when the document moved on under you. ownerUserId is threaded from the document row, not the caller.",
 			Handler:     i.handleEditDocument,
 			ArgsSchema: map[string]string{
-				"documentId":       "string (required) -- the logical document id (the backing v1:library:generatedOutput id)",
-				"content":          "string -- the new full content body (markdown / text). Set this OR attachmentId.",
-				"attachmentId":     "string -- v1:common:attachment id when the new version is file-backed. Set this OR content.",
-				"note":             "string -- optional short note describing the change",
-				"authorKind":       "string -- 'user' (default) or 'assistant'",
-				"authorId":         "string -- the editing user id (authorKind=user) or agent id (authorKind=assistant)",
-				"expectedVersion":  "number -- optional optimistic-concurrency token; the latest versionNumber the caller saw",
-				"producedByPlanId": "string -- optional planner plan id when an assistant edit came through the planner",
-				"partitionId":      "string -- optional space id the edit happened in",
+				"documentId":      "string (required) -- the logical document id (the backing v1:library:generatedOutput id)",
+				"content":         "string -- the new full content body (markdown / text). Set this OR attachmentId.",
+				"attachmentId":    "string -- v1:common:attachment id when the new version is file-backed. Set this OR content.",
+				"note":            "string -- optional short note describing the change",
+				"authorKind":      "string -- 'user' (default) or 'assistant'",
+				"authorId":        "string -- the editing user id (authorKind=user) or agent id (authorKind=assistant)",
+				"expectedVersion": "number -- optional optimistic-concurrency token; the latest versionNumber the caller saw",
+				"producedByRunId": "string -- optional v1:work:run id when an assistant edit came through a run",
+				"partitionId":     "string -- optional space id the edit happened in",
 			},
 		},
 		{
@@ -134,14 +134,14 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Description: "Assistant-facing edit (memql#1231): append a new version of an existing Library document authored by an agent. Identical to editDocument but hardcodes authorKind=assistant and maps the auto-injected agentId to the version's authorId so the history records the agent as the author + carries the planner provenance. Used by the agent editDocument tool when the user asks to edit / update / revise an existing document.",
 			Handler:     i.handleEditDocumentAsAssistant,
 			ArgsSchema: map[string]string{
-				"documentId":       "string (required) -- the logical document id to revise",
-				"content":          "string -- the new full content body",
-				"attachmentId":     "string -- v1:common:attachment id when file-backed",
-				"note":             "string -- optional short note describing the change",
-				"agentId":          "string -- the editing agent id (recorded as authorId); auto-injected by the agent runtime",
-				"producedByPlanId": "string -- optional planner plan id",
-				"partitionId":      "string -- optional space id; auto-injected by the agent runtime",
-				"expectedVersion":  "number -- optional optimistic-concurrency token",
+				"documentId":      "string (required) -- the logical document id to revise",
+				"content":         "string -- the new full content body",
+				"attachmentId":    "string -- v1:common:attachment id when file-backed",
+				"note":            "string -- optional short note describing the change",
+				"agentId":         "string -- the editing agent id (recorded as authorId); auto-injected by the agent runtime",
+				"producedByRunId": "string -- optional v1:work:run id",
+				"partitionId":     "string -- optional space id; auto-injected by the agent runtime",
+				"expectedVersion": "number -- optional optimistic-concurrency token",
 			},
 		},
 		{
@@ -313,7 +313,7 @@ func (i *Integration) handleEditDocument(ctx context.Context, args map[string]an
 		return nil, fmt.Errorf("library.editDocument: invalid authorKind %q (want user|assistant|system)", authorKind)
 	}
 	authorId := strings.TrimSpace(asString(args["authorId"]))
-	producedByPlanId := strings.TrimSpace(asString(args["producedByPlanId"]))
+	producedByRunId := strings.TrimSpace(asString(args["producedByRunId"]))
 	partitionId := strings.TrimSpace(asString(args["partitionId"]))
 	expectedVersion, hasExpected := intArg(args["expectedVersion"])
 
@@ -370,17 +370,17 @@ func (i *Integration) handleEditDocument(ctx context.Context, args map[string]an
 	}))
 
 	if err := i.appendVersion(ownerCtx, appendArgs{
-		versionId:        versionId,
-		documentId:       documentId,
-		versionNumber:    nextNum,
-		content:          content,
-		attachmentId:     attachmentId,
-		authorKind:       authorKind,
-		authorId:         authorId,
-		note:             note,
-		parentVersionId:  parentVersionId,
-		producedByPlanId: producedByPlanId,
-		partitionId:      partitionId,
+		versionId:       versionId,
+		documentId:      documentId,
+		versionNumber:   nextNum,
+		content:         content,
+		attachmentId:    attachmentId,
+		authorKind:      authorKind,
+		authorId:        authorId,
+		note:            note,
+		parentVersionId: parentVersionId,
+		producedByRunId: producedByRunId,
+		partitionId:     partitionId,
 	}); err != nil {
 		return nil, fmt.Errorf("library.editDocument: append version: %w", err)
 	}
@@ -683,7 +683,7 @@ func (i *Integration) writeArtifactLabels(ctx context.Context, row map[string]an
 		fmt.Sprintf("labels: %s", quoteStringArray(labels)),
 		fmt.Sprintf("partitionId: %s", langparser.QuoteString(stringField(row, "partitionId"))),
 		fmt.Sprintf("agentId: %s", langparser.QuoteString(stringField(row, "agentId"))),
-		fmt.Sprintf("producedByPlanId: %s", langparser.QuoteString(stringField(row, "producedByPlanId"))),
+		fmt.Sprintf("producedByRunId: %s", langparser.QuoteString(stringField(row, "producedByRunId"))),
 		fmt.Sprintf("producedByWorkerId: %s", langparser.QuoteString(stringField(row, "producedByWorkerId"))),
 		fmt.Sprintf("producedByWorkerName: %s", langparser.QuoteString(stringField(row, "producedByWorkerName"))),
 		// folderId is index-only, like labels: a label write that omitted it
@@ -822,24 +822,24 @@ func wrapLabelResult(r artifactLabelResult) ([]memorynodes.MemoryNode, error) {
 // withUserActor returns ctx UNCHANGED for a blank owner, so without
 // that guard the version would be attributed to the inbound caller.
 type appendArgs struct {
-	versionId        string
-	documentId       string
-	versionNumber    int
-	content          string
-	attachmentId     string
-	authorKind       string
-	authorId         string
-	note             string
-	parentVersionId  string
-	producedByPlanId string
-	partitionId      string
+	versionId       string
+	documentId      string
+	versionNumber   int
+	content         string
+	attachmentId    string
+	authorKind      string
+	authorId        string
+	note            string
+	parentVersionId string
+	producedByRunId string
+	partitionId     string
 }
 
 func (i *Integration) appendVersion(ctx context.Context, a appendArgs) error {
 	q := fmt.Sprintf(
-		`mutation appendDocumentVersion(versionId: %s, documentId: %s, versionNumber: %d, content: %s, attachmentId: %s, authorKind: %s, authorId: %s, note: %s, parentVersionId: %s, producedByPlanId: %s, partitionId: %s)`,
+		`mutation appendDocumentVersion(versionId: %s, documentId: %s, versionNumber: %d, content: %s, attachmentId: %s, authorKind: %s, authorId: %s, note: %s, parentVersionId: %s, producedByRunId: %s, partitionId: %s)`,
 		langparser.QuoteString(a.versionId), langparser.QuoteString(a.documentId), a.versionNumber, langparser.QuoteString(a.content), langparser.QuoteString(a.attachmentId),
-		langparser.QuoteString(a.authorKind), langparser.QuoteString(a.authorId), langparser.QuoteString(a.note), langparser.QuoteString(a.parentVersionId), langparser.QuoteString(a.producedByPlanId), langparser.QuoteString(a.partitionId),
+		langparser.QuoteString(a.authorKind), langparser.QuoteString(a.authorId), langparser.QuoteString(a.note), langparser.QuoteString(a.parentVersionId), langparser.QuoteString(a.producedByRunId), langparser.QuoteString(a.partitionId),
 	)
 	_, err := i.engine.Execute(ctx, q)
 	return err
@@ -858,7 +858,7 @@ func (i *Integration) updateBackingContent(ctx context.Context, doc map[string]a
 	// with withUserActor from the row's own ownerUserId after refusing to
 	// proceed on a blank one, so the re-inserted row keeps the same owner.
 	q := fmt.Sprintf(
-		`mutation updateGeneratedOutputContent(outputId: %s, title: %s, summary: %s, body: %s, attachmentId: %s, format: %s, mimeType: %s, source: %s, partitionId: %s, producedByPlanId: %s, producedByAgentId: %s)`,
+		`mutation updateGeneratedOutputContent(outputId: %s, title: %s, summary: %s, body: %s, attachmentId: %s, format: %s, mimeType: %s, source: %s, partitionId: %s, producedByRunId: %s, producedByAgentId: %s)`,
 		langparser.QuoteString(stringField(doc, "id")),
 		langparser.QuoteString(stringField(doc, "title")),
 		langparser.QuoteString(stringField(doc, "summary")),
@@ -868,7 +868,7 @@ func (i *Integration) updateBackingContent(ctx context.Context, doc map[string]a
 		langparser.QuoteString(stringField(doc, "mimeType")),
 		langparser.QuoteString(source),
 		langparser.QuoteString(stringField(doc, "partitionId")),
-		langparser.QuoteString(stringField(doc, "producedByPlanId")),
+		langparser.QuoteString(stringField(doc, "producedByRunId")),
 		langparser.QuoteString(stringField(doc, "producedByAgentId")),
 	)
 	_, err := i.engine.Execute(ctx, q)
@@ -922,7 +922,7 @@ func (i *Integration) touchArtifact(ctx context.Context, doc map[string]any) {
 		return
 	}
 	q := fmt.Sprintf(
-		`mutation createArtifact(sourceConceptRef: %s, ownerUserId: %s, lens: "artifact", kind: "generated_output", source: %s, title: %s, summary: %s, format: %s, mimeType: %s, partitionId: %s, producedByPlanId: %s, labels: %s, archived: %t, folderId: %s)`,
+		`mutation createArtifact(sourceConceptRef: %s, ownerUserId: %s, lens: "artifact", kind: "generated_output", source: %s, title: %s, summary: %s, format: %s, mimeType: %s, partitionId: %s, producedByRunId: %s, labels: %s, archived: %t, folderId: %s)`,
 		langparser.QuoteString(sourceRef),
 		langparser.QuoteString(stringField(doc, "ownerUserId")),
 		langparser.QuoteString(source),
@@ -931,7 +931,7 @@ func (i *Integration) touchArtifact(ctx context.Context, doc map[string]any) {
 		langparser.QuoteString(stringField(doc, "format")),
 		langparser.QuoteString(stringField(doc, "mimeType")),
 		langparser.QuoteString(stringField(doc, "partitionId")),
-		langparser.QuoteString(stringField(doc, "producedByPlanId")),
+		langparser.QuoteString(stringField(doc, "producedByRunId")),
 		quoteStringArray(carry.labels),
 		carry.archived,
 		langparser.QuoteString(carry.folderId),

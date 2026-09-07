@@ -43,7 +43,6 @@ import (
 
 	"github.com/znasllc-io/memql/component/auth"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
-	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
 
@@ -436,62 +435,55 @@ func (i *Integration) handleRequestUserFeedback(ctx context.Context, args map[st
 		return nil, fmt.Errorf("requestUserFeedback: 'kind' must be choice / text / multi (got %q)", kind)
 	}
 
-	planId := strings.TrimSpace(asString(args["planId"]))
-	if planId == "" {
-		return nil, fmt.Errorf("requestUserFeedback: 'planId' required (auto-injection failed -- no active Plan in the turn context)")
+	runId := strings.TrimSpace(asString(args["runId"]))
+	if runId == "" {
+		return nil, fmt.Errorf("requestUserFeedback: 'runId' required (auto-injection failed -- no active run in the turn context)")
 	}
 	ownerUserId := strings.TrimSpace(asString(args["ownerUserId"]))
 
-	// Build the feedbackRequest object the canvas card renders. Mirrors
-	// the planner agent loop's escalateAwaitingFeedback shape + the
-	// concept doc on plan.feedbackRequest.
-	fbReq := map[string]any{
-		"question": question,
-		"kind":     kind,
-		"askedAt":  time.Now().UTC().Format(time.RFC3339),
+	goals := i.workGoalsRef()
+	if goals == nil {
+		return nil, fmt.Errorf("requestUserFeedback: no work surface on this node, so the question cannot be put to anyone")
 	}
-	if opts, ok := args["options"].([]any); ok && len(opts) > 0 {
-		fbReq["options"] = opts
+
+	var options []map[string]any
+	if opts, ok := args["options"].([]any); ok {
+		for _, o := range opts {
+			if m, ok := o.(map[string]any); ok {
+				options = append(options, m)
+			}
+		}
 	}
-	if timeoutAt := strings.TrimSpace(asString(args["timeoutAt"])); timeoutAt != "" {
-		fbReq["timeoutAt"] = timeoutAt
+	var expiresAt time.Time
+	if raw := strings.TrimSpace(asString(args["timeoutAt"])); raw != "" {
+		if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			expiresAt = t
+		}
 	}
-	fbReqJSON, err := json.Marshal(fbReq)
+
+	approvalId, err := goals.RaiseFeedbackApproval(ctx, ownerUserId, FeedbackApproval{
+		RunId:     runId,
+		Question:  question,
+		Kind:      kind,
+		Options:   options,
+		ExpiresAt: expiresAt,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("requestUserFeedback: marshal feedbackRequest: %w", err)
-	}
-
-	if i.engine == nil {
-		return nil, fmt.Errorf("requestUserFeedback: engine handle missing")
-	}
-
-	// The mutation runs as the OWNING USER so the parked Plan's row
-	// createdBy lands as the user (correct for ownership / audit). The
-	// agent-tool dispatch path doesn't carry the user's JWT into the
-	// per-tool context, so without this the update path would fail with
-	// "no actor found in context". Same pattern the worker integration's
-	// handleRequestScope uses for the scope-elevation mutation.
-	mutationCtx := withUserActor(ctx, ownerUserId)
-
-	q := fmt.Sprintf(
-		`mutation requestPlanFeedback(planId:%s, feedbackRequest:%s)`,
-		langparser.QuoteString(planId), string(fbReqJSON),
-	)
-	if _, err := i.engine.Execute(mutationCtx, q); err != nil {
-		return nil, fmt.Errorf("requestUserFeedback: requestPlanFeedback failed: %w", err)
+		return nil, fmt.Errorf("requestUserFeedback: raise approval: %w", err)
 	}
 
 	payload, err := json.Marshal(map[string]any{
-		"status":  "awaiting_user",
-		"planId":  planId,
-		"kind":    kind,
-		"message": "Feedback request emitted; the Plan is now awaitingFeedback. Reply with a short acknowledgement and end your turn -- the user's answer resumes the Plan.",
+		"status":     "awaiting_user",
+		"runId":      runId,
+		"approvalId": approvalId,
+		"kind":       kind,
+		"message":    "Feedback request emitted; the run is now waiting on the person. Reply with a short acknowledgement and end your turn -- the user's answer resumes the run.",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("requestUserFeedback: marshal ack: %w", err)
 	}
 	return []memorynodes.MemoryNode{{
-		ID:        fmt.Sprintf("requestUserFeedback-envelope:%s:%d", planId, time.Now().UnixNano()),
+		ID:        fmt.Sprintf("requestUserFeedback-envelope:%s:%d", approvalId, time.Now().UnixNano()),
 		Concept:   envelopeConcept,
 		Type:      memorynodes.NodeTypeObject,
 		CreatedAt: time.Now().UTC(),

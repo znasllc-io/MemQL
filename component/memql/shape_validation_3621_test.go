@@ -101,7 +101,7 @@ func TestShapeConceptValidatorNamesTheTwoDefects(t *testing.T) {
 				KindRow:     true,
 				UseConcepts: []string{"workspace"},
 				Template: map[string]any{
-					"planId":    `node(\"payload.planId\")`,
+					"runId":     `node(\"payload.runId\")`,
 					"createdAt": `node(\"payload.createdAt\")`,
 				},
 			},
@@ -359,17 +359,23 @@ func TestShapeBoundConceptMustResolve(t *testing.T) {
 func TestAmbiguousShapeBindingResolvesByDomain(t *testing.T) {
 	_, concepts := loadCorpusShapes(t)
 
-	// Precondition: `plan` really is ambiguous by bare name.
-	if _, err := resolveConceptByTrailingSegment(concepts, "plan"); err == nil {
-		t.Skip("`plan` is no longer an ambiguous trailing segment; the hole this pins is gone")
+	// Precondition: `invocation` really is ambiguous by bare name
+	// (v1:worker:invocation and v1:observability:invocation).
+	//
+	// This pinned `plan` until memql#5053 -- ambiguous between v1:planner:plan
+	// and v1:harness:plan -- and both of those concepts are now retired. The
+	// RULE is unchanged; only the pair that demonstrates it moved, which is the
+	// third time this fixture has had to follow a live ambiguity.
+	if _, err := resolveConceptByTrailingSegment(concepts, "invocation"); err == nil {
+		t.Skip("`invocation` is no longer an ambiguous trailing segment; the hole this pins is gone")
 	}
 
 	shapes := newShapeRegistry()
 	if err := shapes.Upsert(&ShapeDefinition{
-		Name:              "planFullDefaulted",
-		Origin:            "unified:planner/shapes.memql",
+		Name:              "invocationFullDefaulted",
+		Origin:            "unified:worker/shapes.memql",
 		KindRow:           true,
-		UseConcepts:       []string{"plan"},
+		UseConcepts:       []string{"invocation"},
 		Template:          map[string]any{},
 		DefaultProjection: true,
 	}); err != nil {
@@ -383,21 +389,21 @@ func TestAmbiguousShapeBindingResolvesByDomain(t *testing.T) {
 	if expanded := expandDefaultShapeProjections(quietLogger(), shapes, concepts); expanded != 1 {
 		t.Fatalf("expanded = %d, want 1 -- an ambiguous binding must resolve through the shape's domain", expanded)
 	}
-	got, _ := shapes.Get("planFullDefaulted")
+	got, _ := shapes.Get("invocationFullDefaulted")
 	if got == nil || len(got.Template) == 0 {
 		t.Fatal("default projection is empty -- the ambiguous binding silently produced nothing")
 	}
-	if _, ok := got.Template["goal"]; !ok {
-		t.Fatalf("expanded template %v does not look like v1:planner:plan (no `goal`)", sortedTemplateKeys(got.Template))
+	if _, ok := got.Template["tool"]; !ok {
+		t.Fatalf("expanded template %v does not look like v1:worker:invocation (no `tool`)", sortedTemplateKeys(got.Template))
 	}
 
 	// Same binding, no domain in the origin: unresolvable, and now LOUD.
 	orphan := newShapeRegistry()
 	if err := orphan.Upsert(&ShapeDefinition{
-		Name:              "planFullNoDomain",
+		Name:              "invocationFullNoDomain",
 		Origin:            "unified:shapes.memql",
 		KindRow:           true,
-		UseConcepts:       []string{"plan"},
+		UseConcepts:       []string{"invocation"},
 		Template:          map[string]any{},
 		DefaultProjection: true,
 	}); err != nil {

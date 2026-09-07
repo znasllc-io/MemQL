@@ -33,7 +33,7 @@ func testTurn() turnContext {
 		AgentId:     "agent-1",
 		OwnerUserId: "user-1",
 		PartitionId: "space-1",
-		PlanId:      "plan-1",
+		RunId:       "plan-1",
 	}
 }
 

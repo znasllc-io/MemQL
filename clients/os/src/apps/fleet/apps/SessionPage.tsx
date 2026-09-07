@@ -131,8 +131,8 @@ function SessionBody({
           {session.status === "failed" ? (
             <Fact label="Exit code" value={<FigureValue figure={session.exitCode} />} mono />
           ) : null}
-          {session.planId === "" ? null : <Fact label="Plan" value={session.planId} mono />}
-          {session.taskId === "" ? null : <Fact label="Task" value={session.taskId} mono />}
+          {session.runId === "" ? null : <Fact label="Run" value={session.runId} mono />}
+          {session.stepId === "" ? null : <Fact label="Step" value={session.stepId} mono />}
         </Facts>
 
         {session.usage.known ? null : (

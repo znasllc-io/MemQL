@@ -140,7 +140,7 @@ func TestSignatureBindingBeatsSingleUseImport(t *testing.T) {
 	}
 
 	for name, want := range map[string]string{
-		"invocationsForPlan":       "v1:worker:invocation",
+		"invocationsForRun":        "v1:worker:invocation",
 		"invocationsForUser":       "v1:worker:invocation",
 		"expiredWorkerInvocations": "v1:worker:invocation",
 		"workerByIdentityId":       "v1:worker:registration",

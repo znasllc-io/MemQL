@@ -68,7 +68,7 @@ func fleetCallSites() []struct {
 		// longer declares it, so the value would be silently discarded, which
 		// is the failure this whole table exists to make visible.
 		{"createWorkerInvocation", []string{
-			"invocationId", "workerId", "agentId", "planId", "taskId",
+			"invocationId", "workerId", "agentId", "runId", "stepId",
 			"correlationId", "tool", "action", "argsRedacted", "startedAt", "completedAt",
 			"durationMs", "outcome", "exitCode", "signal", "errorCode", "errorMessage",
 			"bytesIn", "bytesOut", "outputPreview", "routing",
@@ -102,12 +102,11 @@ func fleetCallSites() []struct {
 		// is the drift the coverage half exists to prevent.
 		{"userByIdSystem", []string{"userId"}, "agent/worker/store.go UserPreferences"},
 		{"agentAuthorizationsForSelf", nil, "agent/worker/store.go AgentAuthorization"},
-		{"planById", []string{"planId"}, "agent/worker/store.go PlanScope + workbench/workspace_store.go"},
 
 		// integrations/workbench/workspace_store.go -- the rows that were
 		// declared and written by nothing until memql#4354.
-		{"workspaceForPlan", []string{"planId"}, "workbench/workspace_store.go"},
-		{"provisionWorkspace", []string{"workspaceId", "planId", "storageRoot", "nodeId"}, "workbench/workspace_store.go"},
+		{"workspaceForRun", []string{"runId"}, "workbench/workspace_store.go"},
+		{"provisionWorkspace", []string{"workspaceId", "runId", "storageRoot", "nodeId"}, "workbench/workspace_store.go"},
 		{"touchWorkspace", []string{"workspaceId"}, "workbench/workspace_store.go"},
 		{"releaseWorkspace", []string{"workspaceId", "reason"}, "workbench/workspace_store.go"},
 
@@ -124,7 +123,7 @@ func fleetCallSites() []struct {
 			"registrationId", "apps", "labels", "lastSeenAt", "lastConnectedFromIP",
 		}, "component/worker/store.go UpdateApps"},
 		{"createAppSession", []string{
-			"sessionId", "workerId", "app", "kind", "planId", "taskId", "workspace",
+			"sessionId", "workerId", "app", "kind", "runId", "stepId", "workspace",
 			"prompt", "inputArtifactIds", "mcpEndpoint", "credentialRef",
 			"credentialExpiresAt", "startedAt",
 		}, "component/worker/appsession_store.go CreateAppSession"},

@@ -40,8 +40,8 @@ type ContainerExecutor interface {
 // whitelists, per-agent capability flags) ride on input as a typed
 // per-kind blob.
 type ExecutorRequest struct {
-	TaskId    string
-	PlanId    string
+	StepId    string
+	RunId     string
 	AgentId   string
 	Kind      string                 // task kind (fileProcessor / browseUrl / runCommand / ...)
 	Input     map[string]interface{} // per-kind input payload

@@ -912,8 +912,8 @@ func (s *streamSession) openAppSession(ctx context.Context, req AppSessionReques
 		Credential:    req.Credential,
 		McpEndpoint:   req.MCPEndpoint,
 		Limits:        req.Limits.toProto(),
-		PlanId:        req.PlanId,
-		TaskId:        req.TaskId,
+		RunId:         req.RunId,
+		StepId:        req.StepId,
 		AppSessionRef: req.AppSessionRef,
 	}
 	if err := s.send(&memqlv1.WorkerServerMessage{
@@ -1075,8 +1075,8 @@ func (s *streamSession) openModelCall(ctx context.Context, req ModelCallRequest)
 		ResponseFormatSchema: req.ResponseFormatSchema,
 		EmbeddingInput:       req.EmbeddingInput,
 		Limits:               limits.toProto(),
-		PlanId:               req.PlanId,
-		TaskId:               req.TaskId,
+		RunId:                req.RunId,
+		StepId:               req.StepId,
 		Purpose:              req.Purpose,
 		Params: &memqlv1.ModelCallParams{
 			Temperature:     req.Params.Temperature,

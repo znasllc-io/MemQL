@@ -75,7 +75,7 @@ func TestWorkbenchForwardRefusesAnEnvelopeWithNoAuthority(t *testing.T) {
 
 	silentHandler(t).HandleForwardedRequest(context.Background(), &nodev1.WorkbenchForwardRequest{
 		RequestId: "req-1",
-		PlanId:    "v1:planner:plan:p1",
+		RunId:     "v1:work:run:p1",
 		Action:    "fs_list",
 		ArgsJson:  []byte(`{"path":"."}`),
 		// No Authority.
@@ -125,7 +125,7 @@ func TestWorkbenchForwardRefusesUnprovableAssertions(t *testing.T) {
 
 			silentHandler(t).HandleForwardedRequest(context.Background(), &nodev1.WorkbenchForwardRequest{
 				RequestId: "req-1",
-				PlanId:    "v1:planner:plan:p1",
+				RunId:     "v1:work:run:p1",
 				Action:    "fs_list",
 				ArgsJson:  []byte(`{"path":"."}`),
 				Authority: authority,
@@ -149,7 +149,7 @@ func TestWorkbenchForwardBindsTheAssertedActor(t *testing.T) {
 	// called auth.BindForwardedContext itself could not detect.
 	ctx, err := silentHandler(t).bindAuthority(context.Background(), &nodev1.WorkbenchForwardRequest{
 		RequestId: "req-1",
-		PlanId:    "v1:planner:plan:p1",
+		RunId:     "v1:work:run:p1",
 		Action:    "fs_list",
 		Authority: userAuthorityProto(t),
 	})
@@ -199,19 +199,19 @@ func TestWorkbenchForwardBindsTheAssertedActor(t *testing.T) {
 // an assertion for -- that is precisely how a dead auth carrier is born.
 //
 // The failure is a structured dispatchResult so the agent's tool loop surfaces
-// it to the LLM, and it must NOT fall back to local dispatch: the per-Plan
+// it to the LLM, and it must NOT fall back to local dispatch: the per-run
 // workspace lives on the workbench node, so running locally would silently
 // operate on a different filesystem.
 func TestWorkbenchProducerFailsClosedWithNoAuthorityOnTheContext(t *testing.T) {
 	integ := NewIntegration(slog.New(slog.DiscardHandler))
 	integ.SetForwardRouter(NewForwardRouter(nil, slog.New(slog.DiscardHandler)))
 
-	nodes, handled := integ.tryForward(context.Background(), "v1:planner:plan:p1", "fs_list",
+	nodes, handled := integ.tryForward(context.Background(), "v1:work:run:p1", "fs_list",
 		map[string]any{"path": "."}, map[string]any{}, time.Now())
 
 	if !handled {
 		t.Fatal("tryForward reported the call unhandled, which sends it to LOCAL dispatch. " +
-			"The per-Plan workspace lives on the workbench node; running locally operates on a " +
+			"The per-run workspace lives on the workbench node; running locally operates on a " +
 			"different filesystem and reports success for work the caller cannot see.")
 	}
 	if len(nodes) != 1 {

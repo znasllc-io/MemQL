@@ -407,23 +407,6 @@ func ActiveDelegationsForAgentBuild(args ActiveDelegationsForAgentArgs) string {
 	return b.String()
 }
 
-// ActivePlansForUser -- The caller's currently-RUNNING Plans -- the account's active tasks occupying concurrency slots (epic memql#902 / #909). Owned tier: payload.requestedBy==actor.userId binds server-side so a caller only sees their own. The active count is the result length; pair with accountEntitlement for the cap and waitingPlansForUser for the queue.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["activePlansForUser"] in generated_concepts.go).
-type ActivePlansForUserArgs struct {
-}
-
-// ActivePlansForUser calls the engine query activePlansForUser.
-func (qc *QueryClient) ActivePlansForUser(ctx context.Context, args ActivePlansForUserArgs) (*Result, error) {
-	call := ActivePlansForUserBuild(args)
-	return qc.executeNamed(ctx, "activePlansForUser", call)
-}
-
-func ActivePlansForUserBuild(args ActivePlansForUserArgs) string {
-	_ = args
-	return "query activePlansForUser()"
-}
-
 // ActiveProjects -- List active v1:forge:project rows.
 //
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["activeProjects"] in generated_concepts.go).
@@ -699,23 +682,6 @@ func AllOutputScreeningsBuild(args AllOutputScreeningsArgs) string {
 	return "query allOutputScreenings()"
 }
 
-// AllPlans -- Every Plan. Backs the global Tasks panel; the frontend pins current-space rows to the top of each lifecycle group.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["allPlans"] in generated_concepts.go).
-type AllPlansArgs struct {
-}
-
-// AllPlans calls the engine query allPlans.
-func (qc *QueryClient) AllPlans(ctx context.Context, args AllPlansArgs) (*Result, error) {
-	call := AllPlansBuild(args)
-	return qc.executeNamed(ctx, "allPlans", call)
-}
-
-func AllPlansBuild(args AllPlansArgs) string {
-	_ = args
-	return "query allPlans()"
-}
-
 // AllSafetyClassifications -- Returns every v1:safety:classification row. Used by the retention sweep; a future cockpit Command Safety view will layer more targeted queries on top.
 //
 // Bound concept: v1:safety:classification (machine-readable: BoundConcepts["allSafetyClassifications"] in generated_concepts.go).
@@ -804,24 +770,24 @@ func AppSessionByIdBuild(args AppSessionByIdArgs) string {
 	return b.String()
 }
 
-// AppSessionsForTask wraps the query named "appSessionsForTask".
+// AppSessionsForStep wraps the query named "appSessionsForStep".
 //
-// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["appSessionsForTask"] in generated_concepts.go).
-type AppSessionsForTaskArgs struct {
-	TaskId string
+// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["appSessionsForStep"] in generated_concepts.go).
+type AppSessionsForStepArgs struct {
+	StepId string
 }
 
-// AppSessionsForTask calls the engine query appSessionsForTask.
-func (qc *QueryClient) AppSessionsForTask(ctx context.Context, args AppSessionsForTaskArgs) (*Result, error) {
-	call := AppSessionsForTaskBuild(args)
-	return qc.executeNamed(ctx, "appSessionsForTask", call)
+// AppSessionsForStep calls the engine query appSessionsForStep.
+func (qc *QueryClient) AppSessionsForStep(ctx context.Context, args AppSessionsForStepArgs) (*Result, error) {
+	call := AppSessionsForStepBuild(args)
+	return qc.executeNamed(ctx, "appSessionsForStep", call)
 }
 
-func AppSessionsForTaskBuild(args AppSessionsForTaskArgs) string {
+func AppSessionsForStepBuild(args AppSessionsForStepArgs) string {
 	var b strings.Builder
-	b.WriteString("query appSessionsForTask(")
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
+	b.WriteString("query appSessionsForStep(")
+	b.WriteString("stepId: ")
+	b.WriteString(quoteMemQL(args.StepId))
 	b.WriteString(")")
 	return b.String()
 }
@@ -934,24 +900,24 @@ func ApprovalRequestByIdBuild(args ApprovalRequestByIdArgs) string {
 	return b.String()
 }
 
-// ArtifactsForPlan -- The Library artifacts one goal produced -- index rows whose producedByPlanId names the plan. Owned: ownerUserId==actor.userId gates the row set server-side and the plan id narrows it. Backs the Nexus map's artifact lane (memql#4371) and the completion card's "artifacts produced" count (memql#4376). Reads the Library INDEX rows, not the backing generatedOutput rows that generatedOutputsForPlan returns.
+// ArtifactsForRun -- The Library artifacts one goal produced -- index rows whose producedByRunId names the plan. Owned: ownerUserId==actor.userId gates the row set server-side and the plan id narrows it. Backs the Nexus map's artifact lane (memql#4371) and the completion card's "artifacts produced" count (memql#4376). Reads the Library INDEX rows, not the backing generatedOutput rows that generatedOutputsForRun returns.
 //
-// Bound concept: v1:library:artifact (machine-readable: BoundConcepts["artifactsForPlan"] in generated_concepts.go).
-type ArtifactsForPlanArgs struct {
-	PlanId string
+// Bound concept: v1:library:artifact (machine-readable: BoundConcepts["artifactsForRun"] in generated_concepts.go).
+type ArtifactsForRunArgs struct {
+	RunId string
 }
 
-// ArtifactsForPlan calls the engine query artifactsForPlan.
-func (qc *QueryClient) ArtifactsForPlan(ctx context.Context, args ArtifactsForPlanArgs) (*Result, error) {
-	call := ArtifactsForPlanBuild(args)
-	return qc.executeNamed(ctx, "artifactsForPlan", call)
+// ArtifactsForRun calls the engine query artifactsForRun.
+func (qc *QueryClient) ArtifactsForRun(ctx context.Context, args ArtifactsForRunArgs) (*Result, error) {
+	call := ArtifactsForRunBuild(args)
+	return qc.executeNamed(ctx, "artifactsForRun", call)
 }
 
-func ArtifactsForPlanBuild(args ArtifactsForPlanArgs) string {
+func ArtifactsForRunBuild(args ArtifactsForRunArgs) string {
 	var b strings.Builder
-	b.WriteString("query artifactsForPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
+	b.WriteString("query artifactsForRun(")
+	b.WriteString("runId: ")
+	b.WriteString(quoteMemQL(args.RunId))
 	b.WriteString(")")
 	return b.String()
 }
@@ -1364,23 +1330,6 @@ func AuthoringConstructsForBundleBuild(args AuthoringConstructsForBundleArgs) st
 	b.WriteString(quoteMemQL(args.BundleId))
 	b.WriteString(")")
 	return b.String()
-}
-
-// AwaitingFeedbackPlansPastTimeout -- Plans in awaitingFeedback whose feedbackRequest.timeoutAt is in the past. Backs feedbackTimeoutAutoPause.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["awaitingFeedbackPlansPastTimeout"] in generated_concepts.go).
-type AwaitingFeedbackPlansPastTimeoutArgs struct {
-}
-
-// AwaitingFeedbackPlansPastTimeout calls the engine query awaitingFeedbackPlansPastTimeout.
-func (qc *QueryClient) AwaitingFeedbackPlansPastTimeout(ctx context.Context, args AwaitingFeedbackPlansPastTimeoutArgs) (*Result, error) {
-	call := AwaitingFeedbackPlansPastTimeoutBuild(args)
-	return qc.executeNamed(ctx, "awaitingFeedbackPlansPastTimeout", call)
-}
-
-func AwaitingFeedbackPlansPastTimeoutBuild(args AwaitingFeedbackPlansPastTimeoutArgs) string {
-	_ = args
-	return "query awaitingFeedbackPlansPastTimeout()"
 }
 
 // BadgeByKeyHash -- Hot-path badge lookup by keyHash for the operator grant exchange. Returns active + inactive rows.
@@ -3353,24 +3302,24 @@ func GeneratedOutputByIdBuild(args GeneratedOutputByIdArgs) string {
 	return b.String()
 }
 
-// GeneratedOutputsForPlan -- List the generated-output rows a Plan produced. Owned: ownerUserId==actor.userId. The planner reads this as the authoritative 'did the deliverable actually get written?' signal for a produceArtifact plan -- promoteWorkbenchOutput stamps producedByPlanId on the row when a workbench fs_write is promoted. The planner stamps the plan's owner as actor before calling, so the read stays inside the owned-row authz model. (memql#939)
+// GeneratedOutputsForRun -- List the generated-output rows a Plan produced. Owned: ownerUserId==actor.userId. The planner reads this as the authoritative 'did the deliverable actually get written?' signal for a produceArtifact plan -- promoteWorkbenchOutput stamps producedByRunId on the row when a workbench fs_write is promoted. The planner stamps the plan's owner as actor before calling, so the read stays inside the owned-row authz model. (memql#939)
 //
-// Bound concept: v1:library:generatedOutput (machine-readable: BoundConcepts["generatedOutputsForPlan"] in generated_concepts.go).
-type GeneratedOutputsForPlanArgs struct {
-	PlanId string
+// Bound concept: v1:library:generatedOutput (machine-readable: BoundConcepts["generatedOutputsForRun"] in generated_concepts.go).
+type GeneratedOutputsForRunArgs struct {
+	RunId string
 }
 
-// GeneratedOutputsForPlan calls the engine query generatedOutputsForPlan.
-func (qc *QueryClient) GeneratedOutputsForPlan(ctx context.Context, args GeneratedOutputsForPlanArgs) (*Result, error) {
-	call := GeneratedOutputsForPlanBuild(args)
-	return qc.executeNamed(ctx, "generatedOutputsForPlan", call)
+// GeneratedOutputsForRun calls the engine query generatedOutputsForRun.
+func (qc *QueryClient) GeneratedOutputsForRun(ctx context.Context, args GeneratedOutputsForRunArgs) (*Result, error) {
+	call := GeneratedOutputsForRunBuild(args)
+	return qc.executeNamed(ctx, "generatedOutputsForRun", call)
 }
 
-func GeneratedOutputsForPlanBuild(args GeneratedOutputsForPlanArgs) string {
+func GeneratedOutputsForRunBuild(args GeneratedOutputsForRunArgs) string {
 	var b strings.Builder
-	b.WriteString("query generatedOutputsForPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
+	b.WriteString("query generatedOutputsForRun(")
+	b.WriteString("runId: ")
+	b.WriteString(quoteMemQL(args.RunId))
 	b.WriteString(")")
 	return b.String()
 }
@@ -3415,28 +3364,6 @@ func GlobalVariablesBuild(args GlobalVariablesArgs) string {
 	b.WriteString("query globalVariables(")
 	b.WriteString("names: ")
 	b.WriteString(renderMemQLValue(args.Names))
-	b.WriteString(")")
-	return b.String()
-}
-
-// HistoricalPlanMetrics -- Succeeded Plans of a kind, with metrics, for estimation bucket queries.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["historicalPlanMetrics"] in generated_concepts.go).
-type HistoricalPlanMetricsArgs struct {
-	PlanKind string
-}
-
-// HistoricalPlanMetrics calls the engine query historicalPlanMetrics.
-func (qc *QueryClient) HistoricalPlanMetrics(ctx context.Context, args HistoricalPlanMetricsArgs) (*Result, error) {
-	call := HistoricalPlanMetricsBuild(args)
-	return qc.executeNamed(ctx, "historicalPlanMetrics", call)
-}
-
-func HistoricalPlanMetricsBuild(args HistoricalPlanMetricsArgs) string {
-	var b strings.Builder
-	b.WriteString("query historicalPlanMetrics(")
-	b.WriteString("planKind: ")
-	b.WriteString(quoteMemQL(args.PlanKind))
 	b.WriteString(")")
 	return b.String()
 }
@@ -3583,25 +3510,25 @@ func InvitationsForAccountBuild(args InvitationsForAccountArgs) string {
 	return b.String()
 }
 
-// InvocationsForPlan -- List the CALLER'S worker invocations belonging to a Plan.
+// InvocationsForRun -- List the CALLER'S worker invocations belonging to a Plan.
 // The `ownerUserId==actor.userId` conjunct is the caller scope v1:worker:invocation's composite tier now injects anyway (memql#4406); stating it is what makes the read's scope checkable (TestRowAuthzEnforcementLandGate) instead of implicit. There is deliberately no operator counterpart: the pair shape exists where an operator surface needs it (invocationsForWorker / invocationsForWorkerAsOperator, for /fleet/machines), and adding an unused second variant here would be surface nothing reads.
 //
-// Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["invocationsForPlan"] in generated_concepts.go).
-type InvocationsForPlanArgs struct {
-	PlanId string
+// Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["invocationsForRun"] in generated_concepts.go).
+type InvocationsForRunArgs struct {
+	RunId string
 }
 
-// InvocationsForPlan calls the engine query invocationsForPlan.
-func (qc *QueryClient) InvocationsForPlan(ctx context.Context, args InvocationsForPlanArgs) (*Result, error) {
-	call := InvocationsForPlanBuild(args)
-	return qc.executeNamed(ctx, "invocationsForPlan", call)
+// InvocationsForRun calls the engine query invocationsForRun.
+func (qc *QueryClient) InvocationsForRun(ctx context.Context, args InvocationsForRunArgs) (*Result, error) {
+	call := InvocationsForRunBuild(args)
+	return qc.executeNamed(ctx, "invocationsForRun", call)
 }
 
-func InvocationsForPlanBuild(args InvocationsForPlanArgs) string {
+func InvocationsForRunBuild(args InvocationsForRunArgs) string {
 	var b strings.Builder
-	b.WriteString("query invocationsForPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
+	b.WriteString("query invocationsForRun(")
+	b.WriteString("runId: ")
+	b.WriteString(quoteMemQL(args.RunId))
 	b.WriteString(")")
 	return b.String()
 }
@@ -5205,89 +5132,6 @@ func (qc *QueryClient) PendingUserInvitations(ctx context.Context, args PendingU
 func PendingUserInvitationsBuild(args PendingUserInvitationsArgs) string {
 	_ = args
 	return "query pendingUserInvitations()"
-}
-
-// PlanById -- Single Plan by id.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["planById"] in generated_concepts.go).
-type PlanByIdArgs struct {
-	PlanId string
-}
-
-// PlanById calls the engine query planById.
-func (qc *QueryClient) PlanById(ctx context.Context, args PlanByIdArgs) (*Result, error) {
-	call := PlanByIdBuild(args)
-	return qc.executeNamed(ctx, "planById", call)
-}
-
-func PlanByIdBuild(args PlanByIdArgs) string {
-	var b strings.Builder
-	b.WriteString("query planById(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// PlansForResponsibility -- Every Plan the reactive loop spawned for a responsibility, matched on the input.responsibilityId back-pointer. Backs the C1 dedup guard (one live Plan per continuous responsibility). Terminal-vs-live filtering happens Go-side (no NOT/OR in MemQL filters).
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["plansForResponsibility"] in generated_concepts.go).
-type PlansForResponsibilityArgs struct {
-	ResponsibilityId string
-}
-
-// PlansForResponsibility calls the engine query plansForResponsibility.
-func (qc *QueryClient) PlansForResponsibility(ctx context.Context, args PlansForResponsibilityArgs) (*Result, error) {
-	call := PlansForResponsibilityBuild(args)
-	return qc.executeNamed(ctx, "plansForResponsibility", call)
-}
-
-func PlansForResponsibilityBuild(args PlansForResponsibilityArgs) string {
-	var b strings.Builder
-	b.WriteString("query plansForResponsibility(")
-	b.WriteString("responsibilityId: ")
-	b.WriteString(quoteMemQL(args.ResponsibilityId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// PlansForSpace -- All Plans in a space (Tasks page list). Frontend groups by status and applies the Done-window visual filter.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["plansForSpace"] in generated_concepts.go).
-type PlansForSpaceArgs struct {
-	PartitionId string
-}
-
-// PlansForSpace calls the engine query plansForSpace.
-func (qc *QueryClient) PlansForSpace(ctx context.Context, args PlansForSpaceArgs) (*Result, error) {
-	call := PlansForSpaceBuild(args)
-	return qc.executeNamed(ctx, "plansForSpace", call)
-}
-
-func PlansForSpaceBuild(args PlansForSpaceArgs) string {
-	var b strings.Builder
-	b.WriteString("query plansForSpace(")
-	b.WriteString("partitionId: ")
-	b.WriteString(quoteMemQL(args.PartitionId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// PlansForUser -- Every Plan the caller requested, newest first, whatever its status. Owned: requestedBy==actor.userId binds server-side so a caller only ever sees their own. Backs the Nexus goal picker and its recent-goals strip (memql#4373), which pin the running ones to the top client-side from the status already on each row -- distinct from activePlansForUser / waitingPlansForUser, neither of which can name a goal that has finished.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["plansForUser"] in generated_concepts.go).
-type PlansForUserArgs struct {
-}
-
-// PlansForUser calls the engine query plansForUser.
-func (qc *QueryClient) PlansForUser(ctx context.Context, args PlansForUserArgs) (*Result, error) {
-	call := PlansForUserBuild(args)
-	return qc.executeNamed(ctx, "plansForUser", call)
-}
-
-func PlansForUserBuild(args PlansForUserArgs) string {
-	_ = args
-	return "query plansForUser()"
 }
 
 // Policy -- Returns the validation policy for a record type. Space-specific policies take precedence over global.
@@ -10438,23 +10282,6 @@ func StoresBuild(args StoresArgs) string {
 	return b.String()
 }
 
-// StrandedCandidatePlans -- Plans still in a pre-dispatch status (planning / queued). Backs the stranded-plan watchdog (memql#1389); the age + dedup check runs Go-side.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["strandedCandidatePlans"] in generated_concepts.go).
-type StrandedCandidatePlansArgs struct {
-}
-
-// StrandedCandidatePlans calls the engine query strandedCandidatePlans.
-func (qc *QueryClient) StrandedCandidatePlans(ctx context.Context, args StrandedCandidatePlansArgs) (*Result, error) {
-	call := StrandedCandidatePlansBuild(args)
-	return qc.executeNamed(ctx, "strandedCandidatePlans", call)
-}
-
-func StrandedCandidatePlansBuild(args StrandedCandidatePlansArgs) string {
-	_ = args
-	return "query strandedCandidatePlans()"
-}
-
 // SupersededDeployments -- Latest-per-deploymentId deployment rows whose status is terminal-not-active (superseded / failed / rolled_back) -- the deployments whose still-registered nodes are orphans. Feeds the active-topology reaper (#1874). asOf latest -> current status per deployment.
 //
 // Bound concept: v1:cluster:deployment (machine-readable: BoundConcepts["supersededDeployments"] in generated_concepts.go).
@@ -10584,50 +10411,6 @@ func (qc *QueryClient) SystemActiveAuthoringBundles(ctx context.Context, args Sy
 func SystemActiveAuthoringBundlesBuild(args SystemActiveAuthoringBundlesArgs) string {
 	_ = args
 	return "query systemActiveAuthoringBundles()"
-}
-
-// TaskStateById -- Latest persisted state for a Task (planner reads this on resume).
-//
-// Bound concept: v1:planner:taskState (machine-readable: BoundConcepts["taskStateById"] in generated_concepts.go).
-type TaskStateByIdArgs struct {
-	TaskId string
-}
-
-// TaskStateById calls the engine query taskStateById.
-func (qc *QueryClient) TaskStateById(ctx context.Context, args TaskStateByIdArgs) (*Result, error) {
-	call := TaskStateByIdBuild(args)
-	return qc.executeNamed(ctx, "taskStateById", call)
-}
-
-func TaskStateByIdBuild(args TaskStateByIdArgs) string {
-	var b strings.Builder
-	b.WriteString("query taskStateById(")
-	b.WriteString("taskId: ")
-	b.WriteString(quoteMemQL(args.TaskId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// TasksForPlan -- All Tasks for a Plan, in seq order.
-//
-// Bound concept: v1:planner:task (machine-readable: BoundConcepts["tasksForPlan"] in generated_concepts.go).
-type TasksForPlanArgs struct {
-	PlanId string
-}
-
-// TasksForPlan calls the engine query tasksForPlan.
-func (qc *QueryClient) TasksForPlan(ctx context.Context, args TasksForPlanArgs) (*Result, error) {
-	call := TasksForPlanBuild(args)
-	return qc.executeNamed(ctx, "tasksForPlan", call)
-}
-
-func TasksForPlanBuild(args TasksForPlanArgs) string {
-	var b strings.Builder
-	b.WriteString("query tasksForPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
-	b.WriteString(")")
-	return b.String()
 }
 
 // TemplateById -- One template by id, gated to its owner. Backs the template editor and the campaign editor's preview. Owned.
@@ -10987,23 +10770,6 @@ func ValidationQueueBuild(args ValidationQueueArgs) string {
 	return "query validationQueue()"
 }
 
-// WaitingPlansForUser -- The caller's Plans parked in the per-account waiting queue (status=waitingForSlot) because the account is at its concurrency cap (epic memql#902 / #909). Owned tier (payload.requestedBy==actor.userId). FIFO order is by row.createdAt of the waitingForSlot version (carried in planFull); the frontend derives each Plan's queue position from that ascending order -- MemQL has no in-query window/rank function.
-//
-// Bound concept: v1:planner:plan (machine-readable: BoundConcepts["waitingPlansForUser"] in generated_concepts.go).
-type WaitingPlansForUserArgs struct {
-}
-
-// WaitingPlansForUser calls the engine query waitingPlansForUser.
-func (qc *QueryClient) WaitingPlansForUser(ctx context.Context, args WaitingPlansForUserArgs) (*Result, error) {
-	call := WaitingPlansForUserBuild(args)
-	return qc.executeNamed(ctx, "waitingPlansForUser", call)
-}
-
-func WaitingPlansForUserBuild(args WaitingPlansForUserArgs) string {
-	_ = args
-	return "query waitingPlansForUser()"
-}
-
 // WarmupStateForIdentity -- ENGINE: the warming ramp's state for one sending identity (the id IS the identity). Cluster-owner gated. Backs both the ramp's own evaluation and an operator asking which step it is on and why it last held.
 //
 // Bound concept: v1:campaigns:warmupState (machine-readable: BoundConcepts["warmupStateForIdentity"] in generated_concepts.go).
@@ -11322,25 +11088,25 @@ func WorkersForUserBuild(args WorkersForUserArgs) string {
 	return b.String()
 }
 
-// WorkspaceForPlan -- Look up the workbench workspace row for a Plan. Returns empty when no workspace has been provisioned yet -- the integration uses this to decide whether to call provisionWorkspace on the first workbenchHost dispatch.
+// WorkspaceForRun -- Look up the workbench workspace row for a Plan. Returns empty when no workspace has been provisioned yet -- the integration uses this to decide whether to call provisionWorkspace on the first workbenchHost dispatch.
 // The `ownerUserId==actor.userId` conjunct keeps this read's result set the SAME before and after the concept's tier is enforced (TestRowAuthzEnforcementLandGate). It is satisfied at runtime because the integration runs under auth.ContextWithUserActor for the parent plan's requestedBy -- which it has already resolved in order to know whose plan it is executing. Without that stamp this returns nothing, and "no workspace row" is indistinguishable from "not provisioned yet", so the integration would provision a second directory on every call.
 //
-// Bound concept: v1:workbench:workspace (machine-readable: BoundConcepts["workspaceForPlan"] in generated_concepts.go).
-type WorkspaceForPlanArgs struct {
-	PlanId string
+// Bound concept: v1:workbench:workspace (machine-readable: BoundConcepts["workspaceForRun"] in generated_concepts.go).
+type WorkspaceForRunArgs struct {
+	RunId string
 }
 
-// WorkspaceForPlan calls the engine query workspaceForPlan.
-func (qc *QueryClient) WorkspaceForPlan(ctx context.Context, args WorkspaceForPlanArgs) (*Result, error) {
-	call := WorkspaceForPlanBuild(args)
-	return qc.executeNamed(ctx, "workspaceForPlan", call)
+// WorkspaceForRun calls the engine query workspaceForRun.
+func (qc *QueryClient) WorkspaceForRun(ctx context.Context, args WorkspaceForRunArgs) (*Result, error) {
+	call := WorkspaceForRunBuild(args)
+	return qc.executeNamed(ctx, "workspaceForRun", call)
 }
 
-func WorkspaceForPlanBuild(args WorkspaceForPlanArgs) string {
+func WorkspaceForRunBuild(args WorkspaceForRunArgs) string {
 	var b strings.Builder
-	b.WriteString("query workspaceForPlan(")
-	b.WriteString("planId: ")
-	b.WriteString(quoteMemQL(args.PlanId))
+	b.WriteString("query workspaceForRun(")
+	b.WriteString("runId: ")
+	b.WriteString(quoteMemQL(args.RunId))
 	b.WriteString(")")
 	return b.String()
 }

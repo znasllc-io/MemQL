@@ -32,7 +32,7 @@ concept classification {
   latencyMs     float  @description("Total classification latency in ms (chain time including rules + model + cache lookup). float rather than `number`, which isn't a DSL primitive.")
   agentId       string @description("Calling agent id.")
   ownerUserId   string @description("Owning user id.")
-  planId        string @description("Plan id, when the action is plan-scoped.")
+  runId         string @description("Run id, when the action is run-scoped.")
   correlationId string @description("Correlation id linking back to the dispatch + any auditEvent.")
   mode          string! @description("Gate mode at decision time: `off`|`shadow`|`enforce`. `shadow` rows are observation-only -- the surface proceeded regardless of `decision`.")
 }
@@ -50,7 +50,7 @@ concept classification {
 // - No TTL enforcement (advisory expiresAt only -- the retention
 //   sweep that flips stale rows to `expired` lands as a follow-up).
 // - No audit-event mirror on resolve (lands with the cockpit card).
-// - No Plan-parking integration (the gate just returns a refusal
+// - No run-parking integration (the gate just returns a refusal
 //   referencing the row id; cockpit / CLI resolve via the mutation).
 //
 // What this concept buys today: an out-of-band approval channel that
@@ -80,8 +80,8 @@ concept approvalRequest {
   decidedAt        datetime @description("When status moved off `pending`. Empty while pending.")
   decisionReason   string   @description("Free-text rationale supplied by the approver (e.g. 'one-off; confirmed safe by ops'). Optional.")
   agentId          string   @description("Agent id that triggered the Ask. Lets the cockpit group pending requests by agent.")
-  ownerUserId      string   @description("Owning user id (whose Plan / agent triggered this). Drives the cockpit's per-user inbox.")
-  planId           string   @description("Plan id, when the action was Plan-scoped. Lets the cockpit deep-link the request back to the parked Plan once the Plan-parking integration lands.")
+  ownerUserId      string   @description("Owning user id (whose run / agent triggered this). Drives the cockpit's per-user inbox.")
+  runId            string   @description("Run id, when the action was run-scoped. Lets a reader deep-link the request back to the parked run.")
 }
 
 // outputScreening -- the substrate for incoming-content prompt-
@@ -122,7 +122,7 @@ concept outputScreening {
   latencyMs      float  @description("Total screening latency in ms. float (matches classification.latencyMs) since `number` isn't a DSL primitive.")
   agentId        string @description("Agent that triggered the ingress (where applicable; tool outputs always have one; HTTP fetches usually do).")
   ownerUserId    string @description("Owning user id.")
-  planId         string @description("Plan id, when the ingress was Plan-scoped.")
+  runId          string @description("Run id, when the ingress was run-scoped.")
   correlationId  string @description("Correlation id linking back to the dispatch.")
   mode           string! @description("OutputGate mode at decision time: `off`|`shadow`|`enforce`. `shadow` rows are observation-only -- the surface re-ingested the content regardless of `verdict`.")
 }

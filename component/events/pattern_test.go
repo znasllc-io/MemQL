@@ -123,7 +123,7 @@ func TestConceptFromGraphNodeTopic(t *testing.T) {
 	}{
 		{"created", "graph.node.created.v1:cognition:utterance", "v1:cognition:utterance", true},
 		{"updated", "graph.node.updated.v1:test:widget", "v1:test:widget", true},
-		{"deleted", "graph.node.deleted.v1:planner:plan", "v1:planner:plan", true},
+		{"deleted", "graph.node.deleted.v1:work:run", "v1:work:run", true},
 		{"roundtrips with builder", TopicNodeCreated("v1:cluster:node"), "v1:cluster:node", true},
 		{"no concept suffix", "graph.node.created", "", false},
 		{"non graph topic", "query.executed", "", false},

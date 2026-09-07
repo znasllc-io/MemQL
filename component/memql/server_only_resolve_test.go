@@ -113,9 +113,14 @@ func TestServerOnlyQueriesRefuseClientOrigin(t *testing.T) {
 	fns, specs := loadRealTree(t)
 
 	for name, wantRefused := range map[string]bool{
-		"userByIdSystem":      true,
-		"runningPlansForUser": true,
-		"userByEmail":         true, // memql#2881
+		"userByIdSystem": true,
+		// runningPlansForUser was here until memql#5053 deleted it with the
+		// kill-switch automation that was its only caller. workRunsInFlight is
+		// its replacement in this list: @serverOnly for the same reason (a
+		// sweep whose reads span every owner, so caller-scoping is not merely
+		// inconvenient but wrong).
+		"workRunsInFlight": true,
+		"userByEmail":      true, // memql#2881
 		// memql#2883. All three project userFull -- every @pii field plus the
 		// cluster-wide auth role -- and all three take only optional args, so
 		// before the gate a bare client call returned every matching user.
@@ -147,7 +152,7 @@ func TestServerOnlyQueriesPassInternalOrigin(t *testing.T) {
 	fns, specs := loadRealTree(t)
 
 	for _, name := range []string{
-		"userByIdSystem", "runningPlansForUser",
+		"userByIdSystem", "workRunsInFlight",
 		// memql#2883. These three have live server-side callers that MUST keep
 		// working: the identity store's bootstrap counts, the admin user list,
 		// the PAT roll-up, the seed materializer, and the two deletion sweeps.
@@ -156,11 +161,7 @@ func TestServerOnlyQueriesPassInternalOrigin(t *testing.T) {
 	} {
 		// Asserts on ANY error, not just a "server-only" one. Gating on the
 		// message let an UNRESOLVABLE construct pass -- the #2800 dead-gate
-		// defect this file exists to catch. Measured: mutating
-		// runningPlansForUser's filter to the `spec("...")` form left this
-		// test, ./dsl/... and ./component/automations all green.
-		// runningPlansForUser is not in TestAuthoredQueriesResolve, so this
-		// was its only coverage (memql#2881 review round 2).
+		// defect this file exists to catch.
 		if err := resolveAuthored(t, fns, specs, name, auth.OriginInternal, argsFor(name)); err != nil {
 			t.Errorf("%s did not resolve from INTERNAL origin: %v -- this is the path "+
 				"authentication and the kill switch depend on", name, err)

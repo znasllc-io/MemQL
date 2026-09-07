@@ -25,7 +25,7 @@ export interface BinItem {
   fileId: string;
   producedByWorkerId: string;
   producedByWorkerName: string;
-  producedByPlanId: string;
+  producedByRunId: string;
   labels: string[];
   /** The folder this was filed in when it was archived. "" = the Library
    *  root, which is also what a row promoted before folders existed says. */
@@ -56,7 +56,7 @@ export function binItemFromArtifact(row: ArtifactRow): BinItem {
     fileId: row.kind === "file" ? (row.sourceConceptRef.split(":").pop() ?? "") : "",
     producedByWorkerId: row.producedByWorkerId,
     producedByWorkerName: row.producedByWorkerName,
-    producedByPlanId: row.producedByPlanId,
+    producedByRunId: row.producedByRunId,
     labels: row.labels,
     folderId: row.folderId,
     changedAt: row.createdAt,
@@ -73,7 +73,7 @@ export function binItemFromFolder(row: FolderRow): BinItem {
     fileId: "",
     producedByWorkerId: "",
     producedByWorkerName: "",
-    producedByPlanId: "",
+    producedByRunId: "",
     labels: [],
     folderId: row.parentFolderId,
     changedAt: "",

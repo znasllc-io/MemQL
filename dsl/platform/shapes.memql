@@ -24,7 +24,7 @@ shape missingCapability missingCapabilityFull {
   kind
   capability
   description
-  requestedFromPlanId
+  requestedFromRunId
   requestedByAgentId
   partitionId
   partitionScope

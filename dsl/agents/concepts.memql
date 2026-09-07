@@ -8,7 +8,7 @@
 // user's machine.
 
 use identity.concepts.{ identity, user }
-use planner.concepts.{ plan }
+use work.concepts.{ run }
 use skills.concepts.{ skill }
 
 /// System-level AI assistant templates with configurable capabilities, personalities, and provider
@@ -62,7 +62,7 @@ concept agent {
 
   lineage {
     createdBy           enum("user", "planner", "system") @description("Who instantiated this agent. 'user' = explicit Create Agent modal; 'planner' = the Planner Agent minted it inside its loop to fill a capability gap; 'system' = provisioning automation (e.g. the GA/Planner/Trainer bootstrap stamps).")
-    originatingPlanId   string @description("v1:planner:plan.id of the Plan that prompted this agent's creation. Empty for user-explicit and system-bootstrap creations. Lets the agent roster show 'created for Plan X' attribution.")
+    originatingRunId    string @description("v1:work:run.id of the run that prompted this agent's creation. Empty for user-explicit and system-bootstrap creations. Lets the agent roster show 'created for run X' attribution.")
     extendedFromAgentId string @description("v1:agents:agent.id of the agent this one was extended from, if any. Empty for fresh creations. Set when the layered dedupe (Q10) decides to clone-and-extend an existing specialist rather than mint a new one.")
     extensionGoals      []string @description("If this agent is the result of an extension or is itself the target of extensions, the list of training goals (e.g. ['Java', 'JavaScript', 'TypeScript']) accumulated over its lifetime. Used by the dedupe similarity score and by the Planner Agent's 'who to extend' decision.")
   }
@@ -71,7 +71,7 @@ concept agent {
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="references", field="identity.identityId", target=identity, direction="outgoing")
-  @relationship(type="createdBy", field="lineage.originatingPlanId", target=plan, direction="outgoing")
+  @relationship(type="createdBy", field="lineage.originatingRunId", target=run, direction="outgoing")
   @relationship(type="references", field="lineage.extendedFromAgentId", target=agent, direction="outgoing")
 }
 
@@ -171,13 +171,13 @@ concept skillChangeEvent {
   after           object  @description("Snapshot of the agent's capability shape AFTER the change. Same key set as before. Used by the planner trace viewer to diff what the planner's mintSkill / extendSpecialist run actually added.")
   actorAgentId    string  @description("v1:agents:agent.id of the agent that drove the change -- the Planner Agent for planner-driven attaches, empty for human-driven changes. Mutually distinguishable from actorUserId; exactly one of the two is set per event.")
   actorUserId     string  @description("v1:identity:user.id of the human that drove the change (cockpit Skills admin view, agent edit modal). Empty for planner-driven attaches.")
-  planId          string  @description("v1:planner:plan.id of the Plan that the change happened under, if any. Lets the trace viewer surface 'attached during Plan X' attribution + group co-occurring attaches under the same Plan.")
+  runId           string  @description("v1:work:run.id of the run the change happened under, if any. Lets the trace viewer surface 'attached during run X' attribution + group co-occurring attaches under the same run.")
 
   @relationship(type="references", field="targetAgentId", target=agent, direction="outgoing")
   @relationship(type="references", field="skillId", target=skill, direction="outgoing")
   @relationship(type="references", field="actorAgentId", target=agent, direction="outgoing")
   @relationship(type="parent", field="actorUserId", target=user, direction="outgoing")
-  @relationship(type="references", field="planId", target=plan, direction="outgoing")
+  @relationship(type="references", field="runId", target=run, direction="outgoing")
 }
 
 /// Session-scoped memory for UI-driving agents. One record per user; accumulates short notes across

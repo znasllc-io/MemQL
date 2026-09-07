@@ -740,7 +740,7 @@ searchable, or a photograph with nothing in it, both of which end at `ready` on
 the file row.
 
 **The client-side owner filter is GONE**, and that is a security gain rather
-than a simplification. `v1:planner:plan` declares no row-authz tier, so its
+than a simplification. `v1:planner:plan` declared no row-authz tier, so its
 subscription admitted every subscriber and other people's plans reached this
 browser to be filtered here. `v1:library:file` and `v1:work:run` both declare
 the composite owner tier, so admission runs on the subscription too
@@ -763,10 +763,13 @@ apps before it.
   of a per-domain page walk that counts the first fifty and calls it a total.
 
 - **NOT EVERY FEED IS LIVE, and the honest move is to say which.**
-  `component/node/routing.go` carries broadcast rules for `v1:planner:*`, so
-  the analysis list is live with no engine work: the attachment handler stamps
-  a queued Plan and finishes on a detached goroutine, and the transitions land
-  under the person watching. It carries NONE for `v1:knowledge:*`, so the
+  `component/node/routing.go` carries broadcast rules for `v1:work:*`, so the
+  analysis list is live with no engine work: the analysis pass opens a run and
+  finishes on a detached goroutine, and the transitions land under the person
+  watching. (It carried `v1:planner:*` rules for this until memql#5053 retired
+  the plan concepts and narrowed those to `v1:planner:responsibility`; the
+  spine's own rules are what make the feed live now.) It carries NONE for
+  `v1:knowledge:*`, so the
   chunk surfaces are on-demand reads that print when they were read and re-read
   on window focus. A `LiveList` over the knowledge side would render "Loading
   from the cluster" and then a list that silently never moved -- worse than a
@@ -1842,13 +1845,16 @@ before it. The first five came with sub-project A and hold unchanged.
   there is no phase ROW in the spine, so it is applied to the structure that
   does exist.
 
-  **Nothing is drawn below the road except approvals, and that is a finding.**
+  **Nothing is drawn below the road except approvals, and the reason changed.**
   The portal's map hung artifacts and authored constructs off the task that
-  made them. `v1:library:artifact.producedByPlanId` and
-  `v1:authoring:bundle.sourcePlanId` still name `v1:planner:plan`, so nothing
-  points a produced thing at a RUN until the spine's section F lands. Drawing
-  them would mean inventing a join, which is the one thing a picture read as
-  evidence must not do.
+  made them. This said the equivalent join did not exist:
+  `v1:library:artifact.producedByPlanId` and
+  `v1:authoring:bundle.sourcePlanId` both named `v1:planner:plan`, so nothing
+  pointed a produced thing at a run, and drawing them would have meant
+  inventing a join -- the one thing a picture read as evidence must not do.
+  memql#5053 re-pointed both: they are `producedByRunId` and `sourceRunId` now
+  and they name `v1:work:run`, so the edge is real. What is left is drawing it,
+  which is work rather than a blocker.
 
   **No WebGL, and it is enforced rather than intended.** MemQL OS carries none
   by owner requirement; `test/deployables/map.test.tsx` is the shell-wide guard

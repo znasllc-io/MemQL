@@ -19,6 +19,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 
 	"github.com/znasllc-io/memql/integrations/agents"
 	workspine "github.com/znasllc-io/memql/integrations/work"
@@ -75,5 +77,25 @@ func (a *agentWorkGoals) OpenDirectGoal(ctx context.Context, g agents.DirectGoal
 		Input:          g.Input,
 		RequestedVia:   g.RequestedVia,
 		TriggeredBy:    g.TriggeredBy,
+	})
+}
+
+// RaiseFeedbackApproval parks a run on a question (memql#5053).
+//
+// The ARTIFACT HASH is the question itself. An approval's hash is what resume
+// compares so a decision can never carry to a modified artifact -- and for a
+// feedback gate the artifact IS the question that was asked. Hashing something
+// else, or leaving it empty, would let an answer apply to a question the
+// person never saw.
+func (a *agentWorkGoals) RaiseFeedbackApproval(ctx context.Context, ownerUserId string, f agents.FeedbackApproval) (string, error) {
+	sum := sha256.Sum256([]byte(f.Question))
+	return a.work.RaiseApproval(ctx, ownerUserId, workspine.ApprovalSeed{
+		RunId:        f.RunId,
+		Kind:         "feedback",
+		Question:     f.Question,
+		Options:      f.Options,
+		ArtifactHash: hex.EncodeToString(sum[:]),
+		Subject:      map[string]any{"kind": f.Kind},
+		ExpiresAt:    f.ExpiresAt,
 	})
 }

@@ -3,28 +3,26 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-use planner.mutations.{ updatePlanStatus }
-
-/// Suspend the user's worker-using plans when computerUseEnabled flips false. The TRIGGER RELEVANCE
-/// check (kill switch engaged) lives on @filter; the plan-classification policy (has a
-/// computerUseScope) is pushed down into runningPlansForUser by the decide logic; the forEach
-/// transitions each returned plan unconditionally (#2370).
-@trigger(event="node.updated", concept="v1:identity:user", partition="*")
-@filter(payload.preferences.computerUseEnabled == false)
-automation killSwitchSuspendsRunningPlans {
-  step decide {
-    logic killSwitchSuspendsRunningPlans ( event: event )
-  }
-  step apply {
-    forEach item in decide.nodes() {
-      updatePlanStatus {
-        planId: item.id,
-        status: "awaitingFeedback",
-        feedbackReason: "kill_switch_engaged"
-      }
-    }
-  }
-}
+// killSwitchSuspendsRunningPlans is GONE (memql#5053, follow-up memql#5066).
+//
+// It suspended a user's running computer-use Plans when
+// preferences.computerUseEnabled flipped false. It went with the Plan
+// concepts rather than being ported, on three findings:
+//
+//   - it never fired. Its query's own doc comment recorded that
+//     `args.event.payload.id ?? ""` reaches argument validation as an
+//     unevaluated CoalesceExpr (memql#2870);
+//   - its predicate was `computerUseScope != null`, a Plan field with no run
+//     equivalent, so a port would either cancel every in-flight run of that
+//     user or add a field to v1:work:run to carry a scope it does not need;
+//   - the ENFORCED control is untouched and is elsewhere:
+//     integrations/agent/worker/dispatch.go reads the flag before EVERY
+//     dispatch and returns deny with `kill_switch_engaged`, failing closed on
+//     a lookup error.
+//
+// Flipping the switch still stops all NEW computer-use calls. What is gone is
+// the in-flight half, which never worked; memql#5066 decides whether it is
+// wanted at all.
 
 // workerInvocationRetentionSweep
 // ===============================
