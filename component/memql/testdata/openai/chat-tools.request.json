@@ -1,0 +1,37 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "what is the weather",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.4-mini",
+    "parallel_tool_calls": false,
+    "stream": false,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Look up the weather for a city",
+          "name": "getWeather",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "method": "POST",
+  "path": "/v1/chat/completions"
+}

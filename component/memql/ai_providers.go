@@ -3159,13 +3159,17 @@ func extractAnthropicText(resp *anthropic.Message) string {
 // OpenAI TTS Provider (Text-to-Speech)
 // ============================================================================
 
-const (
-	openAITTSEndpoint = "https://api.openai.com/v1/audio/speech"
+// openAITTSEndpoint is a var rather than a const so the recorded-request wire
+// test can point it at an httptest server. The hand-rolled speech call is one
+// of the two OpenAI calls that never went through an SDK and therefore has no
+// baseURL option to override; giving it the same seam the embedding client
+// already has (its own baseURL field) is what lets its wire shape be recorded
+// before the migration moves it onto the official SDK.
+var openAITTSEndpoint = "https://api.openai.com/v1/audio/speech"
 
-	// Target duration per chunk for progressive decode (milliseconds)
-	// 200ms provides good balance between latency and overhead
-	ttsTargetChunkDurationMS = 200
-)
+// Target duration per chunk for progressive decode (milliseconds)
+// 200ms provides good balance between latency and overhead
+const ttsTargetChunkDurationMS = 200
 
 type openAITTSProvider struct {
 	apiKey string

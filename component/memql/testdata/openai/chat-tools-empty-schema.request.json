@@ -1,0 +1,30 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "go",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.4-mini",
+    "parallel_tool_calls": false,
+    "stream": false,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "takes nothing",
+          "name": "noArgs",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "method": "POST",
+  "path": "/v1/chat/completions"
+}

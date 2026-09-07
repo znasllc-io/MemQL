@@ -1,0 +1,11 @@
+{
+  "body": {
+    "input": "hello there",
+    "model": "gpt-4o-mini-tts",
+    "response_format": "pcm",
+    "speed": 1,
+    "voice": "nova"
+  },
+  "method": "POST",
+  "path": "/v1/audio/speech"
+}

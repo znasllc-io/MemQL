@@ -1,0 +1,21 @@
+{
+  "body": {
+    "max_completion_tokens": 256,
+    "messages": [
+      {
+        "content": "you are terse",
+        "role": "system"
+      },
+      {
+        "content": "hello",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4o-mini",
+    "stream": false,
+    "temperature": 0.2,
+    "top_p": 0.9
+  },
+  "method": "POST",
+  "path": "/v1/chat/completions"
+}
