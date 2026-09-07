@@ -147,5 +147,5 @@ builtin requestSpecialistTraining {
   runId         string!  @description("The caller's v1:work:run the request is raised on.")
   specialistId  string!  @description("The v1:agents:agent to train.")
   topic         string   @description("What to train on. The resolved knowledge domain when empty.")
-  mode          string   @enum("initial", "refresh")  @description("initial (default) for a fresh training run, refresh for an incremental update.")
+  mode          enum("initial", "refresh")  @description("initial (default) for a fresh training run, refresh for an incremental update.")
 }
