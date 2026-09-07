@@ -46,11 +46,15 @@ other whenever you like, and finishing one moves the rail on by itself.
 Any combination is legal, and the order is the recommendation:
 
 - **A machine on your fleet** — a computer you already own serves the model.
-  Nothing leaves your hardware and there is no bill. The act opens Fleet with
-  the Add machine panel ready.
-- **Anthropic** — federate the cluster, so no API key exists anywhere, or seal
-  a key. The act opens Settings → AI providers at the Anthropic panel.
-- **OpenAI** — seal an API key. OpenAI publishes no federation mechanism yet.
+  Nothing leaves it and there is no bill. The act opens Fleet with the Add
+  machine panel ready.
+- **Anthropic** — Anthropic serves the model, on their hardware and their
+  bill. The act opens Settings → AI providers at the Anthropic panel.
+- **OpenAI** — OpenAI serves the model, on their hardware and their bill.
+
+The wizard says nothing about how a vendor proves who this cluster is. That
+belongs to the panel it opens, which is where the credential is actually set —
+and a sentence here naming one goes stale the next time it changes.
 
 A **developer** gets the fleet door in full. The two federation doors are
 owner-only, so a developer sees a sentence naming who can do it rather than a

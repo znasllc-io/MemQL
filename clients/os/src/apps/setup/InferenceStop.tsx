@@ -40,10 +40,22 @@ const DOORS: readonly (ChoiceOption & { value: DoorId })[] = [
   { value: "openai", label: "OpenAI" },
 ];
 
+// WHAT EACH DOOR COSTS, AND NOTHING ABOUT HOW THE CREDENTIAL WORKS.
+//
+// The first drafts of these said "federate the cluster, so no API key exists
+// anywhere" and "OpenAI publishes no federation mechanism yet" -- the second
+// of which was false when it was written and both of which stop
+// discriminating between the two vendor doors the moment they are reached the
+// same way (epic memql#5088). Neither belongs here in any case: how a vendor
+// proves who this cluster is belongs to the panel that sets it up, and this
+// stop is choosing between somebody's own hardware and somebody else's.
+//
+// So each sentence states the trade the CHOICE turns on, which does not
+// change when a credential mechanism does.
 const SAYS: Record<DoorId, string> = {
   fleet: "A computer you already own serves the model. Nothing leaves it, and there is no bill.",
-  anthropic: "Federate the cluster, so no API key exists anywhere -- or seal a key instead.",
-  openai: "Seal an API key. OpenAI publishes no federation mechanism yet.",
+  anthropic: "Anthropic serves the model, on their hardware and their bill.",
+  openai: "OpenAI serves the model, on their hardware and their bill.",
 };
 
 export function InferenceStop({ role }: { role: string }) {

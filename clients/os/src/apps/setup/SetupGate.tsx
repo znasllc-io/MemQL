@@ -58,7 +58,13 @@ export function SetupGate({ retire, children }: { retire: () => void; children: 
     },
     [connection],
   );
-  const passkeys = useReading<Row[]>("setup:passkeys", connection === null ? null : readPasskeys);
+  // NOT ASKED AT ALL ON A CLUSTER WITH AUTHENTICATION OFF. The passkey stop
+  // is `skipped` there and nothing reads the answer, so the read is one
+  // request per boot that could not change a pixel.
+  const passkeys = useReading<Row[]>(
+    `setup:passkeys:${config.authEnabled ? "on" : "off"}`,
+    connection === null || !config.authEnabled ? null : readPasskeys,
+  );
 
   // A FAILED READ IS `unknown`, NEVER `none` (D6). `active` defaults TRUE on
   // the concept and a folded row carries only what a write touched, so it is
@@ -90,7 +96,15 @@ export function SetupGate({ retire, children }: { retire: () => void; children: 
   retireRef.current = retire;
 
   useEffect(() => {
-    if (!configured) return;
+    // A MODULE CAN GO BACK. If the core stops being configured mid-beat --
+    // a replica restarts, a lane empties -- the timer is cleared by this
+    // effect's own cleanup, and without this line `exiting` would stay true
+    // and leave a faded, unclickable card on the desk with nothing left to
+    // remove it.
+    if (!configured) {
+      setExiting(false);
+      return;
+    }
     if (!wasDrawn.current) {
       retireRef.current();
       return;

@@ -65,14 +65,25 @@ describe("the doors an owner is offered", () => {
     // which the visual pass caught and no test would have.
     mount("owner");
     expect(screen.getByText("A computer you already own serves the model. Nothing leaves it, and there is no bill.")).toBeTruthy();
-    expect(screen.queryByText(/no API key exists anywhere/)).toBeNull();
 
     fireEvent.click(screen.getByRole("radio", { name: "Anthropic" }));
-    expect(screen.getByText("Federate the cluster, so no API key exists anywhere -- or seal a key instead.")).toBeTruthy();
+    expect(screen.getByText("Anthropic serves the model, on their hardware and their bill.")).toBeTruthy();
 
-    // OpenAI's is honest about the absence rather than silent about it.
     fireEvent.click(screen.getByRole("radio", { name: "OpenAI" }));
-    expect(screen.getByText("Seal an API key. OpenAI publishes no federation mechanism yet.")).toBeTruthy();
+    expect(screen.getByText("OpenAI serves the model, on their hardware and their bill.")).toBeTruthy();
+  });
+
+  it("says nothing about how a vendor proves who this cluster is", () => {
+    // THE PIN, and it is a durability claim rather than a copy one. A
+    // sentence here naming a key or a federation is a sentence that goes
+    // stale the next time either changes -- one of them was false the day it
+    // was written -- and the credential belongs to the panel that sets it up.
+    mount("owner");
+    for (const vendor of ["Anthropic", "OpenAI"]) {
+      fireEvent.click(screen.getByRole("radio", { name: vendor }));
+      const said = document.body.textContent ?? "";
+      expect(said).not.toMatch(/API key|federat/i);
+    }
   });
 
   it("opens Fleet at Machines with the Add machine panel, for the fleet door", () => {
