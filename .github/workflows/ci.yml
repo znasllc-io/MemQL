@@ -435,6 +435,13 @@ jobs:
               # step does not run cmd/**. Routed here rather than to `gates`
               # because `go` is the bucket that reaches the test.
               - 'cmd/shopifyschema/testdata/**'
+              # Configuration readiness fixtures read by component/readiness
+              # tests. Same reasoning as component/memql: the test gate that
+              # consumes them runs in db-tests, which gates on this bucket, so
+              # this is the bucket that actually reaches the test. Routed here
+              # rather than to `gates` because `go` is the bucket db-tests
+              # consults.
+              - 'component/readiness/testdata/**'
             # The embedded DSL tree.
             dsl:
               - 'dsl/**'
