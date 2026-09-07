@@ -86,6 +86,15 @@ export interface CatalogInputs {
   readClusters?: (file: string) => ReturnType<typeof readClustersFileSafe>;
   readReceiptFile?: (file: string) => Promise<Receipt | null>;
   listRunsIn?: (dir: string) => Promise<Run[]>;
+  /**
+   * This extension's own build stamp (memql#5076), when it was packaged.
+   *
+   * Threaded from the host rather than read here: it lives at
+   * `<extensionPath>/staged/buildinfo.json` and only the host knows that path.
+   * Absent for an extension running out of a checkout, which was never packaged
+   * and therefore has no commit to name.
+   */
+  buildStamp?: { commit: string; dirty: boolean };
 }
 
 export interface Catalog {
@@ -135,6 +144,7 @@ export async function buildCatalog(inputs: CatalogInputs): Promise<Catalog> {
         connection?.connected === true &&
         registered !== undefined &&
         connection.clusterName === registered.name,
+      ...(inputs.buildStamp !== undefined ? { buildStamp: inputs.buildStamp } : {}),
     }),
   ];
 

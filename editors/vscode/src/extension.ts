@@ -170,6 +170,7 @@ import {
   DEPLOYMENT_NODE_SPEC_CONCEPT,
 } from './state/deploymentHistory.js';
 import { resolveInstallRoot } from './install/root.js';
+import { readBuildStamp } from './version/buildStamp.js';
 import { ClusterVersionRefresher } from './version/learners.js';
 import { createVersionCollector } from './version/collectors.js';
 import { releaseCache } from './version/releaseCache.js';
@@ -1403,10 +1404,23 @@ function registerRuntimeSurface(context: ExtensionContext): void {
   // provider it renders -- and making the provider hold the view would put an
   // ordering constraint into a class whose whole job is to be orderless.
   let deploymentsView: TreeView<DeploymentNode> | undefined;
+  // THIS EXTENSION'S OWN BUILD COMMIT (memql#5076), read once. It is a file
+  // inside the extension's own directory and cannot change while it is running,
+  // so a read per tree refresh would be a file read per keystroke. `undefined`
+  // is the honest answer for an unpackaged extension -- one running out of a
+  // checkout in the Extension Development Host -- and the surfaces render it as
+  // "not recorded" rather than comparing against nothing.
+  const extensionBuildStamp = readBuildStamp(context.extensionPath);
+  const buildStampForCatalog =
+    extensionBuildStamp === undefined
+      ? undefined
+      : { commit: extensionBuildStamp.commit, dirty: extensionBuildStamp.dirty };
+
   const deploymentsTree = new DeploymentsTreeProvider({
     clustersPath,
     receiptPath: defaultReceiptPath(),
     presence: () => presence.get(),
+    ...(buildStampForCatalog !== undefined ? { buildStamp: buildStampForCatalog } : {}),
     // The ONE connection answer, read rather than re-derived (design D1). Note
     // it is the manager's state through the shared mapping, NOT this file's own
     // reading of it: the workbench evaluates the manifest's `when` clauses
@@ -1466,6 +1480,7 @@ function registerRuntimeSurface(context: ExtensionContext): void {
       clustersPath,
       receiptPath: defaultReceiptPath(),
       presence: () => presence.get(),
+      ...(buildStampForCatalog !== undefined ? { buildStamp: buildStampForCatalog } : {}),
     },
     // Same shared cache as the two trees (memql#3996): the page's `latest`
     // fact and the row's availability clause are the same claim, and they

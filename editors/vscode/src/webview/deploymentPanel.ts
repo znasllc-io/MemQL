@@ -779,6 +779,13 @@ export class DeploymentPanel {
       // with the row the operator is looking at.
       imageSource: instance.imageSource ?? "",
       releasedTag: recordedCheckout(receipt).tag,
+      // Off the INSTANCE for the same reason imageSource is: it is where the
+      // extension's own build stamp was already resolved, and a second read
+      // here could disagree with the row the operator just came from.
+      ...(instance.extensionCommit !== undefined
+        ? { extensionCommit: instance.extensionCommit }
+        : {}),
+      ...(instance.extensionDirty === true ? { extensionDirty: true } : {}),
     };
     this.render();
   }
@@ -970,6 +977,10 @@ export class DeploymentPanel {
       ...(update === undefined ? {} : { update }),
       imageSource: instance.imageSource ?? "",
       releasedTag: recorded.tag,
+      ...(instance.extensionCommit !== undefined
+        ? { extensionCommit: instance.extensionCommit }
+        : {}),
+      ...(instance.extensionDirty === true ? { extensionDirty: true } : {}),
     };
     this.render();
   }
