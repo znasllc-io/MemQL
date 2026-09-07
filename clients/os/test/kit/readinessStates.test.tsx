@@ -174,6 +174,10 @@ describe("SetupGroup", () => {
     // a button with no window to open into would go nowhere.
     expect(screen.getByText("Settings, under AI providers")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open AI providers" })).toBeNull();
+    // And the CONFIGURED module carries no act at all: "Set in the
+    // deployment" beside a row that says "Set up" is an instruction with
+    // nothing behind it.
+    expect(screen.queryByText("Set in the deployment")).toBeNull();
   });
 
   it("names the variables for a deployment-only lane", () => {

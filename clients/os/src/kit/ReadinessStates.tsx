@@ -167,6 +167,13 @@ export function SetupGroup({
             // `!== "phone"` rather than `=== "desktop"`: the iPad chrome
             // carries windows, and an act that opens one works there.
             const canOpen = target !== null && os !== null && os.layout !== "phone";
+            // A module that is SET UP needs no act. Saying where it would be
+            // configured, to somebody looking at a row that says "Set up", is
+            // an instruction with nothing behind it -- and a column of them
+            // beside every finished row is the furniture rule 10 exists to
+            // keep out. The row reads "Campaign sending -- Set up", which is
+            // the whole answer.
+            const done = v?.state === "configured";
             return (
               <div key={id} className="os-setup-row">
                 <span className="os-setup-name">{MODULE_NAMES[id]}</span>
@@ -177,7 +184,9 @@ export function SetupGroup({
                   {stateWords(v)}
                   {v && v.disagreement.length > 0 ? ` (${v.disagreement.join(", ")})` : ""}
                 </span>
-                {target === null ? (
+                {done ? (
+                  <span className="os-setup-act" />
+                ) : target === null ? (
                   <span className="os-setup-act">
                     <span className="os-caption">Set in the deployment</span>
                     {lane && lane.slots.length > 0 ? (
