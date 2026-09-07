@@ -6,6 +6,7 @@ import (
 	"time"
 
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
+	"github.com/znasllc-io/memql/component/memql"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -280,4 +281,57 @@ func TestHeartbeatAppsPersistOutsideTheThrottle(t *testing.T) {
 
 func timeAt(y int, mo time.Month, d, h, mi, s int) time.Time {
 	return time.Date(y, mo, d, h, mi, s, 0, time.UTC)
+}
+
+// D10: `app:` IS ONE VOCABULARY IN TWO PLACES, AND THIS IS WHAT HOLDS IT
+// TOGETHER (epic memql#5096).
+//
+// A policy naming `app:claude-code` and a machine advertising the routing
+// label `app:claude-code` are talking about one thing. The two never MEET in
+// code -- a provider reference resolves through the engine's registry, a label
+// lives on a registration -- so nothing but this test stops the id sets behind
+// them from drifting apart. It lives HERE rather than in component/memql
+// because the dependency runs this way: this package can see both the closed
+// set and the engine's reference parser, and component/memql cannot see this
+// one at all.
+func TestAppProviderReferencesMatchTheClosedSet(t *testing.T) {
+	refs := AppProviderReferences()
+	if len(refs) != len(KnownAppIds()) {
+		t.Fatalf("%d provider references for %d app ids", len(refs), len(KnownAppIds()))
+	}
+	for _, ref := range refs {
+		appId, ok := memql.IsAppReference(ref)
+		if !ok {
+			t.Fatalf("%q is not recognised as an app reference by the engine's parser", ref)
+		}
+		if !IsKnownAppId(appId) {
+			t.Errorf("%q resolves to %q, which is outside the closed runnable set", ref, appId)
+		}
+	}
+	// And the reverse. An app id this engine can drive but no policy can name
+	// is an app nobody can select, which is a feature that exists and cannot
+	// be reached.
+	for _, id := range KnownAppIds() {
+		want := memql.AppReferencePrefix + id
+		found := false
+		for _, ref := range refs {
+			if ref == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("app id %q has no provider reference (%q)", id, want)
+		}
+	}
+	// The ROUTING LABEL key and the PROVIDER REFERENCE are the same string,
+	// which is the whole of "one vocabulary". If these ever diverge, an
+	// operator reading `app:codex` on a machine card and writing `app:codex`
+	// in a policy would be writing two different things that happen to look
+	// alike.
+	for _, id := range KnownAppIds() {
+		if AppLabelKey(id) != memql.AppReferencePrefix+id {
+			t.Errorf("label key %q and provider reference %q disagree for %q",
+				AppLabelKey(id), memql.AppReferencePrefix+id, id)
+		}
+	}
 }

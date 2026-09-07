@@ -185,7 +185,11 @@ func (r *ProviderRegistry) HasCloudProviderConfigured() bool {
 		if _, isFleet := IsFleetReference(name); isFleet {
 			continue
 		}
-		if strings.EqualFold(entry.Config.Type, FleetProviderType) {
+		if _, isApp := IsAppReference(name); isApp {
+			continue
+		}
+		if strings.EqualFold(entry.Config.Type, FleetProviderType) ||
+			strings.EqualFold(entry.Config.Type, AppProviderType) {
 			continue
 		}
 		if _, ok := entry.Client.(AIProvider); ok {

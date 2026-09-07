@@ -52,6 +52,7 @@ shape registration workerRegistrationFull {
   platformInfo
   permissions
   apps
+  appDescriptors
   version
   buildTag
   registeredAt

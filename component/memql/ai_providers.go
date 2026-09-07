@@ -309,6 +309,11 @@ type ProviderRegistry struct {
 	// with no worker service, which is an UNAVAILABLE fleet rather than a
 	// broken one -- see fleet_provider.go.
 	fleet FleetInference
+	// apps is the subscription-app door seam (epic memql#5096). Nil for the
+	// same reason and with the same meaning: a node with no worker service
+	// has no app door, which is a state the chain walks past rather than an
+	// error it raises -- see app_provider.go.
+	apps AppInference
 }
 
 // ProviderConfigEntry stores metadata + instantiated client for a provider.
@@ -589,6 +594,12 @@ func (r *ProviderRegistry) EntryForUser(ctx context.Context, actingUserId, name 
 		}
 		return r.fleetEntry(ctx, actingUserId, modelId)
 	}
+	if appId, isApp := IsAppReference(key); isApp {
+		if strings.TrimSpace(actingUserId) == "" {
+			actingUserId = actingUserFromContext(ctx)
+		}
+		return r.appEntry(ctx, actingUserId, appId)
+	}
 	return nil, false
 }
 
@@ -807,12 +818,13 @@ func (r *ProviderRegistry) SuggestChatProvider() common.ChatAIProvider {
 // (non-streaming) chat completions. These are safe for suggest/non-streaming
 // AI calls.
 //
-// FLEET BELONGS HERE, and its absence was a silent cloud call
+// THE LOCAL TYPES BELONG HERE, and Fleet's absence was a silent cloud call
 // (epic memql#5096, task memql#5098). The gate exists because a STREAMING
 // build may target an endpoint that refuses synchronous completions -- that is
 // a fact about two vendor SDKs, not a property of "provider". A fleet call is
-// one request and one response over a stream this side already holds; it has
-// no streaming-only endpoint to be wrong about.
+// one request and one response over a stream this side already holds, and an
+// app answers a prompt in one turn; neither has a streaming-only endpoint to
+// be wrong about.
 //
 // While they were excluded, `ChatStructuredProviderByName("fleet:...")`
 // answered nil, and InvokeAIStructured's next step is a registry-wide scan for
@@ -824,7 +836,7 @@ func isNonStreamingType(providerType string) bool {
 	switch strings.ToLower(providerType) {
 	case "openai", "openaichat", "anthropic", "anthropicchat":
 		return true
-	case strings.ToLower(FleetProviderType):
+	case strings.ToLower(FleetProviderType), strings.ToLower(AppProviderType):
 		return true
 	default:
 		return false
@@ -1323,6 +1335,14 @@ func newAIProvider(cfg ProviderConfig) (AIProvider, error) {
 		return nil, fmt.Errorf(
 			"the fleet provider has no static per-model children; name the model from a "+
 				"policy instead, as @primary(%q)", FleetReferencePrefix+cfg.Model)
+	case "subscriptionapp":
+		// Same reasoning, same refusal (epic memql#5096). An app door exists
+		// while somebody is signed in on a machine that is awake, so a static
+		// child would be a claim this tree cannot keep; the doors are
+		// resolved from the live registrations at selection time.
+		return nil, fmt.Errorf(
+			"the app provider has no static per-app children; name the app from a "+
+				"policy instead, as @fallback(%q)", AppReferencePrefix+cfg.Model)
 	default:
 		return nil, fmt.Errorf("unsupported provider type %q", cfg.Type)
 	}

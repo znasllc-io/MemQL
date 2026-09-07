@@ -98,6 +98,15 @@ type Candidate struct {
 	// whenever the lid closed. Resolving it once, where the row is projected,
 	// leaves no merged map for a later reader to consult by mistake.
 	SharedInference bool
+	// Apps is the local-app inventory the cockpit reported, verbatim -- ids
+	// this engine cannot drive included, so an operator surface can show an
+	// app the engine will never select.
+	Apps []workerservice.AppInfo
+	// AppDescriptors say HOW each reported app is driven. Only entries whose
+	// app id AND harness word this engine knows are stored, so an entry here
+	// is one the engine can act on. An app with NO entry is not an app whose
+	// harness does neither -- see workerservice.DescriptorFor.
+	AppDescriptors  []workerservice.AppDescriptor
 	Concurrency     map[string]uint32
 	ActiveCount     int
 	ConnectedNodeId string

@@ -189,6 +189,7 @@ func TestTheSynchronousProviderGateAdmitsTheLocalTypes(t *testing.T) {
 		{"openai", true, "unchanged"},
 		{"anthropic", true, "unchanged"},
 		{FleetProviderType, true, "a fleet call is one request and one response; it has no streaming-only endpoint to be wrong about"},
+		{AppProviderType, true, "an app answers a prompt in one turn"},
 		{"OpenAIStream", false, "a streaming build may target an endpoint that refuses synchronous completions"},
 	} {
 		if got := isNonStreamingType(tt.providerType); got != tt.want {

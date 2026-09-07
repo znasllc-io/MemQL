@@ -65,6 +65,11 @@ type RunSpec struct {
 	CredentialLifetime time.Duration
 	MaxTranscriptBytes int64
 	MaxDuration        time.Duration
+	// ResponseSchema is the JSON Schema the harness is asked to answer
+	// against. EMPTY MEANS NONE WAS ASKED FOR, which is not the same state
+	// as asking and getting nothing back -- only a run that asked can be
+	// disappointed by a session that ends with no structured answer.
+	ResponseSchema string
 }
 
 // RunResult is what a completed run reports back.
@@ -80,6 +85,11 @@ type RunResult struct {
 	Transcript          string
 	TranscriptTruncated bool
 	ErrorMessage        string
+	// Result is the harness's structured final answer as raw JSON, when it
+	// produced one. Carried whatever the exit code says: a harness can
+	// answer the schema and still fail, and dropping the answer because the
+	// run failed loses the only part of it that can be read.
+	Result []byte
 }
 
 // ProgressFunc receives each chunk as it arrives, so a caller can
@@ -191,17 +201,18 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 	}
 
 	handle, err := w.StartAppSession(ctx, AppSessionRequest{
-		SessionId:     spec.SessionId,
-		App:           spec.App,
-		Kind:          spec.Kind,
-		Prompt:        spec.Prompt,
-		Inputs:        spec.Inputs,
-		Workspace:     spec.Workspace,
-		Credential:    cred.Token,
-		MCPEndpoint:   r.MCPEndpoint,
-		RunId:         spec.RunId,
-		StepId:        spec.StepId,
-		AppSessionRef: spec.AppSessionRef,
+		SessionId:      spec.SessionId,
+		App:            spec.App,
+		Kind:           spec.Kind,
+		Prompt:         spec.Prompt,
+		Inputs:         spec.Inputs,
+		Workspace:      spec.Workspace,
+		Credential:     cred.Token,
+		MCPEndpoint:    r.MCPEndpoint,
+		ResponseSchema: spec.ResponseSchema,
+		RunId:          spec.RunId,
+		StepId:         spec.StepId,
+		AppSessionRef:  spec.AppSessionRef,
 		Limits: AppSessionLimits{
 			CredentialLifetime: lifetime,
 			MaxDuration:        spec.MaxDuration,
@@ -300,6 +311,7 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 		Transcript:          transcript,
 		TranscriptTruncated: truncated,
 		ErrorMessage:        errMessage,
+		Result:              outcome.Result,
 	}
 	row.TranscriptBytes = bytesSeen
 	r.finishRow(ctx, row, result, spec, w)

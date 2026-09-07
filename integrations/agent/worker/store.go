@@ -276,6 +276,8 @@ func (s *EngineStore) WorkersForOwner(ctx context.Context, ownerUserId string) (
 			// `labels` on every reconnect, so an opt-in found there was
 			// granted by the machine rather than by its owner.
 			SharedInference: parseAdvertisedBool(rowStringMap(row, "operatorLabels")[SharedInferenceLabel]),
+			Apps:            rowApps(row, "apps"),
+			AppDescriptors:  rowAppDescriptors(row, "appDescriptors"),
 			Concurrency:     rowUint32Map(row, "concurrency"),
 			ActiveCount:     rowInt(row, "activeCount"),
 			ConnectedNodeId: rowString(row, "connectedNodeId"),
@@ -637,6 +639,8 @@ func (s *EngineStore) SharedInferenceWorkers(ctx context.Context) ([]Candidate, 
 			Capabilities:    rowStringList(row, "capabilities"),
 			Labels:          MergeLabels(rowStringMap(row, "labels"), operator),
 			SharedInference: parseAdvertisedBool(operator[SharedInferenceLabel]),
+			Apps:            rowApps(row, "apps"),
+			AppDescriptors:  rowAppDescriptors(row, "appDescriptors"),
 			Concurrency:     rowUint32Map(row, "concurrency"),
 			ActiveCount:     rowInt(row, "activeCount"),
 			ConnectedNodeId: rowString(row, "connectedNodeId"),
@@ -675,4 +679,79 @@ func systemFleetContext(ctx context.Context) context.Context {
 	return auth.ContextWithAccess(ctx, &auth.AccessContext{
 		UserId: systemFleetActor, Role: auth.RoleOwner, Unranked: true, Synthetic: true,
 	})
+}
+
+// rowApps decodes the reported local-app inventory off a registration row.
+//
+// Malformed entries are DROPPED rather than defaulted, the same rule
+// component/worker's own decoder applies: an app with no id cannot be routed
+// to, and an entry claiming to be runnable without the fields to prove it is
+// exactly what must not be trusted.
+func rowApps(row map[string]any, key string) []workerservice.AppInfo {
+	raw, ok := row[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]workerservice.AppInfo, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := m["id"].(string)
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		version, _ := m["version"].(string)
+		subscription, _ := m["subscription"].(string)
+		signedIn, _ := m["signedIn"].(bool)
+		allowed, _ := m["allowed"].(bool)
+		out = append(out, workerservice.AppInfo{
+			Id:           strings.TrimSpace(id),
+			Version:      version,
+			SignedIn:     signedIn,
+			Subscription: workerservice.NormalizeSubscription(subscription),
+			Allowed:      allowed,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// rowAppDescriptors decodes the harness descriptors, dropping every entry
+// whose app id or harness word this build does not know -- so a cluster
+// mid-upgrade cannot read a protocol name out of the graph that its own code
+// has no client for.
+func rowAppDescriptors(row map[string]any, key string) []workerservice.AppDescriptor {
+	raw, ok := row[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]workerservice.AppDescriptor, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := m["id"].(string)
+		harness, _ := m["harness"].(string)
+		structured, _ := m["structuredResult"].(bool)
+		followUps, _ := m["followUps"].(bool)
+		d := workerservice.AppDescriptor{
+			Id:               strings.TrimSpace(id),
+			Harness:          strings.TrimSpace(harness),
+			StructuredResult: structured,
+			FollowUps:        followUps,
+		}
+		if !d.Valid() {
+			continue
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

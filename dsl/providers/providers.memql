@@ -655,3 +655,33 @@ provider whisper1 {
 @base
 @type("Fleet")
 provider fleet { }
+
+// ---- providers/v1/app/app.memql ----
+
+/// A signed-in Claude Code or Codex on one of the user's own machines, as an
+/// INFERENCE DOOR (epic memql#5096, design D3). One base provider, and
+/// DELIBERATELY NO per-app children, for the reason the fleet has none: a
+/// door exists while somebody is signed in on a machine that is awake, so a
+/// registry entry written at load would be a claim this file cannot keep.
+///
+/// Apps are named from a policy as `app:<id>` (`@fallback("app:claude-code")`,
+/// or `app:*` for any runnable one) and resolved against the machines whose
+/// registration says the app is BOTH allowed and signed in.
+///
+/// THE INVERSION IS WHY IT SERVES WHAT IT SERVES. Everywhere else MemQL is
+/// the agent and a model is its provider; here the app is the agent -- its own
+/// loop, its own tools, its own judgement -- and MemQL is what it calls back
+/// into over MCP. So this type serves chat and structured chat, where MemQL
+/// hands over a prompt and takes back an answer, and NOT MemQL's own
+/// tool-calling turns: driving an app that is itself driving produces two
+/// agents fighting over one conversation.
+///
+/// Billing is `subscription`: the dollar ceiling excludes it because MemQL was
+/// not billed, and the loop caps include it because a runaway loop on somebody
+/// else's quota is still a runaway loop.
+///
+/// There is no `auth` block. The credential for an app door is a person having
+/// signed into an app on a machine they own.
+@base
+@type("SubscriptionApp")
+provider app { }
