@@ -79,6 +79,9 @@ shape appSession workerAppSessionFull {
   workspace
   prompt
   inputArtifactIds
+  responseSchema
+  result
+  resultSubmittedAt
   transcript
   transcriptBytes
   transcriptTruncated

@@ -72,7 +72,7 @@ func TestGate_Define(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			ctx := withMCPSession(context.Background(), "owner-1", newAuthoredRegistry())
-			res := callMCPTool(ctx, eng, c.role, c.tier, toolDefine, map[string]any{"bundle": validSpecBundle})
+			res := callMCPTool(ctx, eng, c.role, c.tier, "", toolDefine, map[string]any{"bundle": validSpecBundle})
 			if c.wantRefused {
 				if !isError(res) {
 					t.Fatalf("expected gate refusal (isError), got %v", res)
@@ -116,7 +116,7 @@ func TestGate_InlineQuery(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			eng := newFakeEngine()
-			res := callMCPTool(context.Background(), eng, c.role, c.tier, toolQuery, map[string]any{"query": "concept==v1:x:y"})
+			res := callMCPTool(context.Background(), eng, c.role, c.tier, "", toolQuery, map[string]any{"query": "concept==v1:x:y"})
 			if c.wantRefused {
 				if !isError(res) {
 					t.Fatalf("expected gate refusal (isError), got %v", res)
@@ -167,7 +167,7 @@ func TestGate_Listing(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.role+"/"+c.tier.String(), func(t *testing.T) {
-			names := toolNames(listMCPTools(eng, c.role, c.tier))
+			names := toolNames(listMCPTools(eng, c.role, c.tier, ""))
 			if names[toolDefine] != c.wantDefine {
 				t.Errorf("define listed=%v, want %v", names[toolDefine], c.wantDefine)
 			}

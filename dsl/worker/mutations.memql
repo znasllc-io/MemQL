@@ -638,6 +638,10 @@ mutate appSession createAppSession {
     workspace      string
     prompt         string
     inputArtifactIds  array
+    /// The JSON Schema the harness is asked to answer against. Empty means
+    /// none was asked for. Kept on the row so an app reaching back over MCP
+    /// can be told the shape its answer must take.
+    responseSchema  string
     mcpEndpoint    string
     credentialRef  string
     credentialExpiresAt   string
@@ -661,6 +665,8 @@ mutate appSession createAppSession {
     workspace: args.workspace ?? ""
     prompt: args.prompt ?? ""
     inputArtifactIds: args.inputArtifactIds ?? []
+    responseSchema: args.responseSchema ?? ""
+    result: {}
     transcript: ""
     transcriptBytes: 0
     transcriptTruncated: false
@@ -754,6 +760,9 @@ mutate appSession endAppSession {
     appSessionRef  string
     errorMessage   string
     cancelReason   string
+    /// The harness's structured final answer, when it produced one. It does
+    /// NOT imply success: a harness can answer the schema and exit non-zero.
+    result         object
     endedAt        string!
   }
   update {
@@ -769,7 +778,50 @@ mutate appSession endAppSession {
     appSessionRef: args.appSessionRef ?? ""
     errorMessage: args.errorMessage ?? ""
     cancelReason: args.cancelReason ?? ""
+    // NOT `?? {}`. A session END that carries no result must not blank a
+    // result a `submit` already recorded: the app volunteered its answer
+    // mid-run and the harness simply had none to add. Omitting the key
+    // leaves the read-merge's existing value in place, which is the whole
+    // mechanism -- naming it with a default would erase the answer at the
+    // exact moment the run finished producing it.
+    args.result
     args.endedAt
+  }
+}
+
+// ---- mutations/v1/worker/submitAppSessionResult.memql ----
+
+// submitAppSessionResult
+// ======================
+//
+// The `submit` MCP tool's write (epic memql#5096, design D7): an app that
+// reached back over MCP hands the engine its structured answer for the
+// session its own credential names.
+//
+// IT IS CALLER-SCOPED, not @serverOnly, and that is the point of the app
+// session's credential class. The bearer's `sub` is the OWNING USER's id, so
+// this mutation's owner-tier row admission is exactly the check that matters:
+// an app can write a result onto its owner's session and onto nothing else.
+// A @serverOnly form would need a second, wider authority to do the same work.
+//
+// THE SESSION ID COMES FROM THE CREDENTIAL, never from the call. The MCP
+// surface reads it off the bearer's own label and passes it here; an app
+// naming somebody else's session id would be writing to a row it does not own,
+// which the tier refuses -- but the surface does not offer the argument at all,
+// so the refusal is a backstop rather than the mechanism.
+
+@actor
+/// Record the structured answer an app submitted over MCP for its own session.
+mutate appSession submitAppSessionResult {
+  args {
+    sessionId  string!
+    result     object!
+    submittedAt  string!
+  }
+  update {
+    id: args.sessionId
+    args.result
+    resultSubmittedAt: args.submittedAt
   }
 }
 

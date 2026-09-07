@@ -56,7 +56,7 @@ func TestRunAutomation_RoutesToRunner(t *testing.T) {
 	eng := newFakeEngine()
 	r := &fakeRunner{}
 	ctx := withRunnerCtx("owner-1", r)
-	res := callMCPTool(ctx, eng, "writer", TierAuthoring, toolRunAutomation,
+	res := callMCPTool(ctx, eng, "writer", TierAuthoring, "", toolRunAutomation,
 		map[string]any{"name": "nightlySweep", "input": map[string]any{"limit": 10}, "dry_run": true})
 	if isError(res) {
 		t.Fatalf("run_automation should succeed, got %v", res)
@@ -74,7 +74,7 @@ func TestRunAutomation_Unavailable(t *testing.T) {
 	eng := newFakeEngine()
 	// session but no runner attached.
 	ctx := withMCPSession(context.Background(), "owner-1", newAuthoredRegistry())
-	res := callMCPTool(ctx, eng, "writer", TierAuthoring, toolRunAutomation, map[string]any{"name": "x"})
+	res := callMCPTool(ctx, eng, "writer", TierAuthoring, "", toolRunAutomation, map[string]any{"name": "x"})
 	if !isError(res) || !strings.Contains(resultText(res), "unavailable") {
 		t.Fatalf("expected unavailable error, got %v", res)
 	}
@@ -84,7 +84,7 @@ func TestRunAutomation_Unavailable(t *testing.T) {
 func TestRunAutomation_RequiresName(t *testing.T) {
 	eng := newFakeEngine()
 	r := &fakeRunner{}
-	res := callMCPTool(withRunnerCtx("owner-1", r), eng, "writer", TierAuthoring, toolRunAutomation, map[string]any{})
+	res := callMCPTool(withRunnerCtx("owner-1", r), eng, "writer", TierAuthoring, "", toolRunAutomation, map[string]any{})
 	if !isError(res) {
 		t.Fatalf("missing name should error, got %v", res)
 	}
@@ -100,7 +100,7 @@ func TestRunInlineAutomation_RoutesToRunner(t *testing.T) {
 	r := &fakeRunner{}
 	ctx := withRunnerCtx("owner-1", r)
 	const src = `@trigger(event="x") automation a { }`
-	res := callMCPTool(ctx, eng, "owner", TierInline, toolRunInlineAutomation,
+	res := callMCPTool(ctx, eng, "owner", TierInline, "", toolRunInlineAutomation,
 		map[string]any{"source": src, "input": map[string]any{"k": "v"}})
 	if isError(res) {
 		t.Fatalf("run_inline_automation should succeed under inline tier + owner, got %v", res)
@@ -119,14 +119,14 @@ func TestRunInlineAutomation_Gated(t *testing.T) {
 	eng := newFakeEngine()
 	// Wrong tier (authoring, not inline).
 	r1 := &fakeRunner{}
-	res := callMCPTool(withRunnerCtx("owner-1", r1), eng, "owner", TierAuthoring, toolRunInlineAutomation,
+	res := callMCPTool(withRunnerCtx("owner-1", r1), eng, "owner", TierAuthoring, "", toolRunInlineAutomation,
 		map[string]any{"source": "x"})
 	if !isError(res) || r1.inlineCalled {
 		t.Errorf("authoring tier must refuse run_inline_automation before the runner, got %v called=%v", res, r1.inlineCalled)
 	}
 	// Wrong role (writer, not owner/developer) at the inline tier.
 	r2 := &fakeRunner{}
-	res = callMCPTool(withRunnerCtx("owner-1", r2), eng, "writer", TierInline, toolRunInlineAutomation,
+	res = callMCPTool(withRunnerCtx("owner-1", r2), eng, "writer", TierInline, "", toolRunInlineAutomation,
 		map[string]any{"source": "x"})
 	if !isError(res) || r2.inlineCalled {
 		t.Errorf("writer role must refuse run_inline_automation before the runner, got %v called=%v", res, r2.inlineCalled)
@@ -137,7 +137,7 @@ func TestRunInlineAutomation_Gated(t *testing.T) {
 func TestRunInlineAutomation_RequiresSource(t *testing.T) {
 	eng := newFakeEngine()
 	r := &fakeRunner{}
-	res := callMCPTool(withRunnerCtx("owner-1", r), eng, "owner", TierInline, toolRunInlineAutomation, map[string]any{})
+	res := callMCPTool(withRunnerCtx("owner-1", r), eng, "owner", TierInline, "", toolRunInlineAutomation, map[string]any{})
 	if !isError(res) || r.inlineCalled {
 		t.Errorf("missing source should error before the runner, got %v called=%v", res, r.inlineCalled)
 	}
@@ -155,13 +155,13 @@ func TestRunInlineAutomation_Listed(t *testing.T) {
 		}
 		return false
 	}
-	if tools := listMCPTools(eng, "owner", TierInline); !has(tools, toolRunInlineAutomation) {
+	if tools := listMCPTools(eng, "owner", TierInline, ""); !has(tools, toolRunInlineAutomation) {
 		t.Errorf("run_inline_automation should be listed at the inline tier for owner")
 	}
-	if tools := listMCPTools(eng, "owner", TierAuthoring); has(tools, toolRunInlineAutomation) {
+	if tools := listMCPTools(eng, "owner", TierAuthoring, ""); has(tools, toolRunInlineAutomation) {
 		t.Errorf("run_inline_automation must NOT be listed below the inline tier")
 	}
-	if tools := listMCPTools(eng, "writer", TierInline); has(tools, toolRunInlineAutomation) {
+	if tools := listMCPTools(eng, "writer", TierInline, ""); has(tools, toolRunInlineAutomation) {
 		t.Errorf("run_inline_automation must NOT be listed for a non-inline role")
 	}
 }
@@ -171,7 +171,7 @@ func TestRunInlineAutomation_Listed(t *testing.T) {
 func TestPromotedAutomation_DispatchedByName(t *testing.T) {
 	eng := newFakeEngine()
 	r := &fakeRunner{promoted: []string{"sendDigest"}}
-	res := callMCPTool(withRunnerCtx("owner-1", r), eng, "writer", TierAuthoring, "sendDigest",
+	res := callMCPTool(withRunnerCtx("owner-1", r), eng, "writer", TierAuthoring, "", "sendDigest",
 		map[string]any{"audience": "all"})
 	if isError(res) {
 		t.Fatalf("promoted automation call should succeed, got %v", res)
@@ -188,7 +188,7 @@ func TestPromotedAutomation_DispatchedByName(t *testing.T) {
 func TestPromotedFunction_Listed(t *testing.T) {
 	eng := newFakeEngine()
 	eng.promotedFnTools = []map[string]any{{"name": "mySpaces", "description": "d", "inputSchema": map[string]any{"type": "object"}}}
-	names := toolNames(listMCPTools(eng, "reader", TierSealed))
+	names := toolNames(listMCPTools(eng, "reader", TierSealed, ""))
 	if !names["mySpaces"] {
 		t.Error("@mcp-promoted function should appear in tools/list (even in sealed tier -- it's a run-class op)")
 	}
@@ -200,7 +200,7 @@ func TestPromotedFunction_DispatchedByName(t *testing.T) {
 	eng := newFakeEngine()
 	eng.promotedFns = map[string]string{"mySpaces": "query"}
 	ctx := withMCPSession(context.Background(), "owner-1", newAuthoredRegistry())
-	res := callMCPTool(ctx, eng, "reader", TierAuthoring, "mySpaces", map[string]any{"limit": 3})
+	res := callMCPTool(ctx, eng, "reader", TierAuthoring, "", "mySpaces", map[string]any{"limit": 3})
 	if isError(res) {
 		t.Fatalf("promoted query call should succeed, got %v", res)
 	}

@@ -7205,6 +7205,32 @@ QueryClient.prototype.stampNodeTokenBootstrap = function (this: QueryClient, arg
   return this.executeNamed("stampNodeTokenBootstrap", buildStampNodeTokenBootstrap(args), opts);
 };
 
+/** submitAppSessionResult wraps the mutation named "submitAppSessionResult". */
+// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["submitAppSessionResult"] in generated_concepts.ts).
+export interface SubmitAppSessionResultArgs {
+  sessionId: string;
+  result: Record<string, unknown>;
+  submittedAt: string;
+}
+
+export function buildSubmitAppSessionResult(args: SubmitAppSessionResultArgs): string {
+  const parts: string[] = [];
+  parts.push("sessionId: " + renderMemQLValue(args.sessionId));
+  parts.push("result: " + renderMemQLValue(args.result));
+  parts.push("submittedAt: " + renderMemQLValue(args.submittedAt));
+  return "mutation submitAppSessionResult(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    submitAppSessionResult(args: SubmitAppSessionResultArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.submitAppSessionResult = function (this: QueryClient, args: SubmitAppSessionResultArgs = {} as SubmitAppSessionResultArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("submitAppSessionResult", buildSubmitAppSessionResult(args), opts);
+};
+
 /** Take a booking against the host's published hours. The host is the caller -- this is the portal operations path (memql#4142). Booker identity is payload. */
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["takeBooking"] in generated_concepts.ts).
 export interface TakeBookingArgs {

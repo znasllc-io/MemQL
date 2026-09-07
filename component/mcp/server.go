@@ -290,7 +290,7 @@ func (s *Server) route(ctx context.Context, req *rpcRequest) *rpcResponse {
 		// Reflect the engine's DSL tools (role-gated) + the generic dispatchers
 		// + @mcp-promoted query/mutation (Phase 4 #1534). @mcp-promoted
 		// automations come from the runner (the engine does not own automations).
-		tools := listMCPTools(asEngine(s.engine), s.cfg.ActingRole, s.cfg.Tier)
+		tools := listMCPTools(asEngine(s.engine), s.cfg.ActingRole, s.cfg.Tier, s.cfg.AppSessionId)
 		if s.autoRunner != nil {
 			tools = append(tools, s.autoRunner.PromotedAutomationTools()...)
 		}
@@ -410,7 +410,7 @@ func (s *Server) handleToolsCall(ctx context.Context, id json.RawMessage, params
 	defer cancel()
 	done := make(chan map[string]any, 1)
 	go func() {
-		done <- callMCPTool(tctx, asEngine(s.engine), s.cfg.ActingRole, s.cfg.Tier, p.Name, p.Arguments)
+		done <- callMCPTool(tctx, asEngine(s.engine), s.cfg.ActingRole, s.cfg.Tier, s.cfg.AppSessionId, p.Name, p.Arguments)
 	}()
 	select {
 	case result := <-done:

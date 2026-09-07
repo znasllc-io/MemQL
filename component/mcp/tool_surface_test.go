@@ -166,7 +166,7 @@ func TestListMCPTools_RoleFilterAndMetaTools(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run("role="+tc.role, func(t *testing.T) {
-			names := toolNames(listMCPTools(eng, tc.role, TierAuthoring))
+			names := toolNames(listMCPTools(eng, tc.role, TierAuthoring, ""))
 			if names["openTool"] != tc.wantOpen {
 				t.Errorf("openTool visible=%v, want %v", names["openTool"], tc.wantOpen)
 			}
@@ -188,7 +188,7 @@ func TestListMCPTools_RoleFilterAndMetaTools(t *testing.T) {
 
 func TestCallMCPTool_ReflectedTool(t *testing.T) {
 	eng := newFakeEngine()
-	res := callMCPTool(context.Background(), eng, "assistant", TierAuthoring, "gaTool", map[string]any{"x": 1})
+	res := callMCPTool(context.Background(), eng, "assistant", TierAuthoring, "", "gaTool", map[string]any{"x": 1})
 	if isErr, _ := res["isError"].(bool); isErr {
 		t.Fatalf("expected success, got error result: %v", res)
 	}
@@ -204,7 +204,7 @@ func TestCallMCPTool_RoleGateRejects(t *testing.T) {
 	eng := newFakeEngine()
 	// "specialist" (default) calling an assistant-only tool -> engine gate
 	// rejects -> surfaced as an isError result.
-	res := callMCPTool(context.Background(), eng, "", TierAuthoring, "gaTool", nil)
+	res := callMCPTool(context.Background(), eng, "", TierAuthoring, "", "gaTool", nil)
 	if isErr, _ := res["isError"].(bool); !isErr {
 		t.Fatalf("expected role-gate rejection (isError), got %v", res)
 	}
@@ -212,7 +212,7 @@ func TestCallMCPTool_RoleGateRejects(t *testing.T) {
 
 func TestCallMCPTool_RunQueryBuildsInvocation(t *testing.T) {
 	eng := newFakeEngine()
-	res := callMCPTool(context.Background(), eng, "reader", TierAuthoring, toolRunQuery,
+	res := callMCPTool(context.Background(), eng, "reader", TierAuthoring, "", toolRunQuery,
 		map[string]any{"name": "activeSpaces", "args": map[string]any{"limit": 5}})
 	if isErr, _ := res["isError"].(bool); isErr {
 		t.Fatalf("run_query unexpected error: %v", res)
@@ -227,7 +227,7 @@ func TestCallMCPTool_RunQueryBuildsInvocation(t *testing.T) {
 
 func TestCallMCPTool_RunQueryNoArgs(t *testing.T) {
 	eng := newFakeEngine()
-	callMCPTool(context.Background(), eng, "reader", TierAuthoring, toolRunMutation, map[string]any{"name": "ping"})
+	callMCPTool(context.Background(), eng, "reader", TierAuthoring, "", toolRunMutation, map[string]any{"name": "ping"})
 	if eng.query != "ping()" {
 		t.Errorf("no-arg invocation = %q, want ping()", eng.query)
 	}
@@ -235,7 +235,7 @@ func TestCallMCPTool_RunQueryNoArgs(t *testing.T) {
 
 func TestCallMCPTool_RunQueryRequiresName(t *testing.T) {
 	eng := newFakeEngine()
-	res := callMCPTool(context.Background(), eng, "reader", TierAuthoring, toolRunQuery, map[string]any{})
+	res := callMCPTool(context.Background(), eng, "reader", TierAuthoring, "", toolRunQuery, map[string]any{})
 	if isErr, _ := res["isError"].(bool); !isErr {
 		t.Fatalf("run_query without name should be an error result, got %v", res)
 	}
@@ -246,14 +246,14 @@ func TestCallMCPTool_RunQueryRequiresName(t *testing.T) {
 
 func TestCallMCPTool_RunAutomationNotEnabled(t *testing.T) {
 	eng := newFakeEngine()
-	res := callMCPTool(context.Background(), eng, "owner", TierAuthoring, toolRunAutomation, map[string]any{"name": "x"})
+	res := callMCPTool(context.Background(), eng, "owner", TierAuthoring, "", toolRunAutomation, map[string]any{"name": "x"})
 	if isErr, _ := res["isError"].(bool); !isErr {
 		t.Fatalf("run_automation should be a not-enabled error in Phase 1, got %v", res)
 	}
 }
 
 func TestCallMCPTool_NilEngine(t *testing.T) {
-	res := callMCPTool(context.Background(), nil, "owner", TierAuthoring, "anything", nil)
+	res := callMCPTool(context.Background(), nil, "owner", TierAuthoring, "", "anything", nil)
 	if isErr, _ := res["isError"].(bool); !isErr {
 		t.Fatalf("nil engine should yield an error result, got %v", res)
 	}
@@ -287,7 +287,7 @@ func TestListMCPTools_CuratedAllowlist(t *testing.T) {
 			tool("alpha", nil),
 			tool("beta", nil),
 		}}}
-		names := toolNames(listMCPTools(eng, "assistant", TierSealed))
+		names := toolNames(listMCPTools(eng, "assistant", TierSealed, ""))
 		if !names["alpha"] || !names["beta"] {
 			t.Fatalf("with zero @mcp tools, full surface must show; got %v", names)
 		}
@@ -300,7 +300,7 @@ func TestListMCPTools_CuratedAllowlist(t *testing.T) {
 			mcpTool("notesCreate"),    // curated -> shown
 			tool("clusterSweep", nil), // untagged infra -> hidden
 		}}}
-		names := toolNames(listMCPTools(eng, "assistant", TierSealed))
+		names := toolNames(listMCPTools(eng, "assistant", TierSealed, ""))
 		if !names["notesCreate"] {
 			t.Errorf("@mcp tool notesCreate must be in the curated surface; got %v", names)
 		}
@@ -321,7 +321,7 @@ func TestListMCPTools_CuratedAllowlist(t *testing.T) {
 			mcpTool("notesCreate"),
 			restricted,
 		}}}
-		names := toolNames(listMCPTools(eng, "specialist", TierSealed))
+		names := toolNames(listMCPTools(eng, "specialist", TierSealed, ""))
 		if !names["notesCreate"] {
 			t.Errorf("notesCreate should be visible to specialist; got %v", names)
 		}

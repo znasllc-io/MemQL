@@ -12392,6 +12392,40 @@ func StampNodeTokenBootstrapBuild(args StampNodeTokenBootstrapArgs) string {
 	return b.String()
 }
 
+// SubmitAppSessionResult wraps the mutation named "submitAppSessionResult".
+//
+// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["submitAppSessionResult"] in generated_concepts.go).
+type SubmitAppSessionResultArgs struct {
+	SessionId   string
+	Result      map[string]any
+	SubmittedAt string
+}
+
+// SubmitAppSessionResult calls the engine mutation submitAppSessionResult.
+func (qc *QueryClient) SubmitAppSessionResult(ctx context.Context, args SubmitAppSessionResultArgs) (*Result, error) {
+	call := SubmitAppSessionResultBuild(args)
+	return qc.executeNamed(ctx, "submitAppSessionResult", call)
+}
+
+func SubmitAppSessionResultBuild(args SubmitAppSessionResultArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation submitAppSessionResult(")
+	b.WriteString("sessionId: ")
+	b.WriteString(quoteMemQL(args.SessionId))
+	if b.Len() > 32 {
+		b.WriteString(", ")
+	}
+	b.WriteString("result: ")
+	b.WriteString(renderMemQLValue(args.Result))
+	if b.Len() > 32 {
+		b.WriteString(", ")
+	}
+	b.WriteString("submittedAt: ")
+	b.WriteString(quoteMemQL(args.SubmittedAt))
+	b.WriteString(")")
+	return b.String()
+}
+
 // TakeBooking -- Take a booking against the host's published hours. The host is the caller -- this is the portal operations path (memql#4142). Booker identity is payload.
 //
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["takeBooking"] in generated_concepts.go).

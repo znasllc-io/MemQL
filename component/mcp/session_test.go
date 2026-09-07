@@ -33,7 +33,7 @@ func TestDefine_RegistersSessionScopedAndOwnerIsolated(t *testing.T) {
 	reg := newAuthoredRegistry()
 	ctx := withMCPSession(context.Background(), "owner-1", reg)
 
-	res := callMCPTool(ctx, eng, "developer", TierAuthoring, toolDefine, map[string]any{"bundle": validSpecBundle})
+	res := callMCPTool(ctx, eng, "developer", TierAuthoring, "", toolDefine, map[string]any{"bundle": validSpecBundle})
 	if isError(res) {
 		t.Fatalf("define should succeed, got %v", res)
 	}
@@ -56,7 +56,7 @@ func TestDefine_UnavailableWithoutSessionIdentity(t *testing.T) {
 	eng := newFakeEngine()
 	// withMCPSession with an empty owner -> session not available.
 	ctx := withMCPSession(context.Background(), "", newAuthoredRegistry())
-	res := callMCPTool(ctx, eng, "owner", TierAuthoring, toolDefine, map[string]any{"bundle": validSpecBundle})
+	res := callMCPTool(ctx, eng, "owner", TierAuthoring, "", toolDefine, map[string]any{"bundle": validSpecBundle})
 	if !isError(res) || !strings.Contains(resultText(res), "unavailable") {
 		t.Fatalf("expected an unavailable error, got %v", res)
 	}
@@ -68,7 +68,7 @@ func TestDefine_RejectsInvalidBundle(t *testing.T) {
 	reg := newAuthoredRegistry()
 	ctx := withMCPSession(context.Background(), "owner-1", reg)
 	// Dangling operator -> Gate-1 compile failure.
-	res := callMCPTool(ctx, eng, "developer", TierAuthoring, toolDefine,
+	res := callMCPTool(ctx, eng, "developer", TierAuthoring, "", toolDefine,
 		map[string]any{"bundle": `spec actorEnvelope brokenSpec { return role == }`})
 	if !isError(res) {
 		t.Fatalf("invalid bundle should be an error result, got %v", res)
@@ -86,7 +86,7 @@ func TestRunQuery_RoutesThroughSessionWhenPresent(t *testing.T) {
 		eng := newFakeEngine()
 		reg := newAuthoredRegistry()
 		ctx := withMCPSession(context.Background(), "owner-1", reg)
-		callMCPTool(ctx, eng, "reader", TierAuthoring, toolRunQuery, map[string]any{"name": "someAuthored"})
+		callMCPTool(ctx, eng, "reader", TierAuthoring, "", toolRunQuery, map[string]any{"name": "someAuthored"})
 		if eng.authoredOwner != "owner-1" || eng.authoredReg != reg {
 			t.Errorf("run_query with a session should route to ExecuteAuthored(owner=%q reg=%p), got owner=%q reg=%p",
 				"owner-1", reg, eng.authoredOwner, eng.authoredReg)
@@ -97,7 +97,7 @@ func TestRunQuery_RoutesThroughSessionWhenPresent(t *testing.T) {
 	})
 	t.Run("no session -> Execute", func(t *testing.T) {
 		eng := newFakeEngine()
-		callMCPTool(context.Background(), eng, "reader", TierAuthoring, toolRunQuery, map[string]any{"name": "coreQuery"})
+		callMCPTool(context.Background(), eng, "reader", TierAuthoring, "", toolRunQuery, map[string]any{"name": "coreQuery"})
 		if eng.authoredOwner != "" {
 			t.Errorf("run_query without a session must use Execute, not ExecuteAuthored (owner=%q)", eng.authoredOwner)
 		}
@@ -127,7 +127,7 @@ func TestPromote_OwnerOnlyGate(t *testing.T) {
 			if _, err := memql.AuthorSessionBundle(reg, "owner-1", validSpecBundle, ""); err != nil {
 				t.Fatalf("seed author: %v", err)
 			}
-			res := callMCPTool(ctx, eng, c.role, c.tier, toolPromote, map[string]any{"name": "mcpSessionSpec"})
+			res := callMCPTool(ctx, eng, c.role, c.tier, "", toolPromote, map[string]any{"name": "mcpSessionSpec"})
 			if c.wantRefused {
 				if !isError(res) || !strings.Contains(resultText(res), c.wantReason) {
 					t.Fatalf("expected refusal mentioning %q, got %v", c.wantReason, res)
@@ -179,7 +179,7 @@ func TestStage_AuthoringGate(t *testing.T) {
 			if _, err := memql.AuthorSessionBundle(reg, "owner-1", validSpecBundle, ""); err != nil {
 				t.Fatalf("seed author: %v", err)
 			}
-			res := callMCPTool(ctx, eng, c.role, c.tier, toolStage, map[string]any{"name": "mcpSessionSpec"})
+			res := callMCPTool(ctx, eng, c.role, c.tier, "", toolStage, map[string]any{"name": "mcpSessionSpec"})
 			if c.wantRefused {
 				if !isError(res) || !strings.Contains(resultText(res), c.wantReason) {
 					t.Fatalf("expected refusal mentioning %q, got %v", c.wantReason, res)
@@ -214,7 +214,7 @@ func TestStage_UnknownConstruct(t *testing.T) {
 	eng := newFakeEngine()
 	reg := newAuthoredRegistry()
 	ctx := withMCPSession(context.Background(), "owner-1", reg)
-	res := callMCPTool(ctx, eng, "developer", TierAuthoring, toolStage, map[string]any{"name": "neverDefined"})
+	res := callMCPTool(ctx, eng, "developer", TierAuthoring, "", toolStage, map[string]any{"name": "neverDefined"})
 	if !isError(res) || !strings.Contains(resultText(res), "no session-authored construct") {
 		t.Fatalf("expected a not-found error, got %v", res)
 	}
@@ -229,7 +229,7 @@ func TestPromote_UnknownConstruct(t *testing.T) {
 	eng := newFakeEngine()
 	reg := newAuthoredRegistry()
 	ctx := withMCPSession(context.Background(), "owner-1", reg)
-	res := callMCPTool(ctx, eng, "owner", TierAuthoring, toolPromote, map[string]any{"name": "neverDefined"})
+	res := callMCPTool(ctx, eng, "owner", TierAuthoring, "", toolPromote, map[string]any{"name": "neverDefined"})
 	if !isError(res) || !strings.Contains(resultText(res), "no session-authored construct") {
 		t.Fatalf("expected a not-found error, got %v", res)
 	}

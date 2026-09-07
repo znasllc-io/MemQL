@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -51,10 +52,19 @@ type AppSessionRow struct {
 	CredentialRef       string
 	CredentialExpiresAt time.Time
 	MCPEndpoint         string
-	ErrorMessage        string
-	CancelReason        string
-	StartedAt           time.Time
-	EndedAt             time.Time
+	// ResponseSchema is the JSON Schema the harness was asked to answer
+	// against, kept on the row so an app reaching back over MCP can be told
+	// the shape its answer must take -- the wire told the cockpit, and
+	// nothing told the app.
+	ResponseSchema string
+	// Result is the harness's structured final answer, as raw JSON. It does
+	// NOT imply success and is written from EITHER the session's end or a
+	// `submit` the app made over MCP.
+	Result       []byte
+	ErrorMessage string
+	CancelReason string
+	StartedAt    time.Time
+	EndedAt      time.Time
 }
 
 // AppSessionStore is the persistence surface for session rows. Kept
@@ -90,6 +100,7 @@ func (s *EngineStore) CreateAppSession(ctx context.Context, row AppSessionRow) e
 		"workspace":        row.Workspace,
 		"prompt":           row.Prompt,
 		"inputArtifactIds": stringsOrEmpty(row.InputArtifactIds),
+		"responseSchema":   row.ResponseSchema,
 		"mcpEndpoint":      row.MCPEndpoint,
 		"credentialRef":    row.CredentialRef,
 		"startedAt":        row.StartedAt.UTC().Format(time.RFC3339Nano),
@@ -144,8 +155,38 @@ func (s *EngineStore) EndAppSession(ctx context.Context, row AppSessionRow) erro
 		"appSessionRef":       row.AppSessionRef,
 		"errorMessage":        row.ErrorMessage,
 		"cancelReason":        row.CancelReason,
+		"result":              resultArg(row.Result),
 		"endedAt":             row.EndedAt.UTC().Format(time.RFC3339Nano),
 	})
+}
+
+// resultArg renders the harness's structured answer for the mutation, or nil
+// to OMIT the argument entirely.
+//
+// The omission is the mechanism, not a shortcut. `endAppSession` is a
+// read-merge and its body writes `args.result` with no `?? {}` default, so a
+// session end carrying nothing leaves whatever a `submit` already recorded --
+// which is exactly the case D7 describes: the app volunteered its answer
+// mid-run and the harness had none to add. Passing an empty object instead
+// would erase the answer at the moment the run finished producing it.
+func resultArg(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		// Not JSON. Carried as a wrapper rather than dropped: the harness
+		// answered something, and losing it because it did not parse would
+		// hide the one piece of evidence that says the schema was not met.
+		return map[string]any{"raw": string(raw)}
+	}
+	if m, ok := decoded.(map[string]any); ok {
+		return m
+	}
+	// A non-object answer (an array, a bare string). The concept field is an
+	// object, so it is wrapped rather than refused -- the alternative is
+	// discarding an answer the caller may still be able to read.
+	return map[string]any{"value": decoded}
 }
 
 // appSessionWriteContext prepares the context every app-session row write
