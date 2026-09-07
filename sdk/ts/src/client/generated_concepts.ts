@@ -963,6 +963,7 @@ export const BoundConcepts = {
   workModelCallsForOwnerRun: "v1:work:modelCall",
   workObservationsForOwnerRun: "v1:work:observation",
   workRunForOwner: "v1:work:run",
+  workRunningRunsForOwner: "v1:work:run",
   workRunsForGoal: "v1:work:run",
   workRunsForOwner: "v1:work:run",
   workStepsForOwnerRun: "v1:work:step",

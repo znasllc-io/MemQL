@@ -40,6 +40,7 @@ import {
   recordedImageSource,
   recordedRebuild,
   recordedStackBranch,
+  recordedStackCommit,
   recordedStackDir,
   recordedStackTag,
   type ImageSource,
@@ -126,6 +127,28 @@ export interface Instance {
    * while their checkout stays pinned to a tag.
    */
   checkoutBranch?: string;
+  /**
+   * The commit the install's `stackCheckout` step recorded (memql#5076).
+   *
+   * Distinct from `version`, which is the release TAG a tag install pinned. A
+   * from-source install has no tag and this is the only thing that names what
+   * is on disk -- and it is what the extension's own build commit is compared
+   * against, in version/checkoutSkew.ts.
+   */
+  checkoutCommit?: string;
+  /**
+   * The commit THIS EXTENSION was packaged from, and whether that build carried
+   * uncommitted edits (memql#5076).
+   *
+   * NOT FROM THE RECEIPT, unlike every other field here, and that is the point:
+   * a receipt describes the install, and the question this answers is about the
+   * thing driving it. It is injected by the panel from
+   * version/buildStamp.readBuildStamp, and is ABSENT for an extension running
+   * out of a checkout in the Extension Development Host -- which was never
+   * packaged and therefore has no commit to name.
+   */
+  extensionCommit?: string;
+  extensionDirty?: boolean;
 }
 
 /**
@@ -261,6 +284,14 @@ export interface LocalInstanceInput {
   registered?: { name?: string; domain?: string };
   /** Whether this editor currently holds a live session against it. */
   connected: boolean;
+  /**
+   * This extension's own build stamp, when it was packaged (memql#5076).
+   *
+   * Threaded in rather than read here, for the reason every other module in
+   * this directory is free of `vscode` imports: reading it needs the extension
+   * PATH, which only the host knows.
+   */
+  buildStamp?: { commit: string; dirty: boolean };
 }
 
 /**
@@ -294,6 +325,7 @@ export function localInstance(input: LocalInstanceInput): Instance {
   const imageSource = recordedImageSource(input.receipt);
   const rebuild = recordedRebuild(input.receipt);
   const checkoutBranch = recordedStackBranch(input.receipt);
+  const checkoutCommit = recordedStackCommit(input.receipt);
   return {
     name: registeredName !== "" ? registeredName : LOCAL_INSTANCE_NAME,
     kind: "local",
@@ -305,6 +337,9 @@ export function localInstance(input: LocalInstanceInput): Instance {
     ...(imageSource !== "" ? { imageSource } : {}),
     ...(rebuild !== undefined ? { rebuild } : {}),
     ...(checkoutBranch !== "" ? { checkoutBranch } : {}),
+    ...(checkoutCommit !== "" ? { checkoutCommit } : {}),
+    ...(input.buildStamp !== undefined ? { extensionCommit: input.buildStamp.commit } : {}),
+    ...(input.buildStamp?.dirty ? { extensionDirty: true } : {}),
   };
 }
 

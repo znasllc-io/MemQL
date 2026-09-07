@@ -30,6 +30,7 @@ import type { TagListing } from "../install/tags.js";
 import { releasedImages, returnsToReleasedImages } from "../state/imageLane.js";
 import type { PlannedStepView } from "../state/upgradePlan.js";
 import { renderPreflight } from "./installScreens.js";
+import { checkoutSkew, checkoutSkewFactValue } from "../version/checkoutSkew.js";
 import { latestRelease, type ReleaseListing } from "../version/releaseCache.js";
 
 /**
@@ -146,7 +147,50 @@ function localDiagnosticFacts(instance: Instance): string {
     fact("rebuild commit", instance.rebuild?.commit ?? ""),
     fact("rebuilt at", instance.rebuild?.recordedAt ?? ""),
     fact("rebuilt nodes", instance.rebuild?.nodes ?? ""),
+    // Only when it is NOT already in the primary tier -- a fact printed twice
+    // on one page reads as two different facts.
+    extensionBuildIsProminent(instance) ? "" : fact("extension", extensionBuildFactValue(instance)),
   ]);
+}
+
+/**
+ * The extension's own commit against the checkout it drives (memql#5076).
+ *
+ * A FACT, NOT AN ALERT, and the placement is the decision. A checkout weeks
+ * ahead of the extension is the NORMAL state for a from-source install, so a
+ * warning here would fire on the ordinary case and be learned as noise -- which
+ * is what rebuildPreflight.ts says about its own lane line, and it is the same
+ * rule. The ALARM belongs where the consequence lands, and that is the
+ * preflight of the actions that build from the checkout.
+ *
+ * A PRODUCT FACT when they DIVERGE, a DIAGNOSTIC one when they agree. Two
+ * matching commits are a stamp, and this page's own tiering (memql#4456) puts
+ * raw stamps behind the disclosure; two DIFFERENT commits are the thing that
+ * explains a whole class of "the product is broken" reports, and burying it
+ * would leave the skew as invisible as it was.
+ *
+ * "" when there is no checkout: a remote instance has none by construction, and
+ * a row saying so on every one of them is the noise the rule above forbids.
+ */
+function extensionBuildFactValue(instance: Instance): string {
+  if ((instance.checkout ?? "") === "") return "";
+  return checkoutSkewFactValue({
+    extensionCommit: instance.extensionCommit,
+    extensionDirty: instance.extensionDirty,
+    checkoutCommit: instance.checkoutCommit,
+  });
+}
+
+/** Whether the build fact belongs in the primary tier -- see above. */
+function extensionBuildIsProminent(instance: Instance): boolean {
+  if ((instance.checkout ?? "") === "") return false;
+  return (
+    checkoutSkew({
+      extensionCommit: instance.extensionCommit,
+      extensionDirty: instance.extensionDirty,
+      checkoutCommit: instance.checkoutCommit,
+    }).state === "diverged"
+  );
 }
 
 export interface OverviewInput {
@@ -221,6 +265,7 @@ ${error}`,
   <div class="fact"><span class="fact-key">domain</span><span class="fact-value">${escapeHtml(
     instance.domain ?? "not recorded",
   )}</span></div>
+  ${extensionBuildIsProminent(instance) ? fact("extension", extensionBuildFactValue(instance)) : ""}
 </div>
 <h2>Deployments</h2>
 ${runs}`,

@@ -231,6 +231,56 @@ function stage_install_tree() {
     echo "INFO: staged $count capability scripts plus their libraries and graph documents"
 }
 
+# stage_build_info records WHICH COMMIT this extension was built from, beside
+# the tree it was built against (memql#5076).
+#
+# WHY AN EXTENSION HAS TO CARRY ITS OWN COMMIT. The extension drives a checkout
+# that moves independently of it, and until this neither side could tell the
+# operator they had diverged. memql#5056 and memql#5064 were both that, and
+# both presented as something else -- twice, the log said
+#
+#     buildinfo.commit=07f9747c1   <- the checkout had the fix
+#     staged scripts               <- the extension did not
+#
+# and an operator reading it had no way to see the skew. It reads as the
+# product being broken. A checkout WEEKS ahead of the extension driving it is
+# the NORMAL state for a from-source install -- `install-main` clones main HEAD
+# while the extension was packaged at whatever commit it was built from -- so
+# this is a fact to state, not a fault to raise.
+#
+# A STAGED FILE rather than a compile-time define, because the mechanism
+# already exists and is the one src/install/root.ts resolves: a VSIX carries
+# only files under the extension directory, packaging reproduces the layout
+# under `staged/`, and the runtime finds it there. A define would have needed
+# esbuild plumbing plus a TypeScript declaration for a value the packager
+# already knows how to hand over.
+#
+# IT FAILS TO "unknown", NOT TO A GUESS. A checkout with no git, or a source
+# tarball, writes empty strings; the reader treats an absent or empty commit as
+# "not recorded" and the surfaces say so rather than comparing against nothing.
+function stage_build_info() {
+    local staged="$EXT_DIR/$STAGED_DIR_NAME" commit="" dirty="false" version
+    if commit="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)"; then
+        # A DIRTY TREE IS NOT ITS COMMIT, and saying so is the whole value here:
+        # an extension built from uncommitted edits carries a sha that does not
+        # describe it, which is a worse lie than "unknown".
+        git -C "$REPO_ROOT" diff --quiet HEAD 2>/dev/null || dirty="true"
+    else
+        commit=""
+    fi
+    version="$(node -p "require('$EXT_DIR/package.json').version" 2>/dev/null || echo "")"
+    mkdir -p "$staged"
+    cat > "$staged/buildinfo.json" <<JSON
+{
+  "commit": "$commit",
+  "dirty": $dirty,
+  "version": "$version",
+  "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+    echo "INFO: staged buildinfo.json (commit ${commit:-<unknown>}, dirty ${dirty}, version ${version:-<unknown>})"
+}
+
 # stage_license copies the repository's LICENSE beside the manifest.
 #
 # WHY IT IS STAGED RATHER THAN COMMITTED. Same reason as the binary and the
@@ -411,6 +461,10 @@ function main() {
     check_prerequisites
     build_binary
     stage_install_tree
+    # AFTER stage_install_tree, which rm -rf's the staged tree. Before it, this
+    # file would be deleted by the step that follows it -- silently, and the
+    # reader would then report every packaged extension as unstamped.
+    stage_build_info
     stage_license
     verify_staged_sources
     build_workspace_deps

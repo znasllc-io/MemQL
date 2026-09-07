@@ -135,8 +135,25 @@ type recordingEngine struct {
 	// unlisted name answers no rows, which is the honest default: a read
 	// with nothing behind it returns nothing.
 	replies map[string][]map[string]any
+	// conditional answers a construct differently per CALL, matched on a
+	// substring of the rendered query -- in practice an argument value.
+	//
+	// Name-keyed replies alone cannot express "this run used a worker and
+	// that one did not", which is the only shape in which a SELECTION can be
+	// tested: a fake that answers every invocationsForRun identically makes
+	// "cancel the ones that used a machine" and "cancel everything" produce
+	// the same recording (memql#5066).
+	conditional []conditionalReply
 	// fail maps a construct NAME to an error it raises.
 	fail map[string]error
+}
+
+// conditionalReply is one (construct, query substring) -> rows entry. The
+// first match wins, and an unmatched call falls through to `replies`.
+type conditionalReply struct {
+	name     string
+	contains string
+	rows     []map[string]any
 }
 
 func newRecordingEngine() *recordingEngine {
@@ -153,6 +170,12 @@ func (e *recordingEngine) Execute(ctx context.Context, query string) (*memqlengi
 	e.calls = append(e.calls, call)
 	name := call.Name()
 	rows := e.replies[name]
+	for _, c := range e.conditional {
+		if c.name == name && strings.Contains(query, c.contains) {
+			rows = c.rows
+			break
+		}
+	}
 	err := e.fail[name]
 	e.mu.Unlock()
 
@@ -173,6 +196,14 @@ func (e *recordingEngine) reply(name string, rows ...map[string]any) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.replies[name] = rows
+}
+
+// replyWhen answers `name` with these rows when the rendered query contains
+// `contains`. Entries are matched in the order they were added.
+func (e *recordingEngine) replyWhen(name, contains string, rows ...map[string]any) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.conditional = append(e.conditional, conditionalReply{name: name, contains: contains, rows: rows})
 }
 
 func (e *recordingEngine) refuse(name string, err error) {

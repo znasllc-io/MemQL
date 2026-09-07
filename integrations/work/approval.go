@@ -115,6 +115,25 @@ func (i *Integration) handleDecideApproval(ctx context.Context, args map[string]
 		return nil, err
 	}
 
+	// WHAT AN APPROVAL CAUSES, beyond releasing the run that raised it
+	// (memql#5063). Approval-driven specialist training lost its trigger when
+	// the planner's decision loop was deleted -- the MECHANISM survived and
+	// only the gate that reached it went. This is that gate, and it sits here
+	// because this is where a decision becomes an action for every other kind
+	// too.
+	//
+	// AFTER the decision is recorded and BEFORE the resume, deliberately: the
+	// idempotency is the approval's own pending-list resolution above, so the
+	// work must not start until the row that guarantees "exactly once" has
+	// been written. Ordering it after the resume instead would leave a window
+	// in which a crash loses the training with the approval already spent.
+	var trainingGoalId, trainingRunId string
+	var trainingEscalated bool
+	if decision == "approved" {
+		trainingGoalId, trainingRunId, trainingEscalated =
+			i.startApprovedTraining(writeCtx, owner, runId, kind, rowMap(approval, "subject"))
+	}
+
 	resumed, err := i.resumeParkedRun(writeCtx, runId, approvalId, decision, now)
 	if err != nil {
 		// The DECISION landed. Failing the whole call now would tell the
@@ -123,21 +142,36 @@ func (i *Integration) handleDecideApproval(ctx context.Context, args map[string]
 		// resume failure is reported beside the recorded decision instead.
 		i.log().Warn("work: the decision was recorded but the run could not be resumed",
 			"component", "work.approval", "approval", approvalId, "run", runId, "err", err)
-		return i.resultNode(map[string]any{
+		return withTrainingOutcome(map[string]any{
 			"approvalId":  approvalId,
 			"runId":       runId,
 			"decision":    decision,
 			"runResumed":  false,
 			"resumeError": err.Error(),
-		}), nil
+		}, trainingGoalId, trainingRunId, trainingEscalated, i), nil
 	}
 
-	return i.resultNode(map[string]any{
+	return withTrainingOutcome(map[string]any{
 		"approvalId": approvalId,
 		"runId":      runId,
 		"decision":   decision,
 		"runResumed": resumed,
-	}), nil
+	}, trainingGoalId, trainingRunId, trainingEscalated, i), nil
+}
+
+// withTrainingOutcome adds the training keys ONLY when there was training to
+// report. An absent key and a zero are different answers: a caller deciding
+// whether to show "training started" must not read an empty string on every
+// budget approval as "training failed".
+func withTrainingOutcome(payload map[string]any, goalId, runId string, escalated bool, i *Integration) []memorynodes.MemoryNode {
+	if goalId != "" {
+		payload["trainingGoalId"] = goalId
+		payload["trainingRunId"] = runId
+	}
+	if escalated {
+		payload["trainingEscalated"] = true
+	}
+	return i.resultNode(payload)
 }
 
 // currentArtifactHash answers "what does the thing being approved hash to

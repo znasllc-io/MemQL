@@ -177,6 +177,22 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
       opts.dryRun = true;
       continue;
     }
+    // THE FROM-SOURCE LANE, NAMEABLE FROM A TERMINAL (memql#5067).
+    //
+    // `imagesFromSource` was reachable two ways and neither could be used by a
+    // CI job: `--tag=main`, which also decides WHAT is cloned, and a receipt on
+    // a repair. So the only way to put `install-main.json` under test was to
+    // install main's tip -- which is not the branch under review, and a lane
+    // that green-lights the wrong tree is worse than no lane.
+    //
+    // Separating it from the version is what the option already is (see
+    // SessionOptions.imagesFromSource): `--commit=<sha> --from-source` clones
+    // the revision under test and BUILDS its node images, which is the pair the
+    // wizard's "install from main" makes and no job could express.
+    if (name === "from-source") {
+      opts.imagesFromSource = true;
+      continue;
+    }
     if (name === "skip") {
       for (const id of value.split(",").map((s) => s.trim()).filter(Boolean)) opts.skip.add(id);
       continue;
@@ -203,7 +219,7 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     const field = VALUE_FLAGS[name];
     if (!field) {
       throw new CliError(
-        `unknown flag --${name} (known: ${[...Object.keys(VALUE_FLAGS), "skip", "param", "timeout", "json", "dry-run"]
+        `unknown flag --${name} (known: ${[...Object.keys(VALUE_FLAGS), "skip", "param", "timeout", "json", "dry-run", "from-source"]
           .sort()
           .join(", ")})`,
       );
@@ -222,6 +238,19 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     throw new CliError(
       "repair takes no --tag/--commit: it replays the checkout the receipt recorded, " +
         "and installing a different version is `install`, not `repair`",
+    );
+  }
+
+  // AND NO --from-source, for exactly the same reason (memql#5067). The lane an
+  // install ran on is a recorded fact -- `recordedCheckout().fromSource`, which
+  // `repairOptions` reads -- so the flag could only ever contradict the receipt
+  // or agree with it redundantly. Asserting it against a RELEASE install would
+  // rebuild the images from a tag's source and call the result a repair, which
+  // is the lane crossing memql#4246 gives its own verb.
+  if (opts.command === "repair" && opts.imagesFromSource !== undefined) {
+    throw new CliError(
+      "repair takes no --from-source: the receipt records which lane the install ran on, " +
+        "and rebuilding a release install's images from its checkout is `rebuild`, not `repair`",
     );
   }
 

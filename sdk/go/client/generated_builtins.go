@@ -2246,6 +2246,56 @@ func ReplayRunBuild(args ReplayRunArgs) string {
 	return b.String()
 }
 
+// RequestSpecialistTraining -- Ask for a specialist to be trained, as a decision a person makes rather than a thing an agent does. Raises a skillMint approval on one of the caller's runs; approving it opens the trainSpecialist work -- the SAME template the refresh cadence opens, so approval and cadence cannot drift into two trainers.
+// The successor to the planner agent emitting `spawnTrainingPlan`, whose loop was deleted in memql#5052 (design record section F: createSpecialist / extendSpecialist / spawnTrainingPlan "become skill mint and skill training under the same gates"). It keeps that shape: the request hangs on a RUN, because an approval with no run is a question nobody can answer.
+// Two gates survive the port, and both are cost-control properties: a specialist with no domain-bearing skill ESCALATES for feedback rather than starting a bounded tool loop with nowhere to write, and the approval itself is the idempotency -- one approved decision starts exactly one training run, inherited from the pending-list resolution rather than re-implemented.
+// It does NOT check the domain here. A person may attach a domain-bearing skill between asking and deciding, and refusing at the request would make the fix unreachable from the surface showing the problem.
+type RequestSpecialistTrainingArgs struct {
+	// The caller's v1:work:run the request is raised on.
+	RunId string
+	// The v1:agents:agent to train.
+	SpecialistId string
+	// What to train on. The resolved knowledge domain when empty.
+	Topic string
+	// initial (default) for a fresh training run, refresh for an incremental update.
+	// Enum: initial | refresh
+	Mode string
+}
+
+// RequestSpecialistTraining calls the engine builtin requestSpecialistTraining.
+func (qc *QueryClient) RequestSpecialistTraining(ctx context.Context, args RequestSpecialistTrainingArgs) (*Result, error) {
+	call := RequestSpecialistTrainingBuild(args)
+	return qc.executeNamed(ctx, "requestSpecialistTraining", call)
+}
+
+func RequestSpecialistTrainingBuild(args RequestSpecialistTrainingArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin requestSpecialistTraining(")
+	b.WriteString("runId: ")
+	b.WriteString(quoteMemQL(args.RunId))
+	if b.Len() > 34 {
+		b.WriteString(", ")
+	}
+	b.WriteString("specialistId: ")
+	b.WriteString(quoteMemQL(args.SpecialistId))
+	if args.Topic != "" {
+		if b.Len() > 34 {
+			b.WriteString(", ")
+		}
+		b.WriteString("topic: ")
+		b.WriteString(quoteMemQL(args.Topic))
+	}
+	if args.Mode != "" {
+		if b.Len() > 34 {
+			b.WriteString(", ")
+		}
+		b.WriteString("mode: ")
+		b.WriteString(quoteMemQL(args.Mode))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // RestoreDocumentVersion -- Restore a Library document to an earlier version by APPENDING a new latest version equal to the chosen one (memql#1230). Forward-only and non-destructive: history is never deleted; the restore lands as a new version (authorKind=system) with note 'restored from vN'. ownerUserId is threaded from the document row.
 type RestoreDocumentVersionArgs struct {
 	DocumentId string

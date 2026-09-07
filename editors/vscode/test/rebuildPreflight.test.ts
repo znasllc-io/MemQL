@@ -36,7 +36,19 @@ const base = {
 
 test("the checklist states every fact the design names, in order", () => {
   const labels = rebuildPreflightItems(base).map((i) => i.label);
-  assert.deepEqual(labels, ["Docker", "Checkout", "Git state", "Nodes", "Image source", "Duration"]);
+  assert.deepEqual(labels, [
+    "Docker",
+    "Checkout",
+    "Git state",
+    "Nodes",
+    "Image source",
+    // memql#5076. LAST BEFORE "Duration", which is deliberate: it is the line
+    // an operator reads after they have satisfied themselves the build CAN
+    // run, and it answers a different question -- not "will this work" but
+    // "is the code driving this the code being built".
+    "Extension",
+    "Duration",
+  ]);
 });
 
 test("crossing from released images is stated, and staying in checkout mode is not", () => {
@@ -168,9 +180,10 @@ test("git state that could not be read says so rather than reporting a clean tre
   const git = items.find((i) => i.label === "Git state")!;
   assert.equal(git.state, "attention");
   assert.match(git.detail, /git could not read the checkout/);
-  // And the list is still the same six lines: a fact that could not be read is
-  // still a line, because a missing row reads as a fact nobody thought about.
-  assert.equal(items.length, 6);
+  // And the list is still the same seven lines: a fact that could not be read
+  // is still a line, because a missing row reads as a fact nobody thought
+  // about.
+  assert.equal(items.length, 7);
 });
 
 test("the git line names the ref, the short commit and the count", () => {

@@ -61,6 +61,11 @@ source "${SCRIPT_DIR}/../lib/capability.sh"
 source "${SCRIPT_DIR}/../lib/localtls.sh"
 # shellcheck source=../lib/ports.sh
 source "${SCRIPT_DIR}/../lib/ports.sh"
+# shellcheck source=../lib/engine_build_args.sh
+# ENGINE_NODE_TYPES + engine_is_node_type: what THIS tree builds. The readiness
+# wait asks it to tell a node type that was retired from one that is simply not
+# started yet -- see retired_engine_deployments.
+source "${SCRIPT_DIR}/../lib/engine_build_args.sh"
 
 cap_init "k3d.up" "Bootstrap a local k3d cluster running ArgoCD pointed at the local overlay."
 cap_spec_param "cluster"        "k3d cluster name"
@@ -432,6 +437,59 @@ function all_deployments() {
     kubectl get deployments -n "$NAMESPACE" -o name 2>/dev/null || true
 }
 
+# retired_engine_deployments -- Deployment names running an engine node type
+# THIS TREE NO LONGER BUILDS, one per line.
+#
+# WHY A READINESS WAIT HAS TO KNOW THIS AT ALL (memql#5061). The `upgrade` leg
+# of install-cluster-e2e installs the last RELEASE and then moves the cluster to
+# the branch under test, so it deliberately runs NEW scripts against an OLD
+# checkout's manifests -- and the two halves part company the moment a node type
+# is retired. `47e81134a` removed `voice`; the release's overlay still declares
+# `voice` and `voice-agent`, current `seed-secrets.sh` no longer creates
+# `livekit-secrets`, and nothing scales them to 0 because that gating lived in
+# the removed code. Every branch went red at the FIRST step, before the upgrade
+# it exists to test was attempted.
+#
+# THE GENERAL SHAPE, NOT A VOICE-SPECIFIC ACCIDENT: removing a node type removes
+# the seeding the previous release still needs. The next retirement does this
+# again, and the lane would go red for a reason that has nothing to do with the
+# change under review.
+#
+# THE RULE IS THE IMAGE, NOT THE NAME, and that is what keeps it from becoming
+# the false green memql#3570 was about. An engine node's image is
+# `<registry>/memql-<nodeType>:<tag>` -- every one of them, checked against
+# `deploy/k8s/base` -- so a Deployment is excluded only when its image basename
+# is `memql-<name>` for a `<name>` outside ENGINE_NODE_TYPES. `postgres`,
+# `redis` and `livekit` match no such pattern and stay in the wait; a node type
+# this tree DOES build stays in the wait even if it is broken, which is the
+# whole point. Excluding by Deployment NAME would have dropped anything an
+# overlay happened to call something unfamiliar.
+#
+# IT NAMES WHAT IT SKIPPED. A wait that silently narrows itself is
+# indistinguishable from one that passed, so wait_for_workloads prints this set
+# and why before it starts waiting.
+function retired_engine_deployments() {
+    local name images image base node
+    while read -r name images; do
+        [[ -n "$name" ]] || continue
+        while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            # Strip a digest, then a tag, then the registry/path prefix.
+            base="${image%%@*}"
+            base="${base##*/}"
+            base="${base%:*}"
+            [[ "$base" == memql-* ]] || continue
+            node="${base#memql-}"
+            if ! engine_is_node_type "$node"; then
+                printf '%s\n' "$name"
+                break
+            fi
+        done < <(printf '%s\n' "$images" | tr ',' '\n')
+    done < <(kubectl get deployments -n "$NAMESPACE" \
+        -o custom-columns='NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image' \
+        --no-headers 2>/dev/null || true)
+}
+
 # scaled_up_deployments -- the Deployments that are MEANT to be running, as
 # `deployment.apps/x` names.
 #
@@ -452,10 +510,14 @@ function all_deployments() {
 # operator can see, while skipping something that should be running is the false
 # green memql#3570 was about.
 function scaled_up_deployments() {
-    local name replicas
+    local name replicas retired
+    retired="$(retired_engine_deployments)"
     while read -r name replicas; do
         [[ -n "$name" ]] || continue
         [[ "$replicas" == "0" ]] && continue
+        # A node type this tree retired belongs to the release being upgraded
+        # FROM, not to what is under test. See retired_engine_deployments.
+        grep -qxF "$name" <<<"$retired" && continue
         printf 'deployment.apps/%s\n' "$name"
     done < <(kubectl get deployments -n "$NAMESPACE" \
         -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas \
@@ -529,9 +591,16 @@ function wait_for_workloads() {
     # future caller) source this file and call the function directly, where
     # main's cap_param resolution never ran. The env var historically carries
     # a trailing "s" (CI exports 720s); accept both spellings.
-    local deadline="${WORKLOAD_TIMEOUT:-${MEMQL_K3D_WORKLOAD_TIMEOUT:-300}}" names waited=0 tick=5 since_report=0
+    local deadline="${WORKLOAD_TIMEOUT:-${MEMQL_K3D_WORKLOAD_TIMEOUT:-300}}" names retired waited=0 tick=5 since_report=0
     deadline="${deadline%s}"
     info "Waiting up to ${deadline}s for the MemQL workloads to become Available..."
+
+    # SAY WHAT IS BEING LEFT OUT, before waiting rather than after. A narrowed
+    # wait that never explains itself is how a false green starts.
+    retired="$(retired_engine_deployments)"
+    if [[ -n "$retired" ]]; then
+        info "not waiting for $(printf '%s' "$retired" | tr '\n' ' '): a node type this tree no longer builds, so these belong to the release being upgraded from rather than to the revision under test (memql#5061)."
+    fi
 
     if [[ -z "$(all_deployments)" ]]; then
         warn "no Deployments in ${NAMESPACE} yet -- ArgoCD may not have applied them."
@@ -546,6 +615,17 @@ function wait_for_workloads() {
         # it as success would make an entirely stopped namespace indistinguishable
         # from a healthy one -- which is the class of false green workloadsReady
         # exists to end.
+        # WHY the set is empty matters, because the two causes send a reader to
+        # different files. Everything held at zero replicas is an overlay
+        # question; everything running a retired node type means the namespace
+        # holds only the release being upgraded FROM, which is a version
+        # question (memql#5061). Neither is success.
+        if [[ -n "$retired" ]]; then
+            warn "every Deployment in ${NAMESPACE} runs a node type this tree no longer builds -- nothing under test is running."
+            WORKLOADS_READY=false
+            WORKLOADS_REASON="every Deployment in ${NAMESPACE} runs an engine node type this tree no longer builds ($(printf '%s' "$retired" | tr '\n' ' ')), so nothing belonging to the revision under test is running"
+            return 0
+        fi
         warn "every Deployment in ${NAMESPACE} is scaled to 0 -- nothing is running."
         WORKLOADS_READY=false
         WORKLOADS_REASON="every Deployment in ${NAMESPACE} is scaled to 0, so nothing is running"

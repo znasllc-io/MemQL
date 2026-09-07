@@ -3,26 +3,61 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-// killSwitchSuspendsRunningPlans is GONE (memql#5053, follow-up memql#5066).
+use work.builtins.{ cancelComputerUseRuns }
+
+// killSwitchCancelsComputerUseRuns replaces killSwitchSuspendsRunningPlans,
+// which was deleted with the Plan concepts in memql#5053 (memql#5066).
 //
-// It suspended a user's running computer-use Plans when
-// preferences.computerUseEnabled flipped false. It went with the Plan
-// concepts rather than being ported, on three findings:
+// ONE OF THE THREE FINDINGS BEHIND THAT DELETION WAS WRONG, and it is the one
+// that made the deletion look free. It said the automation "never fired",
+// citing its query's own doc comment: `args.event.payload.id ?? ""` reached
+// argument validation as an unevaluated CoalesceExpr (memql#2870). That was
+// true until 8ef364cd7 fixed it on 2026-07-27, six weeks before the deletion.
+// The comment survived its own fix and was read as current.
+// component/memql/nested_call_arg_eval_test.go drives the sibling cases
+// through the real resolver and they pass on main, so this is a RESTORATION of
+// a control that was live, not the construction of one that never was.
 //
-//   - it never fired. Its query's own doc comment recorded that
-//     `args.event.payload.id ?? ""` reaches argument validation as an
-//     unevaluated CoalesceExpr (memql#2870);
+// The other two findings stand, and shaped what replaced it:
+//
 //   - its predicate was `computerUseScope != null`, a Plan field with no run
-//     equivalent, so a port would either cancel every in-flight run of that
-//     user or add a field to v1:work:run to carry a scope it does not need;
+//     equivalent. The successor does not add one: v1:worker:invocation.runId
+//     already names the run a call was made inside, so "runs actually using
+//     the worker" is a fact the dispatcher records per call. It is STRICTER
+//     than the old predicate -- a scope was permission, an invocation is use.
 //   - the ENFORCED control is untouched and is elsewhere:
 //     integrations/agent/worker/dispatch.go reads the flag before EVERY
 //     dispatch and returns deny with `kill_switch_engaged`, failing closed on
-//     a lookup error.
+//     a lookup error. That gate stops every NEW call the moment the switch
+//     flips. This automation is only the in-flight half.
 //
-// Flipping the switch still stops all NEW computer-use calls. What is gone is
-// the in-flight half, which never worked; memql#5066 decides whether it is
-// wanted at all.
+// THE FILTER IS THE GATE, not a hint. `node.updated` on v1:identity:user fires
+// for every write to a user row; the automation must only act on the one that
+// turned computer use OFF.
+
+/// When a user turns computer use off, ask their in-flight runs that used a machine to stop.
+/// Cancellation is REQUESTED: a run notices at its next step boundary, so a step already in flight
+/// finishes and is journaled rather than being abandoned mid-effect. The builtin is gated on
+/// INTERNAL ORIGIN, which this automation carries because it is tree-loaded AND its payload is the
+/// engine's own -- the pair memql#2888 requires, and the one its predecessor was attacked through.
+@trigger(event="node.updated", concept="v1:identity:user", partition="*")
+@filter(payload.preferences.computerUseEnabled == false)
+automation killSwitchCancelsComputerUseRuns {
+  // The trigger payload binds INTO this contract at fire time, and the field
+  // is then read BARE. Its predecessor reached for `args.event.payload.id ??
+  // ""` instead, which is the retired dotted form -- and the coalesce inside
+  // it is what memql#2870 could not evaluate. Declaring the field is what
+  // makes the id a checked input rather than a path walked at runtime.
+  args {
+    id any
+  }
+
+  step stop {
+    builtin cancelComputerUseRuns (
+      ownerUserId: id
+    )
+  }
+}
 
 // workerInvocationRetentionSweep
 // ===============================

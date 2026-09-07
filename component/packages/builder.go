@@ -24,20 +24,24 @@ package packages
 // script is somebody else's code running inside this cluster, and `npm ci`
 // executes whatever the tree's dependencies put in a postinstall hook.
 //
-// The workbench reaches that isolation through a PER-PLAN workspace, and its
-// own gate refuses a call whose planId does not resolve to a readable plan
+// The workbench reaches that isolation through a PER-RUN workspace, and its
+// own gate refuses a call whose runId does not resolve to a readable run
 // (workspace_owner_unresolved, memql#4354) -- deliberately, because a workspace
 // written under a blank actor is readable by nobody, including the operator
-// answering "where did my file go". A package deploy has no Plan, and the two
-// ways to give it one are both decisions this epic's spec does not make:
+// answering "where did my file go". A package deploy has no run, and giving it
+// one is a decision this epic's spec does not make.
 //
-//   - createPlan lands a row in status "planning", which the planner agent
-//     CLAIMS off the node-created event and decomposes with an LLM. A deploy
-//     that silently spends model budget is a worse defect than a build that
-//     refuses.
-//   - createAdHocPlan sets status "running" and is not claimed, but requires
-//     an agentId. A deploy has no agent, and writing a synthetic one would put
-//     a false statement in the graph to satisfy a schema.
+// THE TWO OPTIONS THIS PARAGRAPH USED TO WEIGH ARE GONE, and their reasoning
+// did not survive with them (memql#5053). They were `createPlan`, rejected
+// because the planner agent CLAIMED such a row off its node-created event and
+// decomposed it with an LLM -- a deploy that silently spends model budget is a
+// worse defect than a build that refuses -- and `createAdHocPlan`, rejected
+// because it required an agentId a deploy does not have.
+//
+// The successor question is about `v1:work:goal`, and only the FIRST objection
+// carries over: opening a goal runs compile, which reaches a model. The second
+// does not -- a goal has no agentId field to falsify. So this is still open,
+// and it is open for one reason now rather than two.
 //
 // The third option -- running the build in this process with os/exec -- is the
 // one that must not be taken. It would deliver the feature by deleting the

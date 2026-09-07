@@ -278,6 +278,25 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			},
 		},
 		{
+			Name:        "requestSpecialistTraining",
+			Description: "Ask for a specialist to be trained, as a decision a person makes. Raises a skillMint approval on one of the caller's runs; approving it opens the trainSpecialist work, and a specialist with no domain-bearing skill escalates for feedback instead of training against nothing. Returns {approvalId, runId, specialistId, mode}.",
+			Handler:     i.handleRequestSpecialistTraining,
+			ArgsSchema: map[string]string{
+				"runId":        "string (required) -- the caller's run the request is raised on",
+				"specialistId": "string (required) -- the v1:agents:agent to train",
+				"topic":        "string -- what to train on; the resolved domain when empty",
+				"mode":         "string -- initial (default) or refresh",
+			},
+		},
+		{
+			Name:        "cancelComputerUseRuns",
+			Description: "Ask every in-flight run of one owner that has actually dispatched to one of their machines to stop. The selection is the runs named by that owner's v1:worker:invocation rows, so it is no broader than \"runs actually using the worker\". Cluster-owner floored; the kill-switch automation runs under the cluster's maintenance principal. Returns {ownerUserId, runsChecked, runsAsked}.",
+			Handler:     i.handleCancelComputerUseRuns,
+			ArgsSchema: map[string]string{
+				"ownerUserId": "string (required) -- the v1:identity:user whose computer-use runs should stop",
+			},
+		},
+		{
 			Name:        "retentionSweep",
 			Description: "Fold each affected run's summary, archive expired journal rows to blob storage, then delete them. No archive means no delete. Returns {boundaryModelCall, boundaryObservation, runsSummarized, rowsArchived, rowsDeleted, objects, refused}.",
 			Handler:     i.handleRetentionSweep,

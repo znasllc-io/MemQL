@@ -79,6 +79,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/capability.sh
 source "${SCRIPT_DIR}/../lib/capability.sh"
+# shellcheck source=../lib/engine_build_args.sh
+# ENGINE_NODE_TYPES + engine_is_node_type: what THIS tree builds. The roll below
+# asks it to tell a node type that was retired from one that is merely slow --
+# see retired_engine_deployment.
+source "${SCRIPT_DIR}/../lib/engine_build_args.sh"
 
 cap_init "install.seedBootstrap" \
     "Seed the identity bootstrap values and AI provider key so the cluster self-bootstraps."
@@ -447,6 +452,46 @@ function secret_consumers() {
     done < <("${KUBECTL[@]}" get deployments --namespace="$ns" -o go-template='{{range .items}}{{.metadata.name}} {{if .spec.replicas}}{{.spec.replicas}}{{else}}0{{end}}{{range .spec.template.spec.containers}}{{range .envFrom}}{{if .secretRef}} {{.secretRef.name}}{{end}}{{end}}{{end}}{{"\n"}}{{end}}' 2>/dev/null || true)
 }
 
+# retired_engine_deployment <ns> <deployment> -- 0 when it runs an engine node
+# type THIS TREE NO LONGER BUILDS.
+#
+# THE SAME SHAPE AS clusterUp'S WAIT, ONE STEP LATER (memql#5061). That issue is
+# about the `upgrade` leg, which installs the last RELEASE and then moves the
+# cluster to the branch under test -- so NEW scripts run against an OLD
+# checkout's manifests, deliberately. Teaching `wait_for_workloads` to skip a
+# retired node type got clusterUp past `voice`, and the failure moved HERE:
+#
+#     seedBootstrap: FAILED -- exit 5: voice did not come back after being
+#     restarted to pick up the bootstrap values
+#
+# because `voice` reads `memql-secrets`, so it is a consumer, so it is rolled --
+# and it can never come back, because current `seed-secrets.sh` no longer
+# creates the `livekit-secrets` its pod also mounts. The general statement is
+# the one memql#5061 makes: removing a node type removes the seeding the
+# previous release still needs, and every place that WAITS for that release's
+# pods inherits the problem.
+#
+# THE RULE READS THE IMAGE, NOT THE NAME, exactly as up.sh's does and for the
+# same reason: every engine node's image is `<registry>/memql-<nodeType>`, so
+# `postgres`, `redis` and `livekit` match no such pattern and are still waited
+# for, and a node type this tree DOES build is still waited for even when it is
+# broken. Excluding by Deployment name would drop real infrastructure, which is
+# the false green memql#3570 was about.
+function retired_engine_deployment() {
+    local ns="$1" deploy="$2" images image base node
+    images="$("${KUBECTL[@]}" get deploy "$deploy" --namespace="$ns" \
+        -o go-template='{{range .spec.template.spec.containers}}{{.image}} {{end}}' 2>/dev/null || true)"
+    for image in $images; do
+        base="${image%%@*}"
+        base="${base##*/}"
+        base="${base%:*}"
+        [[ "$base" == memql-* ]] || continue
+        node="${base#memql-}"
+        engine_is_node_type "$node" || return 0
+    done
+    return 1
+}
+
 # deployment_selector <ns> <deployment> -- its pod selector as a kubectl
 # --selector string.
 #
@@ -585,6 +630,14 @@ function roll_consumers() {
     for entry in "${consumers[@]}"; do
         deploy="${entry%% *}"
         replicas="${entry##* }"
+        # A node type this tree retired belongs to the release being upgraded
+        # FROM, not to what is under test. Rolling it would wait 240s for a pod
+        # that cannot start (memql#5061). SAID OUT LOUD: a roll that silently
+        # skips a consumer is indistinguishable from one that rolled it.
+        if retired_engine_deployment "$ns" "$deploy"; then
+            cap_info "not rolling ${deploy}: it runs an engine node type this tree no longer builds, so it belongs to the release being upgraded from rather than to the revision under test."
+            continue
+        fi
         selector="$(deployment_selector "$ns" "$deploy")"
         if [[ -z "$selector" ]]; then
             cap_fail 5 "could not read the pod selector for deployment ${deploy}; refusing to guess which pods to restart"

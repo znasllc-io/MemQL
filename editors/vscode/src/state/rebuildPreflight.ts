@@ -20,6 +20,7 @@
 import type { CheckoutState } from "../install/checkoutState.js";
 import { normalizeNodeList } from "../install/nodeList.js";
 import type { ImageSource } from "../install/receipt.js";
+import { checkoutSkew } from "../version/checkoutSkew.js";
 import { releasedImages } from "./imageLane.js";
 import type { PreflightItem } from "./preflight.js";
 
@@ -36,6 +37,12 @@ export interface RebuildPreflightInputs {
   imageSource: ImageSource | "";
   /** The release the cluster would return to. Empty renders as "release". */
   releasedTag: string;
+  /**
+   * The commit THIS EXTENSION was packaged from, and whether that build carried
+   * uncommitted edits (memql#5076). Both absent for an unpackaged extension.
+   */
+  extensionCommit?: string;
+  extensionDirty?: boolean;
 }
 
 export function rebuildPreflightItems(i: RebuildPreflightInputs): PreflightItem[] {
@@ -134,6 +141,24 @@ export function rebuildPreflightItems(i: RebuildPreflightInputs): PreflightItem[
         },
   );
 
+  // THE SKEW, WHERE THE CONSEQUENCE LANDS (memql#5076). This is the second of
+  // the issue's two tiers -- the first is a quiet fact on the instance page --
+  // and it is here rather than only there because HERE is where an operator is
+  // about to act on the difference.
+  //
+  // The difference is real and it is not a bug: since memql#5056 and
+  // memql#5064 a build from the checkout runs the CHECKOUT's scripts, so the
+  // recipe matches the tree, while the graph documents, the plan functions,
+  // this checklist and the panel are whatever the extension was packaged with.
+  // Both of those issues presented as the product being broken, and both cost
+  // hours, because nothing said the two halves came from two commits.
+  //
+  // IT DOES NOT BLOCK. A checkout ahead of the extension is the normal state of
+  // a from-source install; refusing on it would refuse the ordinary case. The
+  // third tier the issue sketches -- refusing a genuinely incompatible pair --
+  // needs a compatibility contract to check against, and there is not one.
+  items.push(buildProvenanceItem(i));
+
   items.push({
     label: "Duration",
     state: "ok",
@@ -141,4 +166,30 @@ export function rebuildPreflightItems(i: RebuildPreflightInputs): PreflightItem[
   });
 
   return items;
+}
+
+/**
+ * The "which code is driving this" line, shared by the rebuild and the update.
+ *
+ * Exported so updatePreflight.ts states it identically rather than composing a
+ * second wording -- the same reason version/checkoutSkew.ts owns the sentence.
+ */
+export function buildProvenanceItem(i: RebuildPreflightInputs): PreflightItem {
+  const skew = checkoutSkew({
+    extensionCommit: i.extensionCommit,
+    extensionDirty: i.extensionDirty,
+    // The checkout's own HEAD as git reads it NOW, which is the commit the
+    // build will actually use -- not the one the receipt recorded at install
+    // time, which is what the instance page compares and is exactly as stale
+    // as the last install.
+    checkoutCommit: i.state?.commit,
+  });
+  return {
+    label: "Extension",
+    // `unknown` is `attention` for Git state's reason one block up: "cannot
+    // tell you" is something to look at, and reporting it as fine would be the
+    // clean-tree-over-an-unreadable-repo answer that file already refuses.
+    state: skew.state === "same" ? "ok" : "attention",
+    detail: skew.sentence,
+  };
 }
