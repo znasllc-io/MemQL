@@ -87,13 +87,11 @@ const authoredTargetNamespace = "authored"
 type captureEngine interface {
 	authoringNearMatcher // CatalogNearMatches
 	authoringSandbox     // CompileBundle (Gate 1)
-	authoringGate2       // RunBundleDryRun (Gate 2)
 }
 
-// AuthoringCaptureDispatcher claims completed user-facing one-off Plans and
-// authors a capture bundle for each. It subscribes to the same plan
-// created/updated topics as the Planner Agent loop but acts ONLY on a
-// capturable kind transitioning to succeeded, so it never races the loop's own
+// AuthoringCaptureDispatcher claims completed RUNS and transcribes each into
+// a capture bundle. It subscribes to graph.node.updated.v1:work:run and acts
+// only on a run transitioning to succeeded, so it never races the
 // execution dispatch.
 type AuthoringCaptureDispatcher struct {
 	loop   *PlannerAgentLoop

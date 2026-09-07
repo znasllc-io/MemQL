@@ -5,9 +5,14 @@
 #
 # `go-checks` ran `go test ./...` over all 182 packages; `db-tests` then re-ran
 # six trees carrying 543+ test files (component/memql 342, component/automations
-# 100, component/grpc 42, integrations/planner 45,
-# examples/referencepack). Both jobs therefore compiled and executed those files
-# on every PR. In go-checks the DB-gated CASES skip (no MEMQL_DATABASE_DSN), but
+# 100, component/grpc 42, examples/referencepack). Both jobs therefore compiled
+# and executed those files on every PR.
+#
+# `integrations/planner` was on this list until memql#5052 and is not any more:
+# the plan orchestration loop it db-tested is deleted, and the package now
+# carries no db-gated test at all. TestDBTestsLaneRunsAtLeastOneDBGatedTest is
+# what caught that -- a selector entry matching no db-gated test contributes
+# nothing to the lane while looking like coverage. In go-checks the DB-gated CASES skip (no MEMQL_DATABASE_DSN), but
 # the packages still compile and their non-DB tests still run.
 #
 # So: db-tests owns those trees entirely, and go-checks runs the COMPLEMENT.
@@ -137,7 +142,6 @@ readonly DB_GATED_TREES=(
 	"component/packages"
 	"component/sitetraffic"
 	"integrations/embedding"
-	"integrations/planner"
 	"integrations/shopify"
 	"integrations/work"
 	"examples/referencepack"

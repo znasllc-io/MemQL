@@ -133,47 +133,12 @@ func TestSplitSpendKeepsUnbilledTokensOffTheDollarCeiling(t *testing.T) {
 	}
 }
 
-// The dollar ceiling reads Spent alone. Local and subscription tokens sit
-// beside it and must not shrink the budget.
-func TestTheDollarCeilingIgnoresLocalAndSubscriptionSpend(t *testing.T) {
-	b := NewEngineTokenBudget(stubLookup{state: TokenState{
-		Budget:            1000,
-		Spent:             100,
-		SpentSubscription: 5000,
-		SpentLocal:        5000,
-	}}, 0)
-	if err := b.CheckCall(context.Background(), "p1", 500); err != nil {
-		t.Fatalf("a plan with 900 metered tokens left must admit a 500-token call even after "+
-			"10000 unbilled ones: %v", err)
-	}
-	if err := b.CheckCall(context.Background(), "p1", 901); err == nil {
-		t.Fatal("the ceiling must still stop a call that does not fit the METERED budget")
-	}
-}
-
-type stubLookup struct{ state TokenState }
-
-func (s stubLookup) GetPlanTokenState(context.Context, string) (TokenState, error) {
-	return s.state, nil
-}
-
-// TestDollarCeilingIgnoresSubscriptionSpend: a plan that leaned
-// heavily on the user's own spend.Subscription must not be parked over
-// money nobody charged. The more they use what they already pay for,
-// the sooner their plans would stop -- exactly backwards.
-func TestDollarCeilingIgnoresSubscriptionSpend(t *testing.T) {
-	budget := &EngineTokenBudget{Lookup: stubLookup{state: TokenState{
-		Budget:            1000,
-		Spent:             100,
-		SpentSubscription: 900_000,
-	}}}
-	if err := budget.CheckCall(context.Background(), "plan-1", 500); err != nil {
-		t.Fatalf("spend.Subscription spend must not exhaust the dollar ceiling: %v", err)
-	}
-
-	// Metered spend still does.
-	budget = &EngineTokenBudget{Lookup: stubLookup{state: TokenState{Budget: 1000, Spent: 900}}}
-	if err := budget.CheckCall(context.Background(), "plan-1", 500); err == nil {
-		t.Fatal("spend.Metered spend past the ceiling must still be refused")
-	}
-}
+// The two dollar-ceiling tests that stood here drove EngineTokenBudget -- the
+// per-PLAN cumulative ceiling, deleted with budget.go in memql#5052. The
+// invariant they pinned is not lost: component/work/budget_test.go's
+// TestCheckCeilings_TokenBudgetExcludesSubscriptionAndLocal asserts exactly it
+// against the successor, which reads the RUN's ceilings.
+//
+// TestSplitSpendKeepsUnbilledTokensOffTheDollarCeiling above stays, because
+// SplitSpend stays: it is a fact about an EXECUTOR's billing, and the
+// cockpit-app path uses it.

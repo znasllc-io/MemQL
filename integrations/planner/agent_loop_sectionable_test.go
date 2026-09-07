@@ -1,8 +1,6 @@
 package planner
 
 import (
-	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -194,190 +192,17 @@ func TestParseSectionableDecision_MissingFieldsAreNonSectionable(t *testing.T) {
 
 // --- end-to-end generate + persist ----------------------------------------
 
-// sectionableTriageJSON builds a goalComplexityTriage response that classifies
-// the goal as moderate AND sectionable with n sections.
-func sectionableTriageJSON(t *testing.T, n int) string {
-	t.Helper()
-	secs := make([]map[string]any, n)
-	for i := 0; i < n; i++ {
-		secs[i] = map[string]any{"label": "tale", "instruction": "write the full tale"}
-	}
-	b, _ := json.Marshal(map[string]any{
-		"complexity":  "moderate",
-		"reasoning":   "many full stories",
-		"sectionable": true,
-		"assembly":    "concatenate into one markdown file",
-		"sections":    secs,
-	})
-	return string(b)
-}
-
-// newSectionableLoop builds a loop whose engine satisfies authoringSandbox
-// (clean Gate-1) and answers the triage prompt with a sectionable verdict.
-func newSectionableLoop(t *testing.T, triageOut string, planRow map[string]any) (*PlannerAgentLoop, *fakeCaptureEngine) {
-	t.Helper()
-	fe := &fakeEngine{
-		execResponder: func(query string) (any, error) {
-			if strings.Contains(query, "planById") {
-				return map[string]any{"output": []any{planRow}}, nil
-			}
-			return nil, nil
-		},
-		aiResponder: func(templateId string, _ map[string]any) (any, error) {
-			if templateId == "goalComplexityTriage" {
-				return triageOut, nil
-			}
-			return nil, nil
-		},
-	}
-	// Clean Gate-1 for whatever bundle is compiled.
-	ce := &fakeCaptureEngine{fakeEngine: fe, sandbox: &fakeSandbox{reports: []memql.SandboxReport{{OK: true}}}}
-	return &PlannerAgentLoop{engine: ce, logger: authoringTestLogger()}, ce
-}
-
-// TestMaybeGenerateSectionable_PersistsParallelAutomation: a sectionable
-// moderate deliverable generates the parallel plan-automation, Gate-1 compiles
-// it, and persists it through the authoring-bundle pipeline (create bundle +
-// one construct per member + a validated record).
-func TestMaybeGenerateSectionable_PersistsParallelAutomation(t *testing.T) {
-	t.Setenv("MEMQL_PLANNER_SECTIONABLE_ENABLED", "1")
-	plan := map[string]any{
-		"id":          "v1:planner:plan:p1",
-		"kind":        produceArtifactPlanKind,
-		"status":      "planning",
-		"goal":        "a markdown file with 10 folk tales, each a complete story",
-		"requestedBy": "user-1",
-	}
-	l, ce := newSectionableLoop(t, sectionableTriageJSON(t, 4), plan)
-	dec := parseSectionableDecision(sectionableTriageJSON(t, 4))
-
-	handled, err := l.maybeGenerateSectionable(context.Background(), "v1:planner:plan:p1", plan, dec)
-	if err != nil || !handled {
-		t.Fatalf("sectionable deliverable must generate + persist: handled=%v err=%v", handled, err)
-	}
-	exec, _, _ := ce.snapshot()
-	if countContains(exec, "createAuthoringBundle") != 1 {
-		t.Fatalf("expected 1 createAuthoringBundle, got %d", countContains(exec, "createAuthoringBundle"))
-	}
-	// 4 sections + assemble + headline = 6 automations + 5 logic = 11 constructs.
-	if got := countContains(exec, "createAuthoringConstruct"); got != 11 {
-		t.Fatalf("expected 11 createAuthoringConstruct, got %d", got)
-	}
-	if countContains(exec, "recordBundleValidation") != 1 {
-		t.Fatalf("expected 1 recordBundleValidation, got %d", countContains(exec, "recordBundleValidation"))
-	}
-}
-
-// TestMaybeGenerateSectionable_NoSandboxFallsThrough: a binary without the
-// Gate-1 seam can't validate the generated automation, so generation declines
-// (handled=false) and the Plan routes through the normal decompose loop.
-func TestMaybeGenerateSectionable_NoSandboxFallsThrough(t *testing.T) {
-	t.Setenv("MEMQL_PLANNER_SECTIONABLE_ENABLED", "1")
-	plan := map[string]any{"goal": "g", "requestedBy": "u1"}
-	// Bare fakeEngine does NOT implement authoringSandbox.
-	l := &PlannerAgentLoop{engine: &fakeEngine{}, logger: authoringTestLogger()}
-	dec := sectionableDecision{Sectionable: true, Sections: []sectionSpec{{Label: "a"}, {Label: "b"}}}
-	handled, err := l.maybeGenerateSectionable(context.Background(), "p1", plan, dec)
-	if err != nil || handled {
-		t.Fatalf("no-sandbox binary must fall through: handled=%v err=%v", handled, err)
-	}
-}
-
-// TestMaybeGenerateSectionable_Gate1FailureFallsThrough: a generated automation
-// that fails Gate-1 is NOT persisted; generation declines so the Plan routes
-// normally (generation is an optimization, never a hard requirement).
-func TestMaybeGenerateSectionable_Gate1FailureFallsThrough(t *testing.T) {
-	t.Setenv("MEMQL_PLANNER_SECTIONABLE_ENABLED", "1")
-	plan := map[string]any{"id": "p1", "goal": "g", "requestedBy": "u1"}
-	fe := &fakeEngine{execResponder: func(q string) (any, error) { return nil, nil }}
-	ce := &fakeCaptureEngine{fakeEngine: fe, sandbox: &fakeSandbox{reports: []memql.SandboxReport{{OK: false, Diagnostics: []memql.SandboxDiagnostic{{Kind: "automation", Name: "x", OK: false, Error: "boom"}}}}}}
-	l := &PlannerAgentLoop{engine: ce, logger: authoringTestLogger()}
-	dec := sectionableDecision{Sectionable: true, Sections: []sectionSpec{{Label: "a"}, {Label: "b"}}}
-	handled, err := l.maybeGenerateSectionable(context.Background(), "p1", plan, dec)
-	if err != nil || handled {
-		t.Fatalf("Gate-1 failure must fall through, not persist: handled=%v err=%v", handled, err)
-	}
-	if exec, _, _ := ce.snapshot(); countContains(exec, "createAuthoringBundle") != 0 {
-		t.Fatalf("a Gate-1 failure must NOT persist a bundle")
-	}
-}
-
-// TestMaybeGenerateSectionable_DisabledFallsThrough: the env kill-switch routes
-// every sectionable deliverable back to the decompose loop.
-func TestMaybeGenerateSectionable_DisabledFallsThrough(t *testing.T) {
-	t.Setenv("MEMQL_PLANNER_SECTIONABLE_ENABLED", "0")
-	plan := map[string]any{"id": "p1", "goal": "g", "requestedBy": "u1"}
-	l, _ := newSectionableLoop(t, sectionableTriageJSON(t, 3), plan)
-	dec := parseSectionableDecision(sectionableTriageJSON(t, 3))
-	handled, err := l.maybeGenerateSectionable(context.Background(), "p1", plan, dec)
-	if err != nil || handled {
-		t.Fatalf("disabled flag must fall through: handled=%v err=%v", handled, err)
-	}
-}
-
-// --- triage routing -------------------------------------------------------
-
-// TestTriage_SectionableModerate_GeneratesParallel: a moderate + sectionable
-// produceArtifact goal routes through generation (handled=true) and makes ZERO
-// plannerAgent decompose calls -- the parallel plan-automation replaces the
-// serial chain.
-func TestTriage_SectionableModerate_GeneratesParallel(t *testing.T) {
-	t.Setenv("MEMQL_PLANNER_SECTIONABLE_ENABLED", "1")
-	t.Setenv("MEMQL_PLANNER_GOAL_TRIAGE_ENABLED", "1")
-	plan := map[string]any{
-		"id":           "v1:planner:plan:p1",
-		"kind":         produceArtifactPlanKind,
-		"status":       "planning",
-		"goal":         "a file with 10 folk tales, each a complete story",
-		"requestedBy":  "user-1",
-		"ownerAgentId": "agent-1",
-	}
-	l, ce := newSectionableLoop(t, sectionableTriageJSON(t, 5), plan)
-	handled, err := l.triageAndMaybeShortcut(context.Background(), "v1:planner:plan:p1", "")
-	if err != nil || !handled {
-		t.Fatalf("sectionable moderate must be handled via generation: handled=%v err=%v", handled, err)
-	}
-	exec, si, _ := ce.snapshot()
-	if countContains(si, "plannerAgent") != 0 {
-		t.Fatalf("sectionable generation must make ZERO plannerAgent decompose calls, got %d", countContains(si, "plannerAgent"))
-	}
-	if countContains(si, "goalComplexityTriage") != 1 {
-		t.Fatalf("expected exactly 1 cheap triage call, got %d", countContains(si, "goalComplexityTriage"))
-	}
-	if countContains(exec, "createAuthoringBundle") != 1 {
-		t.Fatalf("expected the generated parallel automation to be persisted once, got %d", countContains(exec, "createAuthoringBundle"))
-	}
-	// Not a single direct turn -- the parallel automation IS the execution.
-	if countContains(exec, "startPlan") != 0 {
-		t.Fatalf("sectionable generation must not shortcut to a single direct turn")
-	}
-}
-
-// TestTriage_NonSectionableModerate_FallsThroughToDecompose: a moderate goal
-// the classifier does NOT mark sectionable still falls through to the decompose
-// loop (the #1393 behavior is preserved when generation declines).
-func TestTriage_NonSectionableModerate_FallsThroughToDecompose(t *testing.T) {
-	t.Setenv("MEMQL_PLANNER_SECTIONABLE_ENABLED", "1")
-	t.Setenv("MEMQL_PLANNER_GOAL_TRIAGE_ENABLED", "1")
-	plan := map[string]any{
-		"id":           "p1",
-		"kind":         produceArtifactPlanKind,
-		"status":       "planning",
-		"goal":         "compare two documents and write up the differences",
-		"requestedBy":  "user-1",
-		"ownerAgentId": "agent-1",
-	}
-	// moderate but NOT sectionable.
-	triage, _ := json.Marshal(map[string]any{"complexity": "moderate", "reasoning": "a few steps", "sectionable": false})
-	l, ce := newSectionableLoop(t, string(triage), plan)
-	handled, err := l.triageAndMaybeShortcut(context.Background(), "p1", "")
-	if err != nil || handled {
-		t.Fatalf("non-sectionable moderate must fall through to decompose: handled=%v err=%v", handled, err)
-	}
-	if exec, _, _ := ce.snapshot(); countContains(exec, "createAuthoringBundle") != 0 {
-		t.Fatalf("non-sectionable goal must NOT generate a parallel automation")
-	}
-}
+// The tests that used to follow here drove `maybeGenerateSectionable` and the
+// plan-routing triage -- the SYNTHESIS half of this file and
+// agent_loop_sectionable_generate.go -- both deleted with the plan loop
+// (memql#5052). What they asserted was that a sectionable moderate goal
+// generated a parallel automation and persisted it INTO A PLAN, and there are
+// no Plans.
+//
+// The pure half above is what work_compile.go still reaches: the parser
+// (parseSectionableDecision), the section shaping (usableSections,
+// sanitizeIdent) and the bundle synthesis (synthesizeSectionableBundle,
+// including its real Gate-1 compile).
 
 // lastConstruct returns the construct in the bundle with the given name.
 func lastConstruct(t *testing.T, bundle authoringBundle, name string) memql.SandboxConstruct {

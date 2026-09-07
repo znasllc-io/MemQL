@@ -276,3 +276,10 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("condition not met within timeout")
 }
+
+// discardWriter is a no-op io.Writer for a test logger. It lived in
+// agent_loop_triage_test.go, which went with the plan-routing half of triage
+// (memql#5052); the authoring tests still want a silent logger.
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }

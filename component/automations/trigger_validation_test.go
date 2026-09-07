@@ -406,6 +406,9 @@ func TestCron_SubMinuteDetection(t *testing.T) {
 // mis-capitalised event kind, a dropped concept kwarg, a retired concept id or
 // an unparseable cron fails HERE, at the class, rather than by not running in
 // production.
+//
+// "Wired" has three forms since memql#5048 -- an event trigger, a schedule, or
+// @template, which is reachable by being NAMED by a v1:work:run. See the loop.
 func TestShippedTree_EveryAutomationIsWiredToSomething(t *testing.T) {
 	loader := triggerTestLoaderWithRegistry(t)
 
@@ -418,6 +421,19 @@ func TestShippedTree_EveryAutomationIsWiredToSomething(t *testing.T) {
 	}
 
 	for _, a := range automations {
+		// A @template is the third way to be wired (memql#5048): a
+		// v1:work:run names it and the run dispatcher executes it. The
+		// LOADER's gate learned this in validateTriggerWiring, and this one
+		// has to as well -- they are the same premise stated twice, over the
+		// same tree, and a corpus pin that does not know about a legitimate
+		// wiring is a gate that blocks correct code.
+		//
+		// The mirror rule is the loader's: a template carrying a trigger is
+		// REFUSED there, so by the time an automation reaches this loop a
+		// template has no trigger and nothing else is reachable by naming.
+		if a.IsTemplate() {
+			continue
+		}
 		if !a.IsEventTriggered() && !a.IsScheduled() {
 			t.Errorf("automation %q (%s) is wired to nothing", a.Name, a.Origin)
 			continue

@@ -249,32 +249,14 @@ type budgetGate func(ctx context.Context, callsMade int) (bool, string)
 // unboundedBudget is the gate for a caller that has no ceiling to enforce.
 // NAMED, so a call site that means it says so -- an untyped nil would read the
 // same as forgetting.
-func unboundedBudget(context.Context, int) (bool, string) { return false, "" }
-
-// planBudgetGate is the planner's cumulative per-plan LLM ceiling (#819),
-// which the authoring job spends against along with the rest of the Plan.
 //
-// A plan-load failure fails OPEN (not exhausted) so a transient read error
-// does not abort a healthy repair loop; the per-bundle attempt cap still
-// bounds it. That trade is defensible HERE, where the ceiling is one of two,
-// and was not defensible as the only ceiling on a path that had no Plan at
-// all.
-func (l *PlannerAgentLoop) planBudgetGate(planId string) budgetGate {
-	if planId == "" {
-		return unboundedBudget
-	}
-	return func(ctx context.Context, _ int) (bool, string) {
-		plan, err := l.loadPlan(ctx, planId)
-		if err != nil {
-			return false, ""
-		}
-		gate := evaluatePlannerCallGate(plan, plannerSystemPromptTokenEstimate, maxPlannerInvocationsPerPlan(), plannerDefaultTokenBudget())
-		if gate.Blocked {
-			return true, gate.Reason
-		}
-		return false, ""
-	}
-}
+// It is also what the emit path takes when NO ceiling applies. The
+// plan-scoped gate that used to sit beside it (planBudgetGate, the cumulative
+// per-plan LLM ceiling of #819) went with the Plan in memql#5052: it read a
+// v1:planner:plan row to decide, and there are none. The ceiling that governs
+// the authoring job now is callCapGate below, fed from the RUN's own
+// maxModelCalls -- which work_compile.go reads through RunBudget.
+func unboundedBudget(context.Context, int) (bool, string) { return false, "" }
 
 // callCapGate bounds a job at a number of model calls.
 //

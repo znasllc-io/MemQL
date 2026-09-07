@@ -323,3 +323,35 @@ func dedupeReuseEdges(edges []reuseEdge) []reuseEdge {
 	}
 	return out
 }
+
+// bundleAutomationSource returns the .memql source of the bundle's headline
+// automation construct (matched by AutomationName), or false when the bundle
+// carries no such construct -- the emit pass is contracted to include exactly
+// one automation, but a malformed bundle is caught here rather than passed on
+// with a blank source.
+//
+// It lived in agent_loop_authoring_gate2.go, which memql#5052 deletes with the
+// LLM capture path that was Gate 2's only caller. The function itself is about
+// the bundle's SHAPE, not about the dry-run, and the phase tests assert on it.
+func bundleAutomationSource(bundle authoringBundle) (string, bool) {
+	for _, c := range bundle.Constructs {
+		if c.Kind == "automation" && c.Name == bundle.AutomationName {
+			return c.Source, true
+		}
+	}
+	// Fall back to the sole automation construct when the name did not match
+	// exactly (the emit pass names it from the design plan, so a mismatch is a
+	// model slip rather than a missing automation).
+	var found string
+	count := 0
+	for _, c := range bundle.Constructs {
+		if c.Kind == "automation" {
+			found = c.Source
+			count++
+		}
+	}
+	if count == 1 {
+		return found, true
+	}
+	return "", false
+}
