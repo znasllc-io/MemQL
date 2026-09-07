@@ -39,10 +39,18 @@
 // `new Date("")` does -- which is the failure that turns a missing timestamp
 // into a node at the origin rather than a node the code declines to place.
 
-import { rowArray, rowNumber, rowObject, rowString, type Row } from "@znasllc-io/memql-sdk-core/client";
+import {
+  rowArray,
+  rowBool,
+  rowNumber,
+  rowObject,
+  rowString,
+  type Row,
+} from "@znasllc-io/memql-sdk-core/client";
 
 import {
   APPROVAL_CONCEPT_ID,
+  ARTIFACT_CONCEPT_ID,
   GOAL_CONCEPT_ID,
   RUN_CONCEPT_ID,
   STEP_CONCEPT_ID,
@@ -155,6 +163,32 @@ export interface ApprovalRow {
 }
 
 /**
+ * A thing the run produced -- a Library INDEX row, not the bytes.
+ *
+ * THIS IS THE POPULATION THAT COULD NOT BE DRAWN. `producedByRunId` named
+ * `v1:planner:plan` until memql#5053, so nothing pointed a produced thing at
+ * a run and hanging one off the road would have meant inventing a join. It
+ * names `v1:work:run` now, and `artifactsForRun` is the read -- a query
+ * written FOR this map (its own header says so) and left with no caller.
+ *
+ * `title` is what the map prints, and it is the only field that has to be
+ * here: opening the node re-reads the row through the authorized path like
+ * every other node, so this shape carries what the DRAWING needs and not what
+ * the card needs.
+ */
+export interface ArtifactRow {
+  id: string;
+  runId: string;
+  title: string;
+  kind: string;
+  /** `archived` -- a soft delete. Drawn dimmed rather than dropped, because a
+   *  goal that produced something and had it archived is a different history
+   *  from a goal that produced nothing. */
+  archived: boolean;
+  createdAt: string;
+}
+
+/**
  * One goal, whole.
  *
  * `goal === null` is the honest shape for "not read yet / refused", and every
@@ -174,6 +208,7 @@ export interface GoalWorld {
   runs: RunRow[];
   steps: StepRow[];
   approvals: ApprovalRow[];
+  artifacts: ArtifactRow[];
 }
 
 export const EMPTY_WORLD: GoalWorld = {
@@ -182,6 +217,7 @@ export const EMPTY_WORLD: GoalWorld = {
   runs: [],
   steps: [],
   approvals: [],
+  artifacts: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -329,6 +365,22 @@ export function readApproval(row: Row): ApprovalRow {
   };
 }
 
+export function readArtifact(row: Row): ArtifactRow {
+  return {
+    id: rowString(row, "id"),
+    // The row's own field is the back-pointer; `runId` is what this library
+    // calls it everywhere else, and the two names meeting here is the whole
+    // of the join.
+    runId: rowString(row, "producedByRunId"),
+    title: rowString(row, "title"),
+    kind: rowString(row, "kind"),
+    // `rowBool` reads a missing key as false, which is the answer that wants
+    // to be true here: an artifact with no `archived` key is not archived.
+    archived: rowBool(row, "archived"),
+    createdAt: rowString(row, "createdAt"),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Node identity
 // ---------------------------------------------------------------------------
@@ -340,6 +392,7 @@ export type NodeKind =
   | "step"
   | "binding"
   | "approval"
+  | "artifact"
   | "cluster"
   | "fold";
 
@@ -366,6 +419,13 @@ export function stepNodeId(step: StepRow): string {
 
 export function bindingNodeId(step: StepRow): string {
   return nodeIdFor("binding", `${step.runId}:${step.key}`);
+}
+
+/** A produced thing's node id. Keyed on the ROW id, unlike a step: an
+ *  artifact has no key from a template and no place in an order -- it is one
+ *  row, and two artifacts of one run are two rows. */
+export function artifactNodeId(artifact: ArtifactRow): string {
+  return nodeIdFor("artifact", artifact.id);
 }
 
 export function approvalNodeId(approval: ApprovalRow): string {
@@ -402,6 +462,8 @@ export function conceptIdForKind(kind: NodeKind): string {
       return STEP_CONCEPT_ID;
     case "approval":
       return APPROVAL_CONCEPT_ID;
+    case "artifact":
+      return ARTIFACT_CONCEPT_ID;
     default:
       return "";
   }
@@ -531,6 +593,21 @@ export function depths(steps: readonly StepRow[]): Map<string, number> {
 }
 
 /** The approvals raised by one run, in a stable order. */
+/**
+ * What one run produced, oldest first.
+ *
+ * Ordered by creation rather than by title, because the map draws them left
+ * to right along the road's end and the order a person recognises is the
+ * order they appeared.
+ */
+export function artifactsOfRun(world: GoalWorld, runId: string): ArtifactRow[] {
+  return world.artifacts
+    .filter((artifact) => artifact.runId === runId)
+    .sort((a, b) =>
+      a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? -1 : 1) : a.id < b.id ? -1 : 1,
+    );
+}
+
 export function approvalsOfRun(world: GoalWorld, runId: string): ApprovalRow[] {
   return world.approvals
     .filter((approval) => approval.runId === runId)

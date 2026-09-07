@@ -2,6 +2,7 @@ import { Concepts } from "@znasllc-io/memql-sdk-core/client";
 
 import {
   APPROVAL_CONCEPT_ID,
+  ARTIFACT_CONCEPT_ID,
   GOAL_CONCEPT_ID,
   RUN_CONCEPT_ID,
   STEP_CONCEPT_ID,
@@ -9,9 +10,9 @@ import {
 
 // The concepts the Nexus app is about.
 //
-// The four the MAP draws come from `src/nexus/concepts`, which the pure scene
+// The five the MAP draws come from `src/nexus/concepts`, which the pure scene
 // library also reads -- one definition, two consumers, because the layout, the
-// subscription list and the id-only re-read all have to agree on the same four
+// subscription list and the id-only re-read all have to agree on the same five
 // strings and three copies is three chances for one of them to drift.
 //
 // GENERATED CONSTANTS, NEVER COMPOSED IDS (the Logs epic's rule, memql#4895):
@@ -33,12 +34,21 @@ import {
 
 export const NEXUS_APP_ID = "nexus";
 
-/** Live: goal, run, step and approval carry broadcast routing rules. */
+/**
+ * Live: goal, run, step, approval and artifact carry broadcast routing rules.
+ *
+ * The artifact is the one this app does NOT own -- it belongs to the Library,
+ * and Nexus reads it to draw what a run produced. It is in this list rather
+ * than beside `v1:authoring:construct` because it is genuinely live
+ * (routing.go broadcasts all three verbs), so the map fills in as files
+ * appear rather than only on load.
+ */
 export const NEXUS_LIVE_CONCEPTS = [
   Concepts.WORK_GOAL,
   Concepts.WORK_RUN,
   Concepts.WORK_STEP,
   Concepts.WORK_APPROVAL,
+  Concepts.LIBRARY_ARTIFACT,
 ] as const;
 
 /** On demand: the journal. No routing rule, deliberately. */
@@ -47,9 +57,18 @@ export const NEXUS_JOURNAL_CONCEPTS = [
   Concepts.WORK_OBSERVATION,
 ] as const;
 
-/** Everything this app owns, for its Logs section's subject scope. */
+/**
+ * Everything this app OWNS, for its Logs section's subject scope.
+ *
+ * The artifact is deliberately absent: Nexus reads it and the Library writes
+ * it, and a Logs scope that included it would answer "what happened in Nexus"
+ * with every upload, promotion and archive in the system.
+ */
 export const NEXUS_LOG_CONCEPTS = [
-  ...NEXUS_LIVE_CONCEPTS,
+  Concepts.WORK_GOAL,
+  Concepts.WORK_RUN,
+  Concepts.WORK_STEP,
+  Concepts.WORK_APPROVAL,
   ...NEXUS_JOURNAL_CONCEPTS,
 ] as const;
 
@@ -60,3 +79,4 @@ export const GOAL_CONCEPT: string = GOAL_CONCEPT_ID;
 export const RUN_CONCEPT: string = RUN_CONCEPT_ID;
 export const STEP_CONCEPT: string = STEP_CONCEPT_ID;
 export const APPROVAL_CONCEPT: string = APPROVAL_CONCEPT_ID;
+export const ARTIFACT_CONCEPT: string = ARTIFACT_CONCEPT_ID;

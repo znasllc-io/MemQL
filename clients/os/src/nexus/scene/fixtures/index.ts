@@ -12,6 +12,7 @@
 
 import type {
   ApprovalRow,
+  ArtifactRow,
   GoalRow,
   GoalWorld,
   RunRow,
@@ -130,6 +131,18 @@ export function approval(over: Partial<ApprovalRow> = {}): ApprovalRow {
   };
 }
 
+export function artifact(over: Partial<ArtifactRow> = {}): ArtifactRow {
+  return {
+    id: "v1:library:artifact:af1",
+    runId: "v1:work:run:r1",
+    title: "birds.md",
+    kind: "document",
+    archived: false,
+    createdAt: moment(7),
+    ...over,
+  };
+}
+
 export function world(over: Partial<GoalWorld> = {}): GoalWorld {
   const theRun = over.run ?? run();
   return {
@@ -138,6 +151,7 @@ export function world(over: Partial<GoalWorld> = {}): GoalWorld {
     runs: over.runs ?? [theRun],
     steps: [],
     approvals: [],
+    artifacts: [],
     ...over,
   };
 }

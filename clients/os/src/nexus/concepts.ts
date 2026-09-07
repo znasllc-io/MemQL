@@ -24,9 +24,17 @@
 // can each be hung off the run that made it, with a real edge rather than an
 // invented one.
 //
-// The scene library still draws FOUR populations: nothing here consumes the
-// new edges yet. That is work, not a blocker, and this note is the pointer to
-// it rather than a standing excuse.
+// The ARTIFACT half is drawn (see scene/layout.ts's "made" lane). Its read,
+// `artifactsForRun`, was written FOR this map -- its own DSL header says so --
+// and had no caller for as long as the join did not exist.
+//
+// `v1:authoring:bundle` is NOT drawn, and the reason is not that it was
+// forgotten. It carries no broadcast routing rule (component/node/routing.go
+// broadcasts artifact and not bundle), so a live feed over it would render
+// correct on load and then never move -- worse than not drawing it, because
+// the map would be claiming wiring that is not there. Drawing it wants that
+// rule first, which is a decision about event volume rather than a client
+// change.
 //
 // GENERATED CONSTANTS, NEVER COMPOSED IDS (the Logs epic's rule, memql#4895):
 // a hand-written "v1:work:step" would silently stop matching the day the
@@ -39,6 +47,7 @@ export const GOAL_CONCEPT_ID: string = Concepts.WORK_GOAL;
 export const RUN_CONCEPT_ID: string = Concepts.WORK_RUN;
 export const STEP_CONCEPT_ID: string = Concepts.WORK_STEP;
 export const APPROVAL_CONCEPT_ID: string = Concepts.WORK_APPROVAL;
+export const ARTIFACT_CONCEPT_ID: string = Concepts.LIBRARY_ARTIFACT;
 
 // The concepts a goal's world is made of. Order is not load-bearing -- it is
 // listed root-first only so a reader meets the goal before its work.
@@ -47,4 +56,5 @@ export const NEXUS_CONCEPT_IDS: readonly string[] = [
   RUN_CONCEPT_ID,
   STEP_CONCEPT_ID,
   APPROVAL_CONCEPT_ID,
+  ARTIFACT_CONCEPT_ID,
 ];

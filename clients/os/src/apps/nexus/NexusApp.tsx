@@ -37,7 +37,14 @@ import {
   type NexusSettings,
   type NexusSettingsStore,
 } from "./settings";
-import { useApprovals, useGoals, useJournal, useRunSteps, useRuns } from "./useNexus";
+import {
+  useApprovals,
+  useGoals,
+  useJournal,
+  useRunArtifacts,
+  useRunSteps,
+  useRuns,
+} from "./useNexus";
 
 // WORK: what you asked the system to do, what it did about it, and the places
 // it had to stop and ask you.
@@ -311,11 +318,21 @@ function rowId(row: Row): string {
  * this person owns in order to draw one of them is what it forbids.
  */
 function GoalViewHost(
-  props: Omit<ComponentProps<typeof GoalView>, "stepRows" | "stepsState">,
+  props: Omit<ComponentProps<typeof GoalView>, "stepRows" | "stepsState" | "artifactRows">,
 ) {
   const steps = useRunSteps(props.openRunId);
+  // Keyed on the same run for the same reason. It is a SECOND collection
+  // rather than a field on the first because the two are different concepts
+  // with different reads -- `useLiveCollection` is per concept, and folding
+  // them would mean one baseline covering two seeds.
+  const artifacts = useRunArtifacts(props.openRunId);
   return (
-    <GoalView {...props} stepRows={steps.snapshot.rows} stepsState={steps.snapshot.state} />
+    <GoalView
+      {...props}
+      stepRows={steps.snapshot.rows}
+      stepsState={steps.snapshot.state}
+      artifactRows={artifacts.snapshot.rows}
+    />
   );
 }
 

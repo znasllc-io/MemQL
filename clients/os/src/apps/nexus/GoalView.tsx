@@ -75,6 +75,8 @@ export interface GoalViewProps {
   approvalRows: readonly Row[];
   stepRows: readonly Row[];
   stepsState: LiveState;
+  /** What this run produced. Live, keyed on the same run as the steps. */
+  artifactRows: readonly Row[];
   openRunId: string;
   onPickRun: (runId: string) => void;
   cancel: CancelGoalState;
@@ -93,6 +95,7 @@ export function GoalView({
   approvalRows,
   stepRows,
   stepsState,
+  artifactRows,
   openRunId,
   onPickRun,
   cancel,
@@ -110,8 +113,8 @@ export function GoalView({
   const [confirm, setConfirm] = useState("");
 
   const live = useMemo(
-    () => buildWorld({ goalRow, runRows, stepRows, approvalRows, openRunId }),
-    [goalRow, runRows, stepRows, approvalRows, openRunId],
+    () => buildWorld({ goalRow, runRows, stepRows, approvalRows, artifactRows, openRunId }),
+    [goalRow, runRows, stepRows, approvalRows, artifactRows, openRunId],
   );
   const moments = useMemo(() => events(live), [live]);
   const bounds = useMemo(() => timelineBounds(moments), [moments]);

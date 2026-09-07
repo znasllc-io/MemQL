@@ -1845,16 +1845,40 @@ before it. The first five came with sub-project A and hold unchanged.
   there is no phase ROW in the spine, so it is applied to the structure that
   does exist.
 
-  **Nothing is drawn below the road except approvals, and the reason changed.**
-  The portal's map hung artifacts and authored constructs off the task that
-  made them. This said the equivalent join did not exist:
-  `v1:library:artifact.producedByPlanId` and
-  `v1:authoring:bundle.sourcePlanId` both named `v1:planner:plan`, so nothing
-  pointed a produced thing at a run, and drawing them would have meant
-  inventing a join -- the one thing a picture read as evidence must not do.
-  memql#5053 re-pointed both: they are `producedByRunId` and `sourceRunId` now
-  and they name `v1:work:run`, so the edge is real. What is left is drawing it,
-  which is work rather than a blocker.
+  **What came out of it is the fifth lane, and it took a schema change to
+  earn.** The portal's map hung artifacts and authored constructs off the task
+  that made them, and this map could not: `producedByPlanId` and
+  `sourcePlanId` both named `v1:planner:plan`, so nothing pointed a produced
+  thing at a run and drawing one would have meant inventing a join -- the one
+  thing a picture read as evidence must not do. memql#5053 re-pointed both at
+  `v1:work:run`, and the `made` lane draws the artifact half.
+
+  Four things about that lane are decisions rather than defaults. It is
+  anchored to the BEACON and not to a step, because `producedByRunId` names
+  the run and picking a step to hang it off -- the last one, the one that was
+  running when the file appeared -- would be a guess drawn as a fact. It sits
+  BELOW the approvals, because an approval is a demand and an artifact is a
+  result, and burying a pending demand under a result would hide the one node
+  on this map that is waiting on somebody. Its label is the one below-road
+  label that does NOT hide until hover: a binding answers "which model ran
+  step 7", which nobody scans for, while a produced file answers "what did
+  this make", which is what a person opens the map to find out. And an
+  ARCHIVED artifact is drawn faint rather than dropped, because a goal that
+  produced something and had it archived is a different history from a goal
+  that produced nothing.
+
+  The node is a LABEL and not a door, which is a finding rather than a
+  preference: opening a file belongs in Files, and the shell handoff would
+  reach an intent handler that reads `place` and `folderId` and consumes
+  anything else -- so wiring the click would open the Files window on whatever
+  it was last showing and select nothing. That is a click that looks like it
+  worked, and it wants a change to Files rather than one here.
+
+  **`v1:authoring:bundle` is still not drawn**, and not because it was
+  forgotten: it carries no broadcast routing rule, so a live feed over it
+  would render correct on load and then never move -- worse than not drawing
+  it, because the map would be claiming wiring that is not there. The
+  artifact does carry one, which is why that half is live.
 
   **No WebGL, and it is enforced rather than intended.** MemQL OS carries none
   by owner requirement; `test/deployables/map.test.tsx` is the shell-wide guard
