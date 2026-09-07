@@ -46,6 +46,7 @@ The complete map of MemQL documentation. Layout + rules:
 
 ### AI (`ai/`)
 - [LLM Cost Control](docs/public/ai/llm-cost-control.md) — the layered guardrails. · [Operator Capabilities](docs/public/ai/operator-capabilities.md) — capability slugs.
+- [AI routing: levels, policies and rules](docs/public/operate/ai-routing.md) — the three nouns a call is decided by. A call declares a LEVEL (fast / strong / reasoning / embeddings) and never a model; a RULE maps the call's metadata to a POLICY; a policy is an ordered chain that reaches the fleet, then a signed-in app, then a vendor, so paid inference is last by construction rather than by care. Also: degrade versus park and why embeddings never degrades, what @locked enforces, how to add a rule, and the decision record every resolution writes.
 
 ### Build Against It (`build/`)
 - [Audio Streaming](docs/public/build/audio-streaming.md) · [Build Tags](docs/public/build/build-tags.md) · [Plugin SDK](docs/public/build/plugin-sdk.md) · [Building a Pack](docs/public/build/building-a-pack.md) — worked-example developer guide (the `examples/referencepack` reference pack)

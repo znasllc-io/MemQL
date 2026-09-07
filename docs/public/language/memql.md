@@ -792,26 +792,107 @@ The legacy `func (Provider) name { ... }` form is retired; the parser rejects it
 
 > **Semantics of `@disabled`** (shared across every construct that takes it): the construct is **not loaded/active at runtime right now**. It does NOT mean deprecated, abandoned, or exempt from maintenance / refactors / conformance — it is a reversible on/off switch. ("Deprecated / abandoned" is a separate axis carried by `@deprecated`.)
 
-### Policies
+### Levels
 
-The live `policy` construct is an **AI provider-selection record**: empty-bodied, annotated with `@primary` / `@fallback` / `@maxLatencyMs` / `@preferredRole`, consolidated in `dsl/policies/policies.memql` and consumed by the AI Router to pick chat and embedding providers:
+**A call declares how much intelligence it needs, never a model.** A model name at a call site is a release every time the fleet changes, so `@level` is what a `prompt` carries and what a Go call site names in its request.
+
+The set is closed at four, and there will not be a fifth: an abstraction a person cannot hold in their head is not one.
+
+| Level | What declares it |
+|---|---|
+| `fast` | Triage, intake, classification, summaries, suggestions, the safety classifier |
+| `strong` | An agent's reply, a conductor turn, an authoring design pass |
+| `reasoning` | Emitting or repairing a construct, re-planning a run |
+| `embeddings` | Every embedding call |
 
 ```memql
-@primary("streamClaudeSonnet")
-@fallback("stream54Pro")
-@fallback("streamClaudeHaiku")
-@maxLatencyMs(60000)
-/// Default chat policy for non-operator agents.
-policy balancedChat { }
+@level("reasoning")
+@templateFile("prompts/authoringEmit.tmpl")
+/// Emit a construct from an approved design
+prompt authoringEmit { /* ... */ }
 ```
 
+`@level` is **required on every prompt**, in the embedded tree and in a bundle mounted at `MEMQL_DSL_PATH` alike; a prompt without one refuses to load and the message names all four values. **Modality is never declared** — whether a call is chat, streaming chat, tools, structured output, vision or an embedding is derived from the call itself and interface-checked by the router.
+
+### Policies
+
+The `policy` construct is an **ordered chain of places to look**: empty-bodied, annotated with `@primary` and repeatable `@fallback`, consolidated in `dsl/policies/policies.memql`.
+
+```memql
+/// The default chain: local strongest, then a signed-in app, then the cheapest vendor.
+@primary("fleet:strongest")
+@fallback("app:*")
+@fallback("federation:cheapest")
+policy localFirst { }
+```
+
+A chain entry is one of a **closed grammar**, checked at load:
+
+| Form | Resolves to |
+|---|---|
+| `streamClaudeSonnet` | one provider by name |
+| `fleet:strongest` / `fleet:fastest` | the best / quickest local model that can serve this call |
+| `fleet:<modelId>` | one local model by id (a model id may itself contain a colon) |
+| `app:*` / `app:<id>` | any / one signed-in subscription app on the caller's machines |
+| `federation:cheapest` / `federation:strongest` | the cheapest / strongest vendor record that qualifies |
+| `federation:<providerName>` | one vendor record by name |
+| `policy:<name>` | **another policy**, expanded at load |
+
+`fleet:*` is **retired** and refuses to load with `fleet:strongest` named in the message: it said "any", which is not what it did.
+
+`policy:<name>` is what makes policies compose. Chains are expanded at load, a cycle refuses to load and prints the loop, and the router only ever walks a chain with no `policy:` entry left in it.
+
+`@maxLatencyMs`, `@maxTimeToFirstTokenMs` and `@preferredRole` are **removed from the grammar**. All three were parsed, stored, projected and consumed by no routing decision; an author who wrote one was telling the router something it would not act on, and silence there is worse than a refusal.
+
 > **Decision-policy tier — RETIRED (#984).** The cross-cutting decision model (`func (Policy)` constructs, `@tier` / `@audited` annotations, `engine.EvaluatePolicy`) is fully removed. Caller-based boolean checks (admin / owner / permission) are authored as **context-specs** and named as a bare filter conjunct; the only live `policy` surface is provider selection.
+
+### Rules
+
+A **rule** maps a call's metadata to a policy. It is the half a policy cannot express: a chain says *where* to look and can never say *which calls* it is for. Declarative, empty-bodied, in `dsl/rules/rules.memql`.
+
+```memql
+/// An operator's agent reply reasons.
+@when(prompt="agentReply", role="operator")
+@level("reasoning")
+@policy("localFirst")
+@precedence(60)
+@onUnavailable("degrade")
+rule operatorReasoning { }
+```
+
+`@when` takes a **closed key set**. Every key is optional and all present keys are ANDed; a rule with no keys at all matches every call.
+
+| Key | Matches |
+|---|---|
+| `level` | the level the call declared |
+| `modality` | the derived modality |
+| `prompt` | the DSL prompt name |
+| `role` | the **agent's** role slug |
+| `actorRole` | the **calling person's** cluster role |
+| `tag` | a call tag, such as `background` |
+| `touches` | a concept-id prefix the call's footprint matches (`startsWith`) |
+
+`role` and `actorRole` are separate keys on purpose: an operator watching a non-operator agent work is not an operator turn, and a rule that could not tell them apart would route on who is watching rather than on what is acting. A key written empty is a condition matching only an empty value; an **absent** key is no condition at all.
+
+The remaining annotations:
+
+- **`@policy`** — required; the chain this rule selects.
+- **`@level`** — optional; overrides the level the call declared. Both the declared and the effective level land on the decision record.
+- **`@precedence(N)`** — highest first. **A tie between two rules of the same locked-ness is a load error**, naming both: a tie is resolved by nothing, so the rule that wins would differ between replicas.
+- **`@onUnavailable("degrade" | "park")`** — what happens when the chain is exhausted at the level. Unset means degrade. `degrade` walks the chain again one level down (`reasoning` → `strong` → `fast`) and records that it did; `park` returns the refusal with the door report. `fast` is the floor, and **`embeddings` never degrades** — a degraded embedder answers in a different vector space, so the vector does not belong in the index it is about to be written to.
+- **`@exclude("fleet:<modelId>")`** — repeatable; removes one concrete model from this rule's resolution.
+- **`@locked`** — accepted **only in the embedded tree**. A locked rule evaluates before every unlocked one regardless of precedence, is re-read from the embedded tree on every boot so nothing done to it at runtime survives a restart, and its name cannot be taken by a runtime-authored rule.
+
+The first matching rule wins. **A call that matches no rule is impossible**: the shipped `default` rule states no conditions and cannot be removed, which is why nothing downstream has to handle that case.
+
+Operator-facing detail — the six shipped rules, how to add your own, and how to read what the router decided — is in [AI routing](../operate/ai-routing.md).
 
 ### Prompts
 
 AI prompt templates with input schemas and default providers live in `dsl/<namespace>/prompts.memql`. Struct form — the body is a bare input-schema field list:
 
 ```memql
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/planStep.tmpl")
 /// Choose the next step for an in-flight run
@@ -824,6 +905,8 @@ prompt planStep {
 ```
 
 Logic prompts (routing / suggest / classification) use the structured-output path (`ChatStructuredProvider.CallChatStructured`); prose prompts (agent replies to users) use regular chat.
+
+**`@level` is required** (see [Levels](#levels) above): a prompt with no level refuses to load, because a guessed level is a routing decision nobody wrote. **`@defaultProvider` survives as an explicit PIN** — it rides the request's explicit-provider field and still wins over every rule — which is why the rule that it may not name a policy still holds.
 
 **The body must cover the template, and `@defaultProvider` must name a real provider** (memql#3616). The input schema compiles with `additionalProperties: false` and is validated **before** the template renders, so a variable the `.tmpl` reads but the body omits is a field no caller can ever supply — the load refuses rather than registering a schema that cannot serve its own template. Likewise `@defaultProvider` must name a declared `provider`, never a `policy` slug: a dangling name does not error at call time, it silently falls through to the default provider. A `@disabled` provider still counts as declared. See [authoring rule 28](authoring-rules.md).
 
@@ -2085,6 +2168,21 @@ shape artifact artifactCard { row.id  title }
 
 @trigger(event="node.created", concept="v1:library:file", partition="*")
 automation indexArtifact { step run { logic indexArtifact ( event ) } }
+
+@primary("fleet:strongest")
+@fallback("app:*")
+@fallback("federation:cheapest")
+policy localFirst { }
+
+@when(level="reasoning")
+@policy("federationStrongest")
+@precedence(100)
+@onUnavailable("park")
+rule reasoningParks { }
+
+@level("fast")
+@templateFile("prompts/docSummary.tmpl")
+prompt docSummary { title string  content string! }
 ```
 
 ### Example Patterns

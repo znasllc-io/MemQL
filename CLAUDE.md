@@ -124,7 +124,8 @@ without one is normal.
 |-----------|---------|-----------|
 | `dsl/<ns>/*.memql` | Automations, queries, mutations, specs, tools, prompts, shapes per namespace | — |
 | `dsl/providers/providers.memql` | AI provider configurations | — |
-| `dsl/policies/policies.memql` | AI provider-selection policies | — |
+| `dsl/policies/policies.memql` | AI provider-selection chains (three, all paid-last) | — |
+| `dsl/rules/rules.memql` | The rules that map a call's metadata to a policy (six, all `@locked`) | — |
 | `integrations/` | External service integrations + DSL capabilities (Go) | [→](integrations/CLAUDE.md) |
 | `clients/` | Surfaces built ON the platform (SPAs, landing pages, apps) | [→](clients/README.md) |
 | `clients/os/` | MemQL OS -- the desktop shell, served at `os.<domain>`. **Read its README before adding an app or a live surface**: the live-collection contract (a collection does nothing until `retain()`), which concepts are actually broadcast, and the arrival-cue rule (a heartbeat is not news) are all rules a new surface gets wrong by default | [→](clients/os/README.md) |
@@ -783,8 +784,15 @@ Everything below lives on `MemqlService.Stream`; cross-node proxying rides
 All AI operations go through a pluggable provider system: unified interfaces
 (`ChatAIProvider`, `VisionAIProvider`, `TTSAIProvider`, `ChatStreamProvider`)
 over OpenAI (chat, vision, TTS, STT) and Anthropic (chat, vision). Provider
-records live in `dsl/providers/providers.memql`; selection is the configured
-default, or per-request via the `provider` parameter.
+records live in `dsl/providers/providers.memql`.
+
+**Selection is not per-call any more: a call declares a LEVEL and one seam
+decides** (epic memql#5127). The three nouns -- level, policy, rule -- and the
+build gate that keeps the seam single are in [Levels, policies and
+rules](#levels-policies-and-rules) below; the operator doc is
+[ai-routing.md](docs/public/operate/ai-routing.md). A prompt's
+`@defaultProvider` survives as an EXPLICIT PIN that still wins over every rule,
+which is why it is still refused at load when it names a policy.
 
 **Both vendor credentials are workload identity federation, everywhere, and
 there is no manually entered API key left in the product** (epic memql#4333 for
@@ -1238,16 +1246,22 @@ Concepts                    schemas + reserved intrinsics; the base of everythin
         '-- Prompts         template + input schema
 
 Queries + Prompts --> Automations  (event -> side-effect)  <-- Tools (AI-callable)
-                          '-- Policies  (provider selection)
+
+Prompts (@level) --> Rules  (call metadata -> policy)
+                       '-- Policies  (an ordered chain of doors)
 ```
 
-Two rules the diagram does not show: a `trait` is the one deliberately-unbound
-row predicate, and **policies are provider selection only** -- caller-based
-authz / feature-gating decisions are **specs**.
+Three rules the diagram does not show: a `trait` is the one deliberately-unbound
+row predicate; **policies are provider selection only** -- caller-based authz /
+feature-gating decisions are **specs**; and a **rule** is the half a policy
+cannot express, because a chain says WHERE to look and can never say WHICH CALLS
+it is for.
 
 **Construct files live under `dsl/<namespace>/<construct>s.memql`** -- one
 consolidated file per construct kind per namespace; policies are consolidated in
-`dsl/policies/policies.memql`.
+`dsl/policies/policies.memql` and rules in `dsl/rules/rules.memql`. Both domains
+are CORE, so a pack cannot mount them and a runtime mount colliding with them is
+skipped.
 
 ## Argument resolution
 
@@ -1321,19 +1335,95 @@ see one in an old diff:
 Only `dsl/_reference/*.memql` still shows these, deliberately, as
 don't-do-this skeletons.
 
-## Policies
+## Levels, policies and rules
 
-The live `policy` construct is an **AI provider-selection record**:
-empty-bodied, annotated with `@primary` / `@fallback` / `@maxLatencyMs` /
-`@preferredRole`, consolidated in `dsl/policies/policies.memql` and consumed by
-the AI Router to pick chat/embedding providers.
+**Three nouns decide every model call, and a call site names none of them but
+the first** (epic memql#5127). Full operator doc:
+[ai-routing.md](docs/public/operate/ai-routing.md).
+
+- A **level** is how much intelligence a call needs: a CLOSED set of four,
+  `fast`, `strong`, `reasoning`, `embeddings`. `@level` is REQUIRED on every
+  `prompt` -- in the embedded tree and in a bundle mounted at `MEMQL_DSL_PATH`
+  alike -- and a Go call site with no prompt names its level in the request.
+  **Modality is never declared**; it is derived from the call and
+  interface-checked. A model name at a call site is a release every time the
+  fleet changes, which is the whole reason the level exists.
+- A **policy** is an ordered chain of places to look. Entries are a closed
+  grammar: a provider name; `fleet:strongest` / `fleet:fastest` /
+  `fleet:<modelId>`; `app:*` / `app:<id>`; `federation:cheapest` /
+  `federation:strongest` / `federation:<providerName>`; `policy:<name>`.
+  **`fleet:*` is retired** and refuses load with the new spelling in the
+  message. `policy:<name>` is expanded at load and a cycle refuses load naming
+  the loop, so the router only ever walks a chain with no `policy:` left in it.
+  Three ship: `localFirst`, `localOnly`, `federationStrongest`.
+- A **rule** maps a call's metadata to a policy, in explicit precedence order,
+  first match wins. `@when` takes a closed key set (`level`, `modality`,
+  `prompt`, `role`, `actorRole`, `tag`, `touches`), every key optional and all
+  present keys ANDed. Six ship, all `@locked`.
 
 ```memql
-@primary("streamClaudeSonnet")
-@fallback("stream54Pro")
-@description("Default chat policy for non-operator agents.")
-policy balancedChat { }
+@when(prompt="agentReply", role="operator")
+@level("reasoning")
+@policy("localFirst")
+@precedence(60)
+@onUnavailable("degrade")
+@locked
+rule operatorReasoning { }
 ```
+
+**Four things about this are load-bearing:**
+
+- **`role` and `actorRole` are different questions.** An operator watching a
+  non-operator agent work is not an operator turn; collapsing them routes on who
+  is watching rather than on what is acting. An ABSENT `@when` key is no
+  condition; a key written EMPTY is a condition matching only an empty value.
+- **A precedence tie is a LOAD ERROR**, naming both rules and both files. A tie
+  is resolved by nothing, so the rule that wins would differ between replicas.
+- **`@locked` means three things, all enforced**: the rule evaluates before every
+  unlocked one regardless of precedence; it is re-read from the embedded tree on
+  every boot, so nothing done to it at runtime survives a restart; and no
+  runtime-authored rule may carry the annotation or take a shipped name. Both
+  registries now REFUSE a duplicate name across the whole corpus rather than
+  last-wins -- which is what let a bundle silently replace a shipped policy.
+- **`embeddings` never degrades**, at any `@onUnavailable` setting. A degraded
+  embedder answers in a DIFFERENT VECTOR SPACE, so the vector does not belong in
+  the index it is about to be written to and every later similarity read comes
+  back plausible and wrong. `fast` is the floor; `reasoning` walks down to
+  `strong` walks down to `fast`. No degradation is silent: `servedLevel` and
+  `degraded` are on every decision record.
+
+**`@maxLatencyMs`, `@maxTimeToFirstTokenMs` and `@preferredRole` are REMOVED**
+from the grammar, the AST, the converter and the catalog projection, and
+`DefaultForRole` is deleted. All three were parsed, stored, projected and
+consumed by no routing decision.
+
+**One seam, and it is enforced by a build gate.** Every call to a model builds a
+`core/airoute.ResolveRequest` and takes what the router returns; a Go AST gate
+fails the build on a direct provider-registry accessor (`Entry` / `ProviderEntry`
+/ `ChatProvider` / `DefaultChatProvider` / `StructuredChatProvider` /
+`ChatStructuredProvider` / `SuggestChatProvider` / `ChatStreamProvider` /
+`VisionProvider` / `EmbeddingProvider`) outside `component/router` and the
+registry itself. **The vocabulary lives in `core/airoute`, not beside the
+router**: `component/router` is its own module and imports `component/memql`,
+and every re-pointed call site lives inside `component/memql`, so declaring the
+request beside the router would be an import cycle.
+
+**Every resolution is a decision record.** `v1:router:call` carries `level`,
+`requestedLevel`, `servedLevel`, `degraded`, `rule`, `policy`, `door`,
+`considered`, `touches`, `minContextTokens` and `machineOwnerUserId`, read
+through `routerDecisionsRecent` and never broadcast (the volume argument that
+excludes `v1:worker:invocation`). `considered` is KEPT ON SUCCESS as well as on
+a refusal: a rule is falsifiable only if the decisions it made can be read, and
+what a chain did not pick is half of that.
+
+**Mechanism stays in Go, and that is the boundary to defend.** A kill switch a
+policy can author around is not a kill switch. Door classification, provider
+availability, the refusal codes, `ai_guard.go` / `ai_guard_fleet.go` and
+`component/work/budget.go` are not authorable and no rule reaches them. The two
+halves meet at exactly one place, unchanged: **the federation hop asks the cost
+ceiling before it is taken, and only when a local door preceded it in the
+chain** -- a chain that starts at a vendor is a decision somebody made rather
+than a fallback.
 
 **There is no decision-policy tier.** Auth / feature-gating / vendor decisions
 live in Go (`component/safety` ships the risk×scope decision matrix) and in
