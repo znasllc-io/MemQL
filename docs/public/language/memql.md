@@ -776,7 +776,10 @@ Base providers (vendor-level auth + type) use the same form:
 @type("Anthropic")
 provider anthropic {
   auth {
-    apiKey  env("MEMQL_AI_ANTHROPIC_API_KEY")
+    federationRuleId   env("MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID")
+    organizationId     env("MEMQL_AI_ANTHROPIC_ORGANIZATION_ID")
+    serviceAccountId   env("MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID")
+    identityTokenFile  env("MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE")
   }
 }
 ```

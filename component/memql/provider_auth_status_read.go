@@ -27,7 +27,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 )
@@ -111,61 +110,25 @@ func providerAuthSourceOf(entry *ProviderConfigEntry) ProviderAuthSource {
 	if entry == nil {
 		return AuthSourceUnresolved
 	}
-	// `missing()` empty is the complete set -- the same predicate
-	// anthropicCredential branches on, read through the same helper rather
-	// than re-derived, so "what counts as federated" has one definition. Note
-	// the workspace id is deliberately outside that required set.
+	// `missing()` empty is the complete set -- the same predicate each
+	// vendor's credential switch branches on, read through the same helper
+	// rather than re-derived, so "what counts as federated" has one
+	// definition per vendor. Anthropic's workspace id is deliberately outside
+	// its required set.
 	if fed := anthropicFederationFrom(entry.Config.Auth); len(fed.missing()) == 0 && len(fed.present()) > 0 {
 		return AuthSourceFederation
 	}
-	// The placeholder is what names the env key; a literal value in the DSL
-	// (tests, and nothing shipped) has no tier and reads as env-equivalent.
-	for _, key := range []string{authKeyAPIKey} {
-		raw, ok := entry.Config.Auth[key]
-		if !ok {
-			continue
-		}
-		trimmed := strings.TrimSpace(raw)
-		if !strings.HasPrefix(trimmed, "${") || !strings.HasSuffix(trimmed, "}") {
-			// Already substituted (boot resolves in place) or a literal. Boot
-			// only substitutes what it resolved, so a non-empty value here is
-			// a credential that came from SOMEWHERE; env is the honest floor
-			// rather than a guess at which row supplied it.
-			if trimmed == "" {
-				return AuthSourceUnresolved
-			}
-			envKey := providerAuthEnvKeyFor(entry)
-			if envKey == "" {
-				return AuthSourceEnv
-			}
-			_, source, ok := resolveAuthValueSourced(envKey)
-			if !ok {
-				return AuthSourceEnv
-			}
-			return source
-		}
-		_, source, _ := resolveAuthValueSourced(strings.TrimSpace(trimmed[2 : len(trimmed)-1]))
-		return source
+	if fed := openaiFederationFrom(entry.Config.Auth); len(fed.missing()) == 0 && len(fed.present()) > 0 {
+		return AuthSourceFederation
 	}
+	// THERE IS NO KEY TIER LEFT (epic memql#5088). This function used to fall
+	// through to reading auth.apiKey and reporting which of globalSecret /
+	// globalVariable / env supplied it. No provider declares an apiKey any
+	// more, so the fall-through would have been an unreachable branch that
+	// still looked like a supported answer -- and the one thing a status
+	// reader must never do is report a credential path the engine cannot take.
+	// Federation, or nothing.
 	return AuthSourceUnresolved
-}
-
-// providerAuthEnvKeyFor names the env key a provider's API key is seeded
-// under, for an entry whose auth map boot has already substituted in place.
-//
-// Derived from the VENDOR rather than remembered, because the substituted map
-// no longer holds the placeholder that named it. Only the two supported
-// vendors have an answer; anything else reports none and the caller falls back
-// to the honest floor.
-func providerAuthEnvKeyFor(entry *ProviderConfigEntry) string {
-	switch {
-	case anthropicProviderTypes[strings.ToLower(entry.Config.Type)]:
-		return envAnthropicAPIKey
-	case strings.HasPrefix(strings.ToLower(entry.Config.Type), "openai"):
-		return "MEMQL_AI_OPENAI_API_KEY"
-	default:
-		return ""
-	}
 }
 
 // providerUnavailableReason is the operator-facing sentence for a provider

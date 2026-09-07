@@ -445,7 +445,7 @@ func builtins() []Builtin {
 			Category:  CategoryBuiltinRegistry,
 			Signature: `secret(name string)`,
 			Doc:       "Resolve a partition-scoped encrypted secret from v1:platform:partitionSecret. Falls back to v1:platform:globalSecret (global) if the partition lookup misses. Returns the decrypted plaintext; requires MEMQL_MASTER_KEY. Callers must never log the result.",
-			Params:    []BuiltinParam{{Name: "name", Doc: "Secret name (e.g., \"MEMQL_OPENAI_API_KEY\")."}},
+			Params:    []BuiltinParam{{Name: "name", Doc: "Secret name (e.g., \"MEMQL_OPENAI_PROJECT_ID\")."}},
 		},
 		{
 			Name:      "systemSecret",

@@ -23,7 +23,7 @@ const realtimeBaseURL = "wss://api.openai.com/v1/realtime"
 // speech-to-text without bundling an LLM -- the fastest streaming transcription
 // available from OpenAI.
 type ASRClient struct {
-	apiKey string
+	bearer func(ctx context.Context) (string, error)
 	model  string
 	logger *slog.Logger
 }
@@ -38,7 +38,7 @@ func NewASRClient(cfg Config) (*ASRClient, error) {
 	logger.Info("openai asr: initialized", "model", cfg.ASRModel)
 
 	return &ASRClient{
-		apiKey: cfg.APIKey,
+		bearer: cfg.Bearer,
 		model:  cfg.ASRModel,
 		logger: logger,
 	}, nil
@@ -75,7 +75,14 @@ func (c *ASRClient) StartStream(ctx context.Context, config audio.ASRConfig) (au
 	url := realtimeBaseURL + "?intent=transcription"
 
 	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+c.apiKey)
+	// Resolved PER DIAL, not captured at construction: a reconnection an hour
+	// later needs the bearer that is current then, not the one that opened the
+	// first connection.
+	token, err := c.bearer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("openai asr: no bearer for the transcription websocket: %w", err)
+	}
+	headers.Set("Authorization", "Bearer "+token)
 
 	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		HTTPHeader: headers,

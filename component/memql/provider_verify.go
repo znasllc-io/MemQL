@@ -162,10 +162,17 @@ func (e *MemQLEngine) evaluateProviderVerifyExpression(ctx context.Context, args
 
 // verifyProviderCredential performs the vendor call for one entry.
 //
-// ANTHROPIC ONLY, TODAY, and it says so rather than reporting a pass it did
-// not observe. Reusing `CheckProviderAuth`'s machinery is impossible here: it
+// BOTH FEDERATING VENDORS NOW (epic memql#5088). It was Anthropic only, and
+// the OpenAI arm below used to be an honest refusal -- "a well-formed key and
+// a reachable base URL is not the same as an accepted one". That refusal is
+// obsolete for a better reason than it being inconvenient: an OpenAI provider
+// that constructs now has performed, or is about to perform, a token exchange
+// OpenAI itself had to accept, and models.list is what turns "about to" into
+// observed.
+//
+// Reusing `CheckProviderAuth`'s machinery is still impossible here: it
 // rebuilds the registry from scratch WITHOUT the engine, so it consults only
-// the process environment and would report a key seeded through the portal as
+// the process environment and would report ids applied through Settings as
 // absent -- which is the exact state this button exists to confirm. This runs
 // against the LIVE entry the running node resolved.
 func verifyProviderCredential(ctx context.Context, entry *ProviderConfigEntry) (int, error) {
@@ -183,9 +190,30 @@ func verifyProviderCredential(ctx context.Context, entry *ProviderConfigEntry) (
 		}
 		return len(page.Data), nil
 	}
-	// Saying so beats a silent true. An OpenAI provider that constructed has
-	// a well-formed key and a reachable base URL, which is not the same as an
-	// accepted one, and the page must not claim otherwise.
+
+	if isOpenAIProviderType(entry.Config.Type) {
+		client, ok := openAIClientOf(entry.Client)
+		if !ok {
+			// A provider TYPE this function recognises whose entry carries no
+			// client it can reach. Saying so beats a silent true: several
+			// OpenAI types are placeholders with no HTTP client behind them,
+			// and reporting those as verified would be the page claiming an
+			// observation nobody made.
+			return 0, fmt.Errorf(
+				"provider type %q constructed without an OpenAI client, so no live call could be made; "+
+					"the credential resolved, which is not the same as the vendor accepting it",
+				entry.Config.Type)
+		}
+		page, err := client.Models.List(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if page == nil {
+			return 0, nil
+		}
+		return len(page.Data), nil
+	}
+
 	return 0, fmt.Errorf(
 		"no live verification is implemented for provider type %q; "+
 			"the credential resolved and the client constructed, which is not the same as the vendor accepting it",

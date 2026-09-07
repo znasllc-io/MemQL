@@ -28,8 +28,8 @@ func applySubcommandEnv(prefix string) error {
 	// Epic 7.3 (memql#2106): bridge any pre-7.3 LEGACY env names the Secret or
 	// .env still carries onto their new MEMQL_ names (set-if-absent), mirroring
 	// main(). Without it a subcommand sees only the legacy names: the voice-agent
-	// subcommand fail-fast'd on the required MEMQL_OPENAI_API_KEY on a cluster
-	// still carrying the legacy OPENAI_API_KEY. nil logger:
+	// subcommand fail-fast'd on the required MEMQL_OPENAI_PROJECT_ID on a cluster
+	// still carrying the legacy OPENAI_PROJECT_ID. nil logger:
 	// this path logs to stderr via Fprintf, not slog, so the bridge runs silently.
 	envregistry.ApplyLegacyEnvAliases(nil)
 	// Mirrors main(): `memql env` must report the environment a node actually

@@ -38,18 +38,45 @@ import (
 // nothing (which would read as "no exchanges are happening").
 const federationTokenPath = config.TokenEndpoint
 
-// isFederationExchange reports whether a request is the federation token
-// exchange.
+// openaiFederationTokenPath is OpenAI's RFC 8693 exchange path. Unlike
+// Anthropic's it is not exported by an SDK -- the engine performs this exchange
+// itself (design D3) -- so it is written here beside the matcher that reads it.
+const openaiFederationTokenPath = "/oauth/token"
+
+// federationExchangeVendor reports which vendor's token exchange a request is,
+// or "" when it is not one.
 //
 // Matched on METHOD + PATH, and deliberately not on host. The host at the
-// moment of the check is whatever base URL the client was built with, which
-// in tests is a loopback httptest server; pinning api.anthropic.com would
-// make the observer untestable and would silently stop observing anything
-// against a base-URL override. No other call in the engine posts to
-// /v1/oauth/token, so the path alone is unambiguous.
+// moment of the check is whatever base URL the client was built with, which in
+// tests is a loopback httptest server; pinning api.anthropic.com or
+// auth.openai.com would make the observer untestable and would silently stop
+// observing anything against a base-URL override.
+//
+// THE ORDER OF THESE TWO CHECKS IS LOAD-BEARING. Anthropic's path is
+// /v1/oauth/token and OpenAI's is /oauth/token, so the OpenAI suffix matches
+// BOTH. Testing Anthropic's longer, more specific path first is what keeps
+// every Anthropic exchange from being attributed to OpenAI -- which would not
+// fail anything, it would just quietly move one vendor's entire rate onto the
+// other's series and leave a permanent zero where a real number belongs.
+func federationExchangeVendor(method, urlPath string) string {
+	if !strings.EqualFold(method, http.MethodPost) {
+		return ""
+	}
+	trimmed := strings.TrimSuffix(urlPath, "/")
+	switch {
+	case strings.HasSuffix(trimmed, federationTokenPath):
+		return metrics.FederationVendorAnthropic
+	case strings.HasSuffix(trimmed, openaiFederationTokenPath):
+		return metrics.FederationVendorOpenAI
+	default:
+		return ""
+	}
+}
+
+// isFederationExchange reports whether a request is a federation token
+// exchange for either vendor.
 func isFederationExchange(method, urlPath string) bool {
-	return strings.EqualFold(method, http.MethodPost) &&
-		strings.HasSuffix(strings.TrimSuffix(urlPath, "/"), federationTokenPath)
+	return federationExchangeVendor(method, urlPath) != ""
 }
 
 // federationExchangeRecord is the last exchange this process observed. It
@@ -59,8 +86,13 @@ func isFederationExchange(method, urlPath string) bool {
 // reading that response, so recording it here costs nothing and avoids
 // re-implementing the exchange to learn something the SDK just learned.
 type federationExchangeRecord struct {
-	At        time.Time
-	Outcome   string
+	At time.Time
+	// Vendor is which vendor's exchange this was -- "anthropic" or "openai".
+	// With two federating vendors, a record that does not say which one it
+	// describes is a record `provider-auth check --provider openai` could
+	// answer with Anthropic's last exchange.
+	Vendor  string
+	Outcome string
 	Status    int
 	ExpiresIn time.Duration
 	// ExpiresAt is At+ExpiresIn, precomputed so a caller printing it does not
@@ -109,18 +141,21 @@ const maxFederationBodyNote = 512
 // bad trade here -- this call is the cluster's access to Claude.
 func observeFederationExchange(base http.RoundTripper, req *http.Request) (*http.Response, error) {
 	started := time.Now()
+	vendor := federationExchangeVendor(req.Method, req.URL.Path)
 	resp, err := base.RoundTrip(req)
 	if err != nil {
-		metrics.AIFederationExchange(metrics.FederationExchangeError)
+		metrics.AIFederationExchange(vendor, metrics.FederationExchangeError)
 		recordFederationExchange(federationExchangeRecord{
+			Vendor:  vendor,
 			At:      started,
 			Outcome: metrics.FederationExchangeError,
 			Detail:  err.Error(),
 		})
-		slog.Warn("anthropic federation: token exchange did not complete",
+		slog.Warn("federation: token exchange did not complete",
+			"vendor", vendor,
 			"endpoint", req.URL.Redacted(),
 			"err", err,
-			"runbook", "docs/public/operate/auth/anthropic-federation.md")
+			"runbook", federationRunbookFor(vendor))
 		return nil, err
 	}
 
@@ -129,8 +164,9 @@ func observeFederationExchange(base http.RoundTripper, req *http.Request) (*http
 	// on the credential path, taking the process down over an observation.
 	// Hand the response back unread rather than that.
 	if resp.Body == nil {
-		metrics.AIFederationExchange(metrics.FederationExchangeError)
+		metrics.AIFederationExchange(vendor, metrics.FederationExchangeError)
 		recordFederationExchange(federationExchangeRecord{
+			Vendor:  vendor,
 			At:      started,
 			Outcome: metrics.FederationExchangeError,
 			Status:  resp.StatusCode,
@@ -144,21 +180,23 @@ func observeFederationExchange(base http.RoundTripper, req *http.Request) (*http
 	if readErr != nil {
 		// The body is gone and cannot be handed on; report it as the transport
 		// failure it now is rather than returning a response with no body.
-		metrics.AIFederationExchange(metrics.FederationExchangeError)
+		metrics.AIFederationExchange(vendor, metrics.FederationExchangeError)
 		recordFederationExchange(federationExchangeRecord{
+			Vendor:  vendor,
 			At:      started,
 			Outcome: metrics.FederationExchangeError,
 			Status:  resp.StatusCode,
 			Detail:  readErr.Error(),
 		})
-		slog.Warn("anthropic federation: could not read the token exchange response",
+		slog.Warn("federation: could not read the token exchange response",
+			"vendor", vendor,
 			"status", resp.StatusCode, "err", readErr)
 		return nil, readErr
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
 
-	rec := federationExchangeRecord{At: started, Status: resp.StatusCode}
+	rec := federationExchangeRecord{Vendor: vendor, At: started, Status: resp.StatusCode}
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		rec.Outcome = metrics.FederationExchangeOK
@@ -179,22 +217,24 @@ func observeFederationExchange(base http.RoundTripper, req *http.Request) (*http
 		// the workspace -- and its reason is in the body.
 		rec.Outcome = metrics.FederationExchangeDenied
 		rec.Detail = truncateForLog(string(body), maxFederationBodyNote)
-		slog.Warn("anthropic federation: token exchange DENIED -- the cluster is running on a credential Anthropic will not renew",
+		slog.Warn("federation: token exchange DENIED -- the cluster is running on a credential the vendor will not renew",
+			"vendor", vendor,
 			"status", resp.StatusCode,
 			"endpoint", req.URL.Redacted(),
-			"anthropicError", rec.Detail,
+			"vendorError", rec.Detail,
 			"requestId", resp.Header.Get("Request-Id"),
-			"hint", "the same reason appears in the Console's Workload identity -> authentication events tab",
-			"runbook", "docs/public/operate/auth/anthropic-federation.md")
+			"hint", "the same reason appears in that vendor's console -- Anthropic: Workload identity -> authentication events; OpenAI: the identity provider's activity",
+			"runbook", federationRunbookFor(vendor))
 	default:
 		rec.Outcome = metrics.FederationExchangeError
 		rec.Detail = truncateForLog(string(body), maxFederationBodyNote)
-		slog.Warn("anthropic federation: token exchange faulted",
+		slog.Warn("federation: token exchange faulted",
+			"vendor", vendor,
 			"status", resp.StatusCode,
 			"endpoint", req.URL.Redacted(),
 			"body", rec.Detail)
 	}
-	metrics.AIFederationExchange(rec.Outcome)
+	metrics.AIFederationExchange(vendor, rec.Outcome)
 	recordFederationExchange(rec)
 	return resp, nil
 }
@@ -205,4 +245,14 @@ func truncateForLog(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// federationRunbookFor names the runbook for the vendor whose exchange failed.
+// A log line that sends an operator to the wrong vendor's runbook is worse
+// than one that sends them to none.
+func federationRunbookFor(vendor string) string {
+	if vendor == metrics.FederationVendorOpenAI {
+		return "docs/public/operate/auth/openai-federation.md"
+	}
+	return "docs/public/operate/auth/anthropic-federation.md"
 }

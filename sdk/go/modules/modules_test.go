@@ -134,7 +134,7 @@ func TestGetCarriesEnvSurface(t *testing.T) {
 				ModuleDetailResult: &memqlv1.ModuleDetailResult{
 					Module: &memqlv1.ModuleInfo{Kind: "component", Name: "ai", State: "built_in"},
 					EnvVars: []*memqlv1.ModuleEnvVar{
-						{Name: "MEMQL_OPENAI_API_KEY", Secret: true, Set: true},
+						{Name: "MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID", Secret: false, Set: true},
 						{Name: "MEMQL_OBSERVE_LEVEL", Secret: false, Set: true, Value: "count"},
 					},
 				},

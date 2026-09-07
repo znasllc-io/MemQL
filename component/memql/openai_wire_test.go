@@ -2,6 +2,7 @@ package memql
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -112,9 +113,23 @@ func newRecordingOpenAIServer(t *testing.T) (*httptest.Server, *openAIRecorder) 
 				entry.Body = body
 			}
 		}
-		rec.record(entry)
+		if !strings.HasSuffix(req.URL.Path, "/oauth/token") {
+			rec.record(entry)
+		}
 
 		switch {
+		case strings.HasSuffix(req.URL.Path, "/oauth/token"):
+			// The federation token exchange. Answered so the providers can be
+			// built, and deliberately NOT recorded: it is a credential
+			// mechanism, not a call site, and the fixtures in this file are
+			// the record of what the ENGINE asks OpenAI to do.
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "sk-wire-test-federated",
+				"expires_in":   3600,
+				"token_type":   "Bearer",
+			})
+			return
 		case strings.HasSuffix(req.URL.Path, "/chat/completions"):
 			streaming := false
 			if entry.Body != nil {
@@ -392,10 +407,18 @@ const (
 )
 
 // wireTestConfig is the one place the wire tests say how an OpenAI provider is
-// credentialled. It is a single function on purpose: the credential changes in
-// this same epic (a static key becomes workload identity federation), and when
-// it does, exactly this function changes and every fixture stays byte-identical
-// -- which is the proof that the credential switch did not move the wire.
+// credentialled.
+//
+// IT CHANGED ONCE, AND THAT IS THE POINT. It carried `apiKey: "sk-wire-test"`
+// when these fixtures were recorded against the community SDK. It now
+// federates: three ids, a projected token file, and the exchange pointed at
+// the recording server. EVERY FIXTURE IN testdata/openai IS BYTE-IDENTICAL
+// ACROSS THAT CHANGE, which is the proof that swapping a static key for
+// workload identity federation did not move the wire -- the requests the
+// engine makes to OpenAI are the same requests, authenticated differently.
+//
+// If a future credential change needs more than this function edited, that is
+// the signal the change is not credential-only.
 func wireTestConfig(baseURL, model string, params map[string]any) ProviderConfig {
 	if params == nil {
 		params = map[string]any{}
@@ -408,11 +431,50 @@ func wireTestConfig(baseURL, model string, params map[string]any) ProviderConfig
 		Type:  "OpenAI",
 		Model: model,
 		Auth: map[string]string{
-			"apiKey":  "sk-wire-test",
-			"baseURL": baseURL + "/v1",
+			authKeyIdentityProviderID:     "idp_wire_test",
+			authKeyOpenAIServiceAccountID: "svc_wire_test",
+			authKeyOpenAITokenFile:        wireTestIdentityTokenFile,
+			authKeyOpenAITokenEndpoint:    baseURL + "/oauth/token",
+			"baseURL":                     baseURL + "/v1",
 		},
 		Params: params,
 	}
+}
+
+// wireTestIdentityTokenFile is written once per test binary, because a
+// ProviderConfig is a value with no place to hang a *testing.T.
+var wireTestIdentityTokenFile = func() string {
+	dir, err := os.MkdirTemp("", "memql-wire-identity")
+	if err != nil {
+		panic("wire tests: create identity token dir: " + err.Error())
+	}
+	path := filepath.Join(dir, "token")
+	claims := base64.RawURLEncoding.EncodeToString([]byte(
+		`{"aud":["` + openaiAudience + `"],"sub":"system:serviceaccount:memql:memql-engine","exp":4102444800}`))
+	token := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`)) +
+		"." + claims + "." + base64.RawURLEncoding.EncodeToString([]byte("signature-not-verified-locally"))
+	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
+		panic("wire tests: write identity token: " + err.Error())
+	}
+	return path
+}()
+
+
+// wireTestPrompt returns a prompt unique to the calling test.
+//
+// THE LOOP GUARD IS REAL AND IT IS IN THIS PATH. guardedHTTPClient fingerprints
+// the request body and blocks the same one repeated within its window, so a
+// suite that sends "hello" from eight tests trips it on the ninth and fails
+// with a 429 that looks like a provider limit. Varying the prompt is the fix
+// rather than disabling the guard: its presence on this transport is part of
+// what these tests are for, and switching it off to make them pass would
+// remove the evidence.
+//
+// The fixtures that assert a body use their own literal prompts and do not
+// call this.
+func wireTestPrompt(t *testing.T) string {
+	t.Helper()
+	return "hello from " + t.Name()
 }
 
 // --- the tests -------------------------------------------------------------
@@ -623,7 +685,8 @@ func TestOpenAIWireVision(t *testing.T) {
 func TestOpenAIWireEmbeddings(t *testing.T) {
 	srv, rec := newRecordingOpenAIServer(t)
 
-	client := NewOpenAIEmbeddingClient("sk-wire-test", "text-embedding-3-small", 1536)
+	client := NewOpenAIEmbeddingClient("text-embedding-3-small", 1536)
+	client.bearer = &staticBearer{token: "sk-wire-test-federated"}
 	client.baseURL = srv.URL + "/v1"
 
 	vectors, err := client.EmbedBatch(context.Background(), []string{"first", "second"})
@@ -649,7 +712,7 @@ func TestOpenAIWireSpeech(t *testing.T) {
 		// The endpoint override that recorded this fixture before the migration
 		// is gone: speech is an SDK call now, so the base URL is the seam, the
 		// same one every other OpenAI call site in this file uses.
-		Auth:   map[string]string{"apiKey": "sk-wire-test", "baseURL": srv.URL + "/v1"},
+		Auth:   wireTestConfig(srv.URL, "", nil).Auth,
 		Params: map[string]any{"voice": "nova", "speed": 1.0, "format": "pcm"},
 	})
 	if err != nil {
@@ -685,7 +748,7 @@ func TestOpenAIWireProjectHeader(t *testing.T) {
 		srv, rec := newRecordingOpenAIServer(t)
 		provider := wireTestChatProvider(t, srv.URL, "", nil)
 		if _, err := provider.CallChat(context.Background(),
-			[]common.ChatMessage{{Role: "user", Content: "hello"}}); err != nil {
+			[]common.ChatMessage{{Role: "user", Content: wireTestPrompt(t)}}); err != nil {
 			t.Fatalf("CallChat: %v", err)
 		}
 		if got := rec.Last(t).Header.Get("OpenAI-Project"); got != "" {
@@ -702,7 +765,7 @@ func TestOpenAIWireProjectHeader(t *testing.T) {
 			t.Fatalf("newOpenAIProvider: %v", err)
 		}
 		if _, err := provider.(common.ChatAIProvider).CallChat(context.Background(),
-			[]common.ChatMessage{{Role: "user", Content: "hello"}}); err != nil {
+			[]common.ChatMessage{{Role: "user", Content: wireTestPrompt(t)}}); err != nil {
 			t.Fatalf("CallChat: %v", err)
 		}
 		if got := rec.Last(t).Header.Get("OpenAI-Project"); got != "proj_recorded" {
@@ -793,7 +856,7 @@ func TestOpenAIWireGpt5SamplingParamsReachTheVendor(t *testing.T) {
 	})
 
 	if _, err := provider.CallChat(context.Background(), []common.ChatMessage{
-		{Role: "user", Content: "hello"},
+		{Role: "user", Content: wireTestPrompt(t)},
 	}); err != nil {
 		t.Fatalf("CallChat was refused rather than sent: %v", err)
 	}
@@ -816,7 +879,7 @@ func TestOpenAIWireStreamKeyPresence(t *testing.T) {
 		srv, rec := newRecordingOpenAIServer(t)
 		provider := wireTestChatProvider(t, srv.URL, "", nil)
 		if _, err := provider.CallChat(context.Background(),
-			[]common.ChatMessage{{Role: "user", Content: "hello"}}); err != nil {
+			[]common.ChatMessage{{Role: "user", Content: wireTestPrompt(t)}}); err != nil {
 			t.Fatalf("CallChat: %v", err)
 		}
 		body := rec.Last(t).Body
@@ -831,7 +894,7 @@ func TestOpenAIWireStreamKeyPresence(t *testing.T) {
 		streamer := provider.(interface {
 			CallStream(context.Context, string) (<-chan StreamChunk, error)
 		})
-		chunks, err := streamer.CallStream(context.Background(), "hello")
+		chunks, err := streamer.CallStream(context.Background(), wireTestPrompt(t))
 		if err != nil {
 			t.Fatalf("CallStream: %v", err)
 		}

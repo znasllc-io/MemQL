@@ -119,7 +119,7 @@ func TestFederationExchangeHappyPath(t *testing.T) {
 	f := newFakeAnthropic(t)
 	p := federatedProviderAgainst(t, f)
 
-	before := metrics.AIFederationExchangesValue(metrics.FederationExchangeOK)
+	before := metrics.AIFederationExchangesValue(metrics.FederationVendorAnthropic, metrics.FederationExchangeOK)
 	if err := callMessages(context.Background(), p); err != nil {
 		t.Fatalf("Messages.New over federation: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestFederationExchangeHappyPath(t *testing.T) {
 		t.Fatalf("Messages carried x-api-key %q under federation", got)
 	}
 
-	if after := metrics.AIFederationExchangesValue(metrics.FederationExchangeOK); after != before+1 {
+	if after := metrics.AIFederationExchangesValue(metrics.FederationVendorAnthropic, metrics.FederationExchangeOK); after != before+1 {
 		t.Fatalf("ok counter %v -> %v, want +1", before, after)
 	}
 
@@ -194,11 +194,11 @@ func TestFederationExchangeDenialCountsAndLogsTheBody(t *testing.T) {
 	f.tokenBody = `{"error":{"type":"authentication_error","message":"match_subject_prefix"}}`
 	p := federatedProviderAgainst(t, f)
 
-	before := metrics.AIFederationExchangesValue(metrics.FederationExchangeDenied)
+	before := metrics.AIFederationExchangesValue(metrics.FederationVendorAnthropic, metrics.FederationExchangeDenied)
 	if err := callMessages(context.Background(), p); err == nil {
 		t.Fatal("a denied exchange still produced a successful Messages call")
 	}
-	if after := metrics.AIFederationExchangesValue(metrics.FederationExchangeDenied); after < before+1 {
+	if after := metrics.AIFederationExchangesValue(metrics.FederationVendorAnthropic, metrics.FederationExchangeDenied); after < before+1 {
 		t.Fatalf("denied counter %v -> %v, want at least +1", before, after)
 	}
 	rec := LastFederationExchange()
@@ -219,9 +219,9 @@ func TestFederationExchangeServerFaultCountsAsError(t *testing.T) {
 	f.tokenBody = `{"error":{"type":"api_error","message":"upstream"}}`
 	p := federatedProviderAgainst(t, f)
 
-	before := metrics.AIFederationExchangesValue(metrics.FederationExchangeError)
+	before := metrics.AIFederationExchangesValue(metrics.FederationVendorAnthropic, metrics.FederationExchangeError)
 	_ = callMessages(context.Background(), p)
-	if after := metrics.AIFederationExchangesValue(metrics.FederationExchangeError); after < before+1 {
+	if after := metrics.AIFederationExchangesValue(metrics.FederationVendorAnthropic, metrics.FederationExchangeError); after < before+1 {
 		t.Fatalf("error counter %v -> %v, want at least +1", before, after)
 	}
 }
@@ -294,7 +294,6 @@ func TestCheckProviderAuthReportsFederation(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_BASE_URL", f.srv.URL)
-	t.Setenv(envAnthropicAPIKey, "")
 	t.Setenv(envAnthropicFederationRuleID, "fdrl_test")
 	t.Setenv(envAnthropicOrganizationID, "11111111-2222-3333-4444-555555555555")
 	t.Setenv(envAnthropicServiceAccountID, "svac_test")
@@ -322,14 +321,21 @@ func TestCheckProviderAuthReportsFederation(t *testing.T) {
 	}
 }
 
-// TestCheckProviderAuthReportsTheKeyPath is the pre-cutover state, and the
-// answer step 5 of the runbook must stop seeing.
-func TestCheckProviderAuthReportsTheKeyPath(t *testing.T) {
+// TestCheckProviderAuthReportsUnavailableWithNoFederation replaces
+// TestCheckProviderAuthReportsTheKeyPath, which asserted the pre-cutover state
+// the runbook's step 5 was told to stop seeing.
+//
+// It is gone rather than adapted because the state it described no longer
+// exists: there is no manually entered vendor key anywhere in the product
+// (epic memql#5088), so a cluster with no federation ids has no credential at
+// all. The command must SAY that rather than reporting a path the engine
+// cannot take -- an operator running the check on an unconfigured cluster is
+// the most likely reader it has.
+func TestCheckProviderAuthReportsUnavailableWithNoFederation(t *testing.T) {
 	f := newFakeAnthropic(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_BASE_URL", f.srv.URL)
-	t.Setenv(envAnthropicAPIKey, "sk-ant-test")
 	for _, name := range []string{
 		envAnthropicFederationRuleID, envAnthropicOrganizationID,
 		envAnthropicServiceAccountID, envAnthropicWorkspaceID, envAnthropicIdentityTokenFile,
@@ -341,26 +347,55 @@ func TestCheckProviderAuthReportsTheKeyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckProviderAuth: %v", err)
 	}
-	if report.CredentialPath != string(credentialPathAPIKey) {
-		t.Fatalf("credential path = %q, want api-key", report.CredentialPath)
+	if report.CredentialPath != string(credentialPathUnavailable) {
+		t.Fatalf("credential path = %q, want %q", report.CredentialPath, credentialPathUnavailable)
 	}
 	if report.FederationRuleID != "" || report.TokenSubject != "" {
-		t.Fatalf("the api-key path reported federation fields: %+v", report)
+		t.Fatalf("an unconfigured cluster reported federation fields: %+v", report)
 	}
 }
 
-// TestCheckProviderAuthRefusesANonAnthropicProvider keeps the command honest
-// about its scope: OpenAI has no federation mechanism, and reporting on it
-// here would imply one exists.
-func TestCheckProviderAuthRefusesANonAnthropicProvider(t *testing.T) {
-	t.Setenv("MEMQL_AI_OPENAI_API_KEY", "sk-openai-test")
-	_, err := CheckProviderAuth(context.Background(), nil, "chat54Mini")
-	if err == nil {
-		t.Fatal("CheckProviderAuth accepted an OpenAI provider")
-	}
-	if !strings.Contains(err.Error(), "Anthropic providers only") {
-		t.Fatalf("the refusal does not explain the scope: %v", err)
-	}
+// TestCheckProviderAuthCoversBothFederatingVendors replaces
+// TestCheckProviderAuthRefusesANonAnthropicProvider.
+//
+// That test kept the command honest about a scope it no longer has: it refused
+// an OpenAI provider because "OpenAI has no federation mechanism, and
+// reporting on it here would imply one exists". OpenAI federates now (epic
+// memql#5088), so the refusal would be the dishonest answer -- an operator
+// asking whether OpenAI federation is working would be told the question makes
+// no sense.
+//
+// What the command must still refuse is a type NEITHER vendor owns, and the
+// second half asserts that. Without it, "covers both vendors" would be
+// satisfied by a command that accepted everything.
+func TestCheckProviderAuthCoversBothFederatingVendors(t *testing.T) {
+	t.Run("an OpenAI provider is accepted", func(t *testing.T) {
+		for _, name := range []string{
+			envOpenAIIdentityProviderID, envOpenAIServiceAccountID, envOpenAIIdentityTokenFile,
+		} {
+			t.Setenv(name, "")
+		}
+
+		report, err := CheckProviderAuth(context.Background(), nil, "chat54Mini")
+		if err != nil {
+			t.Fatalf("CheckProviderAuth refused an OpenAI provider: %v", err)
+		}
+		if report.Vendor != metrics.FederationVendorOpenAI {
+			t.Errorf("report vendor = %q, want %q", report.Vendor, metrics.FederationVendorOpenAI)
+		}
+		// With no ids configured the honest answer is "unavailable", not an
+		// error: that is the state of every local cluster.
+		if report.CredentialPath != string(credentialPathUnavailable) {
+			t.Errorf("credential path = %q, want %q", report.CredentialPath, credentialPathUnavailable)
+		}
+	})
+
+	t.Run("a vendor neither federates with is refused", func(t *testing.T) {
+		_, err := CheckProviderAuth(context.Background(), nil, "no-such-provider-anywhere")
+		if err == nil {
+			t.Fatal("CheckProviderAuth accepted a provider that is not declared")
+		}
+	})
 }
 
 // TestCheckProviderAuthModelsCallCarriesNoKey closes the loop the cutover
@@ -374,7 +409,6 @@ func TestCheckProviderAuthModelsCallCarriesNoKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_BASE_URL", f.srv.URL)
 	// Both configured -- federation must win, per D3.
-	t.Setenv(envAnthropicAPIKey, "sk-ant-test")
 	t.Setenv(envAnthropicFederationRuleID, "fdrl_test")
 	t.Setenv(envAnthropicOrganizationID, "11111111-2222-3333-4444-555555555555")
 	t.Setenv(envAnthropicServiceAccountID, "svac_test")

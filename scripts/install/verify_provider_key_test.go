@@ -1,32 +1,37 @@
 // Tests for scripts/install/verify-provider-key.sh (capability
-// install.verifyProviderKey, znasllc-io/memql#3364).
+// install.verifyProviderKey, znasllc-io/memql#3364, rewritten for
+// epic memql#5088).
 //
-// The capability answers one question the installer cannot answer any other
-// way: "is this AI-provider key actually good?" It answers it with a REAL
-// authenticated call -- GET /v1/models -- which is authenticated, cheap, and
-// spends no tokens.
+// WHAT THE CAPABILITY ANSWERS NOW. It used to answer "is this AI-provider key
+// actually good?" with an authenticated GET /v1/models. There is no key any
+// more: both vendors are reached by workload identity federation, and the
+// credential is a projected Kubernetes token that exists only inside a pod. So
+// the question became "is this CLUSTER's credential good?", and the only thing
+// that can answer it is the pod holding the token --
+// `kubectl exec <deploy> -- memql provider-auth check --provider=<vendor>`.
 //
-// The assertion that matters, and the reason this test file exists, is the
-// KEY HANDLING: an API key passed on a curl command line is visible in `ps`
-// to every user on the box for the lifetime of the request. The script must
-// therefore hand the key to curl through a 0600 config file and never through
-// argv -- and it must not even ACCEPT a `--key=` flag, because that would put
-// the key in the *script's* argv instead. The second assertion that matters is
-// the exit code: a server that says "this key is bad" is a REFUSAL (exit 3),
-// not an operational failure (exit 5); the installer branches on the
-// difference.
+// The assertions that matter are therefore:
 //
-// Hermetic: no call ever leaves the machine. Behavioural cases point
-// --base-url at an httptest server; the argv/config-file cases run a stub
-// `curl` on a PATH prefix that records its own argv and copies the config
-// file it was handed.
+//  1. THE KEY SURFACE IS GONE AND CANNOT COME BACK. `--key-file` and
+//     `--base-url` are undeclared, so cap_parse_flags refuses them (exit 2)
+//     rather than ignoring them. A silently ignored `--key-file` would let a
+//     caller believe a key was verified when nothing of the sort happened.
+//  2. THE THREE-WAY EXIT CODE. A vendor that RAN the check and said no is a
+//     REFUSAL (3); a check that could not be RUN is an operational failure
+//     (5); no kubectl at all is a missing prerequisite (4). The installer
+//     branches on the difference, and `kubectl exec` collapses 3 and 5 into
+//     "non-zero" unless they are told apart deliberately.
+//  3. THE VENDOR REACHES THE POD. `--provider` must appear in the exec'd
+//     command, or an OpenAI check would silently verify Anthropic.
+//
+// Hermetic: no call ever leaves the machine and no cluster is contacted. Every
+// behavioural case runs a stub `kubectl` on a PATH prefix that records its own
+// argv and exits with a configured status.
 package install
 
 import (
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,25 +123,18 @@ func vpkResultField(t *testing.T, env vpkEnvelope, key string) any {
 	return m[key]
 }
 
-// vpkKeyFile writes a key into a throwaway file and returns its path.
-func vpkKeyFile(t *testing.T, key string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "provider.key")
-	if err := os.WriteFile(p, []byte(key+"\n"), 0o600); err != nil {
-		t.Fatalf("write key file: %v", err)
-	}
-	return p
-}
-
 // -----------------------------------------------------------------------
 // Capability surface
 // -----------------------------------------------------------------------
 
-// TestVerifyProviderKeySpecHasNoKeyFlag is the structural half of the
-// argv-exposure guarantee: the script must not declare a `--key` parameter at
-// all. cap_parse_flags rejects undeclared flags, so *not declaring* `key` is
-// what makes `--key=sk-...` impossible rather than merely discouraged.
-func TestVerifyProviderKeySpecHasNoKeyFlag(t *testing.T) {
+// TestVerifyProviderSpecIsFederationOnly pins the declared parameter surface.
+//
+// The absent names are the load-bearing half. cap_parse_flags rejects any flag
+// the script did not declare, so NOT declaring `key`, `key-file` or `base-url`
+// is what makes a key impossible to pass rather than merely pointless -- and
+// --print-spec is the surface a caller reads to discover that without running
+// anything.
+func TestVerifyProviderSpecIsFederationOnly(t *testing.T) {
 	stdout, _, code := vpkRun(t, nil, "--print-spec")
 	if code != 0 {
 		t.Fatalf("--print-spec exited %d\n%s", code, stdout)
@@ -157,277 +155,161 @@ func TestVerifyProviderKeySpecHasNoKeyFlag(t *testing.T) {
 	for _, p := range spec.Params {
 		names[p.Name] = true
 	}
-	for _, want := range []string{"provider", "key-file", "base-url"} {
+	for _, want := range []string{"provider", "federation-deploy", "namespace", "memql-binary"} {
 		if !names[want] {
 			t.Errorf("spec is missing the %q param; got %v", want, names)
 		}
 	}
-	if names["key"] {
-		t.Error("spec declares a `key` param -- the key must be read from a file, " +
-			"never from a flag, because the script's own argv is world-readable in `ps`")
+	for _, gone := range []string{"key", "key-file", "base-url", "anthropic-version"} {
+		if names[gone] {
+			t.Errorf("spec still declares %q -- there is no vendor API key anywhere in the product, "+
+				"and a key path that still parses is a key path that can be reintroduced", gone)
+		}
 	}
 }
 
-// TestVerifyProviderKeyRejectsKeyFlag is the behavioural half: passing the key
-// inline must be rejected outright (exit 2) rather than silently ignored.
-func TestVerifyProviderKeyRejectsKeyFlag(t *testing.T) {
-	stdout, _, code := vpkRun(t, nil, "--provider=openai", "--key=sk-inline-secret")
-	if code != 2 {
-		t.Fatalf("--key= exited %d, want 2 (bad param)\nstdout: %s", code, stdout)
-	}
-	env := vpkParse(t, stdout)
-	if env.OK || env.Error == nil || env.Error.Code != 2 {
-		t.Errorf("want ok=false error.code=2, got: %s", stdout)
-	}
-	if strings.Contains(stdout, "sk-inline-secret") {
-		t.Errorf("the rejected key value was echoed back into the envelope: %s", stdout)
+// TestVerifyProviderRejectsEveryKeyFlag is the behavioural half: the retired
+// key flags must be REFUSED (exit 2), never quietly ignored. An ignored
+// --key-file would let an installer report a verified key having verified
+// nothing.
+func TestVerifyProviderRejectsEveryKeyFlag(t *testing.T) {
+	for _, flag := range []string{"--key=sk-inline-secret", "--key-file=/tmp/nope.key", "--base-url=http://127.0.0.1:1"} {
+		t.Run(flag, func(t *testing.T) {
+			stdout, _, code := vpkRun(t, nil, "--provider=openai", "--federation-deploy=agent", flag)
+			if code != 2 {
+				t.Fatalf("%s exited %d, want 2 (bad param)\nstdout: %s", flag, code, stdout)
+			}
+			env := vpkParse(t, stdout)
+			if env.OK || env.Error == nil || env.Error.Code != 2 {
+				t.Errorf("want ok=false error.code=2, got: %s", stdout)
+			}
+			if strings.Contains(stdout, "sk-inline-secret") {
+				t.Errorf("the rejected value was echoed back into the envelope: %s", stdout)
+			}
+		})
 	}
 }
 
 // -----------------------------------------------------------------------
-// THE assertion: the key never reaches curl's argv
+// The federation probe
 // -----------------------------------------------------------------------
 
-// vpkStubCurl installs a stub `curl` on a PATH prefix. The stub records its
-// own argv, copies the --config file it was handed (the script deletes it on
-// exit, so it must be captured mid-run) along with that file's mode, and
-// replies with STUB_CODE.
-func vpkStubCurl(t *testing.T) (binDir, argvFile, cfgCopy, cfgMode string) {
+// vpkStubKubectl installs a stub `kubectl` on a PATH prefix. It records its own
+// argv and exits with STUB_RC, printing STUB_OUT.
+func vpkStubKubectl(t *testing.T) (binDir, argvFile string) {
 	t.Helper()
 	binDir = t.TempDir()
-	capture := t.TempDir()
-	argvFile = filepath.Join(capture, "argv")
-	cfgCopy = filepath.Join(capture, "config")
-	cfgMode = filepath.Join(capture, "mode")
+	argvFile = filepath.Join(t.TempDir(), "argv")
 
 	stub := `#!/usr/bin/env bash
 : > "$STUB_ARGV"
 for a in "$@"; do printf '%s\n' "$a" >> "$STUB_ARGV"; done
-cfg=""; out=""; prev=""
-for a in "$@"; do
-  case "$prev" in
-    --config|-K) cfg="$a" ;;
-    -o|--output) out="$a" ;;
-  esac
-  prev="$a"
-done
-if [[ -n "$cfg" && -f "$cfg" ]]; then
-  cp "$cfg" "$STUB_CFG"
-  { stat -c '%a' "$cfg" 2>/dev/null || stat -f '%Lp' "$cfg" 2>/dev/null; } > "$STUB_CFG_MODE"
-fi
-[[ -n "$out" ]] && printf '%s' "${STUB_BODY:-{\"data\":[]}}" > "$out"
-printf '%s' "${STUB_CODE:-200}"
+printf '%s\n' "${STUB_OUT:-provider-auth check: ok}"
+exit "${STUB_RC:-0}"
 `
-	p := filepath.Join(binDir, "curl")
+	p := filepath.Join(binDir, "kubectl")
 	if err := os.WriteFile(p, []byte(stub), 0o755); err != nil {
-		t.Fatalf("write stub curl: %v", err)
+		t.Fatalf("write stub kubectl: %v", err)
 	}
-	return binDir, argvFile, cfgCopy, cfgMode
+	return binDir, argvFile
 }
 
-func TestVerifyProviderKeyNeverPutsKeyInCurlArgv(t *testing.T) {
-	const secret = "sk-ant-super-secret-argv-probe"
-	binDir, argvFile, cfgCopy, cfgMode := vpkStubCurl(t)
-	env := []string{
+func vpkStubEnv(binDir, argvFile, rc, out string) []string {
+	return []string{
 		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"STUB_ARGV=" + argvFile,
-		"STUB_CFG=" + cfgCopy,
-		"STUB_CFG_MODE=" + cfgMode,
-		"STUB_CODE=200",
-	}
-	stdout, stderr, code := vpkRun(t, env,
-		"--provider=anthropic",
-		"--key-file="+vpkKeyFile(t, secret),
-		"--base-url=https://api.example.invalid",
-	)
-	if code != 0 {
-		t.Fatalf("exit %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-
-	argv, err := os.ReadFile(argvFile)
-	if err != nil {
-		t.Fatalf("stub curl was never invoked: %v", err)
-	}
-	if strings.Contains(string(argv), secret) {
-		t.Errorf("THE KEY IS IN CURL'S ARGV -- visible in `ps` to every user on the box.\nargv:\n%s", argv)
-	}
-
-	cfg, err := os.ReadFile(cfgCopy)
-	if err != nil {
-		t.Fatalf("no curl --config file was handed to curl: %v\nargv:\n%s", err, argv)
-	}
-	if !strings.Contains(string(cfg), secret) {
-		t.Errorf("the config file does not carry the key -- how was the call authenticated?\nconfig:\n%s", cfg)
-	}
-	mode, err := os.ReadFile(cfgMode)
-	if err != nil {
-		t.Fatalf("read config mode: %v", err)
-	}
-	if got := strings.TrimSpace(string(mode)); got != "600" {
-		t.Errorf("curl config file mode = %q, want 600 -- the key sits in that file", got)
-	}
-
-	// Nothing on stdout or stderr may echo the key either.
-	if strings.Contains(stdout, secret) || strings.Contains(stderr, secret) {
-		t.Error("the key leaked into the script's own output")
-	}
-	// Verification is a read; it never mutates anything.
-	res := vpkParse(t, stdout)
-	if res.Changed {
-		t.Error("changed=true for a read-only verification")
+		"STUB_RC=" + rc,
+		"STUB_OUT=" + out,
 	}
 }
 
-// TestVerifyProviderKeyConfigFileIsCleanedUp asserts the 0600 file holding the
-// key does not survive the run.
-func TestVerifyProviderKeyConfigFileIsCleanedUp(t *testing.T) {
-	binDir, argvFile, cfgCopy, cfgMode := vpkStubCurl(t)
-	env := []string{
-		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"STUB_ARGV=" + argvFile,
-		"STUB_CFG=" + cfgCopy,
-		"STUB_CFG_MODE=" + cfgMode,
-		"STUB_CODE=200",
-	}
-	if _, _, code := vpkRun(t, env, "--provider=openai",
-		"--key-file="+vpkKeyFile(t, "sk-cleanup"), "--base-url=https://api.example.invalid"); code != 0 {
-		t.Fatalf("exit %d, want 0", code)
-	}
-	argv, err := os.ReadFile(argvFile)
-	if err != nil {
-		t.Fatalf("stub curl never ran: %v", err)
-	}
-	var cfgPath string
-	lines := strings.Split(strings.TrimSpace(string(argv)), "\n")
-	for i, l := range lines {
-		if (l == "--config" || l == "-K") && i+1 < len(lines) {
-			cfgPath = lines[i+1]
-		}
-	}
-	if cfgPath == "" {
-		t.Fatalf("no --config in argv:\n%s", argv)
-	}
-	if _, err := os.Stat(cfgPath); err == nil {
-		t.Errorf("the curl config file holding the key still exists after the run: %s", cfgPath)
-	}
-}
-
-// -----------------------------------------------------------------------
-// Behaviour against a real HTTP server
-// -----------------------------------------------------------------------
-
-// vpkServer starts an httptest server that records the last request and
-// answers /v1/models with the configured status.
-func vpkServer(t *testing.T, status int, body string) (url string, seen *http.Header, path *string) {
-	t.Helper()
-	var h http.Header
-	var p string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h = r.Header.Clone()
-		p = r.URL.Path
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write([]byte(body))
-	}))
-	t.Cleanup(srv.Close)
-	return srv.URL, &h, &p
-}
-
-func vpkRequireCurl(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("curl"); err != nil {
-		t.Skip("curl not available")
-	}
-}
-
-// TestVerifyProviderKeyAcceptsGoodKey: a 200 from GET /v1/models is the
-// success signal, and the request must actually hit /v1/models (the endpoint
-// that authenticates without spending tokens).
-func TestVerifyProviderKeyAcceptsGoodKey(t *testing.T) {
-	vpkRequireCurl(t)
+// TestVerifyProviderFederationAcceptedIsSuccess covers the happy path for both
+// vendors, and asserts the one wire detail that cannot be checked any other
+// way: the vendor reaches the pod as --provider. Without it an OpenAI check
+// would run the binary's default and report Anthropic's answer under OpenAI's
+// name -- green, and about the wrong vendor.
+func TestVerifyProviderFederationAcceptedIsSuccess(t *testing.T) {
 	for _, provider := range []string{"anthropic", "openai"} {
 		t.Run(provider, func(t *testing.T) {
-			url, hdr, path := vpkServer(t, 200, `{"data":[{"id":"m"}]}`)
-			stdout, stderr, code := vpkRun(t, nil,
+			binDir, argvFile := vpkStubKubectl(t)
+			stdout, stderr, code := vpkRun(t, vpkStubEnv(binDir, argvFile, "0", "exchange: ok"),
 				"--provider="+provider,
-				"--key-file="+vpkKeyFile(t, "sk-good-"+provider),
-				"--base-url="+url,
+				"--federation-deploy=agent",
+				"--namespace=memql",
 			)
 			if code != 0 {
 				t.Fatalf("exit %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
 			}
 			env := vpkParse(t, stdout)
 			if !env.OK {
-				t.Errorf("ok=false for a 200 response: %s", stdout)
+				t.Errorf("ok=false for an accepted credential: %s", stdout)
 			}
 			if v := vpkResultField(t, env, "valid"); v != true {
 				t.Errorf("result.valid = %v, want true", v)
 			}
-			if v := vpkResultField(t, env, "httpStatus"); v != float64(200) {
-				t.Errorf("result.httpStatus = %v, want 200", v)
+			if v := vpkResultField(t, env, "credential"); v != "federation" {
+				t.Errorf("result.credential = %v, want \"federation\"", v)
 			}
-			if *path != "/v1/models" {
-				t.Errorf("hit %q, want /v1/models -- the token-free authenticated probe", *path)
+			if v := vpkResultField(t, env, "provider"); v != provider {
+				t.Errorf("result.provider = %v, want %q", v, provider)
 			}
-			switch provider {
-			case "anthropic":
-				if got := hdr.Get("x-api-key"); got != "sk-good-anthropic" {
-					t.Errorf("x-api-key = %q, want the key", got)
-				}
-				if hdr.Get("anthropic-version") == "" {
-					t.Error("anthropic-version header missing -- the API rejects requests without it")
-				}
-			case "openai":
-				if got := hdr.Get("Authorization"); got != "Bearer sk-good-openai" {
-					t.Errorf("Authorization = %q, want Bearer <key>", got)
+			if v := vpkResultField(t, env, "deployment"); v != "memql/agent" {
+				t.Errorf("result.deployment = %v, want \"memql/agent\"", v)
+			}
+			// Verification is a read; it never mutates anything.
+			if env.Changed {
+				t.Error("changed=true for a read-only verification")
+			}
+
+			argv, err := os.ReadFile(argvFile)
+			if err != nil {
+				t.Fatalf("stub kubectl was never invoked: %v", err)
+			}
+			got := string(argv)
+			for _, want := range []string{"exec", "-n", "memql", "deploy/agent", "provider-auth", "check", "--provider=" + provider} {
+				if !strings.Contains(got, want) {
+					t.Errorf("kubectl argv is missing %q:\n%s", want, got)
 				}
 			}
 		})
 	}
 }
 
-// TestVerifyProviderKeyRejectedKeyIsRefusal is the exit-code assertion: the
-// server said the credential is bad. That is a refusal (3), not an operational
-// failure (5) -- the installer re-prompts on 3 and reports an outage on 5.
-func TestVerifyProviderKeyRejectedKeyIsRefusal(t *testing.T) {
-	vpkRequireCurl(t)
-	for _, status := range []int{401, 403} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			url, _, _ := vpkServer(t, status, `{"error":{"message":"invalid x-api-key"}}`)
-			stdout, _, code := vpkRun(t, nil,
-				"--provider=anthropic",
-				"--key-file="+vpkKeyFile(t, "sk-bad"),
-				"--base-url="+url,
-			)
-			if code != 3 {
-				t.Fatalf("HTTP %d exited %d, want 3 (refused)\nstdout: %s", status, code, stdout)
-			}
-			env := vpkParse(t, stdout)
-			if env.OK || env.Error == nil || env.Error.Code != 3 {
-				t.Errorf("want ok=false error.code=3, got: %s", stdout)
-			}
-			if v := vpkResultField(t, env, "valid"); v != false {
-				t.Errorf("result.valid = %v, want false", v)
-			}
-			if v := vpkResultField(t, env, "httpStatus"); v != float64(status) {
-				t.Errorf("result.httpStatus = %v, want %d", v, status)
-			}
-		})
+// TestVerifyProviderFederationRefusedIsRefusal: the pod RAN the check and the
+// vendor said no. `provider-auth check` uses 1 for that, and it must surface as
+// exit 3 -- the installer re-does the console steps on 3 and reports an outage
+// on 5.
+func TestVerifyProviderFederationRefusedIsRefusal(t *testing.T) {
+	binDir, argvFile := vpkStubKubectl(t)
+	stdout, _, code := vpkRun(t, vpkStubEnv(binDir, argvFile, "1", "exchange: DENIED match_audience"),
+		"--provider=openai", "--federation-deploy=agent")
+	if code != 3 {
+		t.Fatalf("a refused exchange exited %d, want 3\nstdout: %s", code, stdout)
+	}
+	env := vpkParse(t, stdout)
+	if env.OK || env.Error == nil || env.Error.Code != 3 {
+		t.Errorf("want ok=false error.code=3, got: %s", stdout)
+	}
+	if v := vpkResultField(t, env, "valid"); v != false {
+		t.Errorf("result.valid = %v, want false", v)
+	}
+	// The vendor's own words are the whole value of the check; dropping them
+	// leaves the operator with a bare exit code and nothing to act on.
+	detail, _ := vpkResultField(t, env, "detail").(string)
+	if !strings.Contains(detail, "match_audience") {
+		t.Errorf("result.detail = %q, want it to carry what the check actually said", detail)
 	}
 }
 
-// TestVerifyProviderKeyServerFaultIsOperationalFailure: a 500 says nothing
-// about the key, so it must NOT be reported as a refusal.
-func TestVerifyProviderKeyServerFaultIsOperationalFailure(t *testing.T) {
-	vpkRequireCurl(t)
-	url, _, _ := vpkServer(t, 500, `{"error":"boom"}`)
-	stdout, _, code := vpkRun(t, nil,
-		"--provider=openai",
-		"--key-file="+vpkKeyFile(t, "sk-whatever"),
-		"--base-url="+url,
-	)
+// TestVerifyProviderFederationUnrunnableIsOperationalFailure: anything other
+// than 0 or 1 means the check never ran (no such Deployment, no cluster, exec
+// refused), which says nothing about the credential.
+func TestVerifyProviderFederationUnrunnableIsOperationalFailure(t *testing.T) {
+	binDir, argvFile := vpkStubKubectl(t)
+	stdout, _, code := vpkRun(t, vpkStubEnv(binDir, argvFile, "127", "Error from server (NotFound): deployments.apps agent not found"),
+		"--provider=anthropic", "--federation-deploy=agent")
 	if code != 5 {
-		t.Fatalf("HTTP 500 exited %d, want 5 (operation failed)\nstdout: %s", code, stdout)
+		t.Fatalf("an unrunnable check exited %d, want 5\nstdout: %s", code, stdout)
 	}
 	env := vpkParse(t, stdout)
 	if env.Error == nil || env.Error.Code != 5 {
@@ -435,47 +317,21 @@ func TestVerifyProviderKeyServerFaultIsOperationalFailure(t *testing.T) {
 	}
 }
 
-// TestVerifyProviderKeyUnreachableIsOperationalFailure: no server at all is
-// also not the key's fault.
-func TestVerifyProviderKeyUnreachableIsOperationalFailure(t *testing.T) {
-	vpkRequireCurl(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	dead := srv.URL
-	srv.Close() // nothing is listening on that port now
-
-	stdout, _, code := vpkRun(t, nil,
-		"--provider=openai",
-		"--key-file="+vpkKeyFile(t, "sk-whatever"),
-		"--base-url="+dead,
-		"--timeout=3",
-	)
-	if code != 5 {
-		t.Fatalf("unreachable base-url exited %d, want 5\nstdout: %s", code, stdout)
-	}
-}
-
-// TestVerifyProviderKeyBadParams covers the invocation errors that must be
-// exit 2 and must never reach the network.
-func TestVerifyProviderKeyBadParams(t *testing.T) {
-	good := vpkKeyFile(t, "sk-good")
-	empty := filepath.Join(t.TempDir(), "empty.key")
-	if err := os.WriteFile(empty, []byte("\n   \n"), 0o600); err != nil {
-		t.Fatalf("write empty key file: %v", err)
-	}
-
+// TestVerifyProviderBadParams covers the invocation errors that must be exit 2
+// and must never reach a cluster.
+func TestVerifyProviderBadParams(t *testing.T) {
 	cases := []struct {
 		name string
 		args []string
 	}{
-		{"no provider", []string{"--key-file=" + good}},
-		{"unknown provider", []string{"--provider=hal9000", "--key-file=" + good}},
-		{"no key file", []string{"--provider=openai"}},
-		{"key file missing on disk", []string{"--provider=openai", "--key-file=/nope/nowhere.key"}},
-		{"key file is empty", []string{"--provider=openai", "--key-file=" + empty}},
+		{"no provider", []string{"--federation-deploy=agent"}},
+		{"unknown provider", []string{"--provider=hal9000", "--federation-deploy=agent"}},
+		{"no federation deploy", []string{"--provider=openai"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stdout, _, code := vpkRun(t, nil, tc.args...)
+			binDir, argvFile := vpkStubKubectl(t)
+			stdout, _, code := vpkRun(t, vpkStubEnv(binDir, argvFile, "0", "unused"), tc.args...)
 			if code != 2 {
 				t.Fatalf("exit %d, want 2 (bad param)\nstdout: %s", code, stdout)
 			}
@@ -483,16 +339,20 @@ func TestVerifyProviderKeyBadParams(t *testing.T) {
 			if env.OK || env.Error == nil || env.Error.Code != 2 {
 				t.Errorf("want ok=false error.code=2, got: %s", stdout)
 			}
+			if _, err := os.Stat(argvFile); err == nil {
+				t.Error("a bad param reached kubectl; the check must be refused before anything runs")
+			}
 		})
 	}
 }
 
-// TestVerifyProviderKeyMissingCurlIsPrerequisite: no curl means the capability
-// cannot run at all -- exit 4, distinct from "the key is bad".
-func TestVerifyProviderKeyMissingCurlIsPrerequisite(t *testing.T) {
+// TestVerifyProviderMissingKubectlIsPrerequisite: no kubectl means the
+// capability cannot run at all -- exit 4, distinct from "the credential is
+// bad".
+func TestVerifyProviderMissingKubectlIsPrerequisite(t *testing.T) {
 	binDir := vpkSanitizedBin(t, nil)
 	stdout, _, code := vpkRun(t, []string{"PATH=" + binDir},
-		"--provider=openai", "--key-file="+vpkKeyFile(t, "sk-x"))
+		"--provider=openai", "--federation-deploy=agent")
 	if code != 4 {
 		t.Fatalf("exit %d, want 4 (prerequisite missing)\nstdout: %s", code, stdout)
 	}
@@ -500,7 +360,7 @@ func TestVerifyProviderKeyMissingCurlIsPrerequisite(t *testing.T) {
 
 // vpkSanitizedBin builds a bin directory holding ONLY the shell utilities the
 // capability library needs plus the named extras, so a test can prove what
-// happens when a tool is genuinely absent (the runner's real PATH has curl,
+// happens when a tool is genuinely absent (the runner's real PATH has kubectl,
 // docker, mkcert and friends installed).
 func vpkSanitizedBin(t *testing.T, extras []string) string {
 	t.Helper()

@@ -153,7 +153,26 @@ the user lets go.
 |----------|-------------|---------|
 | `MEMQL_STT_PROVIDER` | `openai-realtime` or `openai-whisper` | `openai-realtime` |
 | `MEMQL_STT_LANGUAGE` | Server-side language pin (ISO-639-1) | `en` |
-| `MEMQL_AI_OPENAI_API_KEY` | OpenAI key (Realtime / Whisper) | required for OpenAI |
+| `MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID` | OpenAI federation: the identity provider registered for this cluster's OIDC issuer | unset |
+| `MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID` | OpenAI federation: the service account the bearer is minted for | unset |
+
+**THE CREDENTIAL IS NOT A KEY** (epic memql#5088). Both transcription paths
+authenticate with the bearer the engine obtains by workload identity
+federation: the pod presents its own projected Kubernetes token and OpenAI
+exchanges it. There is no `MEMQL_AI_OPENAI_*` API-key variable any more, and
+setting one does nothing.
+
+Two consequences worth knowing before debugging a silent microphone:
+
+- **A cluster that has not federated with OpenAI has no transcription at all.**
+  The audio websocket stays disabled and says so at boot; it does not fail
+  per-request.
+- **A local k3d cluster cannot federate**, because its OIDC issuer is not
+  publicly reachable -- so streaming transcription and Whisper are off locally,
+  by construction. See
+  [openai-federation.md](../operate/auth/openai-federation.md), which also
+  records whether OpenAI's Realtime WebSocket accepts a federated bearer at
+  all: that is verified per cluster by the runbook rather than assumed here.
 
 `MEMQL_STT_LANGUAGE` **overrides any client-supplied language hint by
 design**, and pinning it is the fix for the classic multi-language

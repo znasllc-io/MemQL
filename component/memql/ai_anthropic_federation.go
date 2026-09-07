@@ -4,12 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -24,13 +22,17 @@ import (
 // SDK exchanges that at POST /v1/oauth/token for a one-hour bearer, and
 // nothing long-lived is at rest.
 //
-// THE ONE THING THAT MAKES THIS A CODE CHANGE RATHER THAN A CONFIG CHANGE:
-// `option.WithAPIKey` prepends the default options and DISABLES the SDK's
-// whole credential chain (SDK client.go:33-51). Setting every ANTHROPIC_*
-// variable on the pod would change nothing while the constructor still passed
-// a key, so the constructor has to choose federation deliberately. Hence this
-// file, and hence anthropicCredential being the ONLY place either Anthropic
-// constructor decides what to authenticate with.
+// THE STATIC KEY IS GONE (epic memql#5088, design D2/D5). This file used to
+// carry a four-way switch whose last arm was `option.WithAPIKey`; there is no
+// manually entered vendor key anywhere in the product any more, so the switch
+// is three-way and its last arm is "unavailable". What survives unchanged is
+// the reason this is a code change rather than a config change:
+// `option.WithAPIKey` prepends the default options and DISABLES the SDK's whole
+// credential chain (SDK client.go:33-51), so an ambient ANTHROPIC_API_KEY in
+// the pod's environment would silently return the cluster to a long-lived key.
+// That is what the WithHeaderDel pair below is for, and it is why
+// anthropicCredential is the ONLY place either Anthropic constructor decides
+// what to authenticate with.
 //
 // Runbook (Console setup, cutover, key removal):
 // docs/public/operate/auth/anthropic-federation.md
@@ -43,7 +45,6 @@ import (
 // to apiKey and the env registry's "registered but read nowhere" gate sees
 // the DSL reference.
 const (
-	envAnthropicAPIKey            = "MEMQL_AI_ANTHROPIC_API_KEY"
 	envAnthropicFederationRuleID  = "MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID"
 	envAnthropicOrganizationID    = "MEMQL_AI_ANTHROPIC_ORGANIZATION_ID"
 	envAnthropicServiceAccountID  = "MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID"
@@ -60,7 +61,6 @@ const anthropicAudience = "https://api.anthropic.com"
 // The auth-map keys the DSL's anthropic auth block declares. Kept next to the
 // env names they resolve from so a rename cannot half-land.
 const (
-	authKeyAPIKey            = "apiKey"
 	authKeyFederationRuleID  = "federationRuleId"
 	authKeyOrganizationID    = "organizationId"
 	authKeyServiceAccountID  = "serviceAccountId"
@@ -75,14 +75,7 @@ type credentialPath string
 
 const (
 	credentialPathFederation credentialPath = "federation"
-	credentialPathAPIKey     credentialPath = "api-key"
 )
-
-// federationWarnOnce keeps the "both configured" warning to one line per
-// process rather than one per provider: the base `anthropic` provider is
-// @extends'd by every Claude model entry, so the same auth map is evaluated a
-// dozen times at boot and an un-deduplicated warning would bury itself.
-var federationWarnOnce sync.Once
 
 // anthropicFederation is the resolved federation half of an Anthropic
 // provider's auth block.
@@ -165,23 +158,12 @@ func anthropicFederationFrom(auth map[string]string) anthropicFederation {
 // in EVERY branch, federation included, because the federation exchange rides
 // the same client and the exchange observer lives on that transport.
 func anthropicCredential(cfg ProviderConfig, httpClient *http.Client) ([]option.RequestOption, credentialPath, error) {
-	apiKey := strings.TrimSpace(cfg.Auth[authKeyAPIKey])
 	fed := anthropicFederationFrom(cfg.Auth)
 	present, missing := fed.present(), fed.missing()
 
 	switch {
 	case len(missing) == 0:
-		// Federation. A key alongside it is ignored, loudly but once.
-		if apiKey != "" {
-			federationWarnOnce.Do(func() {
-				slog.Warn("anthropic: workload identity federation is configured; the static API key is IGNORED",
-					"ignoredKey", envAnthropicAPIKey,
-					"federationRuleId", fed.RuleID,
-					"serviceAccountId", fed.ServiceAccountID,
-					"runbook", "docs/public/operate/auth/anthropic-federation.md")
-			})
-		}
-		if err := preflightIdentityToken(fed.TokenFile); err != nil {
+		if err := preflightIdentityToken(fed.TokenFile, anthropicAudience, envAnthropicIdentityTokenFile); err != nil {
 			return nil, "", fmt.Errorf("provider %q anthropic federation preflight: %w", cfg.Name, err)
 		}
 		opts := []option.RequestOption{
@@ -232,34 +214,22 @@ func anthropicCredential(cfg ProviderConfig, httpClient *http.Client) ([]option.
 		// have, not only which they lack.
 		return nil, "", fmt.Errorf(
 			"provider %q is HALF-CONFIGURED for Anthropic workload identity federation: %s set, %s missing. "+
-				"Set all four (or none, to keep using %s). A partial federation config is refused rather than "+
-				"silently falling back to the key, because the key is what the cutover removes. "+
+				"Set all four, or none to leave the Anthropic providers unavailable. A partial federation "+
+				"config is refused rather than quietly read as 'not configured', because an operator halfway "+
+				"through the runbook believes they are ENABLING Anthropic, not disabling it. "+
 				"Runbook: docs/public/operate/auth/anthropic-federation.md",
-			cfg.Name, strings.Join(present, ", "), strings.Join(missing, ", "), envAnthropicAPIKey)
-
-	case apiKey == "":
-		// Neither credential. Same failure as before federation existed, with
-		// the seeding hint the auth resolver used to carry (it no longer
-		// errors on these names -- see optionalAuthEnvNames).
-		// NAMES REAL THINGS ONLY (memql#4338), and it is fixed here rather
-		// than only at the resolver because these two are the SAME story
-		// told at two moments -- the resolver's error for an ordinary
-		// provider, and this one for the Anthropic path where the resolver
-		// deliberately stays silent. Fixing one and leaving the other
-		// pointing at a `secret-set` make target would leave a pair that
-		// docs/public/operate/env-vars.md describes together disagreeing.
-		return nil, "", fmt.Errorf(
-			"provider %q has no Anthropic credential: neither %s nor workload identity federation is configured. "+
-				"Seed the key under %s -- in the node's environment (locally `make secrets`; in a cluster, "+
-				"whichever secret store the deployment reads), or as a v1:platform:globalSecret row -- "+
-				"or configure federation (docs/public/operate/auth/anthropic-federation.md)",
-			cfg.Name, envAnthropicAPIKey, envAnthropicAPIKey)
+			cfg.Name, strings.Join(present, ", "), strings.Join(missing, ", "))
 
 	default:
-		return []option.RequestOption{
-			option.WithAPIKey(apiKey),
-			option.WithHTTPClient(httpClient),
-		}, credentialPathAPIKey, nil
+		// None set. NOT AN ERROR, and this arm is where the key used to be
+		// (epic memql#5088, design D2). There is no static Anthropic key any
+		// more -- not in the engine, not in the OS, not in the install graph --
+		// so "no federation ids" can only mean the vendor is not configured on
+		// this cluster, which is the normal state of a fresh cloud cluster and
+		// of every local one. The provider registers as unavailable and the
+		// readiness model reports `ai` unconfigured; nothing falls back to
+		// anything.
+		return nil, credentialPathUnavailable, nil
 	}
 }
 
@@ -270,6 +240,24 @@ func newAnthropicClient(cfg ProviderConfig, httpClient *http.Client) (anthropic.
 	opts, path, err := anthropicCredential(cfg, httpClient)
 	if err != nil {
 		return anthropic.Client{}, "", err
+	}
+	if path == credentialPathUnavailable {
+		// REFUSING HERE IS THE WHOLE POINT OF THE UNAVAILABLE PATH.
+		//
+		// anthropicCredential returns no error for "nothing configured",
+		// because that is a legitimate state rather than a fault. But
+		// anthropic.NewClient() with no options is a perfectly constructible
+		// client that carries no credential -- so returning it would register
+		// every Claude provider as AVAILABLE on a cluster that cannot call
+		// one, and the failure would arrive as a 401 on a user's turn instead
+		// of as a line at boot. TestRealTreeBootsKeylessAndQuiet is what
+		// caught exactly that.
+		return anthropic.Client{}, path, fmt.Errorf(
+			"provider %q has no Anthropic credential: workload identity federation is not configured on this "+
+				"cluster. Set %s, %s and %s (docs/public/operate/auth/anthropic-federation.md). There is no API "+
+				"key to fall back to -- a local cluster cannot federate, because its OIDC issuer is private, and "+
+				"reaches models through a signed-in fleet machine or a local model instead",
+			cfg.Name, envAnthropicFederationRuleID, envAnthropicOrganizationID, envAnthropicServiceAccountID)
 	}
 	return anthropic.NewClient(opts...), path, nil
 }
@@ -285,28 +273,28 @@ func newAnthropicClient(cfg ProviderConfig, httpClient *http.Client) (anthropic.
 // audience rather than the API server's, and whether the subject is a service
 // account. Whether ANTHROPIC accepts it is not knowable locally and is the
 // runbook's step 4 (`memql provider-auth check`).
-func preflightIdentityToken(path string) error {
+func preflightIdentityToken(path, audience, envName string) error {
 	if strings.TrimSpace(path) == "" {
-		return fmt.Errorf("%s is empty", envAnthropicIdentityTokenFile)
+		return fmt.Errorf("%s is empty", envName)
 	}
 	raw, err := readFileTrimmed(path)
 	if err != nil {
 		return fmt.Errorf(
 			"cannot read the projected identity token at %s (%s): %v. In the cluster this file is a projected "+
-				"serviceAccountToken volume; check that the Deployment carries the anthropic-identity volume and "+
+				"serviceAccountToken volume; check that the Deployment carries the matching identity volume and "+
 				"its mount",
-			path, envAnthropicIdentityTokenFile, err)
+			path, envName, err)
 	}
 	claims, err := parseJWTClaims(raw)
 	if err != nil {
 		return fmt.Errorf("the identity token at %s is not a JWT: %v", path, err)
 	}
-	if !jwtAudienceContains(claims, anthropicAudience) {
+	if !jwtAudienceContains(claims, audience) {
 		return fmt.Errorf(
 			"the identity token at %s does not carry the %q audience (aud=%v). Kubernetes mints a projected "+
-				"token FOR one audience; the default kube-api-access token is not interchangeable with it. Check "+
-				"the serviceAccountToken source's `audience` field",
-			path, anthropicAudience, jwtAudienceValues(claims))
+				"token FOR one audience; neither the default kube-api-access token nor the OTHER vendor's "+
+				"projected token is interchangeable with it. Check the serviceAccountToken source's `audience` field",
+			path, audience, jwtAudienceValues(claims))
 	}
 	sub, _ := claims["sub"].(string)
 	if !strings.HasPrefix(sub, "system:serviceaccount:") {
@@ -405,12 +393,14 @@ func jwtAudienceContains(claims map[string]any, want string) bool {
 // which combination is meaningful -- decides what an absence means. It carries
 // the seeding hint the resolver would have printed.
 var optionalAuthEnvNames = map[string]struct{}{
-	envAnthropicAPIKey:            {},
 	envAnthropicFederationRuleID:  {},
 	envAnthropicOrganizationID:    {},
 	envAnthropicServiceAccountID:  {},
 	envAnthropicWorkspaceID:       {},
 	envAnthropicIdentityTokenFile: {},
+	envOpenAIIdentityProviderID:   {},
+	envOpenAIServiceAccountID:     {},
+	envOpenAIIdentityTokenFile:    {},
 }
 
 // optionalAuthPlaceholder reports whether an unresolved placeholder for this

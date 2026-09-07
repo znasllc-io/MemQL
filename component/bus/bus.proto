@@ -282,7 +282,13 @@ message ConfigSnapshot {
   int32 engine_max_window = 11;
 
   // AI
-  string si_openai_api_key = 20;
+  //
+  // 20 held si_openai_api_key until epic memql#5088 removed every manually
+  // entered vendor key from the product. RESERVED rather than reused: a
+  // ConfigSnapshot crosses the component bus between binaries that are not
+  // guaranteed to be the same build, and re-using 20 for a differently-typed
+  // field would decode one node's new value as another node's old one.
+  reserved 20;
   string si_openai_project_id = 21;
   string si_default_provider = 22;
 

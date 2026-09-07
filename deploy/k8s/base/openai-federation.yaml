@@ -1,0 +1,62 @@
+# OpenAI workload identity federation -- the SECOND vendor door, on the SAME
+# workload identity (epic memql#5088, decision D1).
+#
+# The engine used to reach OpenAI with a static API key on the hand-seeded
+# `memql-secrets` Secret that every pod envFroms. It never rotated, it sat in
+# every engine pod's environment, and anyone who could read the Secret could
+# spend against the account from anywhere. Federation replaces it: the pod
+# presents the OIDC token Kubernetes projects for it, OpenAI exchanges that
+# (RFC 8693) for a bearer that lives at most an hour, and nothing long-lived
+# is at rest.
+#
+# NO SERVICE ACCOUNT HERE, DELIBERATELY. `memql-engine` is declared once, in
+# anthropic-federation.yaml, and serves BOTH vendors: the subject a vendor
+# matches on is `system:serviceaccount:memql:memql-engine` either way, and a
+# second account would mean a second subject, a second mapping to keep in step,
+# and two answers to "what is this cluster's identity".
+#
+# WHAT IS SHAPE AND WHAT IS VALUE, because this is the whole reason the local
+# cluster and the cloud can run the same YAML (docs/public/operate/environment-parity.md):
+#
+#   SHAPE (here, in the base, everywhere): the projected token volume on every
+#   engine Deployment, its audience, the mount path, and the
+#   MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE that names it.
+#
+#   VALUE (the ConfigMap below): the two ids that identify objects in one
+#   OpenAI Platform organization. The cloud overlays patch in the real ones;
+#   the local overlay leaves them empty, which is the only correct answer
+#   there -- k3d's OIDC issuer is private, so a local cluster CANNOT federate
+#   with either vendor and reaches cloud models through a fleet machine or a
+#   local model instead (design D6).
+#
+# THE AUDIENCE IS NOT THE ANTHROPIC ONE, AND THE TOKEN IS NOT SHARED. A
+# projected service-account token is minted for exactly one audience; OpenAI's
+# is `https://api.openai.com/v1`. Handing it Anthropic's token would be refused
+# at the exchange, so each vendor gets its own projected volume and its own
+# mount -- see the `openai-identity` volume on every engine Deployment.
+#
+# The engine reads all three of provider id / service account id / token file,
+# or none: a PARTIAL configuration REFUSES BOOT rather than falling back, and
+# there is no key left to fall back TO (component/memql/ai_openai_federation.go).
+# Empty strings here count as unset, which is what makes the empty ConfigMap a
+# working local default rather than a half-configuration.
+#
+# Runbook (Platform console setup, verification, and why there is no key to
+# remove): docs/public/operate/auth/openai-federation.md
+#
+# The two ids, empty. Every engine Deployment envFroms this with
+# optional: true, so a cluster that has not applied it still boots.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: memql-openai-federation
+  namespace: memql
+  labels:
+    app.kubernetes.io/part-of: memql
+data:
+  # The identity provider OpenAI registered for this cluster's OIDC issuer.
+  # Platform -> Settings -> Workload identity federation.
+  MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID: ""
+  # The Platform service account the federated bearer is minted for -- the
+  # identity the engine acts as, and the thing the mapping targets.
+  MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID: ""

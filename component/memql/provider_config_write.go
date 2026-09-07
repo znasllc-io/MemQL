@@ -27,103 +27,80 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/znasllc-io/memql/component/auth"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
-	"github.com/znasllc-io/memql/component/secret"
 )
 
 // ProviderConfigResultConcept is the canonical id of the single-row result
 // these actions return. Virtual, like the other action results.
 const ProviderConfigResultConcept = "v1:platform:providerConfigResult"
 
-// providerKeyNames maps a VENDOR an operator picks to the row name the
-// resolver actually tries.
+// providersConfigAuthorized gates the provider-configuration builtins at
+// owner-or-developer (epic memql#5088, design D7).
 //
-// Exactly the names in the DSL providers' `${...}` placeholders. The
-// seal-floor aliasing (memql#4338) means `MEMQL_OPENAI_API_KEY` would also
-// resolve, but the portal writes the documented `MEMQL_AI_` form: two rows
-// under two names that both work is how an operator ends up rotating one and
-// wondering why the old key is still in use.
-var providerKeyNames = map[string]string{
-	"anthropic": envAnthropicAPIKey,
-	"openai":    "MEMQL_AI_OPENAI_API_KEY",
+// A SET, NEVER A RANK FLOOR, and the difference is not cosmetic here. This
+// repo's role ladder puts developer (300) ABOVE admin (200), so a
+// `@requiresRank("admin")` floor would admit developers AND admins, and an
+// admin is not who this is for. What the owner asked for is narrower and is
+// stated as itself: a developer helps an owner through setup, so a developer
+// may put a federation id in front of the engine and apply it. Every other
+// owner-only gate in the cluster is untouched.
+//
+// It is the Integrations gate (C9 of the integration-config record), read
+// through the same shape as integrations/email's configureAuthorized so the
+// two cannot drift into two different meanings of "owner or developer".
+func providersConfigAuthorized(ctx context.Context) bool {
+	if rowAuthzIsClusterOwner(ctx) {
+		return true
+	}
+	ac, ok := auth.AccessFromContext(ctx)
+	if !ok || ac == nil {
+		return false
+	}
+	return ac.Role == auth.RoleOwner || ac.Role == auth.RoleDeveloper
 }
 
-// federationFieldNames maps the portal's field ids to the variable names the
-// resolver tries. The workspace id is included here and deliberately NOT part
-// of the all-or-none required set -- Anthropic needs it only when a rule spans
-// more than one workspace.
-var federationFieldNames = map[string]string{
-	"ruleId":            envAnthropicFederationRuleID,
-	"organizationId":    envAnthropicOrganizationID,
-	"serviceAccountId":  envAnthropicServiceAccountID,
-	"workspaceId":       envAnthropicWorkspaceID,
-	"identityTokenFile": envAnthropicIdentityTokenFile,
+// federationFieldNames maps a vendor's form field ids to the variable names
+// the resolver tries.
+//
+// THE TOKEN-FILE PATH IS DELIBERATELY ABSENT from both vendors (epic
+// memql#5088). It is base env on every engine Deployment, set beside the
+// projected volume that produces the file, so a value written here as a global
+// variable could only ever DISAGREE with the mount -- and would win, pointing
+// the exchanger at a path nothing writes. It is part of the credential and it
+// is not part of this form.
+var federationFieldNames = map[string]map[string]string{
+	"anthropic": {
+		"ruleId":           envAnthropicFederationRuleID,
+		"organizationId":   envAnthropicOrganizationID,
+		"serviceAccountId": envAnthropicServiceAccountID,
+		// The workspace id is here and deliberately NOT in the required set --
+		// Anthropic needs it only when a rule spans more than one workspace.
+		"workspaceId": envAnthropicWorkspaceID,
+	},
+	"openai": {
+		"identityProviderId": envOpenAIIdentityProviderID,
+		"serviceAccountId":   envOpenAIServiceAccountID,
+	},
 }
 
-// evaluateProviderKeySetExpression seals one vendor API key into a
-// v1:platform:globalSecret row under the name the resolver tries.
-//
-// WRITE-ONLY BY CONSTRUCTION. The reply carries the row name and the
-// fingerprint and nothing else; there is no read-back call anywhere in this
-// epic, so a page cannot render a key even by mistake. "Is this key good" is
-// answered by `providerVerify` making a live call, not by showing the operator
-// what they typed.
-//
-// IT DOES NOT RELOAD. Seeding and applying are separate acts on purpose (D5):
-// a half-typed key saved into the box would otherwise take every provider on
-// every node down the moment it was saved.
-func (e *MemQLEngine) evaluateProviderKeySetExpression(ctx context.Context, args map[string]any) ([]memorynodes.MemoryNode, error) {
-	if e == nil {
-		return nil, fmt.Errorf("engine is nil")
-	}
-	if !rowAuthzIsClusterOwner(ctx) {
-		return nil, fmt.Errorf("providerKeySet is owner-only")
-	}
+// federationRequiredFields is the all-or-none set per vendor: the ids an
+// operator supplies. It mirrors each vendor's requiredFederationFields minus
+// the token file, for the reason above.
+var federationRequiredFields = map[string][]string{
+	"anthropic": {envAnthropicFederationRuleID, envAnthropicOrganizationID, envAnthropicServiceAccountID},
+	"openai":    {envOpenAIIdentityProviderID, envOpenAIServiceAccountID},
+}
 
-	vendor := strings.ToLower(strings.TrimSpace(stringArg(args, "vendor")))
-	name, ok := providerKeyNames[vendor]
-	if !ok {
-		return nil, fmt.Errorf(
-			"providerKeySet: unknown vendor %q; MemQL seeds keys for %s",
-			vendor, strings.Join(sortedConfigKeys(providerKeyNames), " or "))
+// federationVendors is the closed set, sorted, for error messages.
+func federationVendors() []string {
+	out := make([]string, 0, len(federationFieldNames))
+	for vendor := range federationFieldNames {
+		out = append(out, vendor)
 	}
-
-	// TRIMMED, and refused when empty. A pasted key almost always carries a
-	// trailing newline, and a credential that differs from the vendor's by one
-	// byte fails with a 401 that reads exactly like a revoked key.
-	value := strings.TrimSpace(stringArg(args, "apiKey"))
-	if value == "" {
-		return nil, fmt.Errorf("providerKeySet: the key is empty")
-	}
-
-	ciphertext, fingerprint, err := secret.Encrypt(value)
-	if err != nil {
-		// Never wrap the plaintext into an error: this string reaches a log.
-		return nil, fmt.Errorf("providerKeySet: seal %s: %w", name, err)
-	}
-
-	call := renderProviderConfigCall("setGlobalSecret", map[string]string{
-		"id":             "sec-" + strings.ToLower(strings.ReplaceAll(name, "_", "-")),
-		"name":           name,
-		"encryptedValue": ciphertext,
-		"fingerprint":    fingerprint,
-		"kind":           "vendor_api_key",
-		"description":    "Seeded from the portal's AI providers page.",
-		"addedBy":        actorIdOrSystem(ctx),
-	})
-	if _, err := e.Execute(ctx, call); err != nil {
-		return nil, fmt.Errorf("providerKeySet: write %s: %w", name, err)
-	}
-
-	return singleVirtualRow(ProviderConfigResultConcept, name, map[string]any{
-		"name":        name,
-		"vendor":      vendor,
-		"fingerprint": fingerprint,
-		"applied":     false,
-		"message": "Saved. It takes effect on every node when you Apply -- " +
-			"seeding and applying are separate so a mistyped key cannot take the fleet down as you save it.",
-	})
+	sort.Strings(out)
+	return out
 }
 
 // evaluateProviderFederationSetExpression writes the Anthropic workload
@@ -144,48 +121,60 @@ func (e *MemQLEngine) evaluateProviderFederationSetExpression(ctx context.Contex
 	if e == nil {
 		return nil, fmt.Errorf("engine is nil")
 	}
-	if !rowAuthzIsClusterOwner(ctx) {
-		return nil, fmt.Errorf("providerFederationSet is owner-only")
+	if !providersConfigAuthorized(ctx) {
+		return nil, fmt.Errorf("providerFederationSet is owner-or-developer")
+	}
+
+	// The vendor is REQUIRED and closed. It used to be implicit -- there was
+	// one federating vendor, so the builtin wrote Anthropic's names and
+	// answered "anthropic" -- and an implicit vendor is exactly the shape that
+	// silently writes the wrong rows the moment a second one exists.
+	vendor := strings.ToLower(strings.TrimSpace(stringArg(args, "vendor")))
+	fields, ok := federationFieldNames[vendor]
+	if !ok {
+		return nil, fmt.Errorf(
+			"providerFederationSet: unknown vendor %q; MemQL federates with %s",
+			vendor, strings.Join(federationVendors(), " and "))
 	}
 
 	values := map[string]string{}
-	for field, name := range federationFieldNames {
+	for field, name := range fields {
 		values[name] = strings.TrimSpace(stringArg(args, field))
 	}
 
-	// The required set is the four `requiredFederationFields` names -- the
-	// workspace id is outside it, matching the constructor that will read
-	// these back.
-	required := anthropicFederation{
-		RuleID:           values[envAnthropicFederationRuleID],
-		OrganizationID:   values[envAnthropicOrganizationID],
-		ServiceAccountID: values[envAnthropicServiceAccountID],
-		TokenFile:        values[envAnthropicIdentityTokenFile],
+	// All-or-none over the vendor's required ids. The token-file path is not
+	// among them: it is base env beside the projected volume on every engine
+	// Deployment, so it is part of the credential and not part of this form.
+	var present, missing []string
+	for _, name := range federationRequiredFields[vendor] {
+		if values[name] != "" {
+			present = append(present, name)
+		} else {
+			missing = append(missing, name)
+		}
 	}
-	present, missing := required.present(), required.missing()
 	if len(present) > 0 && len(missing) > 0 {
 		return nil, fmt.Errorf(
-			"providerFederationSet: federation is all-or-none -- %s given, %s missing. "+
-				"A partial set REFUSES BOOT rather than falling back to an API key, so this is "+
-				"refused here instead of at the fleet's next restart",
-			strings.Join(present, ", "), strings.Join(missing, ", "))
+			"providerFederationSet: %s federation is all-or-none -- %s given, %s missing. "+
+				"A partial set REFUSES BOOT, so this is refused here instead of at the fleet's next restart",
+			vendor, strings.Join(present, ", "), strings.Join(missing, ", "))
 	}
 
 	written := make([]string, 0, len(values))
-	for _, name := range sortedConfigKeys(federationFieldNames) {
-		envName := federationFieldNames[name]
+	for _, field := range sortedConfigKeys(fields) {
+		envName := fields[field]
 		value := values[envName]
 		if value == "" {
-			// An empty optional (the workspace id) writes nothing rather than
-			// an empty row: the resolver treats "" as absent, so an empty row
-			// is a row that means nothing and shadows nothing.
+			// An empty optional (Anthropic's workspace id) writes nothing
+			// rather than an empty row: the resolver treats "" as absent, so an
+			// empty row is a row that means nothing and shadows nothing.
 			continue
 		}
 		call := renderProviderConfigCall("setGlobalVariable", map[string]string{
 			"id":          "var-" + strings.ToLower(strings.ReplaceAll(envName, "_", "-")),
 			"name":        envName,
 			"value":       value,
-			"description": "Seeded from the portal's AI providers page.",
+			"description": "Seeded from the OS Settings AI providers section.",
 		})
 		if _, err := e.Execute(ctx, call); err != nil {
 			return nil, fmt.Errorf("providerFederationSet: write %s: %w", envName, err)
@@ -193,9 +182,10 @@ func (e *MemQLEngine) evaluateProviderFederationSetExpression(ctx context.Contex
 		written = append(written, envName)
 	}
 
-	return singleVirtualRow(ProviderConfigResultConcept, "anthropic-federation", map[string]any{
-		"name":        "anthropic-federation",
-		"vendor":      "anthropic",
+	name := vendor + "-federation"
+	return singleVirtualRow(ProviderConfigResultConcept, name, map[string]any{
+		"name":        name,
+		"vendor":      vendor,
 		"fingerprint": "",
 		"applied":     false,
 		"written":     written,

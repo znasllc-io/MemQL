@@ -310,7 +310,7 @@ type unavailableProvider struct {
 // regexp that would still pass if the guidance half were dropped -- the
 // guidance is the point. An operator reading it must learn where to go, or
 // the quieting has traded a wall of warnings for silence.
-const KeylessBootSummary = "AI providers not configured; configure in the portal: Settings -> AI providers"
+const KeylessBootSummary = "AI providers not configured; configure in MemQL OS: Settings -> AI providers"
 
 // reportProviderAvailability says what happened to the providers that could
 // not be made callable, at the level the SHAPE of the outcome deserves.
@@ -319,7 +319,10 @@ const KeylessBootSummary = "AI providers not configured; configure in the portal
 //
 //   - NOTHING RESOLVED. Every provider is unavailable, which after epic
 //     memql#4440 is the state a freshly installed cluster is in by design:
-//     installing spends no inference and asks for no key. Emitting one warning
+//     installing spends no inference and asks for no key -- and after epic
+//     memql#5088 there is no key to ask for at all, so it is also the
+//     permanent state of every LOCAL cluster, whose private OIDC issuer no
+//     vendor can federate with. Emitting one warning
 //     per provider -- a dozen of them, every boot, on every node -- trains an
 //     operator to ignore this component's warnings, which is exactly when the
 //     one that matters arrives. So: ONE line, at INFO, naming the count and
@@ -332,7 +335,7 @@ const KeylessBootSummary = "AI providers not configured; configure in the portal
 //     they were.
 //
 // Silence therefore means ONE thing and one thing only -- "none configured" --
-// and that is the state the portal page now owns. If this ever starts
+// and that is the state the OS Settings page now owns. If this ever starts
 // swallowing a partial failure, the risk D3 named has materialised.
 func reportProviderAvailability(logger *slog.Logger, available int, unavailable []unavailableProvider) {
 	if logger == nil || len(unavailable) == 0 {

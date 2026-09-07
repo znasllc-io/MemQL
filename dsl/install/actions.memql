@@ -74,25 +74,32 @@ action nssTools {
   capability script(script: "install.nssTools")
 }
 
-// Backend: scripts/install/verify-provider-key.sh. The key is passed as a FILE
-// PATH, never as a value: argv is world-readable on a shared machine.
-/// Verify an AI-provider API key is accepted, with an authenticated token-free request, before the
-/// cluster is built around it.
-action verifyProviderKey {
+// Backend: scripts/install/verify-provider-key.sh.
+//
+// THERE IS NO KEY TO PASS ANY MORE (epic memql#5088). The action used to take a
+// FILE PATH so a key never appeared in argv on a shared machine; the key itself
+// is gone, and what is verified now is that a DEPLOYED pod can exchange its
+// projected identity token for a bearer. That check therefore runs against a
+// running deployment rather than against a value the operator holds, which is
+// why it takes a deployment name and not a credential.
+/// Verify a cluster's AI-provider credential by forcing one workload identity federation
+/// exchange from inside a running pod, so a broken federation is reported at install time
+/// rather than at the first model call.
+action verifyProviderFederation {
   args {
-    provider         string!
-    keyFile          string!
-    baseUrl          string
-    timeout          string
-    anthropicVersion string
+    provider        string!
+    federationDeploy string!
+    namespace       string
+    memqlBinary     string
+    timeout         string
   }
   capability script(
     script: "install.verifyProviderKey",
     provider: args.provider,
-    key-file: args.keyFile,
-    base-url: args.baseUrl,
-    timeout: args.timeout,
-    anthropic-version: args.anthropicVersion
+    federation-deploy: args.federationDeploy,
+    namespace: args.namespace,
+    memql-binary: args.memqlBinary,
+    timeout: args.timeout
   )
 }
 
@@ -398,8 +405,6 @@ action seedClusterBootstrap {
     internalDomains     string
     internalDefaultRole string
     notifyEmails        string
-    provider            string
-    providerKeyFile     string
     dryRun              boolean
   }
   capability script(
@@ -417,8 +422,6 @@ action seedClusterBootstrap {
     internal-domains: args.internalDomains,
     internal-default-role: args.internalDefaultRole,
     notify-emails: args.notifyEmails,
-    provider: args.provider,
-    provider-key-file: args.providerKeyFile,
     dry-run: args.dryRun
   )
 }

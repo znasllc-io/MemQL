@@ -14,7 +14,7 @@ import (
 // ============================================================================
 // THE CALL IS A STRING, AND A STRING CAN BE MALFORMED
 // ============================================================================
-// `providerKeySet` reaches setGlobalSecret through `e.Execute(ctx, <MemQL
+// `the retired key-sealing builtin` reaches setGlobalSecret through `e.Execute(ctx, <MemQL
 // text>)`, because engine.Execute is the only write channel available from
 // inside a builtin. Every value it carries has to become a literal, and
 // getting that wrong is NOT a compile error -- it is a PARSE failure at
@@ -34,17 +34,22 @@ func TestRenderedProviderConfigCallsParse(t *testing.T) {
 		args map[string]string
 	}{
 		{
-			name: "a sealed key, with base64 ciphertext",
+			// Still a sealed secret with awkward ciphertext -- the renderer's
+			// escaping is what is under test and every base64 character that
+			// breaks a naive renderer still appears. It is no longer a VENDOR
+			// key: there are none (epic memql#5088), so the fixture names a
+			// secret the product actually has.
+			name: "a sealed secret, with base64 ciphertext",
 			fn:   "setGlobalSecret",
 			args: map[string]string{
-				"id":   "sec-memql-ai-anthropic-api-key",
-				"name": envAnthropicAPIKey,
+				"id":   "sec-memql-campaigns-unsubscribe-secret",
+				"name": "MEMQL_CAMPAIGNS_UNSUBSCRIBE_SECRET",
 				// Real NaCl-secretbox output shape: +, / and = all appear, and
 				// every one of them is a character a naive renderer breaks on.
 				"encryptedValue": "YWJjZGVm+Z2hpams/bG1ub3A=Cg==",
 				"fingerprint":    "9f2c",
-				"kind":           "vendor_api_key",
-				"description":    "Seeded from the portal's AI providers page.",
+				"kind":           "shared_secret",
+				"description":    "Seeded from the OS Settings section that owns it.",
 				"addedBy":        "user-owner",
 			},
 		},
@@ -160,58 +165,25 @@ func TestRendererUsesLexerCompatibleEscaping(t *testing.T) {
 	}
 }
 
-func TestProviderKeySetIsOwnerOnly(t *testing.T) {
-	e := engineWithProviders(t, events.NewBus())
-	_, err := e.evaluateProviderKeySetExpression(nonClusterOwnerCtx("user-writer"), map[string]any{
-		"vendor": "anthropic", "apiKey": "sk-test",
-	})
-	if err == nil {
-		t.Fatal("a non-owner sealed a vendor credential into the cluster")
-	}
-	if !strings.Contains(err.Error(), "owner-only") {
-		t.Errorf("the refusal should say why: %v", err)
-	}
-}
 
-func TestProviderFederationSetIsOwnerOnly(t *testing.T) {
+// TestProviderFederationSetIsOwnerOrDeveloper pins design D7's widening, in
+// the direction that matters: a WRITER is still refused. The gate moved from
+// owner-only to an owner-or-developer SET, never a rank floor -- this repo's
+// ladder puts developer (300) above admin (200), so a floor at admin would
+// have admitted admins too, and an admin is not who a developer-helps-an-owner
+// exception is for.
+func TestProviderFederationSetIsOwnerOrDeveloper(t *testing.T) {
 	e := engineWithProviders(t, events.NewBus())
 	_, err := e.evaluateProviderFederationSetExpression(nonClusterOwnerCtx("user-writer"), nil)
 	if err == nil {
-		t.Fatal("a non-owner wrote the cluster's federation configuration")
+		t.Fatal("a writer wrote the cluster's federation configuration")
 	}
-	if !strings.Contains(err.Error(), "owner-only") {
+	if !strings.Contains(err.Error(), "owner-or-developer") {
 		t.Errorf("the refusal should say why: %v", err)
 	}
 }
 
-func TestProviderKeySetRefusesAnUnknownVendor(t *testing.T) {
-	// The row NAME is derived from the vendor rather than supplied, which is
-	// the whole safety property: an operator cannot name a row the resolver
-	// never tries. That only holds if an unknown vendor is REFUSED rather
-	// than falling through to some default name.
-	e := engineWithProviders(t, events.NewBus())
-	_, err := e.evaluateProviderKeySetExpression(clusterOwnerCtx("user-owner"), map[string]any{
-		"vendor": "gemini", "apiKey": "sk-test",
-	})
-	if err == nil {
-		t.Fatal("an unknown vendor was accepted; the key would land under a name nothing reads")
-	}
-	if !strings.Contains(err.Error(), "gemini") {
-		t.Errorf("the refusal should name what was asked for: %v", err)
-	}
-}
 
-func TestProviderKeySetRefusesABlankKey(t *testing.T) {
-	e := engineWithProviders(t, events.NewBus())
-	for _, blank := range []string{"", "   ", "\n"} {
-		_, err := e.evaluateProviderKeySetExpression(clusterOwnerCtx("user-owner"), map[string]any{
-			"vendor": "openai", "apiKey": blank,
-		})
-		if err == nil {
-			t.Errorf("a blank key (%q) was sealed into a row", blank)
-		}
-	}
-}
 
 // TestFederationSetIsAllOrNone is the refusal that has to happen HERE rather
 // than at the fleet's next restart.
@@ -226,9 +198,10 @@ func TestFederationSetIsAllOrNone(t *testing.T) {
 	ctx := clusterOwnerCtx("user-owner")
 
 	partial := map[string]any{
+		"vendor":         "anthropic",
 		"ruleId":         "fdrl_01HZX",
 		"organizationId": "org-1",
-		// serviceAccountId and identityTokenFile deliberately absent.
+		// serviceAccountId deliberately absent.
 	}
 	_, err := e.evaluateProviderFederationSetExpression(ctx, partial)
 	if err == nil {
@@ -249,7 +222,7 @@ func TestFederationSetIsAllOrNone(t *testing.T) {
 	// THE REACHABLE POSITIVE, and it is two-sided. An EMPTY set is legitimate
 	// (it is what a cluster with no federation configured looks like), so the
 	// refusal must be about PARTIAL specifically, not about "not complete".
-	if _, err := e.evaluateProviderFederationSetExpression(ctx, map[string]any{}); err != nil &&
+	if _, err := e.evaluateProviderFederationSetExpression(ctx, map[string]any{"vendor": "anthropic"}); err != nil &&
 		strings.Contains(err.Error(), "all-or-none") {
 		t.Errorf("an EMPTY federation set was refused as partial; zero config is legitimate: %v", err)
 	}
@@ -263,14 +236,14 @@ func TestFederationSetIsAllOrNone(t *testing.T) {
 func TestWorkspaceIdIsOutsideTheRequiredSet(t *testing.T) {
 	e := engineWithProviders(t, events.NewBus())
 	complete := map[string]any{
-		"ruleId":            "fdrl_01HZX",
-		"organizationId":    "org-1",
-		"serviceAccountId":  "sa-1",
-		"identityTokenFile": "/var/run/secrets/token",
+		"vendor":           "anthropic",
+		"ruleId":           "fdrl_01HZX",
+		"organizationId":   "org-1",
+		"serviceAccountId": "sa-1",
 		// No workspaceId.
 	}
 	if _, err := e.evaluateProviderFederationSetExpression(clusterOwnerCtx("user-owner"), complete); err != nil &&
 		strings.Contains(err.Error(), "all-or-none") {
-		t.Errorf("a complete four-field set was refused for want of the OPTIONAL workspace id: %v", err)
+		t.Errorf("a complete required set was refused for want of the OPTIONAL workspace id: %v", err)
 	}
 }

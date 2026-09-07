@@ -339,20 +339,25 @@ the wrong overlay deploys to the wrong cluster.
 
 No `overlays/cloud`. No `top`. No extra monitoring addon.
 
-## Anthropic: federate instead of seeding a key (optional, after bring-up)
+## AI vendors: federate, because there is no key to seed
 
-`MEMQL_AI_ANTHROPIC_API_KEY` is one of the keys `memql-secrets` carries at
-bring-up. It can be removed entirely once the cluster authenticates to
-Anthropic by workload identity federation: the pod presents the token
-Kubernetes projects for it and Anthropic returns a one-hour bearer, so no
-long-lived vendor credential is left in the cluster.
+`memql-secrets` used to carry a vendor API key per AI vendor at bring-up. It no
+longer does, and there is no env name for one: both vendors are reached by
+workload identity federation, where the pod presents the token Kubernetes
+projects for it and the vendor returns a bearer that lives at most an hour. No
+long-lived vendor credential exists in the cluster at any point.
+
+**Until you do this, the cluster has no AI providers**, which is a working
+cluster with `ai` reported as unconfigured rather than a broken one. Everything
+that needs no model works; nothing falls back to anything.
 
 The manifests are already in place -- `deploy/k8s/base` gives every engine
-Deployment the `memql-engine` ServiceAccount, the projected
-`anthropic-identity` token and the empty `memql-anthropic-federation`
-ConfigMap -- so the cutover is Console work plus three ids in the overlay.
+Deployment the `memql-engine` ServiceAccount, BOTH projected identity tokens
+(`anthropic-identity` and `openai-identity`, one audience each) and both empty
+federation ConfigMaps -- so each cutover is console work plus a few ids in the
+overlay.
 
-Four values join this instance's per-cluster install values, alongside the
+Six values join this instance's per-cluster install values, alongside the
 domain, the DB identity client id and the mail tenant ids:
 
 ```
@@ -360,15 +365,22 @@ MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID    fdrl_...
 MEMQL_AI_ANTHROPIC_ORGANIZATION_ID       <organization uuid>
 MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID    svac_...
 MEMQL_AI_ANTHROPIC_WORKSPACE_ID          (usually empty)
+
+MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID     <identity provider id>
+MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID       <service account id>
 ```
 
 They are bound to THIS cluster's OIDC issuer. A re-created cluster gets a new
-issuer, which invalidates the federation rule -- record them with the rest of
-the per-cluster values, and expect to redo the Console steps if the cluster is
-rebuilt.
+issuer, which invalidates both -- record them with the rest of the per-cluster
+values, and expect to redo the console steps if the cluster is rebuilt.
+
+The two sets are independent: a cluster may federate one vendor and not the
+other. Within a vendor it is all or nothing, and a partial set REFUSES BOOT
+rather than degrading.
 
 Steps, deny reasons and the verification command:
-[auth/anthropic-federation.md](auth/anthropic-federation.md).
+[auth/anthropic-federation.md](auth/anthropic-federation.md) and
+[auth/openai-federation.md](auth/openai-federation.md).
 
 ## Mail: the Graph sender lives on the mailbox tenant
 

@@ -411,13 +411,13 @@ concept providerVerifyResult {
 }
 
 /// Virtual single-row RESULT of seeding AI provider configuration from Settings (epic
-/// memql#4440) -- `providerKeySet` or `providerFederationSet`. Never persisted.
+/// memql#4440) -- `providerFederationSet`. Never persisted.
 ///
-/// THERE IS NO VALUE FIELD, AND THERE IS NO READ-BACK CONSTRUCT ANYWHERE IN THIS EPIC. A key
-/// entered here is sealed with the cluster master key before it touches a row and is never
-/// returned; what comes back is the row NAME the resolver will try and a four-character
-/// fingerprint. "Is this key good" is answered by `providerVerify` making a live call, not by
-/// showing an operator what they typed.
+/// THERE IS NO VALUE FIELD, AND THERE IS NO READ-BACK CONSTRUCT. Nothing written through this
+/// path is a credential any more (epic memql#5088 removed the key-sealing sibling along with
+/// every manually entered vendor key): what an operator supplies is a set of federation ids,
+/// and what comes back is the row NAMES the resolver will try. "Is this configuration good" is
+/// answered by `providerVerify` making a live call, not by showing an operator what they typed.
 @displayCard(primary="name", secondary="vendor", tertiary="fingerprint")
 concept providerConfigResult {
   name         string!  @description("The row name written, which is the exact name the auth resolver tries. Also the row id. The VENDOR is what the caller chooses; this name is derived, so a mistyped name the resolver never tries is not a state an operator can reach.")

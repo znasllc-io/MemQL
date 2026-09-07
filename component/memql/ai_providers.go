@@ -1040,13 +1040,13 @@ func SetSystemVariableResolver(r SystemVariableResolverFunc) { systemVariableRes
 //
 // Providers reference `MEMQL_AI_<VENDOR>_...` (dsl/providers/providers.memql)
 // because that is the OS env var the bridge-agent / STT bootstrap also reads,
-// while operators seed the SEAL-FLOOR form -- `MEMQL_OPENAI_API_KEY`,
-// `MEMQL_ANTHROPIC_API_KEY` -- because that is the name the manifest and the
+// while operators seed the SEAL-FLOOR form -- `MEMQL_OPENAI_PROJECT_ID`,
+// `MEMQL_ANTHROPIC_ORGANIZATION_ID` -- because that is the name the manifest and the
 // docs give them. Rather than rename either side and force every install to
 // re-seed, the resolver tries both:
 //
-//	MEMQL_AI_OPENAI_API_KEY  (exact match for what the provider asked)
-//	MEMQL_OPENAI_API_KEY     (the seal-floor seeded form)
+//	MEMQL_AI_OPENAI_PROJECT_ID  (exact match for what the provider asked)
+//	MEMQL_OPENAI_PROJECT_ID     (the seal-floor seeded form)
 //
 // First non-empty match wins, and the EXACT name is always first: seeding the
 // precise name an operator was asked for must never be the losing option.
@@ -1057,7 +1057,7 @@ func SetSystemVariableResolver(r SystemVariableResolverFunc) { systemVariableRes
 // for `MEMQL_AI_...`, and `MEMQL_SI_` survives only as a deprecated alias
 // (component/envregistry/legacyalias.go) -- so the elision fired for NO
 // provider and the fallback it exists to provide never happened. A key seeded
-// under the documented `MEMQL_ANTHROPIC_API_KEY` was simply not found.
+// under the documented `MEMQL_ANTHROPIC_ORGANIZATION_ID` was simply not found.
 //
 // The rename from `MEMQL_SI_` to `MEMQL_AI_` missed this constant, and three
 // places kept describing the behaviour it had lost: this comment (which named
@@ -1066,8 +1066,8 @@ func SetSystemVariableResolver(r SystemVariableResolverFunc) { systemVariableRes
 // spells the mapping out literally. Documentation on three sides and code on
 // none is what makes this the code's bug.
 //
-// It also elided the WHOLE prefix, yielding a bare `OPENAI_API_KEY` rather
-// than the `MEMQL_OPENAI_API_KEY` every one of those three describes. Only the
+// It also elided the WHOLE prefix, yielding a bare `OPENAI_PROJECT_ID` rather
+// than the `MEMQL_OPENAI_PROJECT_ID` every one of those three describes. Only the
 // `AI_` / `SI_` segment is dropped now; `MEMQL_` is part of the seal-floor
 // name.
 //
@@ -1223,8 +1223,8 @@ func resolveAuthPlaceholders(values map[string]string) (map[string]string, error
 			}
 			// All three tiers, in one place: globalSecret, then
 			// globalVariable, then OS env -- the last with the same
-			// prefix-elision as concept storage, so `MEMQL_OPENAI_API_KEY` in
-			// env wins for a `MEMQL_AI_OPENAI_API_KEY`-referencing provider,
+			// prefix-elision as concept storage, so `MEMQL_OPENAI_PROJECT_ID` in
+			// env wins for a `MEMQL_AI_OPENAI_PROJECT_ID`-referencing provider,
 			// matching the dev-manifest naming. The tier that answered is
 			// discarded here and kept by the status projection
 			// (providerAuthStatus), which is the only caller that needs it.
@@ -1363,8 +1363,19 @@ type openAIPlaceholderProvider struct {
 }
 
 func newOpenAIPlaceholderProvider(cfg ProviderConfig, capability string) (AIProvider, error) {
-	if strings.TrimSpace(cfg.Auth["apiKey"]) == "" {
-		return nil, fmt.Errorf("provider %q (%s): missing auth.apiKey", cfg.Name, capability)
+	// IT VALIDATES THE FEDERATED CREDENTIAL, exactly as the real constructors
+	// do (epic memql#5088, design D5). It used to check auth.apiKey, and
+	// leaving that check would have made every one of these ten types the only
+	// thing in the tree still demanding a key -- so a keyless cluster would
+	// register the real providers as unavailable with a federation message and
+	// these with a message naming a variable that no longer exists.
+	//
+	// The client is thrown away: a placeholder has no call to make. What is
+	// wanted is the DECISION -- federated, unavailable, or half-configured --
+	// so the registry's answer for a placeholder matches its answer for the
+	// provider beside it.
+	if _, _, err := newOpenAIClientWithCredential(cfg, guardedHTTPClient(nil)); err != nil {
+		return nil, fmt.Errorf("provider %q (%s): %w", cfg.Name, capability, err)
 	}
 	return &openAIPlaceholderProvider{
 		name:       cfg.Name,
@@ -1389,9 +1400,9 @@ func (p *openAIPlaceholderProvider) Call(_ context.Context, _ string) (any, erro
 // ============================================================================
 
 func newOpenAIEmbeddingProvider(cfg ProviderConfig) (AIProvider, error) {
-	apiKey := strings.TrimSpace(cfg.Auth["apiKey"])
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q missing auth.apiKey", cfg.Name)
+	bearer, err := openAIBearerFor(cfg)
+	if err != nil {
+		return nil, err
 	}
 	// THE CALLER'S DEFAULT, out of range (memql#4779), and this is the one
 	// site in the sweep where saturation would be actively worse: `dims` is
@@ -1407,7 +1418,32 @@ func newOpenAIEmbeddingProvider(cfg ProviderConfig) (AIProvider, error) {
 			dims = v
 		}
 	}
-	return NewOpenAIEmbeddingClient(apiKey, cfg.Model, dims), nil
+	client := NewOpenAIEmbeddingClient(cfg.Model, dims)
+	client.bearer = bearer
+	if baseURL := strings.TrimSpace(cfg.Auth["baseURL"]); baseURL != "" {
+		client.baseURL = baseURL
+	}
+	return client, nil
+}
+
+// openAIBearerFor resolves the federated bearer source for one provider
+// config, or the error the credential switch would have produced.
+//
+// It exists so the constructors that do NOT build an SDK client -- the
+// embedding client, which reads its own response body -- take exactly the same
+// credential decision as the ones that do. Two credential decisions for one
+// vendor is how a cluster ends up with chat working and embeddings 401ing.
+func openAIBearerFor(cfg ProviderConfig) (BearerSource, error) {
+	_, source, path, err := openaiCredential(cfg, guardedHTTPClient(nil))
+	if err != nil {
+		return nil, fmt.Errorf("provider %q: %w", cfg.Name, err)
+	}
+	if path == credentialPathUnavailable {
+		return nil, fmt.Errorf(
+			"provider %q has no OpenAI credential: workload identity federation is not configured on this cluster "+
+				"(docs/public/operate/auth/openai-federation.md)", cfg.Name)
+	}
+	return source, nil
 }
 
 // ============================================================================
@@ -1441,13 +1477,31 @@ func resolveOpenAIProjectId(cfg ProviderConfig) string {
 // and the wrapper were composed in -- and one of the two orders silently sent
 // the header on some calls and not others.
 func newOpenAIClient(cfg ProviderConfig, httpClient *http.Client) (*openai.Client, error) {
-	apiKey := strings.TrimSpace(cfg.Auth["apiKey"])
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q missing auth.apiKey", cfg.Name)
+	client, _, err := newOpenAIClientWithCredential(cfg, httpClient)
+	return client, err
+}
+
+// newOpenAIClientWithCredential is newOpenAIClient plus the bearer source, for
+// the consumers that need the raw token rather than a client: the Realtime
+// transcription WebSocket, which dials with an Authorization header of its own,
+// and `provider-auth check`, which forces one exchange and reports it.
+func newOpenAIClientWithCredential(cfg ProviderConfig, httpClient *http.Client) (*openai.Client, BearerSource, error) {
+	opts, source, path, err := openaiCredential(cfg, httpClient)
+	if err != nil {
+		return nil, nil, err
 	}
-	opts := []option.RequestOption{
-		option.WithAPIKey(apiKey),
-		option.WithHTTPClient(httpClient),
+	if path == credentialPathUnavailable {
+		// No credential is configured. This is the normal state of a fresh
+		// cloud cluster and of every local one (design D2/D6), so it is
+		// reported as an unavailable provider rather than as a fault -- the
+		// registry's own wording, which the readiness model reads as `ai`
+		// unconfigured.
+		return nil, nil, fmt.Errorf(
+			"provider %q has no OpenAI credential: workload identity federation is not configured on this cluster. "+
+				"Set %s, %s and %s (docs/public/operate/auth/openai-federation.md). There is no API key to fall "+
+				"back to -- a local cluster cannot federate, because its OIDC issuer is private, and reaches "+
+				"models through a signed-in fleet machine or a local model instead",
+			cfg.Name, envOpenAIIdentityProviderID, envOpenAIServiceAccountID, envOpenAIIdentityTokenFile)
 	}
 	if baseURL := strings.TrimSpace(cfg.Auth["baseURL"]); baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
@@ -1456,7 +1510,7 @@ func newOpenAIClient(cfg ProviderConfig, httpClient *http.Client) (*openai.Clien
 		opts = append(opts, option.WithProject(projectId))
 	}
 	client := openai.NewClient(opts...)
-	return &client, nil
+	return &client, source, nil
 }
 
 type openAIProvider struct {

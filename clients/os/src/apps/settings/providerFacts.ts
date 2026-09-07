@@ -18,6 +18,11 @@ import { useOsConnection } from "../../live/connection";
 // rather than implying a fleet-wide reading. The front door routes each call
 // independently, so two Refreshes can be answered by two nodes. That is why
 // Apply broadcasts rather than relying on repeated reads.
+//
+// THERE IS NO KEY HERE ANY MORE (epic memql#5088, D5). `saveKey` and the
+// key-sealing builtin it called are deleted, not disabled: federation is the
+// only door for a cloud vendor, and the fleet is the other door. What is left
+// on the write side is the federation id form, per vendor, and Apply.
 
 export interface ProviderStatusRow {
   name: string;
@@ -110,21 +115,171 @@ export function vendorLabel(vendor: string): string {
 /**
  * Where the tier names become sentences.
  *
- * The distinction that matters most is env versus the two row tiers: a key in
- * the pod's environment is the one source a save from here cannot change, so
- * an operator who saves a key and sees no change has to be TOLD that rather
- * than left to work it out.
+ * The distinction that matters most is env versus the two row tiers: a value
+ * the pod's environment supplies is the one source a save from here cannot
+ * change, so an operator who saves an id and sees no change has to be TOLD
+ * that rather than left to work it out.
+ *
+ * Every entry is kept even though the AI vendors can no longer resolve a
+ * sealed key (epic memql#5088): this maps whatever tier name the engine sends
+ * and an unknown one falls through to the raw string, which is the honest
+ * floor. Deleting a mapping would render a tier as a bare enum value.
  */
 const AUTH_SOURCE_COPY: Record<string, string> = {
-  federation: "workload identity, no key at rest",
+  federation: "workload identity -- nothing is stored anywhere",
   globalSecret: "a sealed row in this cluster",
   globalVariable: "a plaintext row in this cluster",
-  env: "this pod's environment -- a saved key will not override it",
+  env: "this pod's environment -- a row saved here will not override it",
   unresolved: "nothing configured",
 };
 
 export function sourceCopy(source: string): string {
   return AUTH_SOURCE_COPY[source] ?? source;
+}
+
+// ---------------------------------------------------------------------------
+// The doors (epic memql#5088)
+// ---------------------------------------------------------------------------
+
+/**
+ * The vendors this cluster can federate with, in the order the section shows
+ * them, and the ids each one's rule is made of.
+ *
+ * THE PROJECTED TOKEN PATH IS NOT HERE, and its absence is the decision. It is
+ * a deployment fact -- every engine Deployment already carries
+ * `MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE` and `MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE`
+ * beside the projected volume they name (deploy/k8s/base) -- so a text box for
+ * it in a browser could only ever disagree with the mount, and a path that
+ * disagrees with the mount is a federation that refuses boot for a reason the
+ * person who typed it cannot see. The panel says where it went, because an
+ * operator who used the old five-field form will look for it.
+ *
+ * `serviceAccountId` appears under BOTH vendors on purpose: the id means the
+ * same thing to each, and the `vendor` argument is what decides which env name
+ * the engine writes it to. Two differently-spelled fields for one concept
+ * would be a name the operator has to translate.
+ */
+export interface FederationField {
+  key: string;
+  label: string;
+  /** Shown in the empty box. A shape, never an example that could be pasted. */
+  hint: string;
+  required: boolean;
+}
+
+export const FEDERATION_FIELDS: Record<string, readonly FederationField[]> = {
+  anthropic: [
+    { key: "ruleId", label: "Federation rule id", hint: "fdrl_...", required: true },
+    { key: "organizationId", label: "Organization id", hint: "UUID", required: true },
+    { key: "serviceAccountId", label: "Service account id", hint: "", required: true },
+    {
+      key: "workspaceId",
+      label: "Workspace id",
+      hint: "Only for a rule spanning more than one workspace",
+      required: false,
+    },
+  ],
+  openai: [
+    { key: "identityProviderId", label: "Identity provider id", hint: "", required: true },
+    { key: "serviceAccountId", label: "Service account id", hint: "svac_...", required: true },
+  ],
+};
+
+export function federationFields(vendor: string): readonly FederationField[] {
+  return FEDERATION_FIELDS[vendor.toLowerCase()] ?? [];
+}
+
+/** Which required ids a draft is still missing, in declaration order. */
+export function missingFederationFields(
+  vendor: string,
+  draft: Readonly<Record<string, string>>,
+): readonly FederationField[] {
+  return federationFields(vendor).filter(
+    (f) => f.required && (draft[f.key] ?? "").trim() === "",
+  );
+}
+
+/**
+ * What this vendor's door is, read from the registry THIS node answered with.
+ *
+ *  - `open`  -- ids applied, the exchange is the credential, nothing is stored.
+ *  - `unset` -- no ids. NORMAL: it is how every cluster is installed and the
+ *               permanent state of every local one. Not a fault, not amber.
+ *  - `half`  -- some ids set and some missing. The engine REFUSES BOOT on this,
+ *               so it is the one state that is actionable and urgent.
+ *
+ * `half` IS CHECKED FIRST, and the order is the fail-safe direction: a stale
+ * federated row alongside a half-configured one must not let the dangerous
+ * state hide behind the reassuring one. (The two cannot both be true of one
+ * auth block, so in practice the order never decides anything -- which is
+ * exactly when to pick the direction that is safe if it ever does.)
+ *
+ * Detection is the engine's own sentence, not a field: `anthropicCredential`
+ * writes "is HALF-CONFIGURED for ... federation: X set, Y missing" and hands it
+ * to the provider entry as its unavailable reason. Matching the words rather
+ * than parsing them is deliberate -- the sentence already names both halves
+ * better than a re-derivation here would, and it is rendered verbatim.
+ */
+export type DoorState = "open" | "unset" | "half";
+
+export interface VendorDoor {
+  state: DoorState;
+  /** The engine's own words for a half-set door. Empty otherwise. */
+  said: string;
+}
+
+const HALF_CONFIGURED = "half-configured";
+
+export function doorFor(vendor: string, rows: readonly ProviderStatusRow[]): VendorDoor {
+  // Prefix, not equality: one vendor registers many provider TYPES
+  // (`openai`, `openaistt`, `openaiwhisper`, ...) off one auth block, and the
+  // engine's own `providerAuthEnvKeyFor` matches them the same way.
+  const want = vendor.toLowerCase();
+  const mine = rows.filter((r) => r.vendor.toLowerCase().startsWith(want));
+
+  const halfway = mine.find((r) => r.reason.toLowerCase().includes(HALF_CONFIGURED));
+  if (halfway) return { state: "half", said: halfway.reason };
+  if (mine.some((r) => r.authSource === "federation")) return { state: "open", said: "" };
+  return { state: "unset", said: "" };
+}
+
+/**
+ * Whether either vendor could reach this cluster's OIDC issuer at all.
+ *
+ * A LOCAL CLUSTER CAN NEVER FEDERATE (design D6): its issuer is private, so
+ * neither vendor can discover it, and uploading a JWKS per developer cluster
+ * is not reproducible. Offering the form there invites somebody to fill in ids
+ * that cannot work and then wait for an exchange that will never happen.
+ *
+ * THE OS HAD NO LOCALITY CONVENTION, so this MIRRORS the engine's rather than
+ * inventing a second one: `integrations/email/delivery.go` `IsLocalDomain`,
+ * which decides the same question (may this install behave as a private one)
+ * from the same input. Its three shapes are reproduced exactly -- a loopback
+ * literal, anything under the RFC 6761 `.localhost` TLD, and the
+ * `*.local.<domain>` dev wildcard whose SECOND label is `local`.
+ *
+ * ONE DELIBERATE DIFFERENCE, AND IT IS THE THIRD ANSWER. The Go predicate
+ * reads an empty domain as local, because a process with no domain configured
+ * is not a cloud install. In a browser an empty `config.domain` means the
+ * runtime config has not landed yet, which is not the same claim -- and
+ * flashing "federation is not available on a local cluster" at a cloud
+ * operator for one frame is a lie the surface would have no way to take back.
+ * So the answer is `unknown`, and the surface holds the sentence rather than
+ * guessing which way to be wrong.
+ *
+ * A Go-side parity test (the shape of `component/worker/online_client_parity_test.go`)
+ * belongs on the engine half of this epic; without one the two predicates are
+ * held together by this comment alone.
+ */
+export type IssuerReach = "local" | "reachable" | "unknown";
+
+export function localityOf(domain: string): IssuerReach {
+  const d = domain.trim().toLowerCase();
+  if (d === "") return "unknown";
+  if (d === "localhost" || d === "127.0.0.1" || d === "::1" || d === "0.0.0.0") return "local";
+  if (d.endsWith(".localhost")) return "local";
+  const labels = d.split(".");
+  return labels.length >= 3 && labels[1] === "local" ? "local" : "reachable";
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +340,128 @@ export function useProviderRegistry(enabled: boolean): ProvidersState {
   return { rows, loading, error, fetchedAt, reload };
 }
 
+/**
+ * The third door: the machines this person owns.
+ *
+ * ITS OWN READ, AND ITS OWN FAILURE. `inferenceStatus` is a different question
+ * from `providerAuthStatus` -- one is scoped to the caller's fleet, the other
+ * is this node's provider registry -- so they settle separately and a refusal
+ * of one never decides the state of the other. The precedent is the Readiness
+ * section, which takes the same two-readings-settling-separately position for
+ * the same reason.
+ *
+ * IT IS THE SAME READING READINESS SHOWS, deliberately. Two surfaces answering
+ * "can this cluster reach a model" from two derivations is how they come to
+ * disagree, and the disagreement would be invisible to both.
+ *
+ * WHAT IT MEASURES IS A LOCAL MODEL, and the copy does not overclaim. Running
+ * a delegated task inside a signed-in Claude Code or Codex is a real second
+ * fleet route (epic memql#4358) and it spends a subscription rather than this
+ * cluster's credit -- but it is not an inference provider the router picks, so
+ * it is stated as what it is and never counted as this door's state.
+ */
+export interface FleetDoor {
+  state: "open" | "unset" | "unknown";
+  /** What the reading means, in the reader's words. */
+  said: string;
+  /** The engine's own sentence when the read failed. Empty otherwise. */
+  error: string;
+  loading: boolean;
+  reload: () => void;
+}
+
+/** Read one numeric field, defaulting to zero. */
+function num(row: RowBag, key: string): number {
+  const raw = row[key];
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+/** Pure, so the four readings are pinned without a connection. */
+export function fleetDoorFrom(row: RowBag | null): { state: FleetDoor["state"]; said: string } {
+  if (row === null) {
+    return {
+      state: "unknown",
+      said: "The cluster answered with no reading at all.",
+    };
+  }
+  const models = num(row, "localModelCount");
+  const floor = num(row, "minimumContextWindow");
+  const eligible = Array.isArray(row["eligibleModelIds"]) ? row["eligibleModelIds"].length : 0;
+  if (bool(row, "localEligible")) {
+    return {
+      state: "open",
+      said: `${eligible} of ${models} ${models === 1 ? "model" : "models"} on your machines ${eligible === 1 ? "meets" : "meet"} the ${floor.toLocaleString()}-token floor, so a call can go there instead of to a vendor.`,
+    };
+  }
+  // The two zero states look identical on a page and have entirely different
+  // fixes, which is the whole reason the engine reports them apart.
+  if (!bool(row, "fleetInferenceInstalled")) {
+    return {
+      state: "unset",
+      said: "The node that answered cannot place fleet model calls at all, so a machine is not a route from here.",
+    };
+  }
+  if (models === 0) {
+    return {
+      state: "unset",
+      said: "No machine you own is offering a model. Pair one in Fleet, under Machines.",
+    };
+  }
+  return {
+    state: "unset",
+    said:
+      models === 1
+        ? `Your machines offer one model, and it does not meet the ${floor.toLocaleString()}-token floor with structured output.`
+        : `Your machines offer ${models} models, and none of them meets the ${floor.toLocaleString()}-token floor with structured output.`,
+  };
+}
+
+export function useFleetDoor(enabled: boolean): FleetDoor {
+  const connection = useOsConnection();
+  const [reading, setReading] = useState<{ state: FleetDoor["state"]; said: string }>({
+    state: "unknown",
+    said: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [epoch, setEpoch] = useState(0);
+  const reload = useCallback(() => setEpoch((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!enabled || connection === null) return;
+    const controller = new AbortController();
+    let stale = false;
+    setLoading(true);
+    setError("");
+    void connection.query
+      .inferenceStatus({}, { signal: controller.signal })
+      .then((result) => {
+        if (stale) return;
+        const rows = materialize(result);
+        setReading(fleetDoorFrom(rows.length > 0 ? (rows[0] ?? null) : null));
+      })
+      .catch((err: unknown) => {
+        if (stale) return;
+        setReading({ state: "unknown", said: "" });
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    return () => {
+      stale = true;
+      controller.abort();
+    };
+  }, [connection, enabled, epoch]);
+
+  return { ...reading, error, loading, reload };
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------
@@ -203,8 +480,7 @@ export const IDLE_PROVIDER_ACTION: ProviderActionState = {
 
 export interface ProviderActions {
   state: ProviderActionState;
-  saveKey: (vendor: string, apiKey: string) => Promise<void>;
-  saveFederation: (fields: Record<string, string>) => Promise<void>;
+  saveFederation: (vendor: string, fields: Record<string, string>) => Promise<void>;
   verify: (provider: string) => Promise<void>;
   apply: () => Promise<void>;
 }
@@ -239,26 +515,41 @@ export function useProviderActions(onChanged: () => void): ProviderActions {
     [onChanged],
   );
 
-  const saveKey = useCallback(
-    async (vendor: string, apiKey: string) =>
-      run(async () => {
-        if (connection === null) throw new Error("Not connected to the cluster.");
-        const row = firstRow(await connection.query.providerKeySet({ vendor, apiKey }));
-        if (row === null) throw new Error("the cluster returned no result for the key it sealed");
-        // The FINGERPRINT, never the key. There is no read-back call, and this
-        // is the only thing about the value this surface ever renders.
-        const fingerprint = str(row, "fingerprint");
-        const name = str(row, "name");
-        return `Sealed as ${name}${fingerprint === "" ? "" : ` (${fingerprint})`}. ${str(row, "message")}`.trim();
-      }),
-    [connection, run],
-  );
-
+  // THE VENDOR IS AN ARGUMENT, NOT A ROW NAME (epic memql#5088). Both vendors
+  // federate now and one of the ids is spelled the same for each, so the write
+  // has to say which set of env names it is filling. Sending the vendor rather
+  // than letting the engine guess from which ids arrived is what keeps a
+  // half-typed Anthropic rule from being read as a complete OpenAI one.
+  //
+  // THE CAST IS A SEAM, AND IT IS LOAD-BEARING UNTIL THE DSL CATCHES UP.
+  // `ProviderFederationSetArgs` is GENERATED from `dsl/common/builtins.memql`,
+  // which at the time of writing still declares the five Anthropic ids and
+  // neither `vendor` nor `identityProviderId`.
+  //
+  // Worse than the type error is what the generated client does with an
+  // undeclared key. `QueryClient.prototype.providerFederationSet` renders its
+  // call through `buildProviderFederationSet`, which pushes only the fields it
+  // knows about -- so an undeclared `vendor` is DROPPED ON THE FLOOR rather
+  // than refused, and the engine sees a write with no vendor on it. THREE
+  // things have to land for this call to reach the engine as written:
+  //
+  //   1. `vendor string!` on the `providerFederationSet` builtin,
+  //   2. `identityProviderId string` beside it (OpenAI's half; the two vendors
+  //      share `serviceAccountId` deliberately, so only this one is new),
+  //   3. `make sdk-gen`.
+  //
+  // Until all three land, a mocked test here proves this client's intent and
+  // NOTHING about the wire -- the mock replaces the very builder that does the
+  // dropping. Delete the cast when the regenerated type carries the fields;
+  // tsc will say so on the next typecheck.
   const saveFederation = useCallback(
-    async (fields: Record<string, string>) =>
+    async (vendor: string, fields: Record<string, string>) =>
       run(async () => {
         if (connection === null) throw new Error("Not connected to the cluster.");
-        const row = firstRow(await connection.query.providerFederationSet(fields));
+        const args = { vendor, ...fields } as Parameters<
+          typeof connection.query.providerFederationSet
+        >[0];
+        const row = firstRow(await connection.query.providerFederationSet(args));
         if (row === null) throw new Error("the cluster returned no result for the federation write");
         return str(row, "message");
       }),
@@ -297,7 +588,7 @@ export function useProviderActions(onChanged: () => void): ProviderActions {
   );
 
   return useMemo(
-    () => ({ state, saveKey, saveFederation, verify, apply }),
-    [state, saveKey, saveFederation, verify, apply],
+    () => ({ state, saveFederation, verify, apply }),
+    [state, saveFederation, verify, apply],
   );
 }

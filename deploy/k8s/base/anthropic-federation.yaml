@@ -17,12 +17,15 @@
 #
 #   VALUE (the ConfigMap below): the four ids that identify objects in one
 #   Anthropic organization. The cloud overlay patches in the real ones; the
-#   local overlay leaves them empty and `make up` keeps booting on the key.
+#   local overlay leaves them empty, which is the only correct answer there --
+#   k3d's OIDC issuer is private, so a local cluster cannot federate with
+#   either vendor and reaches cloud models through a fleet machine or a local
+#   model instead (epic memql#5088, decision D6).
 #
-# The engine reads all four or none: a PARTIAL configuration refuses boot
-# rather than falling back to a key the cutover is about to delete
-# (component/memql/ai_anthropic_federation.go). Empty strings here count as
-# unset, which is what makes the empty ConfigMap a working local default
+# The engine reads all four or none: a PARTIAL configuration refuses boot, and
+# since memql#5088 there is nothing to fall back TO -- the vendor key arm is
+# gone (component/memql/ai_anthropic_federation.go). Empty strings here count
+# as unset, which is what makes the empty ConfigMap a working local default
 # rather than a half-configuration.
 #
 # Runbook (Console setup, cutover, key removal):

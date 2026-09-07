@@ -25,28 +25,6 @@
         ]
       },
       {
-        "old": "MEMQL_ANTHROPIC_API_KEY",
-        "new": "MEMQL_ANTHROPIC_API_KEY",
-        "mode": "token",
-        "exts": [
-          ".go",
-          ".memql",
-          ".yaml",
-          ".yml",
-          ".env",
-          ".sh",
-          ".md",
-          ".tmpl",
-          "Dockerfile",
-          ".json",
-          ".ts",
-          ".tsx",
-          ".txt",
-          ".mk",
-          "Makefile"
-        ]
-      },
-      {
         "old": "MEMQL_DEFAULT_AGENT_PROVIDER",
         "new": "MEMQL_DEFAULT_AGENT_PROVIDER",
         "mode": "token",
@@ -1587,74 +1565,8 @@
         ]
       },
       {
-        "old": "MEMQL_AI_ANTHROPIC_API_KEY",
-        "new": "MEMQL_AI_ANTHROPIC_API_KEY",
-        "mode": "token",
-        "exts": [
-          ".go",
-          ".memql",
-          ".yaml",
-          ".yml",
-          ".env",
-          ".sh",
-          ".md",
-          ".tmpl",
-          "Dockerfile",
-          ".json",
-          ".ts",
-          ".tsx",
-          ".txt",
-          ".mk",
-          "Makefile"
-        ]
-      },
-      {
-        "old": "MEMQL_AI_OPENAI_API_KEY",
-        "new": "MEMQL_AI_OPENAI_API_KEY",
-        "mode": "token",
-        "exts": [
-          ".go",
-          ".memql",
-          ".yaml",
-          ".yml",
-          ".env",
-          ".sh",
-          ".md",
-          ".tmpl",
-          "Dockerfile",
-          ".json",
-          ".ts",
-          ".tsx",
-          ".txt",
-          ".mk",
-          "Makefile"
-        ]
-      },
-      {
         "old": "MEMQL_AI_OPENAI_PROJECT_ID",
         "new": "MEMQL_AI_OPENAI_PROJECT_ID",
-        "mode": "token",
-        "exts": [
-          ".go",
-          ".memql",
-          ".yaml",
-          ".yml",
-          ".env",
-          ".sh",
-          ".md",
-          ".tmpl",
-          "Dockerfile",
-          ".json",
-          ".ts",
-          ".tsx",
-          ".txt",
-          ".mk",
-          "Makefile"
-        ]
-      },
-      {
-        "old": "MEMQL_OPENAI_API_KEY",
-        "new": "MEMQL_OPENAI_API_KEY",
         "mode": "token",
         "exts": [
           ".go",

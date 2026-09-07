@@ -87,7 +87,13 @@ func unresolvable(name, extends string, base bool) parsedProviderConfig {
 		Name:    name,
 		Extends: extends,
 		Base:    base,
-		Auth:    map[string]string{"apiKey": "${MEMQL_AI_TEST_KEY_DEFINITELY_NOT_SET_4440}"},
+		// An auth key that is NOT apiKey, and not a federation name either.
+		// What makes this provider unavailable is an unresolvable PLACEHOLDER,
+		// which is the loader behaviour these tests are about; using `apiKey`
+		// would imply a credential the product no longer has, and using a
+		// federation name would resolve to absent (they are optional) instead
+		// of failing.
+		Auth:    map[string]string{"testPlaceholder": "${MEMQL_AI_TEST_KEY_DEFINITELY_NOT_SET_4440}"},
 	}
 	if base {
 		cfg.Type = "OpenAI"
@@ -97,19 +103,48 @@ func unresolvable(name, extends string, base bool) parsedProviderConfig {
 	return parsedProviderConfig{cfg: cfg, origin: "test:" + name}
 }
 
+// federatedTestAuth is the auth map of a provider that CONSTRUCTS.
+//
+// It used to be a literal apiKey, which needed no env and no file. There is no
+// key any more (epic memql#5088), so "a provider that works" is now "a
+// provider with a complete federation set", and the token file has to exist
+// and carry OpenAI's audience because openaiCredential preflights it. The
+// fixture token is the one openai_wire_test.go writes once per test binary --
+// shared rather than duplicated, so there is one definition of what a
+// well-formed projected token looks like in this package.
+//
+// No exchange happens here: construction only builds the client and attaches
+// the middleware. The exchange is on the first request, which these tests
+// never make.
+func federatedTestAuth() map[string]string {
+	return map[string]string{
+		authKeyIdentityProviderID:     "idp_test",
+		authKeyOpenAIServiceAccountID: "svc_test",
+		authKeyOpenAITokenFile:        wireTestIdentityTokenFile,
+	}
+}
+
 // resolvable builds a provider that both resolves its auth AND constructs a
-// client -- a literal key needs no env, and "OpenAI" is a real dispatch case
-// whose constructor makes no network call. Both halves are required: auth
-// resolution alone leaves Available=false, which is the unavailable state this
-// helper exists to be the opposite of.
+// client. Both halves are required: auth resolution alone leaves
+// Available=false, which is the unavailable state this helper exists to be the
+// opposite of.
 func resolvable(name, extends string) parsedProviderConfig {
+	auth := federatedTestAuth()
+	// OVERRIDE THE BASE'S UNRESOLVABLE PLACEHOLDER. Extending merges the
+	// base's auth map into the child's, per key, so a child of `unresolvable`
+	// inherits its dud placeholder and fails to resolve however good its own
+	// credential is. That is real loader behaviour, not a test artefact -- and
+	// a `resolvable` that silently became unresolvable is what turned the
+	// half-configured test green with zero WARNs, which is the exact state
+	// TestPartialConfigStillWarns exists to catch.
+	auth["testPlaceholder"] = "literal-resolves-without-env"
 	return parsedProviderConfig{
 		cfg: &ProviderConfig{
 			Name:    name,
 			Type:    "OpenAI",
 			Extends: extends,
 			Model:   name + "-model",
-			Auth:    map[string]string{"apiKey": "literal-test-key"},
+			Auth:    auth,
 		},
 		origin: "test:" + name,
 	}
@@ -288,13 +323,19 @@ func TestRealTreeBootsKeylessAndQuiet(t *testing.T) {
 	// restores them, and an empty value reads as absent (the resolver trims
 	// and checks for "").
 	for _, name := range []string{
-		"MEMQL_AI_ANTHROPIC_API_KEY", "MEMQL_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY",
-		"MEMQL_SI_ANTHROPIC_API_KEY",
-		"MEMQL_AI_OPENAI_API_KEY", "MEMQL_OPENAI_API_KEY", "OPENAI_API_KEY",
-		"MEMQL_SI_OPENAI_API_KEY",
+		// THE FOUR VENDOR-KEY NAMES ARE NOT HERE, and their absence is the
+		// point. Epic memql#5088 deleted them from the product, so there is
+		// nothing left to blank -- what a keyless boot now means is that
+		// NEITHER VENDOR'S FEDERATION IDS are set, which is the state of every
+		// local cluster and of a fresh cloud one.
 		"MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID", "MEMQL_AI_ANTHROPIC_ORGANIZATION_ID",
 		"MEMQL_AI_ANTHROPIC_SERVICE_ACCOUNT_ID", "MEMQL_AI_ANTHROPIC_WORKSPACE_ID",
 		"MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE",
+		"MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID", "MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID",
+		"MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE",
+		// The project id is not a credential, but it is an auth-map value the
+		// resolver tries, and leaving it set would make this test depend on
+		// the developer's own environment.
 		"MEMQL_AI_OPENAI_PROJECT_ID", "MEMQL_SI_OPENAI_PROJECT_ID",
 	} {
 		t.Setenv(name, "")

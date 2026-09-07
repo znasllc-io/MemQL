@@ -7,14 +7,19 @@
 @type("Anthropic")
 provider anthropic {
   auth {
-    apiKey             env("MEMQL_AI_ANTHROPIC_API_KEY")
-    // Workload identity federation (memql#4333). The engine presents its
-    // Kubernetes service-account token instead of holding a key: all four of
-    // rule / organization / service account / token file set means federate,
-    // none means the key, one to three refuses boot. Every one of these is
-    // OPTIONAL at resolution -- unlike a normal auth placeholder, an unset
-    // federation key leaves the field empty and anthropicCredential decides
-    // what that means (see optionalAuthEnvNames in ai_providers.go).
+    // Workload identity federation is the ONLY door (memql#4333, and the key
+    // arm removed by memql#5088). The engine presents its Kubernetes
+    // service-account token instead of holding a key: all four of rule /
+    // organization / service account / token file set means federate, NONE
+    // means the Anthropic providers register as unavailable, and one to three
+    // refuses boot. There is no apiKey entry here and there is no key
+    // anywhere else either -- TestNoVendorApiKeyEntryPoint fails the build on
+    // one coming back.
+    //
+    // Every one of these is OPTIONAL at resolution -- unlike a normal auth
+    // placeholder, an unset federation id leaves the field empty and
+    // anthropicCredential decides what that means (see optionalAuthEnvNames
+    // in ai_anthropic_federation.go).
     // Runbook: docs/public/operate/auth/anthropic-federation.md.
     federationRuleId   env("MEMQL_AI_ANTHROPIC_FEDERATION_RULE_ID")
     organizationId     env("MEMQL_AI_ANTHROPIC_ORGANIZATION_ID")
@@ -266,7 +271,22 @@ provider moderationOmni {
 @type("OpenAI")
 provider openai {
   auth {
-    apiKey     env("MEMQL_AI_OPENAI_API_KEY")
+    // OpenAI workload identity federation (memql#5088). The 2026-08-22 record
+    // said OpenAI offered no federation; that was wrong when written -- it has
+    // been generally available since 2025-05-26 -- and this block is what
+    // replaced the static key.
+    //
+    // ALL THREE OR NONE: all three set means the engine exchanges the pod's
+    // projected token for a short-lived bearer, none means the OpenAI
+    // providers register as unavailable (the normal state of a fresh cloud
+    // cluster and of EVERY local cluster, whose OIDC issuer is private and
+    // cannot be discovered), and one or two refuses boot naming both halves.
+    // Optional at resolution, like Anthropic's, so openaiCredential is the one
+    // place that decides what an absence means.
+    // Runbook: docs/public/operate/auth/openai-federation.md.
+    identityProviderId  env("MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID")
+    serviceAccountId    env("MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID")
+    identityTokenFile   env("MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE")
   }
 }
 

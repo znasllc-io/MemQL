@@ -35,7 +35,11 @@ const defaultOpenAIBaseURL = "https://api.openai.com/v1/"
 // Every error-construction site in this file is annotated with how it upholds
 // that invariant. Adding a new one obliges you to do the same.
 type OpenAIEmbeddingClient struct {
-	apiKey     string
+	// bearer is the federated credential source (epic memql#5088). It replaced
+	// an apiKey field: there is no manually entered vendor key anywhere, and a
+	// bearer expires within the hour, so it is resolved per request rather than
+	// held.
+	bearer     BearerSource
 	model      string
 	dimensions int
 	baseURL    string
@@ -47,9 +51,8 @@ var _ AIProvider = (*OpenAIEmbeddingClient)(nil)
 var _ EmbeddingAIProvider = (*OpenAIEmbeddingClient)(nil)
 
 // NewOpenAIEmbeddingClient creates an OpenAI embedding client.
-func NewOpenAIEmbeddingClient(apiKey, model string, dimensions int) *OpenAIEmbeddingClient {
+func NewOpenAIEmbeddingClient(model string, dimensions int) *OpenAIEmbeddingClient {
 	return &OpenAIEmbeddingClient{
-		apiKey:     apiKey,
 		model:      model,
 		dimensions: dimensions,
 		baseURL:    defaultOpenAIBaseURL,
@@ -106,11 +109,18 @@ func (c *OpenAIEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) 
 	// (openai_embedding_error_test.go), and a memoised client would capture
 	// whichever values happened to exist at construction time. One option-slice
 	// allocation against a network round trip is not a cost worth that trap.
-	client := openai.NewClient(
-		option.WithAPIKey(c.apiKey),
+	opts := []option.RequestOption{
 		option.WithBaseURL(baseURL),
 		option.WithHTTPClient(httpClient),
-	)
+		// Clear any ambient OPENAI_API_KEY the SDK's defaults picked up out of
+		// the process environment; the middleware below is the only thing
+		// entitled to set this header.
+		option.WithHeaderDel("Authorization"),
+	}
+	if c.bearer != nil {
+		opts = append(opts, option.WithMiddleware(openaiBearerMiddleware(c.bearer)))
+	}
+	client := openai.NewClient(opts...)
 
 	// THE SDK BUILDS AND SENDS THE REQUEST; THIS FILE STILL READS THE BODY.
 	//

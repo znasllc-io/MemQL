@@ -14,15 +14,15 @@ import (
 )
 
 // `memql provider-auth check` -- prove, from inside a pod, which credential
-// this node is really using to reach Anthropic and that the provider accepts
-// it (memql#4335).
+// this node is really using to reach a cloud vendor and that the vendor
+// accepts it (memql#4335, extended to both vendors by memql#5088).
 //
-// It is step 4 AND step 5 of the federation cutover runbook
-// (docs/public/operate/auth/anthropic-federation.md): once after the overlay
-// carries the ids, to confirm the exchange works before the key is deleted,
-// and once after the key is gone, to confirm nothing was silently leaning on
-// it. `scripts/install/verify-provider-key.sh` calls it through `kubectl exec`
-// for the same reason.
+// --provider takes `anthropic` or `openai` (the vendor) or one DSL provider
+// name. It is the verification step of either federation runbook
+// (docs/public/operate/auth/{anthropic,openai}-federation.md), run after the
+// overlay carries the ids to confirm the exchange works.
+// `scripts/install/verify-provider-key.sh` calls it through `kubectl exec` for
+// the same reason.
 //
 // AVAILABLE ON EVERY NODE BINARY, unlike the credential-minting subcommands
 // beside it. The identity node is the authority for MemQL's own credentials;
@@ -70,10 +70,10 @@ Run "memql provider-auth check --help" for flags.`)
 func runProviderAuthCheck(args []string) int {
 	fs := flag.NewFlagSet("provider-auth check", flag.ContinueOnError)
 	provider := fs.String("provider", "anthropic",
-		"vendor or DSL provider name to check. `anthropic` (the vendor) picks the first available "+
-			"Anthropic provider; a DSL provider name (e.g. streamClaudeSonnet) checks that one. "+
-			"OpenAI is not supported here -- it has no federation mechanism; verify its key with "+
-			"scripts/install/verify-provider-key.sh.")
+		"vendor or DSL provider name to check. `anthropic` or `openai` (the vendor) picks the first "+
+			"available provider of that vendor; a DSL provider name (e.g. streamClaudeSonnet, "+
+			"chat54Mini) checks that one. The default stays `anthropic` so existing runbook steps "+
+			"and CI invocations keep meaning what they meant.")
 	timeout := fs.Duration("timeout", 30*time.Second, "bound on the live provider call")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -120,19 +120,28 @@ func writeProviderAuthReport(w io.Writer, r memql.ProviderAuthReport) {
 		fmt.Fprintf(w, "%-22s %s\n", k+":", v)
 	}
 	line("provider", r.Provider)
+	line("vendor", r.Vendor)
 	line("type", r.Type)
 	line("model", r.Model)
 	line("credential", r.CredentialPath)
 
 	switch r.CredentialPath {
 	case "federation":
+		// Each vendor fills only its own ids, and `line` drops an empty value,
+		// so this prints one vendor's set without a switch. The workspace id
+		// is the exception: it is Anthropic's and OPTIONAL, so its absence is
+		// worth saying out loud rather than leaving as a missing row an
+		// operator has to notice.
+		line("identityProviderId", r.IdentityProviderID)
 		line("federationRuleId", r.FederationRuleID)
 		line("organizationId", r.OrganizationID)
 		line("serviceAccountId", r.ServiceAccountID)
-		if r.WorkspaceID == "" {
-			line("workspaceId", "(none -- Anthropic picks the rule's workspace)")
-		} else {
-			line("workspaceId", r.WorkspaceID)
+		if r.Vendor == "anthropic" {
+			if r.WorkspaceID == "" {
+				line("workspaceId", "(none -- Anthropic picks the rule's workspace)")
+			} else {
+				line("workspaceId", r.WorkspaceID)
+			}
 		}
 		line("identityTokenFile", r.IdentityTokenFile)
 		// The subject is what the rule's subject_prefix matches on, so it is
@@ -145,9 +154,11 @@ func writeProviderAuthReport(w io.Writer, r memql.ProviderAuthReport) {
 			line("tokenExpires", fmt.Sprintf("%s (in %s)",
 				r.TokenExpiresAt.UTC().Format(time.RFC3339), r.TokenExpiresIn.Round(time.Second)))
 		}
-	case "api-key":
-		line("note", "this node authenticates with a long-lived API key ("+
-			"MEMQL_AI_ANTHROPIC_API_KEY). In the cloud that is the pre-cutover state.")
+	case "unavailable":
+		line("note", "this node has NO credential for this vendor: federation is not configured. "+
+			"That is the normal state of a local cluster, whose OIDC issuer is private and cannot "+
+			"be federated with, and of a cloud cluster whose runbook is not finished. There is no "+
+			"API key to fall back to.")
 	}
 
 	if r.ModelsListed > 0 {

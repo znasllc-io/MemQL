@@ -13,11 +13,13 @@
 // a warning: a warning scrolls past in a hundred lines of cluster bring-up and
 // the failure surfaces twenty minutes later as "I can't sign in".
 //
-// The second assertion: THE API KEY NEVER APPEARS IN ARGV. argv is world-
-// readable -- `ps`, /proc/<pid>/cmdline, shell history, and the capability
-// runner's own log of the command it ran. So the key arrives as a file path and
-// reaches kubectl through --from-file. The kubectl stub here records its full
-// argv, and the test greps that recording for the key material.
+// THE SECOND ASSERTION USED TO BE "the API key never appears in argv", and it
+// is gone with the key (epic memql#5088): both AI vendors are reached by
+// workload identity federation, so this step seeds no credential at all. What
+// stands in its place is the assertion that the key path CANNOT COME BACK --
+// --provider and --provider-key-file are undeclared, so cap_parse_flags
+// refuses them rather than ignoring them, and a caller who believes a key was
+// seeded is told otherwise instead of finding out at the first model call.
 //
 // Hermetic: kubectl is a stub on a PATH prefix that records argv and answers
 // cluster-info / get namespace; nothing touches a real cluster.
@@ -51,9 +53,7 @@ type sbResult struct {
 	Domain            string `json:"domain"`
 	OwnerEmail        string `json:"ownerEmail"`
 	RegistrationMode  string `json:"registrationMode"`
-	ProviderKeyEnv    string `json:"providerKeyEnv"`
 	BootstrapComplete bool   `json:"bootstrapComplete"`
-	ProviderKeySeeded bool   `json:"providerKeySeeded"`
 	KeyCount          int    `json:"keyCount"`
 	DryRun            bool   `json:"dryRun"`
 }
@@ -243,76 +243,45 @@ func TestSeedBootstrapNamesEveryMissingFieldAtOnce(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// THE second assertion: the key never appears in argv
+// THE second assertion: no credential can be seeded here at all
 // -----------------------------------------------------------------------
 
-func TestSeedBootstrapKeyNeverAppearsInArgv(t *testing.T) {
-	const secretKey = "sk-ant-DO-NOT-LEAK-0123456789"
+// TestSeedBootstrapSeedsNoVendorCredential is the successor to
+// TestSeedBootstrapKeyNeverAppearsInArgv, and it asserts the stronger thing:
+// not "the key is handled safely" but "there is no key".
+//
+// Refusal rather than silence is the point. A caller that still passes
+// --provider-key-file gets exit 2 naming the flag, so an installer cannot
+// report a seeded credential having seeded nothing -- which is how a cluster
+// comes up green and fails at the first model call.
+func TestSeedBootstrapSeedsNoVendorCredential(t *testing.T) {
+	for _, flag := range []string{"--provider=anthropic", "--provider-key-file=/tmp/nope.key"} {
+		t.Run(flag, func(t *testing.T) {
+			w := sbNewWorld(t)
+			stdout, _, code := sbRun(t, w.env, append(sbCompleteArgs(), flag)...)
+			if code != 2 {
+				t.Fatalf("%s exited %d, want 2 (bad param)\nstdout: %s", flag, code, stdout)
+			}
+			env, _ := sbParse(t, stdout)
+			if env.OK || env.Error == nil || env.Error.Code != 2 {
+				t.Errorf("want ok=false error.code=2, got: %s", stdout)
+			}
+		})
+	}
+
+	// And a clean run writes no vendor key into the Secret: no --from-file at
+	// all, and nothing whose name ends in API_KEY.
 	w := sbNewWorld(t)
-	keyFile := filepath.Join(t.TempDir(), "anthropic.key")
-	// Trailing newline on purpose: an editor adds one, and it is not part of
-	// the key.
-	if err := os.WriteFile(keyFile, []byte(secretKey+"\n"), 0o600); err != nil {
-		t.Fatalf("write key file: %v", err)
-	}
-
-	args := append(sbCompleteArgs(), "--provider=anthropic", "--provider-key-file="+keyFile)
-	stdout, stderr, code := sbRun(t, w.env, args...)
-	if code != 0 {
-		t.Fatalf("exit %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
-	}
-	env, res := sbParse(t, stdout)
-	if !env.OK || !res.ProviderKeySeeded {
-		t.Fatalf("the key was not seeded: %s", stdout)
-	}
-	if res.ProviderKeyEnv != "MEMQL_AI_ANTHROPIC_API_KEY" {
-		t.Errorf("providerKeyEnv = %q, want MEMQL_AI_ANTHROPIC_API_KEY", res.ProviderKeyEnv)
-	}
-
-	// The whole point: kubectl's argv must carry a --from-file reference, never
-	// the key itself.
-	argv := w.argv(t)
-	if strings.Contains(argv, secretKey) {
-		t.Errorf("THE KEY IS IN ARGV -- readable via ps and /proc/<pid>/cmdline:\n%s", argv)
-	}
-	if !strings.Contains(argv, "--from-file=MEMQL_AI_ANTHROPIC_API_KEY=") {
-		t.Errorf("the key was not passed via --from-file:\n%s", argv)
-	}
-	// Nor may it leak through the human-readable log or the envelope.
-	if strings.Contains(stderr, secretKey) {
-		t.Error("the key was printed to stderr")
-	}
-	if strings.Contains(stdout, secretKey) {
-		t.Error("the key was printed into the result envelope")
-	}
-}
-
-// The staged copy is scratch: it must not survive the run, or the key is left
-// in a temp directory for the next person who looks.
-func TestSeedBootstrapStagedKeyIsCleanedUp(t *testing.T) {
-	w := sbNewWorld(t)
-	keyFile := filepath.Join(t.TempDir(), "openai.key")
-	if err := os.WriteFile(keyFile, []byte("sk-openai-xyz\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	args := append(sbCompleteArgs(), "--provider=openai", "--provider-key-file="+keyFile)
-	stdout, _, code := sbRun(t, w.env, args...)
+	stdout, _, code := sbRun(t, w.env, sbCompleteArgs()...)
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\nstdout: %s", code, stdout)
 	}
-	// Recover the staged path from kubectl's argv and confirm it is gone.
 	argv := w.argv(t)
-	const marker = "--from-file=MEMQL_AI_OPENAI_API_KEY="
-	i := strings.Index(argv, marker)
-	if i < 0 {
-		t.Fatalf("no --from-file in argv:\n%s", argv)
+	if strings.Contains(argv, "--from-file=") {
+		t.Errorf("the seed still stages a file into the Secret; nothing here has file-shaped content any more:\n%s", argv)
 	}
-	staged := argv[i+len(marker):]
-	if j := strings.IndexAny(staged, " \n"); j >= 0 {
-		staged = staged[:j]
-	}
-	if _, err := os.Stat(staged); err == nil {
-		t.Errorf("the staged key file survived the run at %s", staged)
+	if strings.Contains(argv, "API_KEY") {
+		t.Errorf("a vendor API key name reached the Secret:\n%s", argv)
 	}
 }
 
@@ -404,14 +373,6 @@ func TestSeedBootstrapRejectsBadModes(t *testing.T) {
 			name: "unknown internal default role",
 			args: append(sbCompleteArgs(), "--internal-default-role=superuser"),
 		},
-		{
-			name: "unknown provider",
-			args: append(sbCompleteArgs(), "--provider=acme", "--provider-key-file=/dev/null"),
-		},
-		{
-			name: "provider without a key file",
-			args: append(sbCompleteArgs(), "--provider=anthropic"),
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -425,15 +386,6 @@ func TestSeedBootstrapRejectsBadModes(t *testing.T) {
 				t.Errorf("want ok=false error.code=2, got: %s", stdout)
 			}
 		})
-	}
-}
-
-func TestSeedBootstrapUnreadableKeyFileIsPrerequisite(t *testing.T) {
-	w := sbNewWorld(t)
-	args := append(sbCompleteArgs(), "--provider=anthropic", "--provider-key-file="+filepath.Join(t.TempDir(), "nope.key"))
-	stdout, _, code := sbRun(t, w.env, args...)
-	if code != 4 {
-		t.Fatalf("exit %d, want 4 (prerequisite missing)\nstdout: %s", code, stdout)
 	}
 }
 
@@ -514,10 +466,18 @@ func TestSeedBootstrapPrintSpec(t *testing.T) {
 	}
 	for _, want := range []string{
 		"domain", "owner-email", "owner-first-name", "owner-last-name",
-		"registration-mode", "provider", "provider-key-file",
+		"registration-mode",
 	} {
 		if !names[want] {
 			t.Errorf("--print-spec omits the %q param", want)
+		}
+	}
+	// The retired key surface, absent by declaration: cap_parse_flags refuses
+	// an undeclared flag, so leaving these out of the spec is what makes a key
+	// impossible to pass rather than merely pointless (epic memql#5088).
+	for _, gone := range []string{"provider", "provider-key-file"} {
+		if names[gone] {
+			t.Errorf("--print-spec still declares %q; there is no vendor API key to seed", gone)
 		}
 	}
 }

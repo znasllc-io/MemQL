@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go/v3"
+
+	"github.com/znasllc-io/memql/component/metrics"
 )
 
 // The engine half of `memql provider-auth check` (memql#4335).
@@ -39,10 +42,19 @@ type ProviderAuthReport struct {
 
 	// CredentialPath is "federation" or "api-key" -- the question the
 	// cutover asks.
+	// Vendor is "anthropic" or "openai". With two federating vendors, a report
+	// that does not say which one it describes is a report an operator can
+	// read as an answer about the other.
+	Vendor string
+
 	CredentialPath string
 
 	// The federation ids, empty on the api-key path.
-	FederationRuleID  string
+	// IdentityProviderID is OpenAI's half of the id pair; FederationRuleID,
+	// OrganizationID and WorkspaceID are Anthropic's. Each vendor fills only
+	// its own, so an empty field means "not this vendor" rather than "unset".
+	IdentityProviderID string
+	FederationRuleID   string
 	OrganizationID    string
 	ServiceAccountID  string
 	WorkspaceID       string
@@ -71,6 +83,20 @@ var anthropicProviderTypes = map[string]bool{
 	"anthropicstream": true,
 }
 
+// isOpenAIProviderType matches by PREFIX rather than by an exhaustive set,
+// unlike the Anthropic map above.
+//
+// That asymmetry is deliberate. There are three Anthropic provider types and
+// ten OpenAI ones (OpenAI, OpenAIStream, OpenAITTS, OpenAISTT, OpenAIWhisper,
+// OpenAIRealtime, OpenAIAudio, OpenAIImage, OpenAIDeepResearch, ...), several
+// of which are placeholders that will grow. An exhaustive list would go stale
+// the way every list in this repo that is not generated goes stale, and its
+// failure mode is `provider-auth check --provider openai` refusing to check a
+// provider that federates perfectly well.
+func isOpenAIProviderType(providerType string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(providerType)), "openai")
+}
+
 // CheckProviderAuth builds the provider the way boot does, forces one
 // credential exchange, and calls models.list.
 //
@@ -92,37 +118,73 @@ func CheckProviderAuth(ctx context.Context, logger *slog.Logger, providerName st
 		return ProviderAuthReport{}, fmt.Errorf("load providers: %w", err)
 	}
 
-	entry, err := selectAnthropicEntry(registry, providerName)
+	entry, err := selectVendorEntry(registry, providerName)
 	if err != nil {
 		return ProviderAuthReport{}, err
+	}
+
+	vendor := metrics.FederationVendorAnthropic
+	if isOpenAIProviderType(entry.Config.Type) {
+		vendor = metrics.FederationVendorOpenAI
 	}
 
 	report := ProviderAuthReport{
 		Provider: entry.Config.Name,
 		Type:     entry.Config.Type,
 		Model:    entry.Config.Model,
+		Vendor:   vendor,
 	}
 
 	// Rebuild the credential from the resolved auth map rather than reading
 	// the registered client's, so the report describes the same decision the
 	// constructor made and names it in the constructor's own words when it
 	// refuses.
-	fed := anthropicFederationFrom(entry.Config.Auth)
-	_, path, err := anthropicCredential(entry.Config, guardedHTTPClient(nil))
-	if err != nil {
-		return report, err
+	var path credentialPath
+	if vendor == metrics.FederationVendorOpenAI {
+		fed := openaiFederationFrom(entry.Config.Auth)
+		_, _, p, cerr := openaiCredential(entry.Config, guardedHTTPClient(nil))
+		if cerr != nil {
+			return report, cerr
+		}
+		path = p
+		if path == credentialPathFederation {
+			report.IdentityProviderID = fed.IdentityProviderID
+			report.ServiceAccountID = fed.ServiceAccountID
+			report.IdentityTokenFile = fed.TokenFile
+			if claims, terr := readIdentityTokenClaims(fed.TokenFile); terr == nil {
+				report.TokenSubject, _ = claims["sub"].(string)
+				report.TokenAudience = jwtAudienceValues(claims)
+			}
+		}
+	} else {
+		fed := anthropicFederationFrom(entry.Config.Auth)
+		_, p, cerr := anthropicCredential(entry.Config, guardedHTTPClient(nil))
+		if cerr != nil {
+			return report, cerr
+		}
+		path = p
+		if path == credentialPathFederation {
+			report.FederationRuleID = fed.RuleID
+			report.OrganizationID = fed.OrganizationID
+			report.ServiceAccountID = fed.ServiceAccountID
+			report.WorkspaceID = fed.WorkspaceID
+			report.IdentityTokenFile = fed.TokenFile
+			if claims, terr := readIdentityTokenClaims(fed.TokenFile); terr == nil {
+				report.TokenSubject, _ = claims["sub"].(string)
+				report.TokenAudience = jwtAudienceValues(claims)
+			}
+		}
 	}
 	report.CredentialPath = string(path)
-	if path == credentialPathFederation {
-		report.FederationRuleID = fed.RuleID
-		report.OrganizationID = fed.OrganizationID
-		report.ServiceAccountID = fed.ServiceAccountID
-		report.WorkspaceID = fed.WorkspaceID
-		report.IdentityTokenFile = fed.TokenFile
-		if claims, cerr := readIdentityTokenClaims(fed.TokenFile); cerr == nil {
-			report.TokenSubject, _ = claims["sub"].(string)
-			report.TokenAudience = jwtAudienceValues(claims)
-		}
+
+	// UNAVAILABLE IS AN ANSWER, NOT A FAILURE. A cluster with no federation
+	// ids for this vendor is a fresh cloud cluster or any local one, and the
+	// command's job there is to say so plainly rather than to error out on a
+	// provider that is behaving exactly as designed. Returning here also
+	// avoids reporting a models.list failure whose real cause is "no
+	// credential", which reads as an outage.
+	if path == credentialPathUnavailable {
+		return report, nil
 	}
 
 	if !entry.Available || entry.Client == nil {
@@ -132,25 +194,23 @@ func CheckProviderAuth(ctx context.Context, logger *slog.Logger, providerName st
 		return report, fmt.Errorf("provider %q is registered but unavailable", entry.Config.Name)
 	}
 
-	client, err := anthropicClientOf(entry.Client)
-	if err != nil {
-		return report, err
-	}
-
-	// The live call. models.list is the cheapest authenticated request
-	// Anthropic serves -- it spends no tokens, so a check that runs on every
+	// The live call. models.list is the cheapest authenticated request either
+	// vendor serves -- it spends no tokens, so a check that runs on every
 	// deploy costs nothing but a round trip.
-	page, err := client.Models.List(ctx, anthropic.ModelListParams{})
+	listed, err := listModelsForCheck(ctx, entry, vendor)
 	if err != nil {
-		if rec := LastFederationExchange(); rec != nil {
+		if rec := LastFederationExchange(); rec != nil && rec.Vendor == vendor {
 			report.ExchangeOutcome = rec.Outcome
 		}
 		return report, fmt.Errorf("models.list failed on the %s credential path: %w", report.CredentialPath, err)
 	}
-	if page != nil {
-		report.ModelsListed = len(page.Data)
-	}
-	if rec := LastFederationExchange(); rec != nil && path == credentialPathFederation {
+	report.ModelsListed = listed
+
+	// The exchange record is per-process and holds the LAST exchange of any
+	// vendor, so it is only this report's evidence when the vendors match.
+	// Reading it unconditionally would attribute Anthropic's expiry to an
+	// OpenAI check on any node that had done both.
+	if rec := LastFederationExchange(); rec != nil && rec.Vendor == vendor && path == credentialPathFederation {
 		report.ExchangeOutcome = rec.Outcome
 		report.TokenExpiresAt = rec.ExpiresAt
 		report.TokenExpiresIn = rec.ExpiresIn
@@ -158,25 +218,86 @@ func CheckProviderAuth(ctx context.Context, logger *slog.Logger, providerName st
 	return report, nil
 }
 
-// selectAnthropicEntry picks the provider entry to check.
-func selectAnthropicEntry(registry *ProviderRegistry, providerName string) (*ProviderConfigEntry, error) {
+// listModelsForCheck makes the one authenticated call, per vendor.
+func listModelsForCheck(ctx context.Context, entry *ProviderConfigEntry, vendor string) (int, error) {
+	if vendor == metrics.FederationVendorOpenAI {
+		client, ok := openAIClientOf(entry.Client)
+		if !ok {
+			return 0, fmt.Errorf("provider %q carries no OpenAI client to check", entry.Config.Name)
+		}
+		page, err := client.Models.List(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if page == nil {
+			return 0, nil
+		}
+		return len(page.Data), nil
+	}
+
+	client, err := anthropicClientOf(entry.Client)
+	if err != nil {
+		return 0, err
+	}
+	page, err := client.Models.List(ctx, anthropic.ModelListParams{})
+	if err != nil {
+		return 0, err
+	}
+	if page == nil {
+		return 0, nil
+	}
+	return len(page.Data), nil
+}
+
+// openAIClientOf reaches the SDK client inside whichever OpenAI provider shape
+// the registry built.
+func openAIClientOf(provider AIProvider) (*openai.Client, bool) {
+	switch p := provider.(type) {
+	case *openAIProvider:
+		return p.client, p.client != nil
+	case *openAIStreamProvider:
+		return p.client, p.client != nil
+	case *openAITTSProvider:
+		return p.client, p.client != nil
+	}
+	return nil, false
+}
+
+// selectVendorEntry picks the provider entry to check.
+//
+// The argument is a VENDOR name ("anthropic" / "openai" -- how an operator
+// says it, and how --provider is documented) or the exact name of one DSL
+// provider entry. A vendor name is also the name of that vendor's @base
+// provider, which is metadata and carries no client, so it is treated as "any
+// entry of this vendor".
+func selectVendorEntry(registry *ProviderRegistry, providerName string) (*ProviderConfigEntry, error) {
 	name := strings.TrimSpace(providerName)
-	// "anthropic" names the VENDOR, which is how an operator says it and how
-	// the flag is documented; it is also the name of the @base provider,
-	// which is metadata and has no client. Treat it as "any Anthropic entry".
-	if name != "" && !anthropicProviderTypes[strings.ToLower(name)] {
+	lower := strings.ToLower(name)
+
+	vendorNamed := lower == "" || anthropicProviderTypes[lower] || lower == "openai"
+	if !vendorNamed {
 		entry, ok := registry.Entry(name)
 		if !ok {
 			return nil, fmt.Errorf("no provider named %q is declared in the DSL tree", name)
 		}
-		if !anthropicProviderTypes[strings.ToLower(entry.Config.Type)] {
+		if !anthropicProviderTypes[strings.ToLower(entry.Config.Type)] && !isOpenAIProviderType(entry.Config.Type) {
 			return nil, fmt.Errorf(
-				"provider %q is type %q; provider-auth check covers Anthropic providers only "+
-					"(OpenAI has no federation mechanism -- its key is verified by "+
-					"scripts/install/verify-provider-key.sh)",
-				name, entry.Config.Type)
+				"provider %q is type %q; provider-auth check covers the two federating vendors, "+
+					"Anthropic and OpenAI", name, entry.Config.Type)
 		}
 		return entry, nil
+	}
+
+	// Which vendor a bare name selects. An empty name means Anthropic, which
+	// is what it meant before OpenAI federated -- changing it would silently
+	// re-point every existing runbook step and CI invocation at a different
+	// vendor.
+	wantOpenAI := lower == "openai"
+	matches := func(entry *ProviderConfigEntry) bool {
+		if wantOpenAI {
+			return isOpenAIProviderType(entry.Config.Type)
+		}
+		return anthropicProviderTypes[strings.ToLower(entry.Config.Type)]
 	}
 
 	names := registry.Names()
@@ -187,7 +308,7 @@ func selectAnthropicEntry(registry *ProviderRegistry, providerName string) (*Pro
 		if !ok || entry.Config.Base {
 			continue
 		}
-		if !anthropicProviderTypes[strings.ToLower(entry.Config.Type)] {
+		if !matches(entry) {
 			continue
 		}
 		if entry.Available {
@@ -198,12 +319,16 @@ func selectAnthropicEntry(registry *ProviderRegistry, providerName string) (*Pro
 		}
 	}
 	if fallback != nil {
-		// Every Anthropic provider failed to construct. Returning one anyway
+		// Every entry of this vendor failed to construct. Returning one anyway
 		// is deliberate: its construction error is the answer the operator
 		// came for, and swallowing it for "none available" would hide it.
 		return fallback, nil
 	}
-	return nil, fmt.Errorf("no Anthropic provider is declared in the DSL tree")
+	vendor := "Anthropic"
+	if wantOpenAI {
+		vendor = "OpenAI"
+	}
+	return nil, fmt.Errorf("no %s provider is declared in the DSL tree", vendor)
 }
 
 // anthropicClientOf reaches the SDK client inside whichever of the two

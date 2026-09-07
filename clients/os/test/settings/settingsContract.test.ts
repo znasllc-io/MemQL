@@ -112,13 +112,17 @@ describe("the settings-section contract", () => {
     expect(settings?.sections?.find((s) => s.id === "integrations")?.roles).toEqual({
       any: ["owner", "developer"],
     });
-    // AI providers is the registry's FIRST floor above admin, and pinning it
-    // is what keeps somebody from rounding it down. `providerAuthStatus` and
-    // both provider writes are owner-gated in the engine, so `{ min: "admin" }`
-    // here would offer an admin a section whose every control refuses -- the
-    // exact failure the P6 note above describes in the other direction.
+    // AI providers is the SECOND set in this app (epic memql#5088, D7), and it
+    // is pinned separately from Integrations for the reason the note above
+    // gives: the two gate forms are different statements. It was
+    // `{ min: "owner" }` while the four provider builtins were owner-only;
+    // they now admit owner-or-developer, because a developer helps an owner
+    // through setup, and admin stays out because an admin's concern is user
+    // administration. Rounding this to `{ min: "developer" }` would admit
+    // admin -- the ladder ranks developer 300 above admin 200 -- and offer
+    // them a section of forms the engine refuses one by one.
     expect(settings?.sections?.find((s) => s.id === "providers")?.roles).toEqual({
-      min: "owner",
+      any: ["owner", "developer"],
     });
     expect(settings?.sections?.find((s) => s.id === "tokens")?.roles).toEqual({ min: "admin" });
     expect(settings?.sections?.find((s) => s.id === "keys")?.roles).toEqual({ min: "admin" });

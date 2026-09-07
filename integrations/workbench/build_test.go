@@ -177,7 +177,7 @@ func TestBuildEnvironmentCarriesNoClusterCredential(t *testing.T) {
 		// would otherwise count it as a fifteenth copy of the real one).
 		"MEMQL_DATABASE_DSN":                    "postgres://fixture:fixture-only@127.0.0.1:1/fixture",
 		"MEMQL_AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountKey=deadbeef",
-		"MEMQL_OPENAI_API_KEY":                  "sk-test-openai",
+		"MEMQL_SHOPIFY_ADMIN_TOKEN":              "shpat-test-token",
 		"MEMQL_NODE_BOOTSTRAP_TOKEN":            "bootstrap-secret-value",
 	}
 	for k, v := range secrets {

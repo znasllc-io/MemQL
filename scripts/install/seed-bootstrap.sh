@@ -5,10 +5,15 @@
 #
 # Capability: install.seedBootstrap -- make a freshly created cluster BOOTSTRAP
 # ITSELF: write the MEMQL_IDENTITY_BOOTSTRAP_* set that creates the cluster owner,
-# plus the AI provider key the mesh needs to do anything once that owner signs in,
 # AND make sure the nodes that read them are running with them. The operator then
 # never visits /setup; without this they land on a wizard nobody told them was
 # coming.
+#
+# THERE IS NO AI PROVIDER KEY TO SEED (epic memql#5088). This step used to write
+# one into the same Secret. Both vendors are now reached by workload identity
+# federation -- a projected Kubernetes token exchanged inside the pod -- so
+# there is no key anywhere in the product to seed, and a local cluster reaches
+# cloud models through a fleet machine or a local model instead.
 #
 # WRITING THE SECRET IS HALF THE JOB (memql#3588). Container environment is read
 # once, at container start, and the install graph runs this step after the cluster
@@ -34,15 +39,6 @@
 #   So the check happens before anything is written, names every missing field
 #   at once (not one per re-run), and exits 2.
 #
-# THE API KEY GOES IN VIA --from-file, NEVER argv.
-#
-#   argv is world-readable: `ps`, /proc/<pid>/cmdline, the shell history of
-#   whoever ran it, and the argv this script's own capability runner logs. A key
-#   passed as --provider-key=sk-... is a key leaked to every process on the
-#   machine for the lifetime of the call. The key therefore arrives as a FILE
-#   PATH and reaches kubectl through `--from-file`, so the value itself never
-#   appears in any command line -- ours or kubectl's.
-#
 # IDEMPOTENT. `kubectl apply` from a client-side dry-run, like every other
 # secret seeder here; re-running with the same inputs changes nothing.
 #
@@ -50,8 +46,7 @@
 #
 #   0  seeded, and every node that reads the values is running with them
 #   2  bad param -- an incomplete bootstrap set, an unknown registration mode
-#   4  prerequisite missing (kubectl, cluster unreachable, namespace absent,
-#      unreadable key file)
+#   4  prerequisite missing (kubectl, cluster unreachable, namespace absent)
 #   5  the write failed, or a restarted node did not come back
 #
 # ENV:
@@ -68,11 +63,10 @@
 #   scripts/install/seed-bootstrap.sh \
 #       --domain=memql.localhost --owner-email=me@example.com \
 #       --owner-first-name=Ada --owner-last-name=Lovelace \
-#       --registration-mode=invite_only \
-#       --provider=anthropic --provider-key-file=$HOME/.memql/anthropic.key
+#       --registration-mode=invite_only
 #   scripts/install/seed-bootstrap.sh --print-spec
 #
-# Refs: #3375 #3357 #2221
+# Refs: #3375 #3357 #2221 #5088
 
 set -euo pipefail
 
@@ -86,7 +80,7 @@ source "${SCRIPT_DIR}/../lib/capability.sh"
 source "${SCRIPT_DIR}/../lib/engine_build_args.sh"
 
 cap_init "install.seedBootstrap" \
-    "Seed the identity bootstrap values and AI provider key so the cluster self-bootstraps."
+    "Seed the identity bootstrap values so the cluster self-bootstraps its owner."
 cap_spec_param "namespace"            "k8s namespace to seed into (default memql)"
 cap_spec_param "context"              "kubectl context to pin (default: whatever is current)"
 cap_spec_param "secret"               "Secret name to write (default memql-bootstrap)"
@@ -100,8 +94,6 @@ cap_spec_param "registration-domains" "comma-separated allowlist; REQUIRED when 
 cap_spec_param "internal-domains"     "comma-separated domains whose users are flagged internal"
 cap_spec_param "internal-default-role" "cluster role for internal users: owner | admin | writer | reader"
 cap_spec_param "notify-emails"        "comma-separated waitlist-notification recipients"
-cap_spec_param "provider"             "AI provider the key belongs to: anthropic | openai"
-cap_spec_param "provider-key-file"    "path to a file holding the API key (never a flag -- argv is public)"
 cap_spec_param "dry-run"              "report what would be written and write nothing (flag)"
 
 #=============================================================================
@@ -131,42 +123,6 @@ function env_name_for() {
         *)                      printf '' ;;
     esac
 }
-
-# AI provider -> the env var the engine reads that provider's key from.
-function provider_env_name() {
-    case "$1" in
-        anthropic) printf 'MEMQL_AI_ANTHROPIC_API_KEY' ;;
-        openai)    printf 'MEMQL_AI_OPENAI_API_KEY' ;;
-        *)         printf '' ;;
-    esac
-}
-
-#=============================================================================
-# SCRATCH CLEANUP
-#=============================================================================
-#
-# The API key is copied (trimmed) into a 0600 temp file so kubectl can take it
-# via --from-file. Removing it needs an EXIT trap, which would otherwise REPLACE
-# the one cap_init installs -- and that trap is what guarantees a failure
-# envelope on an unexpected abort. So we chain: capture the real status, clean
-# up, restore the status, hand off.
-
-_SB_SCRATCH=""
-
-function _sb_on_exit() {
-    local rc=$?
-    # `set +e` is load-bearing: this handler runs under errexit, and
-    # `(exit "$rc")` is by definition a failing command when rc is non-zero.
-    # Without it errexit abandons the handler and _cap_on_exit never runs, so
-    # the caller gets a non-zero exit and NO envelope.
-    set +e
-    if [[ -n "$_SB_SCRATCH" ]]; then
-        rm -rf "$_SB_SCRATCH" 2>/dev/null
-    fi
-    (exit "$rc")
-    _cap_on_exit
-}
-trap _sb_on_exit EXIT
 
 #=============================================================================
 # PREREQUISITES
@@ -236,42 +192,6 @@ function validate_internal_role() {
         owner|admin|writer|reader) ;;
         *) cap_fail 2 "unknown --internal-default-role '${role}' (expected: owner, admin, writer, reader)" ;;
     esac
-}
-
-#=============================================================================
-# THE PROVIDER KEY
-#=============================================================================
-
-# Staged path for the trimmed key, or "" when no key was supplied.
-_SB_KEY_FILE=""
-_SB_KEY_ENV=""
-
-# stage_provider_key <provider> <key-file> -- copies the key into a 0600 temp
-# file with surrounding whitespace stripped. An editor-added trailing newline is
-# part of the file but NOT part of the key, and kubectl's --from-file would
-# store it verbatim -- yielding a Secret that looks right and authenticates
-# against nothing.
-function stage_provider_key() {
-    local provider="$1" src="$2"
-    if [[ -z "$provider" && -z "$src" ]]; then
-        return 0
-    fi
-    [[ -n "$provider" ]] || cap_fail 2 "--provider-key-file needs --provider so the key lands under the right env var"
-    [[ -n "$src" ]] || cap_fail 2 "--provider=${provider} needs --provider-key-file (the key is passed as a FILE; argv is public)"
-
-    _SB_KEY_ENV="$(provider_env_name "$provider")"
-    [[ -n "$_SB_KEY_ENV" ]] || cap_fail 2 "unknown --provider '${provider}' (expected: anthropic, openai)"
-
-    [[ -r "$src" ]] || cap_fail 4 "provider key file is not readable: ${src}"
-
-    local key
-    key="$(tr -d '[:space:]' < "$src")" || cap_fail 5 "could not read ${src}"
-    [[ -n "$key" ]] || cap_fail 2 "provider key file is empty: ${src}"
-
-    _SB_SCRATCH="$(mktemp -d)" || cap_fail 5 "could not create a staging directory"
-    _SB_KEY_FILE="${_SB_SCRATCH}/${_SB_KEY_ENV}"
-    ( umask 077; printf '%s' "$key" > "$_SB_KEY_FILE" ) \
-        || cap_fail 5 "could not stage the provider key"
 }
 
 #=============================================================================
@@ -407,16 +327,14 @@ function sb_sha256() {
 
 # desired_digest <key=value...> -- the digest of the values being seeded.
 #
-# The API KEY IS HASHED, NEVER PASSED. Its content decides the digest (a rotated
-# key has to roll the mesh) and the value itself must not reach a variable that
-# could be logged, so the file is digested and the digest participates instead.
+# It used to fold in the digest of the staged API key file, so a rotated key
+# rolled the mesh. There is no key to seed any more (epic memql#5088), so the
+# literal pairs ARE the whole set of values, and every one of them is already
+# safe to name in a variable.
 function desired_digest() {
     {
         local pair
         for pair in "$@"; do printf '%s\n' "$pair"; done
-        if [[ -n "$_SB_KEY_FILE" ]]; then
-            printf 'key-digest=%s\n' "$(sb_sha256 < "$_SB_KEY_FILE")"
-        fi
     } | LC_ALL=C sort | sb_sha256
 }
 
@@ -712,10 +630,6 @@ function main() {
     internal_role="$(cap_param internal-default-role "")"
     notify_emails="$(cap_param notify-emails "")"
 
-    local provider key_file
-    provider="$(cap_param provider "")"
-    key_file="$(cap_param provider-key-file "")"
-
     # Everything that can be REFUSED is refused before anything is read from
     # disk or written to the cluster.
     require_complete_bootstrap_set "$domain" "$owner_email" "$owner_first" "$owner_last" "$mode"
@@ -723,8 +637,6 @@ function main() {
     validate_internal_role "$internal_role"
     cap_require namespace "$ns"
     cap_require secret "$name"
-
-    stage_provider_key "$provider" "$key_file"
 
     add_literal domain                "$domain"
     add_literal owner-email           "$owner_email"
@@ -736,16 +648,6 @@ function main() {
     add_literal internal-domains      "$internal_domains"
     add_literal internal-default-role "$internal_role"
     add_literal notify-emails         "$notify_emails"
-
-    if [[ -n "$_SB_KEY_FILE" ]]; then
-        # --from-file, so the key value never appears in any argv: not ours, not
-        # kubectl's, not the runner's log of either.
-        _SB_FROM_ARGS+=("--from-file=${_SB_KEY_ENV}=${_SB_KEY_FILE}")
-        _SB_KEY_COUNT=$((_SB_KEY_COUNT + 1))
-    else
-        cap_warn "no AI provider key supplied -- the cluster will bootstrap its owner but every model call fails."
-        cap_warn "  Re-run with --provider=<anthropic|openai> --provider-key-file=<path> to add one."
-    fi
 
     if [[ -z "$dry_run" ]]; then
         check_prerequisites "$ns" "$ctx"
@@ -780,7 +682,6 @@ function main() {
     cap_result_set     domain          "$domain"
     cap_result_set     ownerEmail      "$owner_email"
     cap_result_set     registrationMode "$mode"
-    cap_result_set     providerKeyEnv  "$_SB_KEY_ENV"
     # WHAT THIS NOW CLAIMS (memql#3588). Not "a Secret was written" -- that was
     # true of the runs that left the cluster unbootstrapped -- but "the values are
     # written AND every node that reads them is running with them". Everything
@@ -790,7 +691,6 @@ function main() {
     # On a dry run it means neither, which is why it reports the dry run's own
     # answer rather than a bare true.
     cap_result_set_raw bootstrapComplete "$( [[ -n "$dry_run" ]] && echo false || echo true )"
-    cap_result_set_raw providerKeySeeded "$( [[ -n "$_SB_KEY_FILE" ]] && echo true || echo false )"
     cap_result_set_raw keyCount        "$_SB_KEY_COUNT"
     cap_result_set_raw dryRun          "$( [[ -n "$dry_run" ]] && echo true || echo false )"
     cap_ok

@@ -470,13 +470,15 @@ const (
 	// to a provider's vendor and reports whether the credential was accepted
 	// (epic memql#4440). Owner-gated in Go. See provider_verify.go.
 	BuiltinExecutorProviderVerify = "providerVerify"
-	// BuiltinExecutorProviderKeySet seals one vendor API key into a
-	// globalSecret row under the name the resolver tries (epic memql#4440).
-	// Owner-gated; write-only -- there is no read-back call anywhere.
-	BuiltinExecutorProviderKeySet = "providerKeySet"
-	// BuiltinExecutorProviderFederationSet writes Anthropic's workload
+	// BuiltinExecutorProviderFederationSet writes one vendor's workload
 	// identity federation ids as globalVariable rows, refusing a partial set
-	// (epic memql#4440). Owner-gated. None of the five is a credential.
+	// (epic memql#4440, made vendor-aware by memql#5088). Owner-or-developer.
+	// None of the ids is a credential -- the credential is the projected token
+	// the pod holds, which no client ever sends.
+	//
+	// Its key-sealing sibling is GONE (memql#5088): there is no manually
+	// entered vendor API key anywhere in the product, and
+	// TestNoVendorApiKeyEntryPoint fails the build on one coming back.
 	BuiltinExecutorProviderFederationSet = "providerFederationSet"
 )
 

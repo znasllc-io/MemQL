@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"mime"
+	"net/http"
 	"path/filepath"
 	"os"
 	"strings"
@@ -48,14 +49,34 @@ type OpenAIWhisperProvider struct {
 }
 
 // NewOpenAIWhisperProvider creates a new OpenAI Whisper STT provider.
-// The apiKey should be the same OpenAI API key used for other OpenAI services.
+//
+// It takes a BEARER FUNCTION rather than an API key (epic memql#5088): there
+// is no manually entered vendor key anywhere in the product, and the credential
+// it authenticates with is a federated bearer that expires within the hour. The
+// function is called per request through the SDK's middleware, so a
+// transcription made two hours after the node booted presents a current token
+// rather than the one construction captured.
+//
 // The projectId is optional; when set it is sent as the OpenAI-Project header.
-func NewOpenAIWhisperProvider(apiKey, projectId string, logger *slog.Logger) *OpenAIWhisperProvider {
+func NewOpenAIWhisperProvider(bearer func(ctx context.Context) (string, error), projectId string, logger *slog.Logger) *OpenAIWhisperProvider {
 	if logger == nil {
 		logger = NewLogger()
 	}
 
-	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	opts := []option.RequestOption{
+		option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			token, err := bearer(req.Context())
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			return next(req)
+		}),
+		// Clear any ambient OPENAI_API_KEY the SDK's default options picked up
+		// out of the process environment: the middleware above is the only
+		// thing entitled to set this header.
+		option.WithHeaderDel("Authorization"),
+	}
 	if projectId != "" {
 		opts = append(opts, option.WithProject(projectId))
 	}

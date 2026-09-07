@@ -18,7 +18,7 @@ func mkProviderCfg(name, typ, model, extends string, base, disabled bool) parsed
 			Extends:  extends,
 			Base:     base,
 			Disabled: disabled,
-			Auth:     map[string]string{"apiKey": "literal-test-key"},
+			Auth:     federatedTestAuth(),
 		},
 		origin: "test:" + name,
 	}

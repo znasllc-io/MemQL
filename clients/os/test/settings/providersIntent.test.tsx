@@ -16,6 +16,11 @@ const h = vi.hoisted(() => {
         providerAuthStatus: vi.fn(async () => reply([])),
         integrationStatus: vi.fn(async () => reply([])),
         providersReload: vi.fn(async () => reply([])),
+        // The section reads the FLEET door too since epic memql#5088 -- a
+        // machine you own is one of the ways to reach a model, and on a local
+        // cluster it is the only one. Nothing in this file asserts on it; it
+        // is here so the section can render at all.
+        inferenceStatus: vi.fn(async () => reply([{}])),
       },
     } as unknown,
   };

@@ -22,8 +22,15 @@ func TestApplyLegacyEnvAliases_BridgesLegacy(t *testing.T) {
 }
 
 func TestApplyLegacyEnvAliases_NewWins(t *testing.T) {
-	const newName = "MEMQL_OPENAI_API_KEY"
-	const legacy = "OPENAI_API_KEY"
+	// The fixtures below name aliases that are LIVE in LegacyAliases. That is
+	// load-bearing rather than incidental: a fixture naming a retired alias
+	// leaves the new name untouched, so "new wins" and "neither is present"
+	// both pass for the wrong reason and the mechanism goes untested. The
+	// vendor-API-key pairs these two used to name were retired in epic
+	// memql#5088 -- and TestApplyLegacyEnvAliases_Idempotent, which asserts a
+	// value rather than an absence, is what noticed.
+	const newName = "MEMQL_AI_OPENAI_PROJECT_ID"
+	const legacy = "MEMQL_SI_OPENAI_PROJECT_ID"
 	t.Setenv(newName, "new-value")
 	t.Setenv(legacy, "legacy-value")
 
@@ -35,8 +42,8 @@ func TestApplyLegacyEnvAliases_NewWins(t *testing.T) {
 }
 
 func TestApplyLegacyEnvAliases_Idempotent(t *testing.T) {
-	const newName = "MEMQL_ANTHROPIC_API_KEY"
-	const legacy = "ANTHROPIC_API_KEY"
+	const newName = "MEMQL_EMAIL_SENDER"
+	const legacy = "EMAIL_SENDER"
 	os.Unsetenv(newName)
 	t.Setenv(legacy, "k1")
 
@@ -54,16 +61,18 @@ func TestApplyLegacyEnvAliases_Idempotent(t *testing.T) {
 
 func TestPresentWithLegacy(t *testing.T) {
 	have := map[string]bool{
-		"MEMORY_NODES_DATABASE_DSN": true, // legacy only
-		"MEMQL_OPENAI_API_KEY":      true, // new only
+		"MEMORY_NODES_DATABASE_DSN":  true, // legacy only
+		"MEMQL_AI_OPENAI_PROJECT_ID": true, // new only
 	}
 	if !PresentWithLegacy(have, "MEMQL_DATABASE_DSN") {
 		t.Error("legacy alias MEMORY_NODES_DATABASE_DSN should satisfy MEMQL_DATABASE_DSN")
 	}
-	if !PresentWithLegacy(have, "MEMQL_OPENAI_API_KEY") {
+	if !PresentWithLegacy(have, "MEMQL_AI_OPENAI_PROJECT_ID") {
 		t.Error("new name present should satisfy")
 	}
-	if PresentWithLegacy(have, "MEMQL_ANTHROPIC_API_KEY") {
+	// A name that HAS a live alias, neither half of which is present -- so the
+	// false answer comes from the lookup rather than from an absent map entry.
+	if PresentWithLegacy(have, "MEMQL_EMAIL_SENDER") {
 		t.Error("neither new nor legacy present should be false")
 	}
 }
