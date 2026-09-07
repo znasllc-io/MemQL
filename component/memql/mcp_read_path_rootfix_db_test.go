@@ -95,7 +95,7 @@ func TestWorkerInvocations_SoftDeletedExcluded(t *testing.T) {
 	ctx := clusterOwnerCtx("u-wi-1685")
 	sfx := uniqueSuffix("wi")
 
-	planID := fmt.Sprintf("v1:planner:plan:p-%s", sfx)
+	planID := fmt.Sprintf("v1:platform:missingCapability:p-%s", sfx)
 	liveID := fmt.Sprintf("v1:worker:invocation:live-%s", sfx)
 	deadID := fmt.Sprintf("v1:worker:invocation:dead-%s", sfx)
 

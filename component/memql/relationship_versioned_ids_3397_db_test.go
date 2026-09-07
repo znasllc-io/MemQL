@@ -52,17 +52,23 @@ import (
 //
 // Postgres-gated: skips when no DB is reachable, reusing sharedReadMergeEngine.
 
-// The parent/child pair the fixtures traverse. v1:planner:task declares
-// `@relationship(type="parent", field="planId", target=plan)`, which is the
-// edge parentOf walks, and neither concept declares an @rowAuthz tier -- so a
-// parent that does not come back was DROPPED by the scan rather than withheld
-// from the actor, which is the only reading that makes the assertions below
-// mean what they say. task also declares a second parent edge on parentTaskId;
-// the fixtures leave that field unset and resolveParentOf skips a missing
-// pointer, so the traversal under test is the planId one.
+// The parent/child pair the fixtures traverse. v1:data:log declares
+// `@relationship(type="parent", field="recordId", target=record)`, which is
+// the edge parentOf walks, and NEITHER CONCEPT DECLARES AN @rowAuthz TIER --
+// so a parent that does not come back was DROPPED by the scan rather than
+// withheld from the actor, which is the only reading that makes the
+// assertions below mean what they say.
+//
+// It was v1:planner:plan / task until memql#5053 deleted both. The tier
+// property is the one that had to be re-satisfied and it is the scarce one:
+// most concepts declare a tier now, and picking one that does would turn
+// every assertion here into a statement about row admission instead of about
+// the scan. This pair also IMPROVES on the old one -- task carried a second
+// parent edge (parentTaskId) that the fixtures had to leave unset and the
+// comment had to explain away, and v1:data:log has exactly one.
 const (
-	relParentConcept = "v1:planner:plan"
-	relChildConcept  = "v1:planner:task"
+	relParentConcept = "v1:data:record"
+	relChildConcept  = "v1:data:log"
 )
 
 // seedRawRow inserts ONE append-only row at a fixed createdAt, bypassing the
@@ -99,7 +105,7 @@ func seedRawRow(
 // TestRelationshipParentOf_ClusteredVersionsReachesEveryParent is the headline
 // memql#3397 regression, end to end through Execute.
 //
-// 10 task rows, each naming a DISTINCT plan as its parent, each plan carrying
+// 10 log rows, each naming a DISTINCT record as its parent, each record carrying
 // 10 clustered versions. `parentOf(...)` must return all 10 parents.
 //
 // Against the raw-scan engine it returned 2: resolveParentOf collected the 10
@@ -122,21 +128,21 @@ func TestRelationshipParentOf_ClusteredVersionsReachesEveryParent(t *testing.T) 
 	wantParents := make([]string, 0, parents)
 	tick := 0
 	for i := 0; i < parents; i++ {
-		planId := fmt.Sprintf("%s:%s-%02d", relParentConcept, sfx, i)
-		wantParents = append(wantParents, planId)
+		recordID := fmt.Sprintf("%s:%s-%02d", relParentConcept, sfx, i)
+		wantParents = append(wantParents, recordID)
 		for v := 0; v < versions; v++ {
-			// Clustered: every version of plan i occupies a contiguous
+			// Clustered: every version of record i occupies a contiguous
 			// createdAt run.
-			seedRawRow(t, ctx, db, relParentConcept, planId,
+			seedRawRow(t, ctx, db, relParentConcept, recordID,
 				base.Add(time.Duration(tick)*time.Second), owner,
 				map[string]any{"goal": fmt.Sprintf("p-%02d-v%d", i, v)})
 			tick++
 		}
-		// One task row per plan, single version, pointing at it.
+		// One log row per record, single version, pointing at it.
 		seedRawRow(t, ctx, db, relChildConcept,
 			fmt.Sprintf("%s:%s-%02d", relChildConcept, sfx, i),
 			base.Add(time.Duration(tick)*time.Second), owner,
-			map[string]any{"planId": planId})
+			map[string]any{"recordId": recordID})
 		tick++
 	}
 

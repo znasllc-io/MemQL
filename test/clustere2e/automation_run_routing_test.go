@@ -267,7 +267,7 @@ func newTwoNodeMesh(t *testing.T, auto *automations.Automation, steps []*automat
 func TestAutomationRunCrossesNodes(t *testing.T) {
 	auto := &automations.Automation{
 		Name:    "crossNodeSubject",
-		Trigger: &automations.TriggerConfig{Event: "graph.node.created.v1:planner:plan"},
+		Trigger: &automations.TriggerConfig{Event: "graph.node.created.v1:platform:missingCapability"},
 	}
 	mesh := newTwoNodeMesh(t, auto, []*automations.StepResult{
 		{StepId: "loadRow", Status: "success", Duration: 2 * time.Millisecond},
@@ -280,7 +280,7 @@ func TestAutomationRunCrossesNodes(t *testing.T) {
 
 	mesh.a.Run(ctx, automations.RunRequest{
 		Automation:     auto.Name,
-		Payload:        map[string]any{"id": "v1:planner:plan:xyz"},
+		Payload:        map[string]any{"id": "v1:platform:missingCapability:xyz"},
 		TargetNodeType: "planner",
 	}, sink)
 

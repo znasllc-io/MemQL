@@ -1204,7 +1204,7 @@ export interface CreateApprovalRequestArgs {
   expiresAt?: string;
   agentId?: string;
   ownerUserId?: string;
-  planId?: string;
+  runId?: string;
 }
 
 export function buildCreateApprovalRequest(args: CreateApprovalRequestArgs): string {
@@ -1219,7 +1219,7 @@ export function buildCreateApprovalRequest(args: CreateApprovalRequestArgs): str
   if (args.expiresAt !== undefined) parts.push("expiresAt: " + renderMemQLValue(args.expiresAt));
   if (args.agentId !== undefined) parts.push("agentId: " + renderMemQLValue(args.agentId));
   if (args.ownerUserId !== undefined) parts.push("ownerUserId: " + renderMemQLValue(args.ownerUserId));
-  if (args.planId !== undefined) parts.push("planId: " + renderMemQLValue(args.planId));
+  if (args.runId !== undefined) parts.push("runId: " + renderMemQLValue(args.runId));
   return "mutation createApprovalRequest(" + parts.join(", ") + ")";
 }
 
@@ -4125,7 +4125,7 @@ export interface InsertOutputScreeningArgs {
   latencyMs?: number;
   agentId?: string;
   ownerUserId?: string;
-  planId?: string;
+  runId?: string;
   correlationId?: string;
   mode: string;
 }
@@ -4145,7 +4145,7 @@ export function buildInsertOutputScreening(args: InsertOutputScreeningArgs): str
   if (args.latencyMs !== undefined) parts.push("latencyMs: " + renderMemQLValue(args.latencyMs));
   if (args.agentId !== undefined) parts.push("agentId: " + renderMemQLValue(args.agentId));
   if (args.ownerUserId !== undefined) parts.push("ownerUserId: " + renderMemQLValue(args.ownerUserId));
-  if (args.planId !== undefined) parts.push("planId: " + renderMemQLValue(args.planId));
+  if (args.runId !== undefined) parts.push("runId: " + renderMemQLValue(args.runId));
   if (args.correlationId !== undefined) parts.push("correlationId: " + renderMemQLValue(args.correlationId));
   parts.push("mode: " + renderMemQLValue(args.mode));
   return "mutation insertOutputScreening(" + parts.join(", ") + ")";
@@ -4177,7 +4177,7 @@ export interface InsertSafetyClassificationArgs {
   latencyMs?: number;
   agentId?: string;
   ownerUserId?: string;
-  planId?: string;
+  runId?: string;
   correlationId?: string;
   mode: string;
 }
@@ -4197,7 +4197,7 @@ export function buildInsertSafetyClassification(args: InsertSafetyClassification
   if (args.latencyMs !== undefined) parts.push("latencyMs: " + renderMemQLValue(args.latencyMs));
   if (args.agentId !== undefined) parts.push("agentId: " + renderMemQLValue(args.agentId));
   if (args.ownerUserId !== undefined) parts.push("ownerUserId: " + renderMemQLValue(args.ownerUserId));
-  if (args.planId !== undefined) parts.push("planId: " + renderMemQLValue(args.planId));
+  if (args.runId !== undefined) parts.push("runId: " + renderMemQLValue(args.runId));
   if (args.correlationId !== undefined) parts.push("correlationId: " + renderMemQLValue(args.correlationId));
   parts.push("mode: " + renderMemQLValue(args.mode));
   return "mutation insertSafetyClassification(" + parts.join(", ") + ")";

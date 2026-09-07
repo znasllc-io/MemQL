@@ -11,7 +11,7 @@
 // stream -- exactly once, no dup, no drop.
 //
 // It is a SYNTHETIC-EVENT test (memql#1261, owner decision): it injects
-// a v1:planner:plan row via createPlan and counts cross-replica delivery,
+// a v1:platform:missingCapability row via createPlan and counts cross-replica delivery,
 // rather than driving a real agent turn. That exercises the same
 // component/node EventBridge.forwardToPeers path as any live graph write,
 // deterministically and without AI provider keys.
@@ -19,7 +19,7 @@
 // THE ROW IS A VEHICLE, AND IT CHANGED (memql#4988). Every probe in this
 // suite used to write a v1:cognition:utterance into a space and watch it
 // cross replicas. Cognition, spaces and the chat-reply delivery half of
-// component/node are deleted, so the suite writes v1:planner:plan rows
+// component/node are deleted, so the suite writes v1:platform:missingCapability rows
 // instead. The invariant is unchanged and so is the substrate underneath it:
 // component/node/plan_delivery.go rides the same DeliverySubstrate the
 // deleted ChatReplyDelivery rode, and graph.node.created.v1:planner:* is a
@@ -69,6 +69,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -162,49 +163,78 @@ func userIDFromToken(t *testing.T, tok string) string {
 	return claims.Sub
 }
 
-// newProbeScope mints a fresh v1:planner:plan.partitionId for one test run.
+// newProbeScope mints a fresh partitionId for one test run.
 //
-// partitionId is a free-form product scope tag -- "the engine derives nothing
-// from it" (dsl/planner/concepts.memql) -- so a per-run value is all the
-// isolation these probes need: plansForSpace filters on it exactly, which is
-// what keeps one run's rows out of another run's page counts on a cluster
-// that accumulates them.
+// partitionId is a free-form product scope tag -- the engine derives nothing
+// from it -- so a per-run value is all the isolation these probes need: the
+// probe reads filter on it exactly, which is what keeps one run's rows out of
+// another run's page counts on a cluster that accumulates them.
 func newProbeScope() string {
 	return "clustere2e-" + id.NewShortId()
 }
 
-// probePlanArgs builds the createPlan arguments every probe in this suite
-// writes with.
+// probeRowArgs builds the write every probe in this suite makes.
 //
-// kind is "adHocAction" DELIBERATELY, and it is the load-bearing field. A
-// v1:planner:plan row has three graph.node.created subscribers on a planner
-// node (integrations/planner/integration.go): the Planner Agent loop, the
-// trainSpecialist dispatcher and the embedDomainItems dispatcher. The latter
-// two gate on their own kind and ignore everything else; the first returns
-// early for adHocAction (integrations/planner/agent_loop.go), as does the
-// stranded-plan watchdog. So a probe row is decomposed by nobody, dispatched
-// by nobody, and costs no LLM call -- the same posture automation_run_test.go
-// records for naming an automation that does not exist. Any other kind would
-// make every one of these probes fire the real planner agent, which is a gate
-// nobody dares run.
-func probePlanArgs(scope, planID, goal, userID string) memqlclient.CreatePlanArgs {
-	return memqlclient.CreatePlanArgs{
-		PlanId:      planID,
+// ============================================================================
+// THE CONCEPT IS THE FIXTURE, and picking it is the whole of this comment
+// ============================================================================
+// This suite needs a row it can write from a client, cheaply, in bulk, whose
+// creation makes nothing else happen. It used a `v1:platform:missingCapability` of kind
+// "adHocAction" -- chosen because that kind was the one the Planner Agent
+// loop, the two dispatchers and the stranded-plan watchdog all returned early
+// for. That concept is deleted (memql#5053), and the reason it was chosen is
+// what has to be re-satisfied rather than the concept re-pointed.
+//
+// `v1:platform:missingCapability` satisfies it BETTER than the plan did, and
+// on evidence rather than by inspection of one field:
+//
+//   - NOTHING SUBSCRIBES TO IT. Zero graph.node.* handlers in component/ or
+//     integrations/, zero `@trigger(concept=...)` automations in dsl/. The
+//     plan needed a specific `kind` to dodge four subscribers; this needs
+//     nothing, so there is no field a future edit can get wrong.
+//   - IT DECLARES NO ROW-AUTHZ TIER, which subscription_rowauthz_test.go
+//     depends on and which is the harder property to find -- see that file.
+//     The plan was the undeclared fixture too, and this inherits that role.
+//   - `logMissingCapability` is client-reachable (not @serverOnly) and
+//     carries `partitionId`, so the scope isolation above is unchanged.
+//
+// The obvious alternative, `v1:work:goal`, is the WRONG shape and would have
+// been an expensive mistake: opening a goal runs compile, which is the
+// model-calling path this fixture exists to avoid.
+func probeRowArgs(scope, rowID, goal, userID string) memqlclient.LogMissingCapabilityArgs {
+	return memqlclient.LogMissingCapabilityArgs{
+		MissingId:   rowID,
 		PartitionId: scope,
-		Kind:        "adHocAction",
-		Goal:        goal,
-		RequestedBy: userID,
-		Input:       map[string]any{"probe": "clustere2e"},
+		Kind:        "tool",
+		// Unique per row: the concept is unique-by-(kind, capability), so a
+		// shared value would make the second probe in a run a DUPLICATE the
+		// mutation refuses, and the test would read as a delivery failure.
+		Capability:         "clustere2e-" + rowID,
+		Description:        goal,
+		ExampleGoal:        goal,
+		RequestedByAgentId: userID,
 	}
 }
 
-// createProbePlan writes one probe plan on conn's replica, failing the test if
+// probeScopeQuery selects one run's probe rows, newest-first.
+//
+// It is a RAW query rather than a named one, and that is forced rather than
+// chosen: the probe concept's own reads narrow by `status`, and every probe
+// row ever written shares `status: "open"`. A named read would therefore be
+// scoped to "the whole cluster's history", which turns every count assertion
+// into a function of how long the cluster has been up. `partitionId` is the
+// per-run tag, so the raw filter is the only read that means "this run".
+func probeScopeQuery(scope string) string {
+	return fmt.Sprintf(`concept==v1:platform:missingCapability;payload.partitionId==%q`, scope)
+}
+
+// createProbeRow writes one probe row on conn's replica, failing the test if
 // the write is refused.
-func createProbePlan(ctx context.Context, t *testing.T, conn *memqlclient.Connection, scope, planID, goal, userID string) {
+func createProbeRow(ctx context.Context, t *testing.T, conn *memqlclient.Connection, scope, rowID, goal, userID string) {
 	t.Helper()
 	qc := memqlclient.NewQueryClient(conn.Dispatcher())
-	if _, err := qc.CreatePlan(ctx, probePlanArgs(scope, planID, goal, userID)); err != nil {
-		t.Fatalf("create probe plan %s in scope %s: %v", planID, scope, err)
+	if _, err := qc.LogMissingCapability(ctx, probeRowArgs(scope, rowID, goal, userID)); err != nil {
+		t.Fatalf("create probe row %s in scope %s: %v", rowID, scope, err)
 	}
 }
 
@@ -261,14 +291,14 @@ func subscribePlans(ctx context.Context, t *testing.T, conn *memqlclient.Connect
 }
 
 // planIDFor returns the plan id if the event is the creation of a
-// v1:planner:plan row, else "". Tolerates flat or node-nested payloads.
+// v1:platform:missingCapability row, else "". Tolerates flat or node-nested payloads.
 func planIDFor(ev memqlclient.Event) string {
 	concept, _ := ev.Payload["concept"].(string)
 	node, _ := ev.Payload["node"].(map[string]any)
 	if concept == "" && node != nil {
 		concept, _ = node["concept"].(string)
 	}
-	if concept != "v1:planner:plan" {
+	if concept != "v1:platform:missingCapability" {
 		return ""
 	}
 	if pid, _ := ev.Payload["id"].(string); pid != "" {
@@ -312,8 +342,8 @@ func TestClusterCrossReplicaDelivery(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	// Produce exactly one plan from conns[0].
-	planID := "v1:planner:plan:" + id.NewShortId()
-	createProbePlan(ctx, t, producer, scope, planID, "clustere2e cross-replica delivery probe", userID)
+	planID := "v1:platform:missingCapability:" + id.NewShortId()
+	createProbeRow(ctx, t, producer, scope, planID, "clustere2e cross-replica delivery probe", userID)
 	t.Logf("produced plan %s", planID)
 
 	// Collect for a generous window; every connection must observe it once.

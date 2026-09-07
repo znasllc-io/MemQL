@@ -1778,7 +1778,7 @@ type CreateApprovalRequestArgs struct {
 	ExpiresAt      string
 	AgentId        string
 	OwnerUserId    string
-	PlanId         string
+	RunId          string
 }
 
 // CreateApprovalRequest calls the engine mutation createApprovalRequest.
@@ -1849,12 +1849,12 @@ func CreateApprovalRequestBuild(args CreateApprovalRequestArgs) string {
 		b.WriteString("ownerUserId: ")
 		b.WriteString(quoteMemQL(args.OwnerUserId))
 	}
-	if args.PlanId != "" {
+	if args.RunId != "" {
 		if b.Len() > 31 {
 			b.WriteString(", ")
 		}
-		b.WriteString("planId: ")
-		b.WriteString(quoteMemQL(args.PlanId))
+		b.WriteString("runId: ")
+		b.WriteString(quoteMemQL(args.RunId))
 	}
 	b.WriteString(")")
 	return b.String()
@@ -7635,7 +7635,7 @@ type InsertOutputScreeningArgs struct {
 	LatencyMs      float64
 	AgentId        string
 	OwnerUserId    string
-	PlanId         string
+	RunId          string
 	CorrelationId  string
 	Mode           string
 }
@@ -7723,12 +7723,12 @@ func InsertOutputScreeningBuild(args InsertOutputScreeningArgs) string {
 		b.WriteString("ownerUserId: ")
 		b.WriteString(quoteMemQL(args.OwnerUserId))
 	}
-	if args.PlanId != "" {
+	if args.RunId != "" {
 		if b.Len() > 31 {
 			b.WriteString(", ")
 		}
-		b.WriteString("planId: ")
-		b.WriteString(quoteMemQL(args.PlanId))
+		b.WriteString("runId: ")
+		b.WriteString(quoteMemQL(args.RunId))
 	}
 	if args.CorrelationId != "" {
 		if b.Len() > 31 {
@@ -7763,7 +7763,7 @@ type InsertSafetyClassificationArgs struct {
 	LatencyMs     float64
 	AgentId       string
 	OwnerUserId   string
-	PlanId        string
+	RunId         string
 	CorrelationId string
 	Mode          string
 }
@@ -7851,12 +7851,12 @@ func InsertSafetyClassificationBuild(args InsertSafetyClassificationArgs) string
 		b.WriteString("ownerUserId: ")
 		b.WriteString(quoteMemQL(args.OwnerUserId))
 	}
-	if args.PlanId != "" {
+	if args.RunId != "" {
 		if b.Len() > 36 {
 			b.WriteString(", ")
 		}
-		b.WriteString("planId: ")
-		b.WriteString(quoteMemQL(args.PlanId))
+		b.WriteString("runId: ")
+		b.WriteString(quoteMemQL(args.RunId))
 	}
 	if args.CorrelationId != "" {
 		if b.Len() > 36 {

@@ -23,7 +23,7 @@ package clustere2e
 // user can cheaply create (every explicitly-cached read left in the tree is a
 // cluster-wide catalog or config registry -- agentRole, skill, rbac role,
 // site, router budget -- whose rows are operator-visible and which a probe
-// must not litter). So `plansForSpace` carries NO @cache annotation and is
+// must not litter). So `the probe scope read` carries NO @cache annotation and is
 // cached by the 5.6 DEFAULT, at the 60s default TTL. Two things survive that
 // swap intact: the assertion, because the 5s poll window below is still far
 // under 60s, so only eviction -- never a TTL lapse -- can explain a pass; and
@@ -81,9 +81,9 @@ func TestResultCacheInvalidation_CrossReplica(t *testing.T) {
 	scope := newProbeScope()
 
 	createPlan := func(goal string) string {
-		pid := "v1:planner:plan:" + id.NewShortId()
-		if _, err := qcA.CreatePlan(ctx, probePlanArgs(scope, pid, goal, userID)); err != nil {
-			t.Fatalf("create plan: %v", err)
+		pid := "v1:platform:missingCapability:" + id.NewShortId()
+		if _, err := qcA.LogMissingCapability(ctx, probeRowArgs(scope, pid, goal, userID)); err != nil {
+			t.Fatalf("create probe row: %v", err)
 		}
 		return pid
 	}
@@ -96,27 +96,31 @@ func TestResultCacheInvalidation_CrossReplica(t *testing.T) {
 		time.Sleep(15 * time.Millisecond)
 	}
 
-	planCount := func(qc *memqlclient.QueryClient) int {
-		res, err := qc.PlansForSpace(ctx, memqlclient.PlansForSpaceArgs{PartitionId: scope})
+	// ExecutePaginated is the SDK's public raw-query path (there is no
+	// exported bare Execute). The empty cursor asks for the first page, and
+	// `seed` is 3 -- an order of magnitude under any page bound -- so one page
+	// IS the set and this is a count rather than a page count.
+	probeCount := func(qc *memqlclient.QueryClient) int {
+		page, err := qc.ExecutePaginated(ctx, probeScopeQuery(scope), "")
 		if err != nil {
-			t.Fatalf("plansForSpace: %v", err)
+			t.Fatalf("probe scope read: %v", err)
 		}
-		return len(res.Rows())
+		return len(page.Rows)
 	}
 
 	// Warm the cache on connB: two reads so the second is a HIT on the replica
 	// serving connB (and on any other replica connB round-robins to). The
 	// result is now cached on the serving replica(s).
-	warm1 := planCount(qcB)
+	warm1 := probeCount(qcB)
 	if warm1 < seed {
 		t.Fatalf("warm read 1 returned %d plans, want >= %d seeded", warm1, seed)
 	}
-	_ = planCount(qcB) // second read -> cache HIT (no assertion; just warms).
+	_ = probeCount(qcB) // second read -> cache HIT (no assertion; just warms).
 
 	// WRITE a new plan on connA (a different replica than connB, typically).
-	// This is graph.node.created.v1:planner:plan -- forwarded cross-node by
+	// This is graph.node.created.v1:platform:missingCapability -- forwarded cross-node by
 	// the routing rules, so the invalidation subscriber fires on connB's replica
-	// and evicts the cached plansForSpace result.
+	// and evicts the cached the probe scope read result.
 	newID := createPlan("cache-invalidation POST-WRITE row")
 
 	// The post-write read on connB MUST reflect the new row. If invalidation did
@@ -130,12 +134,12 @@ func TestResultCacheInvalidation_CrossReplica(t *testing.T) {
 	// default TTL.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		res, err := qcB.PlansForSpace(ctx, memqlclient.PlansForSpaceArgs{PartitionId: scope})
+		page, err := qcB.ExecutePaginated(ctx, probeScopeQuery(scope), "")
 		if err != nil {
-			t.Fatalf("post-write plansForSpace: %v", err)
+			t.Fatalf("post-write probe scope read: %v", err)
 		}
 		found := false
-		for _, row := range res.Rows() {
+		for _, row := range page.Rows {
 			// #2441: query results now carry BARE ids; compare bare forms.
 			if bareID(rowID(row)) == bareID(newID) {
 				found = true
@@ -143,15 +147,15 @@ func TestResultCacheInvalidation_CrossReplica(t *testing.T) {
 			}
 		}
 		if found {
-			if len(res.Rows()) < seed+1 {
-				t.Fatalf("post-write read shows the new row but only %d total, want >= %d", len(res.Rows()), seed+1)
+			if len(page.Rows) < seed+1 {
+				t.Fatalf("post-write read shows the new row but only %d total, want >= %d", len(page.Rows), seed+1)
 			}
 			return // SUCCESS: cache was evicted cross-node, fresh read served.
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("post-write read on connB never reflected new plan %s within 5s "+
 				"(well under the 60s default cache TTL) -- cross-node cache invalidation did not evict the "+
-				"stale cached plansForSpace result on the sibling replica", newID)
+				"stale cached the probe scope read result on the sibling replica", newID)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

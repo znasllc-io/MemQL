@@ -10,18 +10,19 @@
 // WHY A SEPARATE TEST FROM keyset_cursor_test.go
 // ----------------------------------------------
 // keyset_cursor_test.go proves the engine primitive against a handwritten
-// query string. THIS test proves the actual authored queries
-// (`plansForSpace`, `notes`) -- the strings the generated SDK *Build helpers
-// emit -- carry the sort+paginate directives end-to-end and thread the opaque
-// cursor through `ExecuteQueryMsg.cursor` / `ResultMeta.cursor` on the generic
-// executeNamed path. If a future edit drops the paginate directive from one of
-// the offenders, this test regresses; the 5.12 codec test would not.
+// query string. THIS test proves the actual authored query (`notes`) -- the
+// string the generated SDK *Build helper emits -- carries the sort+paginate
+// directives end-to-end and threads the opaque cursor through
+// `ExecuteQueryMsg.cursor` / `ResultMeta.cursor` on the generic executeNamed
+// path. If a future edit drops the paginate directive, this test regresses;
+// the 5.12 codec test would not.
 //
-// Both queries are ENGINE-owned. The scoped half used to be `spaceUtterances`;
-// cognition is deleted (memql#4988), so it is now `plansForSpace`, which has
-// the same shape the 5.2 offender had -- one required scope argument,
-// `sort "row.createdAt", "desc"`, `paginate 50` -- and is what makes this a
-// per-scope pagination proof rather than a second owner-scoped one. (The 5.2
+// It is ENGINE-owned. THE PER-SCOPE HALF IS GONE and the loss is stated at
+// its subtest below rather than here: `spaceUtterances` left with cognition
+// (memql#4988), its replacement `plansForSpace` left with v1:planner:plan
+// (memql#5053), and no surviving named query pairs a `paginate` directive
+// with an argument that narrows to one test run. So this is an owner-scoped
+// pagination proof only. (The 5.2
 // offender this file drove before EITHER of those, queryActiveSpaces, was
 // product-pack DSL the parity cluster never loaded; memql#4212.) The
 // owner-scoped `notes` query (5.3 backfill, `paginate 50`) is unchanged.
@@ -82,8 +83,12 @@ func assertNoDupNoGap(t *testing.T, got, wantNewestFirst []string) {
 // page via the keyset cursor across replicas: a bounded first page + cursor,
 // then a clean cross-node continuation with no dup / no gap.
 func TestNamedQueryPaginationCrossNode(t *testing.T) {
+	// The token is still resolved so an auth failure surfaces HERE rather than
+	// as an empty page later. Its user id is no longer read: `notes` scopes to
+	// `actor.userId` server-side, and the subject that took an explicit owner
+	// argument left with v1:planner:plan.
 	tok := token(t)
-	userID := userIDFromToken(t, tok)
+	_ = userIDFromToken(t, tok)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
@@ -96,66 +101,30 @@ func TestNamedQueryPaginationCrossNode(t *testing.T) {
 	}()
 	connA, connB := conns[0], conns[1]
 
-	// namedPageSize MUST match the `paginate <N>` literal authored on both
-	// queries in dsl/ (planner/queries.memql plansForSpace, notes/queries.memql
-	// notes). The cross-node proof seeds strictly more than this so the NAMED
-	// query itself mints a real nextCursor on its full first page (rather than
-	// exhausting the set in one page).
+	// namedPageSize MUST match the `paginate <N>` literal authored on the query
+	// in dsl/ (notes/queries.memql notes). The cross-node proof seeds strictly
+	// more than this so the NAMED query itself mints a real nextCursor on its
+	// full first page (rather than exhausting the set in one page).
 	const namedPageSize = 50
 
-	t.Run("plansForSpace", func(t *testing.T) {
-		qcA := memqlclient.NewQueryClient(connA.Dispatcher())
-		scope := newProbeScope()
-
-		// Seed > one page so the named query mints + we resolve a real cursor.
-		const total = namedPageSize + 7
-		sent := make([]string, 0, total) // oldest-first send order.
-		for i := 0; i < total; i++ {
-			pid := "v1:planner:plan:" + id.NewShortId()
-			if _, err := qcA.CreatePlan(ctx, probePlanArgs(scope, pid,
-				fmt.Sprintf("named-query pagination probe %03d", i), userID)); err != nil {
-				t.Fatalf("seed plan %d: %v", i, err)
-			}
-			sent = append(sent, pid)
-			time.Sleep(8 * time.Millisecond) // strictly increasing createdAt.
-		}
-
-		// The SDK *Build helper emits the exact authored named-query call string;
-		// the sort+paginate directives are baked into the query DEFINITION, so the
-		// cursor rides ExecuteQueryMsg.cursor and we never pass a page size.
-		query := memqlclient.PlansForSpaceBuild(memqlclient.PlansForSpaceArgs{
-			PartitionId: scope,
-		})
-
-		// PAGE 1 on connA (replica X mints the cursor from the named query).
-		page1, err := qcA.ExecutePaginated(ctx, query, "")
-		if err != nil {
-			t.Fatalf("named query page 1: %v", err)
-		}
-		if len(page1.Rows) != namedPageSize {
-			t.Fatalf("named query first page returned %d rows, want the bounded %d", len(page1.Rows), namedPageSize)
-		}
-		if page1.NextCursor == "" {
-			t.Fatal("a full first page of the named query must mint a nextCursor")
-		}
-
-		// PAGE 2 on connB (replica Y resolves the named query's cursor).
-		page2, err := memqlclient.NewQueryClient(connB.Dispatcher()).
-			ExecutePaginated(ctx, query, page1.NextCursor)
-		if err != nil {
-			t.Fatalf("named query page 2 (cross-node cursor): %v", err)
-		}
-		if len(page2.Rows) != total-namedPageSize {
-			t.Fatalf("named query page 2 returned %d rows, want %d (remainder)", len(page2.Rows), total-namedPageSize)
-		}
-
-		got := append(rowIDs(page1.Rows), rowIDs(page2.Rows)...)
-		wantNewestFirst := make([]string, 0, total)
-		for i := len(sent) - 1; i >= 0; i-- {
-			wantNewestFirst = append(wantNewestFirst, sent[i])
-		}
-		assertNoDupNoGap(t, got, wantNewestFirst)
-	})
+	// THE SECOND SUBJECT IS GONE, AND IT IS NOT COMING BACK AS A RENAME
+	// (memql#5053). This test used to prove the property on TWO named queries
+	// -- `plansForSpace` and `notes` -- and `plansForSpace` went with
+	// `v1:planner:plan`. Its replacement had to satisfy three things at once:
+	// a `paginate` directive, an argument that narrows to ONE TEST RUN, and a
+	// row this suite can write cheaply. `missingCapabilitiesByStatus` paginates
+	// 50 and is the probe concept's own read, but it narrows by STATUS -- every
+	// probe row ever written by every run shares `status: "open"`, so the
+	// "exactly one full page, then the remainder" assertion below would be
+	// decided by how long the cluster has been up. That is not a subject, it is
+	// a flake.
+	//
+	// So this runs on one named query rather than a worse two. The same thing
+	// happened once before -- the comment above records the first subject
+	// leaving with cognition (memql#4988) -- and the shape of the loss is worth
+	// noting: a suite that probes a PROPERTY through whatever concepts happen
+	// to be around loses coverage every time a concept retires, silently,
+	// unless somebody says so where the count is.
 
 	t.Run("notes", func(t *testing.T) {
 		qcA := memqlclient.NewQueryClient(connA.Dispatcher())

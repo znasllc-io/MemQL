@@ -12,7 +12,7 @@
 // connCount connections round-robin across replicas) receives the created-row
 // event carrying a BARE id, never a canonical one.
 //
-// The row is a v1:planner:plan rather than the v1:cognition:utterance this
+// The row is a v1:platform:missingCapability rather than the v1:cognition:utterance this
 // suite used to drive, because cognition is deleted (memql#4988). The seam is
 // concept-agnostic by construction -- bare-ification happens on egress, not
 // per concept -- so the swap costs the assertion nothing; see the package
@@ -84,7 +84,7 @@ func TestClusterCrossReplicaBareIds(t *testing.T) {
 	// Produce one plan with a BARE mint (the bare-ids client contract:
 	// clients send bare shortIds; the engine resolves them server-side).
 	shortID := id.NewShortId()
-	createProbePlan(ctx, t, producer, scope, shortID, "clustere2e cross-replica bare-id probe", userID)
+	createProbeRow(ctx, t, producer, scope, shortID, "clustere2e cross-replica bare-id probe", userID)
 	t.Logf("produced plan with bare mint %s", shortID)
 
 	// Collect observations. EVERY id a subscriber receives -- including one

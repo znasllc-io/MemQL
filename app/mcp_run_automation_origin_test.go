@@ -106,9 +106,28 @@ func runnerWithCapturedSteps() (*mcpAutomationRunner, *originCapturingSteps) {
 }
 
 // probeAutomation is a real, tree-loaded automation whose decide step reaches a
-// @serverOnly query with a caller-controllable argument. Named as a constant so
-// a rename produces one clear failure rather than three mysterious ones.
-const probeAutomation = "killSwitchSuspendsRunningPlans"
+// @serverOnly query. Named as a constant so a rename produces one clear failure
+// rather than three mysterious ones.
+//
+// THE PROBE LOST HALF ITS TEETH, AND SAYING SO IS THE POINT (memql#5053).
+// It was `killSwitchSuspendsRunningPlans`, whose decide step reached a
+// @serverOnly query WITH A CALLER-CONTROLLABLE ARGUMENT -- the attacker's
+// `args.event.node.id` flowed straight into it. That automation is deleted,
+// and a search of the whole tree (automation -> logic -> @serverOnly, over 137
+// @serverOnly constructs) finds exactly two automations that still reach one
+// and NEITHER passes a caller value into it: `accountDeletionSweep` derives
+// its argument from `now` and a config read, and `existingSelfAccount` takes
+// no argument at all.
+//
+// So this probe still proves the memql#2888 property -- a caller-named,
+// caller-parameterised run does not reach the engine with internal origin --
+// and no longer DEMONSTRATES the consequence, because nothing in the tree
+// currently lets a caller steer a @serverOnly read. That is a fact about the
+// tree rather than a weaker test, and it is written here so nobody reads the
+// green and concludes the demonstration is still standing. The day an
+// automation passes an event value into a @serverOnly construct, point this
+// constant at it and the probe is whole again.
+const probeAutomation = "accountDeletionSweep"
 
 // TestRunAutomationProbeIsTrustedAndTreeLoaded is the precondition. Without it
 // the two assertions below could pass because the automation stopped being
@@ -121,7 +140,9 @@ func TestRunAutomationProbeIsTrustedAndTreeLoaded(t *testing.T) {
 	if err != nil || auto == nil {
 		t.Fatalf("LoadByName(%q) = %v, %v.\nThis probe must resolve for the origin assertions to "+
 			"mean anything. If the automation was renamed or removed, repoint probeAutomation at "+
-			"another tree automation whose body reaches a @serverOnly construct -- do NOT skip.",
+			"another tree automation whose body reaches a @serverOnly construct -- do NOT skip. "+
+			"The search that finds one: automation body -> logic it calls -> construct that logic "+
+			"names, intersected with the @serverOnly set.",
 			probeAutomation, auto, err)
 	}
 	if !auto.Trusted {

@@ -5,7 +5,7 @@
 // Structured graph subscriptions (concept + actions; the server composes
 // the bus topic) must deliver across the mesh exactly like the retired
 // free-text form did. This test opens a CONCEPT-SCOPED structured
-// subscription (concept = v1:planner:plan, action = created) on
+// subscription (concept = v1:platform:missingCapability, action = created) on
 // every connection, produces one plan on the producer replica, and
 // asserts every subscriber -- including ones anchored on a different
 // replica than the producer -- observes the created row by its bare id.
@@ -15,7 +15,7 @@
 // id regressed to canonical. Gated on MEMQL_E2E_TOKEN like the rest of the
 // suite.
 //
-// The concept is v1:planner:plan rather than the v1:cognition:utterance this
+// The concept is v1:platform:missingCapability rather than the v1:cognition:utterance this
 // suite used to drive, because cognition is deleted (memql#4988); see the
 // package comment in delivery_test.go for why a plan row carries the same
 // meaning here.
@@ -32,15 +32,15 @@ import (
 )
 
 // subscribePlansForConcept opens a CONCEPT-SCOPED structured graph
-// subscription (v1:planner:plan / created) on conn and returns a channel of
+// subscription (v1:platform:missingCapability / created) on conn and returns a channel of
 // created-plan ids observed by THAT connection's replica. Unlike
 // subscribePlans (all concepts), this exercises the server-composed
-// concept-scoped pattern graph.node.created.v1:planner:plan.
+// concept-scoped pattern graph.node.created.v1:platform:missingCapability.
 func subscribePlansForConcept(ctx context.Context, t *testing.T, conn *memqlclient.Connection) <-chan string {
 	t.Helper()
 	sm := memqlclient.NewSubscriptionManager(conn.Dispatcher())
 	_, events, err := sm.SubscribeGraph(ctx, memqlclient.GraphSubscribeOptions{
-		Concept: "v1:planner:plan",
+		Concept: "v1:platform:missingCapability",
 		Actions: []memqlclient.GraphAction{memqlclient.GraphActionCreated},
 	})
 	if err != nil {
@@ -83,7 +83,7 @@ func TestClusterStructuredGraphSubscription(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	shortID := id.NewShortId()
-	createProbePlan(ctx, t, producer, scope, shortID, "clustere2e structured-subscribe probe", userID)
+	createProbeRow(ctx, t, producer, scope, shortID, "clustere2e structured-subscribe probe", userID)
 	t.Logf("produced plan with bare mint %s", shortID)
 
 	// Every subscriber (concept-scoped, server-composed topic) must observe

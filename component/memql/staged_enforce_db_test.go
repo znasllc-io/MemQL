@@ -22,7 +22,7 @@ package memql
 // marked and the unmarked reading. The marker is in-memory engine state, and
 // the first test clears it in normal flow rather than in a t.Cleanup, so on a
 // shared engine one mid-test assertion failure would strand the mark and hide
-// v1:planner:task rows from every borrower after it. Skips when no DB is
+// v1:platform:missingCapability rows from every borrower after it. Skips when no DB is
 // reachable, like every other _db_ test in this package. Each test carries a
 // per-process unique createdBy scope so concurrent runs never collide, and
 // nothing truncates.
@@ -46,9 +46,16 @@ import (
 // Both are also ungated (neither declares an @rowAuthz tier), so a row that
 // does not come back was withheld for the reason under test rather than
 // because the actor was never admitted to it in the first place.
+//
+// Re-pointed off v1:planner:task / plan when those were deleted (memql#5053).
+// The scarce property is the SECOND paragraph above, not the first: an
+// unregistered name is caught by compileConceptComparison, but a concept that
+// declares a tier would make a missing row ambiguous between "staged" and
+// "not admitted" -- which is the exact confusion these tests exist to rule
+// out.
 const (
-	stagedDBConceptStaged = "v1:planner:task"
-	stagedDBConceptLive   = "v1:planner:plan"
+	stagedDBConceptStaged = "v1:platform:missingCapability"
+	stagedDBConceptLive   = "v1:platform:inboundRequest"
 )
 
 // seedStagedRow inserts ONE append-only version directly, so the fixture

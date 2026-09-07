@@ -21,7 +21,7 @@
 // live delivery on a real mesh, and that the subscribe-time kind gate
 // answers a real role over a real front door.
 //
-// THE UNDECLARED CONCEPT IS NOW v1:planner:plan (memql#4988). The fan-out
+// THE UNDECLARED CONCEPT IS NOW v1:platform:missingCapability (memql#4988). The fan-out
 // assertion below needs a concept that declares NO tier and IS forwarded
 // across the mesh; that used to be v1:cognition:utterance, which is deleted
 // along with the rest of cognition. dsl/planner/concepts.memql declares no
@@ -114,7 +114,7 @@ func TestClusterGraphSubscriptionStillDeliversUnderTheRowGate(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	shortID := id.NewShortId()
-	createProbePlan(ctx, t, producer, scope, shortID, "clustere2e row-authz fan-out probe", userID)
+	createProbeRow(ctx, t, producer, scope, shortID, "clustere2e row-authz fan-out probe", userID)
 
 	observed := 0
 	deadline := time.After(8 * time.Second)
@@ -140,7 +140,7 @@ func TestClusterGraphSubscriptionStillDeliversUnderTheRowGate(t *testing.T) {
 		}
 	}
 	if observed == 0 {
-		t.Fatalf("NO subscriber observed %s. v1:planner:plan declares no tier, so row "+
+		t.Fatalf("NO subscriber observed %s. v1:platform:missingCapability declares no tier, so row "+
 			"admission must admit it to everyone exactly as its reads already return it to "+
 			"everyone (design D1). Zero observations means the fan-out gate is denying an "+
 			"UNDECLARED concept -- the live feed goes quiet and an operator reads it as an idle "+
