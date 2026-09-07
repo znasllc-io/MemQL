@@ -114,6 +114,56 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 	return nodes, nil
 }
 
+// inferenceDoors is the shared reading behind the inferenceStatus row and
+// the `ai` readiness module. ONE implementation, two readers: a second would
+// let a person be told inference is configured on one surface and not on the
+// other, with both readings defensible.
+type inferenceDoors struct {
+	LocalEligible    bool
+	LocalModels      int
+	EligibleModelIds []string
+	CloudConfigured  bool
+	Federation       bool
+	Doors            []string
+}
+
+func (e *MemQLEngine) inferenceDoors(ctx context.Context) inferenceDoors {
+	var d inferenceDoors
+	if e == nil || e.providers == nil {
+		return d
+	}
+	models, err := e.fleetCatalogForCaller(ctx)
+	if err == nil {
+		for _, m := range models {
+			d.LocalModels++
+			// The MINIMUM CAPABILITY PROFILE (design G): structured output
+			// plus the context floor. Not "any model at all" -- a fleet whose
+			// only model cannot do structured output would pass a naive gate
+			// and then refuse every conductor turn, which is a worse place to
+			// put a person than the door they were on.
+			if m.Online() && m.StructuredOutput && m.ContextWindow >= MinimumContextWindow {
+				d.LocalEligible = true
+				d.EligibleModelIds = append(d.EligibleModelIds, m.ModelId)
+			}
+		}
+	}
+	sort.Strings(d.EligibleModelIds)
+	d.CloudConfigured = e.providers.HasCloudProviderConfigured()
+	d.Federation = e.providers.federationConfigured()
+	if d.LocalEligible {
+		d.Doors = append(d.Doors, InferenceDoorLocal)
+	}
+	if d.Federation {
+		d.Doors = append(d.Doors, InferenceDoorFederation)
+	}
+	// An API key is only a door while federation is not configured: with
+	// federation on, the key is not what the call would use.
+	if d.CloudConfigured && !d.Federation {
+		d.Doors = append(d.Doors, InferenceDoorApiKey)
+	}
+	return d
+}
+
 // evaluateInferenceStatusExpression produces ONE row: can this caller actually
 // get inference, and through which door.
 //
@@ -126,48 +176,16 @@ func (e *MemQLEngine) evaluateInferenceStatusExpression(ctx context.Context) ([]
 		return nil, nil
 	}
 
-	localModels := 0
-	localEligible := false
-	var eligibleModelIds []string
-	models, err := e.fleetCatalogForCaller(ctx)
-	if err == nil {
-		for _, m := range models {
-			localModels++
-			// The MINIMUM CAPABILITY PROFILE (design G): structured output
-			// plus the context floor. Not "any model at all" -- a fleet whose
-			// only model cannot do structured output would pass a naive gate
-			// and then refuse every conductor turn, which is a worse place to
-			// put a person than the door they were on.
-			if m.Online() && m.StructuredOutput && m.ContextWindow >= MinimumContextWindow {
-				localEligible = true
-				eligibleModelIds = append(eligibleModelIds, m.ModelId)
-			}
-		}
-	}
-	sort.Strings(eligibleModelIds)
-
-	cloudConfigured := e.providers.HasCloudProviderConfigured()
-	federation := e.providers.federationConfigured()
-
-	doors := make([]any, 0, 3)
-	if localEligible {
-		doors = append(doors, InferenceDoorLocal)
-	}
-	if federation {
-		doors = append(doors, InferenceDoorFederation)
-	}
-	if cloudConfigured && !federation {
-		doors = append(doors, InferenceDoorApiKey)
-	}
+	d := e.inferenceDoors(ctx)
 
 	raw, err := json.Marshal(map[string]any{
-		"eligible":             localEligible || cloudConfigured || federation,
-		"doorsOpen":            doors,
-		"localEligible":        localEligible,
-		"localModelCount":      localModels,
-		"eligibleModelIds":     toAnySlice(eligibleModelIds),
-		"cloudConfigured":      cloudConfigured,
-		"federationConfigured": federation,
+		"eligible":             d.LocalEligible || d.CloudConfigured || d.Federation,
+		"doorsOpen":            toAnySlice(d.Doors),
+		"localEligible":        d.LocalEligible,
+		"localModelCount":      d.LocalModels,
+		"eligibleModelIds":     toAnySlice(d.EligibleModelIds),
+		"cloudConfigured":      d.CloudConfigured,
+		"federationConfigured": d.Federation,
 		// fleetInferenceInstalled distinguishes "your machines are asleep"
 		// from "the node answering this request has no worker service at
 		// all". They look identical from a page and have entirely different
