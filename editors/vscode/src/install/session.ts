@@ -847,6 +847,19 @@ export function updateRebuildPlan(opts: SessionOptions): (step: Step) => StepPla
 export function uninstallPlan(
   receipt: Receipt,
   skip: Set<string> = new Set(),
+  /**
+   * Run-time params, per step id, merged OVER the ones the receipt supplies.
+   *
+   * There is exactly one caller and one param (memql#5118, D9): the uninstall
+   * form's `--confirm` on `removeCluster`, which is the only thing in the graph
+   * that lets a PRE-EXISTING artifact be removed. It rides here rather than in
+   * the graph because a graph value is pinned for every run, and the whole
+   * point of this one is that it is present only when a person typed a phrase.
+   *
+   * Merged LAST so a receipt value cannot shadow it, and empty by default so
+   * every other caller is unchanged.
+   */
+  stepParams: Record<string, Record<string, string>> = {},
 ): (step: Step) => StepPlan {
   return (step: Step): StepPlan => {
     if (skip.has(step.id)) return { action: "skip", reason: `skipped: ${step.id}` };
@@ -869,7 +882,16 @@ export function uninstallPlan(
       // have established already holds, so the removals waiting on it run.
       return { action: "skip", reason: `${installStep} left no artifact behind`, satisfied: true };
     }
-    return { action: "run", params, preservedOnRefusal: entry.preExisting };
+    return {
+      action: "run",
+      params: { ...params, ...(stepParams[step.id] ?? {}) },
+      // STILL TRUE, AND SIMPLY UNREACHED WHEN THE PHRASE IS GIVEN. The flag
+      // says "an exit 3 here is the expected answer"; with the phrase the
+      // script exits 0 instead, so the run takes the ordinary verify path and
+      // reports a removal. Clearing it conditionally would be the same
+      // behaviour with one more thing to keep in step.
+      preservedOnRefusal: entry.preExisting,
+    };
   };
 }
 
@@ -964,7 +986,7 @@ export async function runUninstall(
   if (refused !== undefined) return refused;
   const graph = hooks.graph ?? (await loadGraphFor("uninstall", opts));
   const receipt = await requireReceipt(opts);
-  return execute(graph, uninstallPlan(receipt, opts.skip), opts, hooks, undefined);
+  return execute(graph, uninstallPlan(receipt, opts.skip, opts.stepParams), opts, hooks, undefined);
 }
 
 /**

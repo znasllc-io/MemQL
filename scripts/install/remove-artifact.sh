@@ -34,6 +34,13 @@
 #   Anything that is not PLAINLY false ("false"/"0"/"no"/absent) refuses. A
 #   garbled receipt value is a reason to stop, not a reason to delete.
 #
+#   THE ONE WAY PAST IT is `--confirm=delete-memql-data` on `--kind=stack`, and
+#   nothing else in the graph accepts a confirm phrase (memql#5118, D9). It
+#   exists because an operator who genuinely wants their cluster and its data
+#   gone otherwise has no way to say so from the wizard -- and "uninstall, then
+#   install again" is not a reset: the install adopts the cluster it finds.
+#   Passing it to another kind is exit 2, never a silent no-op.
+#
 #   THE ONE PATH THAT DOES NOT CONSULT IT is the front-door pair under
 #   kind=mkcertCA, and the omission is deliberate rather than missed
 #   (memql#4071). A receipt carries ONE verdict per step, and this step's is
@@ -97,12 +104,34 @@ cap_spec_param "key-file"     "its private key"
 cap_spec_param "cluster"      "k3d cluster name for kind=stack (default memql)"
 cap_spec_param "image-prefix" "repository prefix for kind=images (default memql)"
 cap_spec_param "prune-empty-parents" "after removing, rmdir up to two now-empty parent dirs (flag)"
+cap_spec_param "confirm"      "the typed phrase that permits deleting a PRE-EXISTING k3d cluster and its data (kind=stack only)"
 
 #=============================================================================
 # THE GUARD -- called at the point of action in EVERY removal path
 #=============================================================================
 
 _RA_PRE_EXISTING=""
+
+# THE ONE DESTRUCTIVE ACT, and the phrase that permits it (design record
+# 2026-09-07-core-gate-and-honest-install, D9).
+#
+# --pre-existing=true is an unconditional refusal for every kind, and that is
+# the right default: an uninstall must never take something that was already
+# here. But an operator who genuinely wanted their cluster and its data gone
+# had no way to say so -- `make up-refresh` was the only wipe in the product
+# and it is not reachable from the wizard, so the answer was "uninstall, then
+# install again", which does not wipe anything: the install ADOPTS the cluster
+# it finds.
+#
+# So exactly ONE kind accepts a typed phrase, and it overrides the refusal for
+# that kind alone. Passing it to any other kind is exit 2 rather than a silent
+# no-op, because a phrase typed into a form that never reads it is worse than a
+# rejected one -- the person believes they have consented to something.
+readonly MEMQL_DELETE_DATA_PHRASE="delete-memql-data"
+
+# Set only by main(), and only after the phrase has been checked against both
+# the kind and its own value.
+_RA_CONFIRMED_DATA_DELETE=false
 
 # refuse_if_pre_existing <kind> <target>
 # The last thing between the flag and the damage. Deliberately fail-safe:
@@ -113,6 +142,15 @@ function refuse_if_pre_existing() {
     case "$v" in
         ""|false|FALSE|False|0|no|NO|No) return 0 ;;
     esac
+    # The override, CHECKED HERE at the point of action for the same reason the
+    # refusal itself is: an executor bug, a hand-edited receipt and a direct
+    # shell invocation all hit this one wall. Bounded to `stack` a second time,
+    # so the check cannot be reached for another kind even if main() ever
+    # stopped bounding it.
+    if [[ "$kind" == "stack" && "$_RA_CONFIRMED_DATA_DELETE" == "true" ]]; then
+        cap_info "--confirm=${MEMQL_DELETE_DATA_PHRASE} was given: deleting the pre-existing cluster and its data."
+        return 0
+    fi
     cap_fail 3 "refusing to remove ${kind} (${target}): --pre-existing=${v} says the installer \
 did not create it, and uninstalling MemQL must never take something that was already here"
 }
@@ -595,6 +633,21 @@ function main() {
     _RA_PRE_EXISTING="$(cap_param pre-existing)"
 
     cap_require kind "$kind"
+
+    # THE PHRASE, checked against the KIND before it is checked against itself.
+    # Both refusals are exit 2 (bad param) rather than 3 (refused): a phrase on
+    # a kind that does not take one, and a phrase that does not match, are both
+    # the caller passing something this script will not accept -- and neither
+    # removed anything.
+    local confirm
+    confirm="$(cap_param confirm)"
+    if [[ -n "$confirm" ]]; then
+        [[ "$kind" == "stack" ]] \
+            || cap_fail 2 "--confirm is only accepted for --kind=stack; ${kind} takes no confirmation phrase"
+        [[ "$confirm" == "$MEMQL_DELETE_DATA_PHRASE" ]] \
+            || cap_fail 2 "the confirmation phrase does not match; nothing was removed"
+        _RA_CONFIRMED_DATA_DELETE=true
+    fi
 
     case "$kind" in
         binary)       remove_binary "$path" ;;

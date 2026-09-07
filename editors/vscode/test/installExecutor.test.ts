@@ -871,6 +871,89 @@ test("the uninstall plan reads its target and its verdict off the receipt", asyn
   assert.equal(cluster.action === "skip" ? cluster.satisfied : false, true);
 });
 
+test("the uninstall plan carries the one run-time param, over the receipt's own", async () => {
+  // THE CONFIRM PHRASE REACHES THE SCRIPT (memql#5118, D9), and it is the only
+  // thing that does: the receipt supplies every other param, and a graph value
+  // is pinned for every run -- which is exactly wrong for a value that must be
+  // present only when a person typed a phrase.
+  const g = await loadGraphFile(graphDocumentPath("uninstall", REPO_ROOT));
+  const receipt: Receipt = {
+    version: 1,
+    graph: "install",
+    startedAt: "t",
+    updatedAt: "t",
+    entries: [
+      {
+        stepId: "clusterUp",
+        script: "k3d.up",
+        receipt: "stack",
+        preExisting: true,
+        params: {},
+        result: { cluster: "memql" },
+        changed: false,
+        recordedAt: "t",
+      },
+      {
+        stepId: "toolK3d",
+        script: "install.binary",
+        receipt: "binary",
+        preExisting: false,
+        params: {},
+        result: { path: "/home/dev/.memql/bin/k3d" },
+        changed: true,
+        recordedAt: "t",
+      },
+    ],
+  };
+  const plan = uninstallPlan(receipt, new Set(), {
+    removeCluster: { confirm: "delete-memql-data" },
+  });
+
+  const cluster = plan(g.steps.find((s) => s.id === "removeCluster")!);
+  assert.equal(cluster.action, "run");
+  assert.equal(cluster.action === "run" ? cluster.params.confirm : "", "delete-memql-data");
+  // The receipt's own params survive beside it -- the phrase adds, it does not
+  // replace.
+  assert.equal(cluster.action === "run" ? cluster.params.cluster : "", "memql");
+  // And the pre-existence verdict is still passed faithfully. The script uses
+  // BOTH: the flag is what it refuses on, the phrase is what overrides it.
+  assert.equal(cluster.action === "run" ? cluster.params["pre-existing"] : "", "true");
+
+  // NOTHING ELSE GETS IT. A phrase reaching a second step would be a second
+  // artifact removed on one person's consent to the first.
+  const k3d = plan(g.steps.find((s) => s.id === "removeToolK3d")!);
+  assert.equal(k3d.action === "run" ? k3d.params.confirm : "absent", undefined);
+});
+
+test("with no run-time params the uninstall plan is exactly what it was", async () => {
+  // The default argument, asserted rather than assumed: every other caller of
+  // uninstallPlan passes two arguments and must be unchanged by the third.
+  const g = await loadGraphFile(graphDocumentPath("uninstall", REPO_ROOT));
+  const receipt: Receipt = {
+    version: 1,
+    graph: "install",
+    startedAt: "t",
+    updatedAt: "t",
+    entries: [
+      {
+        stepId: "clusterUp",
+        script: "k3d.up",
+        receipt: "stack",
+        preExisting: true,
+        params: {},
+        result: { cluster: "memql" },
+        changed: false,
+        recordedAt: "t",
+      },
+    ],
+  };
+  const step = g.steps.find((s) => s.id === "removeCluster")!;
+  const withDefault = uninstallPlan(receipt)(step);
+  const withEmpty = uninstallPlan(receipt, new Set(), {})(step);
+  assert.deepEqual(withDefault, withEmpty);
+  assert.equal(withDefault.action === "run" ? withDefault.params.confirm : "absent", undefined);
+});
+
 // -----------------------------------------------------------------------------
 // the installer's tools reach every capability script (memql#3911)
 // -----------------------------------------------------------------------------
