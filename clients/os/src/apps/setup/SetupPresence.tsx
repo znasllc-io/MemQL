@@ -53,7 +53,14 @@ export function SetupPresence(): null {
     // for a state update that would be refused.
     if (!roleAdmits(actorRole, setupWidget.roles)) return;
     actions.ensureWidget(setupWidget.id, "ask");
-  }, [ladderLoaded, unsettled, actorRole, deskId, actions]);
+    // `facts` RATHER THAN THE DERIVED BOOLEAN, so this runs whenever the feed
+    // or the ladder CHANGES rather than only when the answer flips. That is
+    // what makes "the widget is the state" true for somebody who took the card
+    // off by hand: it returns on the next reading, not only when a stop
+    // happens to settle. `facts` is memoized on the feed, the passkey reading
+    // and the role, so a render that changed none of them re-runs nothing --
+    // which is why removing it does not undo itself in the same instant.
+  }, [ladderLoaded, unsettled, facts, actorRole, deskId, actions]);
 
   return null;
 }

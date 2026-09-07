@@ -181,6 +181,38 @@ describe("the widget's presence follows the feed and the ladder", () => {
     expect(roster()).not.toContain("setup");
   });
 
+  it("...and DOES put it back on the next reading of the feed", async () => {
+    // The other half, and the one that makes the widget the state rather than
+    // a note about it. A re-render carrying a NEW feed object is what a live
+    // collection produces on every change; the effect re-runs on it and the
+    // card returns, even though the verdicts themselves did not move.
+    h.connection = fakeConnection({ passkeysForSelf: [passkeyRow({ id: "v1:identity:identity:pk-1" })] });
+    const tree = (feed: Readiness) =>
+      withSession(
+        <SetupFactsScope>
+          {withOs(
+            <>
+              <SetupPresence />
+              <Roster />
+              <Remover />
+            </>,
+            "owner",
+          )}
+        </SetupFactsScope>,
+        { clusterRole: "owner", readiness: feed },
+      );
+    const view = render(tree(coreAt("unconfigured", "configured", "configured")));
+    await waitFor(() => expect(roster()).toContain("setup"));
+
+    fireEvent.click(screen.getByRole("button", { name: "remove setup" }));
+    expect(roster()).not.toContain("setup");
+
+    // A DIFFERENT OBJECT, THE SAME ANSWER -- exactly what the live feed hands
+    // down when any readiness row is rewritten.
+    view.rerender(tree(coreAt("unconfigured", "configured", "configured")));
+    await waitFor(() => expect(roster()).toContain("setup"));
+  });
+
   it("adds it once, however many times the feed changes", async () => {
     h.connection = fakeConnection({ passkeysForSelf: [passkeyRow({ id: "v1:identity:identity:pk-1" })] });
     const view = render(mounted("owner", coreAt("unconfigured", "configured", "configured")));
