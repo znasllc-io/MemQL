@@ -1,0 +1,132 @@
+package airoute
+
+// Modality is DERIVED from the call, never declared (design D1). It says which
+// provider interface must be satisfied, not which model.
+type Modality string
+
+const (
+	ModalityChat           Modality = "chat"
+	ModalityStreamingChat  Modality = "streamingChat"
+	ModalityTools          Modality = "tools"
+	ModalityStreamingTools Modality = "streamingTools"
+	ModalityStructured     Modality = "structured"
+	ModalityVision         Modality = "vision"
+	ModalityEmbedding      Modality = "embedding"
+	ModalitySpeech         Modality = "speech"
+	ModalityTranscribe     Modality = "transcribe"
+)
+
+// Modalities is the closed set, for validation and for an error message.
+func Modalities() []Modality {
+	return []Modality{
+		ModalityChat, ModalityStreamingChat, ModalityTools, ModalityStreamingTools,
+		ModalityStructured, ModalityVision, ModalityEmbedding, ModalitySpeech,
+		ModalityTranscribe,
+	}
+}
+
+// Valid reports whether m is one of the closed set.
+func (m Modality) Valid() bool {
+	for _, k := range Modalities() {
+		if k == m {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Modality) String() string { return string(m) }
+
+// Needs are the capability floors a provider must clear to serve the call.
+//
+// Vision, AudioIn, AudioOut and Image are declared here and are consumed from
+// epic 3, which gives every modality a local door. This epic sets them only
+// where the call plainly has them, and an unset flag is "not required" rather
+// than "not measured" -- a floor nobody set must not narrow the chain.
+type Needs struct {
+	Structured bool
+	Tools      bool
+	Vision     bool
+	AudioIn    bool
+	AudioOut   bool
+	Image      bool
+
+	// MinContextTokens is the floor an entry's context window must clear.
+	//
+	// It is NEVER zero on a request that reaches the router. A zero floor
+	// admits every entry, and on the decision record it reads exactly like a
+	// floor that was measured and cleared -- so "not measured" and "anything
+	// will do" would be the same value.
+	MinContextTokens int
+}
+
+// Call tags a rule may branch on. Tags are OPEN -- an author may set any
+// string -- but these are the ones the shipped rules name, so they are
+// constants rather than literals at the call sites that set them.
+const (
+	// TagBackground is a turn no human is waiting on.
+	TagBackground = "background"
+	// TagBackgroundEscalation is the one stronger continuation the background
+	// lane swaps to when the cheap tier is stuck on a turn.
+	TagBackgroundEscalation = "backgroundEscalation"
+)
+
+// ResolveRequest carries everything a rule may branch on and everything the
+// decision record must be able to say. Every call site that reaches a model
+// builds one.
+type ResolveRequest struct {
+	// Level is what the call declares it needs. Required: a request with no
+	// level is refused rather than defaulted, because a guessed level is a
+	// policy decision nobody wrote.
+	Level Level
+
+	// Modality is derived from the call site, not declared by an author.
+	Modality Modality
+
+	// Needs are the capability floors. MinContextTokens is never zero.
+	Needs Needs
+
+	// PromptName is the DSL prompt this call renders, empty for a Go call
+	// site that has no prompt. A rule may branch on it.
+	PromptName string
+
+	// Tags are call tags a rule may branch on (TagBackground and friends).
+	Tags []string
+
+	// Role is the AGENT's role slug. ActorRole is the calling human's cluster
+	// role. They are different questions -- an operator watching a
+	// non-operator agent is not an operator turn -- and a rule names them
+	// separately so it cannot route on who is watching.
+	Role      string
+	ActorRole string
+
+	// Touches is the call's footprint: a work step's footprint union, or an
+	// agent turn's knowledge-domain concept ids. Empty otherwise. A rule
+	// matches it with startsWith semantics.
+	Touches []string
+
+	// ExplicitProvider pins one registry entry and wins over every rule
+	// (design D2). A prompt's @defaultProvider rides this field, and is still
+	// refused at load when it names a policy.
+	ExplicitProvider string
+
+	// Attribution, unchanged in meaning from the pre-rules router.
+	RequestId string
+	UserId    string
+	AgentId   string
+	Partition string
+
+	// CloudConsent is one person's explicit yes for THIS call, after they
+	// were shown the refusal. Nothing in the router can set it.
+	CloudConsent bool
+}
+
+// HasTag reports whether the request carries tag.
+func (r ResolveRequest) HasTag(tag string) bool {
+	for _, t := range r.Tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
