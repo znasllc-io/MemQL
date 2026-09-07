@@ -216,6 +216,24 @@ func Run(cfg RunConfig) {
 	// Ready and the readiness probe reports ready. No-op on non-mesh binaries.
 	application.MarkNodeReady()
 
+	// MODULE READINESS (design record 2026-09-06-configuration-readiness,
+	// section 6): written here, after every dependency is Ready and the
+	// plug-ins and providers have materialized, under the same node identity
+	// the startup event carries. Earlier would report an unconfigured module
+	// for every integration that had not finished wiring up.
+	//
+	// A failure keeps the PREVIOUS boot's rows and says so; it never stops the
+	// node. A cluster that will not start because it could not describe its own
+	// configuration is a worse outcome than a stale verdict.
+	if eng := application.Engine(); eng != nil {
+		eng.SetReadinessIdentity(application.startupNodeID(), application.startupNodeType())
+		if n, err := eng.WriteModuleReadiness(context.Background()); err != nil {
+			cfg.Logger.Warn("module readiness: boot write failed; the previous boot's rows stand", "error", err)
+		} else {
+			cfg.Logger.Info("module readiness: rows written", "modules", n)
+		}
+	}
+
 	// Emit system.startup AFTER every dependency has started so the
 	// cluster bootstrap automation sees the full dependency surface.
 	application.EmitSystemStartup()

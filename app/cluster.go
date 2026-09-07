@@ -743,6 +743,24 @@ func (h *appNodeMaintenanceHandler) BeginDrain(reason string) bool {
 // EmitSystemStartup publishes the system.startup event with infrastructure metadata.
 // Called from main.go after all dependencies have started. Waits briefly for the
 // automation scheduler to finish registering event subscriptions.
+// startupNodeID and startupNodeType answer with the SAME values
+// EmitSystemStartup puts on its `node` payload, so a readiness row and the
+// startup event name one node rather than two readings of the environment
+// that could disagree.
+func (a *App) startupNodeID() string {
+	if a.nodeIdentity == nil {
+		return ""
+	}
+	return a.nodeIdentity.ID
+}
+
+func (a *App) startupNodeType() string {
+	if a.nodeIdentity == nil {
+		return ""
+	}
+	return string(a.nodeIdentity.Type)
+}
+
 func (a *App) EmitSystemStartup() {
 	if a.eventBus == nil || a.nodeIdentity == nil {
 		return

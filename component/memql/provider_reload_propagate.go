@@ -113,6 +113,16 @@ func (e *MemQLEngine) StartProvidersReloadSubscriber(ctx context.Context) {
 				"component", ComponentName,
 				"requestId", requestId, "originNode", event.OriginNodeId,
 				"available", available)
+
+			// The ai module's verdict may have changed with the providers,
+			// and this node is the one that just changed, so it is the one
+			// that must rewrite its own row. A failure is a warning: the row
+			// then stands at the previous boot's verdict until the next
+			// reload or restart, which is stale rather than wrong.
+			if _, werr := e.WriteModuleReadiness(ctx); werr != nil {
+				logger.Warn("module readiness: rewrite after providers reload failed",
+					"component", ComponentName, "error", werr)
+			}
 		},
 		events.WithSubscriberName("providers:reload:propagation"),
 	)

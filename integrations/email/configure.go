@@ -172,6 +172,23 @@ func (i *Integration) handleConfigure(ctx context.Context, args map[string]any, 
 	// delivering to whatever it resolved to.
 	reresolves := i.invalidateSender()
 
+	// The email module's readiness verdict may have changed with the slot.
+	// The builtin carries no @sdk and is pulled through the same writer that
+	// just applied the slot, so the rewrite happens on THIS node, like the
+	// invalidation above -- no new interface crosses the plug-in boundary.
+	//
+	// It runs under the CALLER's context, which admits an owner and refuses a
+	// developer: readinessRecompute is internal-or-cluster-owner, while
+	// configureAuthorized admits owner-or-developer. That gap is deliberate
+	// rather than an oversight -- the recompute gate exists so no signed-in
+	// person can make every node rewrite rows in a loop, and widening it to
+	// match this one caller would trade that for a mark that refreshes a few
+	// minutes sooner. So a developer's write lands correctly and the mark
+	// catches up on the next providers reload or restart.
+	if _, err := writer.Execute(ctx, "builtin readinessRecompute()"); err != nil {
+		i.logger.Info("email.configure: readiness not recomputed here; the module mark updates on the next providers reload or restart", "reason", err)
+	}
+
 	return configureResult(map[string]any{
 		"slot":        slot.Name,
 		"envVar":      slot.EnvVar,
