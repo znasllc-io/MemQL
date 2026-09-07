@@ -59,10 +59,13 @@ The wizard says nothing about how a vendor proves who this cluster is. That
 belongs to the panel it opens, which is where the credential is actually set —
 and a sentence here naming one goes stale the next time it changes.
 
-A **developer** gets the fleet door in full. The two federation doors are
-owner-only, so a developer sees a sentence naming who can do it rather than a
-button the cluster would refuse — the wizard never offers an act that is not
-legal.
+A **developer** gets all three doors: Fleet's Machines section has no role
+floor, and the AI providers section admits owner or developer (epic memql#5088,
+D7 — a developer helps an owner through setup). The wizard offers a button only
+where the REGISTRY says this actor can reach the section, and a sentence naming
+who can otherwise, so it never offers an act that is not legal. That check is a
+lookup rather than a restated rule, which is why widening the section changed
+the wizard without editing it.
 
 ### Storage says where it is set, and does not pretend otherwise
 

@@ -212,10 +212,24 @@ function DoorsPanel({
                   ? "workload-identity federation"
                   : doors.cloudConfigured
                     ? // A callable cloud provider that is not federated cannot
-                      // happen since epic memql#5088 -- a provider is Available
-                      // only if it federated -- but cloudConfigured is still
-                      // read, and this is the one line that would notice if
-                      // that stopped being true.
+                      // happen since epic memql#5088, and this is the one line
+                      // that would notice if that stopped being true.
+                      //
+                      // THE INVARIANT IT RESTS ON LIVES IN ANOTHER FILE: a
+                      // vendor entry becomes Available only after resolvedAuth
+                      // and newAIProvider both succeed
+                      // (component/memql/unified_kinds_loader.go), and with the
+                      // key tier deleted federation is the only path either can
+                      // take -- so Available implies federated. Before that
+                      // deletion this was NOT unreachable but ORDINARY: a
+                      // developer running `make up` with a static key had
+                      // cloudConfigured and no federation, and would have read
+                      // this on every load.
+                      //
+                      // So if a static-key path ever returns -- a local-dev
+                      // break-glass is the likely shape -- this line starts
+                      // warning about clusters that are fine. Restore one and
+                      // you owe this sentence an edit.
                       "a cloud provider is callable but not through federation"
                     : "not configured"
               }
