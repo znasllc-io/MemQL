@@ -228,6 +228,13 @@ func (i *Integration) resolveSpecialistPrimaryDomain(ctx context.Context, owner,
 // answer to it -- "nothing happened, and here is what to change" -- has to
 // reach the same person. The predecessor parked its Plan at awaitingFeedback
 // for exactly this; `v1:work:approval` of kind feedback is where that went.
+//
+// THE RUN STILL RESUMES, and it is not an oversight. It asked "should we
+// train?", it was answered yes, and that decision is recorded -- what did not
+// happen is the TRAINING, which is a separate matter needing a separate answer.
+// Re-parking the run on an approval it did not raise would stop work that has
+// nothing to do with the missing domain, and leave it parked on a question
+// whose answer is a change to an AGENT rather than to the run.
 func (i *Integration) escalateTraining(ctx context.Context, owner, runId, question string) {
 	if runId == "" {
 		// No run to hang it on. Nothing in the product raises a training
