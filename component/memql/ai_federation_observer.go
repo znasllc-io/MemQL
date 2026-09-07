@@ -91,8 +91,8 @@ type federationExchangeRecord struct {
 	// With two federating vendors, a record that does not say which one it
 	// describes is a record `provider-auth check --provider openai` could
 	// answer with Anthropic's last exchange.
-	Vendor  string
-	Outcome string
+	Vendor    string
+	Outcome   string
 	Status    int
 	ExpiresIn time.Duration
 	// ExpiresAt is At+ExpiresIn, precomputed so a caller printing it does not

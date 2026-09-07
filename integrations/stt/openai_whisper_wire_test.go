@@ -130,8 +130,8 @@ func TestWhisperWireOmitsAnAbsentLanguage(t *testing.T) {
 // --- the recorder ----------------------------------------------------------
 
 type capturedMultipart struct {
-	path      string
-	fields    map[string]string
+	path            string
+	fields          map[string]string
 	fileName        string
 	fileContentType string
 	fileBytes       []byte

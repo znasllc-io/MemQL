@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"time"
 	"testing"
+	"time"
 )
 
 func TestAuthRejectIncrements(t *testing.T) {

@@ -459,7 +459,6 @@ var wireTestIdentityTokenFile = func() string {
 	return path
 }()
 
-
 // wireTestPrompt returns a prompt unique to the calling test.
 //
 // THE LOOP GUARD IS REAL AND IT IS IN THIS PATH. guardedHTTPClient fingerprints

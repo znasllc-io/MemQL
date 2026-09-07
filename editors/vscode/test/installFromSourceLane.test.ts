@@ -43,7 +43,6 @@ function options(over: Partial<SessionOptions> = {}): SessionOptions {
     root: REPO_ROOT,
     receiptFile: path.join(dir, "install-receipt.json"),
     skip: new Set<string>(),
-    provider: "anthropic",
     stepParams: {},
     ...over,
   };

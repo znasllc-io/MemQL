@@ -53,7 +53,7 @@ func TestNoVendorApiKeyEntryPoint(t *testing.T) {
 	// destroy the only explanation of why the gate exists. Everything else in
 	// the tree describes the product as it IS, and the product has no key.
 	allowed := map[string]bool{
-		"docs/superpowers/specs/2026-09-06-openai-federation-and-key-removal-design.md":     true,
+		"docs/superpowers/specs/2026-09-06-openai-federation-and-key-removal-design.md":      true,
 		"docs/superpowers/specs/2026-08-22-anthropic-workload-identity-federation-design.md": true,
 		"docs/superpowers/specs/2026-08-23-zero-key-install-design.md":                       true,
 		"docs/superpowers/specs/2026-08-08-local-cluster-install-wizard-design.md":           true,

@@ -55,10 +55,10 @@ type ProviderAuthReport struct {
 	// its own, so an empty field means "not this vendor" rather than "unset".
 	IdentityProviderID string
 	FederationRuleID   string
-	OrganizationID    string
-	ServiceAccountID  string
-	WorkspaceID       string
-	IdentityTokenFile string
+	OrganizationID     string
+	ServiceAccountID   string
+	WorkspaceID        string
+	IdentityTokenFile  string
 
 	// TokenSubject / TokenAudience come from the projected token on disk,
 	// not from Anthropic: they are what the federation rule matches on, and

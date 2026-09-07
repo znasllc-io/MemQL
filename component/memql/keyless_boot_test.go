@@ -93,7 +93,7 @@ func unresolvable(name, extends string, base bool) parsedProviderConfig {
 		// would imply a credential the product no longer has, and using a
 		// federation name would resolve to absent (they are optional) instead
 		// of failing.
-		Auth:    map[string]string{"testPlaceholder": "${MEMQL_AI_TEST_KEY_DEFINITELY_NOT_SET_4440}"},
+		Auth: map[string]string{"testPlaceholder": "${MEMQL_AI_TEST_KEY_DEFINITELY_NOT_SET_4440}"},
 	}
 	if base {
 		cfg.Type = "OpenAI"

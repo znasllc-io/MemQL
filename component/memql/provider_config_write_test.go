@@ -165,7 +165,6 @@ func TestRendererUsesLexerCompatibleEscaping(t *testing.T) {
 	}
 }
 
-
 // TestProviderFederationSetIsOwnerOrDeveloper pins design D7's widening, in
 // the direction that matters: a WRITER is still refused. The gate moved from
 // owner-only to an owner-or-developer SET, never a rank floor -- this repo's
@@ -182,8 +181,6 @@ func TestProviderFederationSetIsOwnerOrDeveloper(t *testing.T) {
 		t.Errorf("the refusal should say why: %v", err)
 	}
 }
-
-
 
 // TestFederationSetIsAllOrNone is the refusal that has to happen HERE rather
 // than at the fleet's next restart.
