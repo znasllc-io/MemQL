@@ -10,8 +10,13 @@
 
 MemQL uses **Go build tags** to compile separate binaries for each node type.
 Each binary includes only the code relevant to its purpose. The node type is
-determined at compile time via `node.CompiledNodeType()`, with `MEMQL_NODE_TYPE`
-env var as a runtime fallback for the default (BFF) build.
+determined at compile time via `node.CompiledNodeType()`, and for a TAGGED
+binary that is the whole answer -- `MEMQL_NODE_TYPE` cannot override it, and a
+value that disagrees is warned and ignored (memql#5115). The env var selects
+the type for the UNTAGGED (default BFF) build only, where a non-mesh value is
+honoured verbatim rather than falling back to bff. `CompiledNodeTypeIsTagged()`
+is what separates the two cases: an untagged build also compiles as bff, so the
+type alone cannot tell a binary that CHOSE bff from one that defaulted to it.
 
 See [docs/public/build/build-tags.md](../../docs/public/build/build-tags.md) for full build tag documentation.
 
@@ -67,9 +72,12 @@ component/node/
 ├── chat_reply_delivery.go # Chat-reply concept delivery over the substrate
 ├── chat_reply_registry.go # RegisterChatReplyConcept registry
 ├── client_tool_rpc.go     # Client-tool relay RPC plumbing
-├── compiled_*.go          # Build-tag-selected compiled node type, one per
-│                          #   type (agent/bff/cognition/mcp/planner/voice/
-│                          #   workbench) + compiled_default.go fallback
+├── compiled_*.go          # Build-tag-selected compiled node type + its
+│                          #   `tagged` flag, one file per node type
+│                          #   (agent/bff/edge/identity/mcp/planner/
+│                          #   workbench) + compiled_default.go fallback.
+│                          #   The set is gated against app/build_<type>.go
+│                          #   by scripts/ci/node_type_lists_test.go
 ├── delivery_retention.go  # Substrate delivery retention/backlog bounds
 ├── delivery_store_pg.go   # Postgres-backed outbox+cursor store
 ├── delivery_substrate.go  # DeliverySubstrate: Publish/Subscribe/Ack contract
@@ -303,7 +311,7 @@ directions once the mesh is up.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MEMQL_NODE_TYPE` | `bff` | Node type (bff, voice, cognition, agent, planner) |
+| `MEMQL_NODE_TYPE` | `bff` | Node type. UNTAGGED builds only -- a tagged binary is its tag (memql#5115) |
 | `MEMQL_NODE_ID` | Generated UUID | Unique node identifier |
 | `MEMQL_NODE_ADDRESS` | — | Advertised NodeService gRPC address |
 | `MEMQL_PARENT_ADDRESS` | — | Optional upstream address for ParentConnector (when a node wants a single outbound stream to its "parent") |

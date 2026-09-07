@@ -3,11 +3,20 @@
 //
 // # The failure this exists to prevent
 //
-// A node type is not one declaration. It is a build file, a deny-list, two
-// shell lists, a release-matrix entry and a Deployment, in four languages, with
-// nothing tying them together. ADDING one and missing a list is loud -- the node
-// does not build, or does not deploy. RETIRING one and missing a list is silent,
-// and that asymmetry is the whole reason this file exists.
+// A node type is not one declaration. It is TWO build files, TWO deny-lists,
+// two shell lists, a release-matrix entry and a Deployment, in four languages,
+// with nothing tying them together. ADDING one and missing a list is loud --
+// the node does not build, or does not deploy. RETIRING one and missing a list
+// is silent, and that asymmetry is the whole reason this file exists.
+//
+// `component/node/compiled_<type>.go` joined the gate in memql#5115, and it
+// arrived proving the point from the other direction: `identity` and `edge`
+// were never ADDED to it. Both compiled as the untagged bff default for their
+// whole life, so an identity pod whose Deployment lost MEMQL_NODE_TYPE would
+// have reported bff, passed app/cluster.go's `Type == NodeTypeBFF` gate and
+// started the worker-mesh dialer -- tokenless, on the one node that has no node
+// token. Nothing was red; the missing files were invisible because the env var
+// happened to say the same thing.
 //
 // `app/build_default.go` claims every tag combination the named node types do
 // not:
@@ -35,6 +44,11 @@
 // `app/build_<type>.go` behind it. Lists catch the retirement that misses a
 // file; refusals catch the CALLER that was written against an older set --
 // an out-of-tree script, or a hand-typed `docker build`.
+//
+// It does NOT assert that the tagged binaries BEHAVE. `go test -tags <x>
+// ./component/node/` is what does that, and it runs because ci.yml's tagged
+// lanes name the package -- they did not until memql#5115, which is how four
+// tags failed that package's tests for their whole life.
 package ci
 
 import (
@@ -111,11 +125,17 @@ func appBuildFiles(t *testing.T) nodeTypeSet {
 
 var denyTagRe = regexp.MustCompile(`!([a-z0-9_]+)`)
 
-// defaultDenyList: the negated tags on `app/build_default.go`'s build
-// constraint. This is the list whose staleness is silent.
-func defaultDenyList(t *testing.T) nodeTypeSet {
+// denyList: the negated tags on a `*_default.go`'s build constraint. These are
+// the lists whose staleness is silent -- a retired tag they forget to name
+// stops being an error and becomes a spelling of the default file.
+//
+// There are two of them and they answer different questions, which is why both
+// are read rather than one standing in for the other: app/build_default.go
+// decides what an untagged binary WIRES UP, component/node/compiled_default.go
+// decides what it CALLS ITSELF.
+func denyList(t *testing.T, rel string) nodeTypeSet {
 	t.Helper()
-	src := mustReadRepoFile(t, filepath.Join("app", "build_default.go"))
+	src := mustReadRepoFile(t, rel)
 	var constraint string
 	for _, line := range strings.Split(src, "\n") {
 		if strings.HasPrefix(line, "//go:build ") {
@@ -124,13 +144,38 @@ func defaultDenyList(t *testing.T) nodeTypeSet {
 		}
 	}
 	if constraint == "" {
-		t.Fatal("app/build_default.go has no //go:build line")
+		t.Fatalf("%s has no //go:build line", rel)
 	}
 	var names []string
 	for _, m := range denyTagRe.FindAllStringSubmatch(constraint, -1) {
 		names = append(names, m[1])
 	}
-	return newNodeTypeSet("app/build_default.go //go:build deny-list", names)
+	return newNodeTypeSet(rel+" //go:build deny-list", names)
+}
+
+// compiledNodeTypeFiles: `component/node/compiled_<type>.go` is what makes a
+// build tag select the node type the binary REPORTS -- node.CompiledNodeType(),
+// which beats MEMQL_NODE_TYPE and decides every `Type == node.NodeTypeX` gate
+// in app/cluster.go. A node type with no file here is not an error: it compiles
+// as the bff default and reports bff (memql#5115).
+func compiledNodeTypeFiles(t *testing.T) nodeTypeSet {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(RepoRoot(), "component", "node", "compiled_*.go"))
+	if err != nil {
+		t.Fatalf("glob component/node/compiled_*.go: %v", err)
+	}
+	var names []string
+	for _, m := range matches {
+		base := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), "compiled_"), ".go")
+		if base == "default" || strings.HasSuffix(base, "_test") {
+			continue
+		}
+		names = append(names, base)
+	}
+	if len(names) == 0 {
+		t.Fatal("no component/node/compiled_<type>.go files found -- the glob or the layout changed")
+	}
+	return newNodeTypeSet("component/node/compiled_<type>.go", names)
 }
 
 var bashArrayRe = func(name string) *regexp.Regexp {
@@ -268,19 +313,53 @@ func assertSameSet(t *testing.T, want, got nodeTypeSet) {
 	)
 }
 
-// TestNodeTypeListsAgree holds the five exhaustive spellings of the node-type
+// TestNodeTypeListsAgree holds the six exhaustive spellings of the node-type
 // set against the build files, which are the set by construction.
 func TestNodeTypeListsAgree(t *testing.T) {
 	canonical := appBuildFiles(t)
 	t.Logf("node types from app/build_<type>.go: %v", canonical.sorted())
 
 	for _, got := range []nodeTypeSet{
-		defaultDenyList(t),
+		denyList(t, filepath.Join("app", "build_default.go")),
+		compiledNodeTypeFiles(t),
+		denyList(t, filepath.Join("component", "node", "compiled_default.go")),
 		bashArray(t, filepath.Join("scripts", "lib", "engine_build_args.sh"), "ENGINE_NODE_TYPES"),
 		bashArray(t, filepath.Join("scripts", "k3d", "dev.sh"), "DEFAULT_APP_NODES"),
 		releaseMatrix(t),
 	} {
 		assertSameSet(t, canonical, got)
+	}
+}
+
+// TestCompiledNodeTypeFilesDeclareTheirTaggedness is the half a name-only
+// comparison cannot see. `compiled_<type>.go` carries TWO facts -- the type,
+// and that it came from a tag rather than from the default -- and only the
+// second decides precedence over MEMQL_NODE_TYPE. A file that names its type
+// and forgets the flag is present in every list above and still behaves like an
+// untagged build, which is memql#5115 with the file added and nothing fixed.
+func TestCompiledNodeTypeFilesDeclareTheirTaggedness(t *testing.T) {
+	dir := filepath.Join(RepoRoot(), "component", "node")
+	matches, err := filepath.Glob(filepath.Join(dir, "compiled_*.go"))
+	if err != nil {
+		t.Fatalf("glob component/node/compiled_*.go: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatal("no component/node/compiled_*.go files found -- the layout changed")
+	}
+	for _, m := range matches {
+		rel := filepath.Join("component", "node", filepath.Base(m))
+		src := mustReadRepoFile(t, rel)
+		want := "compiledNodeTypeTagged = true"
+		if strings.HasSuffix(m, "compiled_default.go") {
+			want = "compiledNodeTypeTagged = false"
+		}
+		if !strings.Contains(src, want) {
+			t.Errorf("%s must declare `%s`.\n"+
+				"The type alone cannot carry this: an untagged build also compiles as bff,\n"+
+				"so `CompiledNodeType() == NodeTypeBFF` is true both for a build that CHOSE\n"+
+				"bff and one that merely defaulted to it. Only this flag separates them, and\n"+
+				"only it lets the tag beat MEMQL_NODE_TYPE (memql#5115).", rel, want)
+		}
 	}
 }
 

@@ -446,13 +446,15 @@ database. Inter-node communication uses the `NodeService` gRPC bidirectional
 stream; events bridge across nodes with dedup and TTL.
 
 **RETIRING a node type is the dangerous edit, not adding one** (memql#5057).
-The set is spelled out in five places, in four languages, with nothing tying
+The set is spelled out in seven places, in four languages, with nothing tying
 them together: `app/build_<type>.go`, `app/build_default.go`'s deny-list,
-`ENGINE_NODE_TYPES` in `scripts/lib/engine_build_args.sh` (from which
-`dev.sh`'s `VALID_NODES` DERIVES -- do not restate it), the
-`build-engine-images.yml` release matrix, and the `memql-<type>` image
-references under `deploy/k8s/`. Adding one and missing a list is loud. Missing
-one on the way OUT is silent, because `build_default.go` is a DENY list:
+`component/node/compiled_<type>.go` and ITS deny-list
+(`compiled_default.go`), `ENGINE_NODE_TYPES` in
+`scripts/lib/engine_build_args.sh` (from which `dev.sh`'s `VALID_NODES`
+DERIVES -- do not restate it), the `build-engine-images.yml` release matrix,
+and the `memql-<type>` image references under `deploy/k8s/`. Adding one and
+missing a list is loud. Missing one on the way OUT is silent, because
+`build_default.go` is a DENY list:
 
 ```go
 //go:build !agent && !planner && !bff && !identity && !workbench && !mcp && !edge
@@ -465,7 +467,21 @@ every probe passes. Three things now stop that: the lists are gated together
 (`scripts/ci/node_type_lists_test.go`), `engine_build_args_for_node` REFUSES a
 node type it does not build, and the Dockerfile refuses a `BUILD_TAGS` value
 with no `app/build_<type>.go` behind it -- asking the tree rather than carrying
-a sixth copy of the list. **`BUILD_TAGS=""` stays legal; it is the bff.**
+an eighth copy of the list. **`BUILD_TAGS=""` stays legal; it is the bff.**
+
+**The `component/node/compiled_<type>.go` pair is the one that decides what a
+binary CALLS ITSELF** (`node.CompiledNodeType()`), and it was never complete:
+`identity` and `edge` had no file, so both compiled as the untagged bff default
+and depended entirely on their Deployment setting `MEMQL_NODE_TYPE`
+(memql#5115). Worse, the env var WON over the tag for every mesh type, so a
+`-tags agent` binary whose manifest said `bff` reported `NodeTypeBFF` -- an
+agent by every wiring decision in `app/build_agent.go`, a bff to the
+`Type == NodeTypeBFF` gate in `app/cluster.go` that starts the worker mesh's
+`WorkerDialer`. **The build tag now wins and a disagreeing `MEMQL_NODE_TYPE` is
+warned and ignored**; the env var selects the type for UNTAGGED builds only,
+where it is still honoured verbatim for a non-mesh value. The flag that carries
+the distinction is `compiledNodeTypeTagged`, because an untagged build also
+compiles as bff and the type alone cannot tell a choice from a default.
 
 **Build tag reference:** [docs/public/build/build-tags.md](docs/public/build/build-tags.md)
 
