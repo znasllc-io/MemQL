@@ -11,7 +11,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/auth"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
-	"github.com/znasllc-io/memql/component/readiness"
+	"github.com/znasllc-io/memql/component/memql/readiness"
 )
 
 // readModuleReadinessRows reads every node's latest row under the caller's

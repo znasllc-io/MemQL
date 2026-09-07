@@ -11,7 +11,7 @@ import (
 	"github.com/znasllc-io/memql/component/auth"
 	"github.com/znasllc-io/memql/component/envregistry"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
-	"github.com/znasllc-io/memql/component/readiness"
+	"github.com/znasllc-io/memql/component/memql/readiness"
 )
 
 // SetReadinessIdentity names this node in the rows it writes.

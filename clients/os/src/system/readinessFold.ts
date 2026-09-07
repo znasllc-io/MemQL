@@ -1,10 +1,10 @@
 // The readiness fold, restated for the shell (design record
-// 2026-09-06-configuration-readiness, section 4.5). component/readiness is
+// 2026-09-06-configuration-readiness, section 4.5). component/memql/readiness is
 // the source; this is the copy the live feed runs, and the shared fixtures
-// under component/readiness/testdata/fold hold the two equal -- a case added
+// under component/memql/readiness/testdata/fold hold the two equal -- a case added
 // on either side is a case both must pass.
 //
-// THE LITERAL IS PARSED. component/readiness/os_parity_test.go extracts
+// THE LITERAL IS PARSED. component/memql/readiness/os_parity_test.go extracts
 // NODE_LIVE_WINDOW_SECONDS by regexp and fails the build when it disagrees
 // with NodeLiveWindow. Keep it a plain numeric literal.
 export const NODE_LIVE_WINDOW_SECONDS = 60;

@@ -13,7 +13,7 @@
   their own records. Section 10 carries the facts established today that
   they will need.
 - **Owner areas:** `component/envregistry` (the declaration),
-  `component/readiness` (new leaf package, the fold), `component/memql`
+  `component/memql/readiness` (new leaf package, the fold), `component/memql`
   (the writer, the evaluators, the builtin), `component/node` (the routing
   rule), `dsl/platform` (the concept), `clients/os` (the shell).
 
@@ -374,7 +374,18 @@ concept moduleReadiness {
 
 ### 4.5 The fold
 
-`component/readiness` is a leaf package: no engine, no database, no
+> **AMENDED on 2026-09-07.** This record and the plan both placed the package
+> at `component/readiness`, in the ROOT module, on the reasoning that its one
+> importer "already depends on the root". IT DOES NOT: the root requires
+> `component/memql`, not the reverse. Workspace mode resolves the import
+> anyway, so every local run and every other CI lane was green; only the
+> `module-boundaries` lane, which runs `GOWORK=off`, saw it -- and it failed
+> for SEVENTEEN modules at once, since each one that replaces `component/memql`
+> by relative path inherits its unsatisfiable import. The package is a sibling
+> of its importer now. A nested module of its own was the alternative and is
+> worse: a new `go.mod` trips a dozen gates, three of which no local run sees.
+
+`component/memql/readiness` is a leaf package: no engine, no database, no
 provider. Its one exported function takes the rows and the cluster's node
 rows and returns one verdict per module:
 
@@ -525,7 +536,7 @@ reading.
 
 ## 7. Testing
 
-1. **The fold** (`component/readiness`): table tests on values for worst
+1. **The fold** (`component/memql/readiness`): table tests on values for worst
    state, disagreement, dead-node exclusion, `unreported`; the same JSON
    fixtures drive the TypeScript mirror, and a Go test fails when either
    side drifts, as `TestFleetOnlineWindowMatchesTheClients` does for the

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/auth"
-	"github.com/znasllc-io/memql/component/readiness"
+	"github.com/znasllc-io/memql/component/memql/readiness"
 )
 
 // readinessRecompute can be pulled by a cluster owner, so WriteModuleReadiness

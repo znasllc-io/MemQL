@@ -620,7 +620,7 @@ concept moduleReadiness {
 
 /// Virtual, never persisted: the cluster-wide fold of moduleReadiness rows, one row per module with
 /// id = module name. The moduleReadiness builtin answers it; the OS computes the same fold from the
-/// live feed with the mirrored function (component/readiness).
+/// live feed with the mirrored function (component/memql/readiness).
 ///
 /// @displayCard's tertiary names "core" rather than the brief's original "disagreement": the loader
 /// rejects an array-typed slot ("disagreement" is []string; only string/enum/bool/datetime/int/float

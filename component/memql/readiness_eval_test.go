@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/envregistry"
-	"github.com/znasllc-io/memql/component/readiness"
+	"github.com/znasllc-io/memql/component/memql/readiness"
 )
 
 // sentinelValue is a value no report may ever carry. TestReportsCarryNoValues

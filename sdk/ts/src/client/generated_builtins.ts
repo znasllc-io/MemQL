@@ -1269,7 +1269,7 @@ QueryClient.prototype.logsTail = function (this: QueryClient, args: LogsTailArgs
   return this.executeNamed("logsTail", buildLogsTail(args), opts);
 };
 
-/** The cluster-wide readiness verdict per module (design record 2026-09-06-configuration-readiness, section 4.5): reads every node's latest moduleReadiness row and the live cluster nodes, folds them with component/readiness -- worst state wins, disagreement is partial with the nodes named, no live reporter is unreported -- and answers one row per module on v1:platform:moduleVerdict. */
+/** The cluster-wide readiness verdict per module (design record 2026-09-06-configuration-readiness, section 4.5): reads every node's latest moduleReadiness row and the live cluster nodes, folds them with component/memql/readiness -- worst state wins, disagreement is partial with the nodes named, no live reporter is unreported -- and answers one row per module on v1:platform:moduleVerdict. */
 export interface ModuleReadinessArgs {
 }
 

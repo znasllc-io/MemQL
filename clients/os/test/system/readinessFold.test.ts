@@ -10,11 +10,11 @@ import {
   type NodeReport,
 } from "../../src/system/readinessFold";
 
-// THE SAME FIXTURES THE ENGINE RUNS. component/readiness/fold_test.go reads
+// THE SAME FIXTURES THE ENGINE RUNS. component/memql/readiness/fold_test.go reads
 // this directory too; a case one side passes and the other fails is the
 // drift this test exists to catch. The directory is resolved from this file,
 // so it does not depend on the working directory vitest was started from.
-const FIXTURES = resolve(__dirname, "../../../../component/readiness/testdata/fold");
+const FIXTURES = resolve(__dirname, "../../../../component/memql/readiness/testdata/fold");
 
 interface Fixture {
   name: string;
@@ -24,7 +24,7 @@ interface Fixture {
   expect: { module: string; state: string; disagreement: string[] }[];
 }
 
-describe("the fold mirrors component/readiness", () => {
+describe("the fold mirrors component/memql/readiness", () => {
   const files = readdirSync(FIXTURES)
     .filter((f) => f.endsWith(".json"))
     .sort();

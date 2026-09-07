@@ -2,10 +2,22 @@
 // (design record docs/superpowers/specs/2026-09-06-configuration-readiness-design.md,
 // section 4.5): values in, verdicts out, no engine, no database, no provider.
 //
-// It is a package of the ROOT module on purpose. A nested module would trip a
-// dozen gates, and the one importer that must reach it -- component/memql,
-// where the writer lives because only allowlisted packages may stamp internal
-// origin -- already depends on the root.
+// It is a package of the component/memql MODULE, and the location is the
+// point rather than an accident.
+//
+// It was first written as a package of the ROOT module, on the reasoning that
+// "component/memql already depends on the root". IT DOES NOT -- the root
+// requires component/memql, not the reverse, which is the correct direction
+// and the one the module-boundaries lane exists to hold. Workspace mode
+// resolves the import anyway, so `make test`, every editor and every other CI
+// lane were green; only `GOWORK=off` saw it, and it failed there for
+// SEVENTEEN modules at once, because every module with a relative-path
+// replace onto component/memql inherits its unsatisfiable import.
+//
+// A nested module of its own was the other option and is worse: a new go.mod
+// trips a dozen gates, three of which no local test run can see. Here it is
+// an ordinary sibling package of its one importer, and the root still reaches
+// it through the component/memql requirement it already has.
 package readiness
 
 import (

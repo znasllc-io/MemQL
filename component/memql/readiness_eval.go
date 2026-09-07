@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/envregistry"
-	"github.com/znasllc-io/memql/component/readiness"
+	"github.com/znasllc-io/memql/component/memql/readiness"
 )
 
 // Slot sources, spelled the way email's ConfigResolver spells them so the

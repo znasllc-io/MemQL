@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const osFoldPath = "../../clients/os/src/system/readinessFold.ts"
+const osFoldPath = "../../../clients/os/src/system/readinessFold.ts"
 
 var windowPattern = regexp.MustCompile(`(?m)^\s*export\s+const\s+NODE_LIVE_WINDOW_SECONDS\s*=\s*(\d+)\s*;`)
 
