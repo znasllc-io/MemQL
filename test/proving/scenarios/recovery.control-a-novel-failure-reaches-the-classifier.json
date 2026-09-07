@@ -1,0 +1,47 @@
+{
+  "id": "recovery.control-a-novel-failure-reaches-the-classifier",
+  "family": "recovery",
+  "title": "The control: a failure the rules table has no opinion about DOES reach the classifier, exactly once",
+  "goal": "Reconcile the {{account}} ledger against the upstream feed",
+  "variables": [
+    {
+      "account": "acme"
+    }
+  ],
+  "steps": [
+    {
+      "key": "read",
+      "type": "function",
+      "target": "ledgerLines"
+    },
+    {
+      "key": "reconcile",
+      "type": "function",
+      "target": "closeLedger",
+      "dependsOn": [
+        "read"
+      ]
+    }
+  ],
+  "world": {},
+  "inject": [
+    {
+      "at": "reconcile",
+      "kind": "transient",
+      "message": "the upstream feed answered 811 and nobody has written a rule for that"
+    }
+  ],
+  "verify": [
+    {
+      "rows": "v1:work:run",
+      "where": {
+        "status": "failed"
+      },
+      "count": 1
+    }
+  ],
+  "claims": [
+    "recovery.modelCalls"
+  ],
+  "negativeControlFor": "recovery.modelCalls"
+}

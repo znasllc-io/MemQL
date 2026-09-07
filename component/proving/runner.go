@@ -152,6 +152,12 @@ func (r *Runner) runPlatform(ctx context.Context, s scenario.Scenario, w *world.
 		StepRegistry: reg,
 		Logger:       r.Logger,
 	})
+	// THE FAILURE PATH'S ONE MODEL CALL, wired so the recovery family's count
+	// is a measurement rather than an assumption. With no classifier installed
+	// the path never reaches a model on ANY path, so the zero-claim would pass
+	// for the wrong reason and its control could never produce a one. See
+	// classifier.go.
+	exec.SetSymptomClassifier(&provingClassifier{player: player})
 	defer exec.Close()
 
 	auto := buildAutomation(s, automationName(s))
@@ -367,13 +373,49 @@ func runNamedCheck(name string, s scenario.Scenario, w *world.World, res ArmResu
 
 // --- scenario helpers ------------------------------------------------------
 
+// needsModel reports whether a scenario reaches a model at all, and therefore
+// whether it needs a cassette.
+//
+// THERE ARE TWO WAYS TO REACH ONE, and the second arrived with the work
+// spine's failure path (epic memql#5127, design D12). A reasoning STEP is the
+// obvious one. The other is a run that FAILS with a symptom the deterministic
+// rules table has no opinion about: the executor then makes exactly one
+// classifySymptom call, which is the whole point of the recovery family's
+// count and the thing its negative control exists to produce.
+//
+// Deriving the answer from the steps alone was correct until that path was
+// wired. It is now incomplete in the direction that hurts: a control scenario
+// whose model call comes from the classifier would be told it needs no
+// cassette, its cassette would be reported as an orphan, and deleting it --
+// which is what that message asks for -- would make the control fail at run
+// time with "no recorded response", read as a cassette problem rather than as
+// the deletion it was.
 func needsModel(s scenario.Scenario) bool {
 	for _, st := range s.Steps {
 		if st.Reasoning {
 			return true
 		}
 	}
-	return false
+	return reachesTheClassifier(s)
+}
+
+// reachesTheClassifier reports whether this scenario exists to make the
+// classifier fire, which it declares by being the negative control for the
+// recovery call count.
+//
+// IT IS A DECLARATION RATHER THAN A DERIVATION, and the alternative is worth
+// recording because it was tried. "The run ends failed" over-approximates:
+// most failing scenarios in this corpus fail with a message the rules table
+// classifies -- a stalled loop, an unrecoverable environment fault -- so they
+// reach no model, and requiring a cassette for each would demand files that
+// are never read and would go stale unnoticed.
+//
+// The cost of the declaration is that a scenario which reaches the classifier
+// WITHOUT saying so fails at run time with "no recorded response for ...". That
+// failure names the cassette and the scenario, and the fix is one field, so it
+// is a loud wrong rather than a quiet one.
+func reachesTheClassifier(s scenario.Scenario) bool {
+	return s.NegativeControlFor == figure.MetricRecoveryCalls
 }
 
 func scriptsOf(s scenario.Scenario) map[string]string {
