@@ -134,7 +134,11 @@ func TestGetCarriesEnvSurface(t *testing.T) {
 				ModuleDetailResult: &memqlv1.ModuleDetailResult{
 					Module: &memqlv1.ModuleInfo{Kind: "component", Name: "ai", State: "built_in"},
 					EnvVars: []*memqlv1.ModuleEnvVar{
-						{Name: "MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID", Secret: false, Set: true},
+						// A REAL SECRET, because the assertion below is about what a secret
+						// carries. This fixture named a vendor API key until epic
+						// memql#5088 deleted every one of them; the replacement has to
+						// still be Secret:true or the assertion has no subject.
+						{Name: "MEMQL_SHOPIFY_ADMIN_TOKEN", Secret: true, Set: true},
 						{Name: "MEMQL_OBSERVE_LEVEL", Secret: false, Set: true, Value: "count"},
 					},
 				},

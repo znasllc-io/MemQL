@@ -136,7 +136,12 @@ func writeProviderAuthReport(w io.Writer, r memql.ProviderAuthReport) {
 		line("federationRuleId", r.FederationRuleID)
 		line("organizationId", r.OrganizationID)
 		line("serviceAccountId", r.ServiceAccountID)
-		if r.Vendor == "anthropic" {
+		// Keyed on the ids the report CARRIES rather than on r.Vendor, which is
+		// a separate field that can be unset on a hand-built report. The
+		// workspace id belongs to Anthropic's id set, and a rule id is what
+		// says this is one -- so the "(none)" explanation cannot go missing
+		// because a caller forgot to stamp a vendor.
+		if r.FederationRuleID != "" || r.OrganizationID != "" {
 			if r.WorkspaceID == "" {
 				line("workspaceId", "(none -- Anthropic picks the rule's workspace)")
 			} else {
