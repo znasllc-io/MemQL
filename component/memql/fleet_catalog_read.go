@@ -43,15 +43,26 @@ const InferenceStatusConcept = "v1:platform:inferenceStatus"
 
 // The doors, as the status row names them.
 //
-// A FOURTH ONE ARRIVED WITH THE APP TYPE (epic memql#5096, design D3), and
-// the order below is the order the default chain tries them: a local model
-// first, then an app the person already pays for, then federation, then a key.
-// The list is what a client renders, so the order is part of the answer.
+// THE SET GAINED ONE AND LOST ONE IN THE SAME RELEASE, and the order below is
+// the order the default chain tries them: a local model first, then an app the
+// person already pays for, then federation. The list is what a client renders,
+// so the order is part of the answer.
+//
+// `app` arrived with the app provider type (epic memql#5096, design D3).
+// `apiKey` went with the keys (epic memql#5088): a cloud vendor is reached by
+// workload identity federation or not at all, so a provider that is Available
+// is a provider that federated, and its arm was already unreachable once the
+// credential switch landed. An unreachable arm publishing a door NAME is worse
+// than dead code, because the name is on the wire and a client may branch on
+// it.
+//
+// FOUR DOORS, THREE NAMES: both vendors federate, and the row does not say
+// which one answered. docs/public/operate/local-models.md numbers them for a
+// reader; this enum is what a client switches on.
 const (
 	InferenceDoorLocal      = "local"
 	InferenceDoorApp        = "app"
 	InferenceDoorFederation = "federation"
-	InferenceDoorApiKey     = "apiKey"
 )
 
 // MinimumContextWindow is the default context floor a model must advertise to
@@ -196,11 +207,12 @@ func (e *MemQLEngine) inferenceDoors(ctx context.Context) inferenceDoors {
 	if d.Federation {
 		d.Doors = append(d.Doors, InferenceDoorFederation)
 	}
-	// An API key is only a door while federation is not configured: with
-	// federation on, the key is not what the call would use.
-	if d.CloudConfigured && !d.Federation {
-		d.Doors = append(d.Doors, InferenceDoorApiKey)
-	}
+	// CloudConfigured is still READ and still reported on the row -- it is
+	// what the park card's cloud-approval affordance keys on -- but it is no
+	// longer a door of its own. After epic memql#5088 a cloud provider is
+	// Available only if it federated, so `CloudConfigured && !Federation` is
+	// unreachable rather than merely unlikely, and appending a third door for
+	// it would publish a name nothing can produce.
 	return d
 }
 

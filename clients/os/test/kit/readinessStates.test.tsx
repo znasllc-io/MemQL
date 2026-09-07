@@ -13,7 +13,10 @@ import {
   stateWords,
   SurfaceUnconfigured,
 } from "../../src/kit/ReadinessStates";
+import { canConfigure } from "../../src/kit/ReadinessStates";
 import type { Readiness } from "../../src/live/readiness";
+import { MODULE_SETTINGS_SECTION } from "../../src/system/modules";
+import { sectionsForRole } from "../../src/system/registry";
 import type { Verdict } from "../../src/system/readinessFold";
 
 function verdict(module: string, state: Verdict["state"], lanes: Verdict["lanes"] = []): Verdict {
@@ -251,32 +254,63 @@ describe("SetupGroup", () => {
   });
 
   // THE ACT IS GATED ON REACHING THE SECTION, not just on being allowed to
-  // configure. The group is owner-or-developer; Settings' `providers` section
-  // is OWNER-ONLY. A developer offered "Open AI providers" would navigate a
-  // window to a section sectionsForRole does not return -- it goes nowhere and
-  // says nothing, which is the silent failure this guard exists for.
-  it("offers a developer the words, not a button, for an owner-only section", () => {
-    const r = readiness(true, [verdict("ai", "unconfigured")]);
-    for (const [role, wantsButton] of [
-      ["owner", true],
-      ["developer", false],
-    ] as const) {
-      const { unmount } = render(
-        withOs(
-          withSession(<SetupGroup app="Nexus" requires={["ai"]} wants={[]} readiness={r} />, role),
-          role,
-        ),
-      );
-      const button = screen.queryByRole("button", { name: "Open AI providers" });
-      if (wantsButton) {
-        expect(button, `${role} should get the button`).not.toBeNull();
-        expect(screen.queryByText("Settings, under AI providers")).toBeNull();
-      } else {
-        expect(button, `${role} must not get a button that goes nowhere`).toBeNull();
-        expect(screen.getByText("Settings, under AI providers")).toBeTruthy();
+  // configure -- and after epic memql#5088 that gate is INERT, which is worth
+  // asserting rather than leaving as a silence.
+  //
+  // This test used to read: "offers a developer the words, not a button, for
+  // an owner-only section", and its example was AI providers. That example is
+  // gone. D7 of memql#5088 moved the providers section to owner-or-developer,
+  // which is exactly the set canConfigure admits, so a developer who is shown
+  // the group can now also reach the section it points at.
+  //
+  // The guard in ReadinessStates is still right and still asked of the
+  // REGISTRY rather than restated. What changed is that no configuration
+  // currently triggers it. So the test that used to exercise it becomes the
+  // test that says WHY it cannot be exercised: every module the group can
+  // offer must be reachable by every role the group is shown to. The day that
+  // stops being true, this fails and names the pair, and the guard beside it
+  // becomes load-bearing again.
+  it("every role the group is shown to can reach every section it points at", () => {
+    const settings = OS_REGISTRY.apps.find((a) => a.id === "settings");
+    expect(settings, "the settings app must be in the registry").toBeTruthy();
+
+    const configuringRoles = ["owner", "developer"] as const;
+    const targets = Object.entries(MODULE_SETTINGS_SECTION).filter(([, t]) => t !== null);
+    // A REACHABLE POSITIVE: an empty map would satisfy every assertion below.
+    expect(targets.length, "no module points at a settings section").toBeGreaterThan(0);
+
+    for (const role of configuringRoles) {
+      expect(canConfigure(role), `${role} must be shown the group`).toBe(true);
+      const reachable = new Set(sectionsForRole(settings!, role).map((sec) => sec.id));
+      for (const [moduleId, target] of targets) {
+        expect(
+          reachable.has(target!.section),
+          `${role} is shown "Set up" for ${moduleId} but cannot reach Settings -> ${target!.section}; ` +
+            `the button would navigate a window nowhere. Either widen that section or ` +
+            `confirm the guard in ReadinessStates suppresses the button for this pair.`,
+        ).toBe(true);
       }
-      unmount();
     }
+  });
+
+  // The new fact D7 establishes, asserted directly rather than inferred from
+  // the invariant above: a developer gets the BUTTON, not the words.
+  it("offers a developer the button for AI providers", () => {
+    const r = readiness(true, [verdict("ai", "unconfigured")]);
+    render(
+      withOs(
+        withSession(
+          <SetupGroup app="Nexus" requires={["ai"]} wants={[]} readiness={r} />,
+          "developer",
+        ),
+        "developer",
+      ),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Open AI providers" }),
+      "a developer may configure providers since memql#5088 D7, so the act is offered",
+    ).not.toBeNull();
+    expect(screen.queryByText("Settings, under AI providers")).toBeNull();
   });
 
   it("renders nothing for a viewer", () => {
