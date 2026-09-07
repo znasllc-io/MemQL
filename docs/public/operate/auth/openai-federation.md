@@ -266,8 +266,20 @@ request does.
 ## When it says no
 
 The console's authentication events show a reason for every refusal, and the
-engine logs the same string from OpenAI's response body on
-`openai federation: token exchange DENIED`.
+engine logs the same string from OpenAI's response body.
+
+**The log message names no vendor; the vendor is a FIELD.** One observer serves
+both, so the line to look for is
+
+```
+WARN federation: token exchange DENIED -- the cluster is running on a
+     credential the vendor will not renew   vendor=openai status=403
+     vendorError="..." runbook=docs/public/operate/auth/openai-federation.md
+```
+
+Filter on `vendor=openai`, not on the message: a cluster federating with both
+emits the same sentence for Anthropic, and grepping for a vendor name inside
+the message finds nothing at all.
 
 | Symptom | What it means | What to do |
 |---|---|---|

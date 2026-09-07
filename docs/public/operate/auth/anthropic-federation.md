@@ -179,9 +179,14 @@ token, so "it works on agent" is not "it works".
 Then watch the exchange counter across a refresh cycle or two:
 
 ```
-memql_ai_federation_exchanges_total{outcome="ok"}       # should tick up slowly
-memql_ai_federation_exchanges_total{outcome="denied"}   # must stay flat
+memql_ai_federation_exchanges_total{vendor="anthropic",outcome="ok"}      # should tick up slowly
+memql_ai_federation_exchanges_total{vendor="anthropic",outcome="denied"}  # must stay flat
 ```
+
+**Include the vendor label** (memql#5088 added it). Both federating vendors
+share this counter, so a query without it sums the two -- an OpenAI denial
+would fire an alert an operator reads as Anthropic's, and a healthy OpenAI
+`ok` rate would mask Anthropic's having gone to zero.
 
 A steady low `ok` rate is the healthy shape -- roughly one per token lifetime
 per client. **Alert on `denied`.** A denial does not break traffic
@@ -227,7 +232,19 @@ invalidates the rule and needs steps 1 to 3 again.
 
 The Console's Workload identity -> authentication events tab shows a reason
 for every refusal, and the engine logs the same string from Anthropic's
-response body on `anthropic federation: token exchange DENIED`.
+response body.
+
+**The log message names no vendor; the vendor is a FIELD** (memql#5088 made one
+observer serve both). The line to look for is
+
+```
+WARN federation: token exchange DENIED -- the cluster is running on a
+     credential the vendor will not renew   vendor=anthropic status=401
+     vendorError="..." runbook=docs/public/operate/auth/anthropic-federation.md
+```
+
+Filter on `vendor=anthropic`, not on the message: grepping for a vendor name
+inside the message finds nothing at all.
 
 | Reason | What it means | What to do |
 |---|---|---|
