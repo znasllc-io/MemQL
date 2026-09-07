@@ -3,7 +3,7 @@
 // unanswered here. Manifests are data; the components they name mount
 // inside WindowFrame / WidgetFrame.
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import type { ModuleId } from "./modules";
 import { isModuleId } from "./modules";
@@ -127,6 +127,21 @@ export interface OsWidgetManifest {
   /** Size in desktop grid cells. */
   size: { w: number; h: number };
   component: ComponentType;
+  /**
+   * A widget that is NOT PERMANENT wraps its own frame (epic memql#5106).
+   *
+   * It renders `children` while the widget has something to do, `null` while
+   * it does not yet know, and calls `retire` once the work is finished --
+   * which takes the widget off this desk.
+   *
+   * ABOVE the frame rather than inside the body, and that is the whole point
+   * of the seam: a widget whose BODY returns null still draws a header, a
+   * name and a menu, so a card with nothing in it would sit on the desk of
+   * every cluster that had already been set up. A first-run surface that
+   * flashes for a frame on a finished cluster is the failure this exists to
+   * prevent, and it cannot be prevented from inside the body.
+   */
+  gate?: ComponentType<{ retire: () => void; children: ReactNode }>;
 }
 
 export interface OsRegistry {

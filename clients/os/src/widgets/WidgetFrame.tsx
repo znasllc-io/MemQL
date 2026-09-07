@@ -7,6 +7,31 @@ import type { OsWidgetManifest } from "../system/registry";
 // quiet header, one overflow action -- Remove. The body is the manifest's
 // component; widgets do something without opening an app.
 
+/**
+ * What the desk mounts for a widget item: the frame, inside the manifest's
+ * own gate when it declares one (epic memql#5106).
+ *
+ * A widget with no gate is drawn exactly as before -- the Ask widget is
+ * permanent and has nothing to decide. A widget WITH one hands its whole
+ * visibility to that component, which is what lets a first-run surface draw
+ * nothing at all on a cluster that never needed it rather than a header over
+ * an empty body.
+ */
+export function WidgetHost({
+  manifest,
+  onRemove,
+}: {
+  manifest: OsWidgetManifest;
+  onRemove: () => void;
+}) {
+  const Gate = manifest.gate;
+  const frame = <WidgetFrame manifest={manifest} onRemove={onRemove} />;
+  // The component TYPE is stable for a desk item -- an item's widgetId never
+  // changes -- so this branch never swaps one element type for another and
+  // never remounts the frame underneath a person.
+  return Gate ? <Gate retire={onRemove}>{frame}</Gate> : frame;
+}
+
 export function WidgetFrame({
   manifest,
   onRemove,

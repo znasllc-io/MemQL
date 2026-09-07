@@ -10,12 +10,13 @@ import { FileIcon } from "../items/FileIcon";
 import { FolderIcon } from "../items/FolderIcon";
 import type { UploadProvider } from "../items/upload";
 import { widgetById, widgetsForRole } from "../system/registry";
+import { roleAdmits } from "../system/roles";
 import { placeWindows, type PlacementTokens } from "../system/placement";
 import type { DeskSurface, DesktopItem, GridPos } from "../system/desktop";
 import type { Desk } from "../system/desks";
 import { DeskNumeral, MemoryField } from "../wallpaper/MemoryField";
 import { resolveThemePack } from "../themes/registry";
-import { WidgetFrame } from "../widgets/WidgetFrame";
+import { WidgetHost } from "../widgets/WidgetFrame";
 import { useMachines } from "../live/machines";
 import { useOsConnection } from "../live/connection";
 import { useSession } from "./access";
@@ -618,7 +619,16 @@ function DeskPlate({
     [windows, viewport, placement],
   );
   const items = Object.entries(surface?.items ?? {});
-  const empty = windows.length === 0 && items.length === 0;
+  // A WIDGET THIS ROLE IS NOT ADMITTED TO IS NOT ON THIS PERSON'S DESK. The
+  // desk refuses to draw one (SurfaceItem, below), so counting it here would
+  // answer "there is something here" about a cell nobody can see -- and the
+  // hint is the one line that answers exactly that question. Same predicate,
+  // asked once.
+  const onDesk = items.filter(
+    ([, item]) =>
+      item.kind !== "widget" || roleAdmits(actorRole, widgetById(registry, item.widgetId)?.roles),
+  );
+  const empty = windows.length === 0 && onDesk.length === 0;
 
   return (
     <div
@@ -717,7 +727,7 @@ function SurfaceItem({
   onFolderHostDrop: (folderId: string, files: readonly File[]) => void;
   onMenu: (x: number, y: number) => void;
 }) {
-  const { actions, registry } = useOs();
+  const { actions, registry, actorRole } = useOs();
   const { presence } = useMachines();
   // The drag carries what the Bin needs to name and archive this, because the
   // dock holds neither the Library feed nor the desktop document (memql#4784).
@@ -810,8 +820,15 @@ function SurfaceItem({
       ) : (
         (() => {
           const manifest = widgetById(registry, item.widgetId);
-          return manifest ? (
-            <WidgetFrame manifest={manifest} onRemove={() => actions.removeWidget(item.id)} />
+          // THE ROLE GATE, on the desk as well as on the two doors that ADD a
+          // widget (the launcher's Widgets tab and `addWidget`). A desktop
+          // roams, and the role that reads it is not always the role that
+          // placed it -- so a document seeded for an owner, opened after that
+          // person was moved to reader, drew a widget the shell would refuse
+          // to add. Inert until the first gated widget shipped (epic
+          // memql#5106), which is exactly why it had gone unnoticed.
+          return manifest && roleAdmits(actorRole, manifest.roles) ? (
+            <WidgetHost manifest={manifest} onRemove={() => actions.removeWidget(item.id)} />
           ) : null;
         })()
       )}

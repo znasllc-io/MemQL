@@ -240,8 +240,23 @@ describe("desktop items (spec K bullet 4)", () => {
     expect((entry as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("removes the seeded widget through its menu, leaving the empty-desk hint", () => {
+  it("removes a seeded widget through its menu", () => {
     renderShell();
+    fireEvent.click(screen.getByRole("button", { name: "Ask widget menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from desk" }));
+    expect(document.querySelector("[data-os-widget='ask']")).toBeNull();
+    // The hint does NOT come back, and that is the seed rather than a bug: an
+    // owner's desk also carries the first-run Set up wizard (epic
+    // memql#5106). It draws nothing HERE only because this shell has no
+    // cluster connection to read a readiness feed over -- the item is still
+    // on the desk, so the desk is not empty.
+    expect(screen.queryByText("Drop a file, or open the Launcher.")).toBeNull();
+  });
+
+  it("shows the empty-desk hint once nothing is left on the desk", () => {
+    // A reader's seed carries Ask alone: the Set up wizard is gated to owner
+    // and developer, so removing Ask leaves a genuinely empty desk.
+    renderShell({ access: READER });
     fireEvent.click(screen.getByRole("button", { name: "Ask widget menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from desk" }));
     expect(document.querySelector("[data-os-widget='ask']")).toBeNull();

@@ -245,10 +245,25 @@ export function gridForViewport(width: number, height: number): GridSize {
 
 /**
  * First-run document: one desk, the Ask widget resting top-right (the one
- * pre-placed thing a fresh desktop carries), Settings pinned so the dock
- * is never empty.
+ * pre-placed thing a fresh desktop carries), the Set up wizard beneath it for
+ * a role that can act on it, and Settings pinned so the dock is never empty.
+ *
+ * THE WIZARD IS SEEDED, NOT CONDITIONAL ON A CLUSTER READING. `seedDocument`
+ * runs before anything has been read -- there is no connection yet, let alone
+ * a readiness feed -- so the placement cannot depend on whether the cluster
+ * needs setting up. It does not have to: the widget's own gate draws nothing
+ * on a configured cluster and takes the item off the desk, which is one
+ * decision in one place rather than the same question asked at boot and again
+ * every render (design record 2026-09-06-first-run-wizard, D1).
+ *
+ * `actorRole` is "" for a shell that has not resolved one, and `roleAdmits`
+ * refuses an unknown role against a requirement -- so a document seeded
+ * before the ladder lands carries no wizard, and the person gets one on their
+ * next fresh desk. That is the right way round: seeding a gated widget for
+ * somebody who turns out to be a reader would put a card on their desk that
+ * the desk then refuses to draw.
  */
-export function seedDocument(registry: OsRegistry, grid: GridSize): OsState {
+export function seedDocument(registry: OsRegistry, grid: GridSize, actorRole = ""): OsState {
   const shell = initialShell();
   let surface = emptySurface();
   const ask = widgetById(registry, "ask");
@@ -257,6 +272,20 @@ export function seedDocument(registry: OsRegistry, grid: GridSize): OsState {
       surface,
       { kind: "widget", id: nextId("item"), widgetId: ask.id, w: ask.size.w, h: ask.size.h },
       { col: Math.max(0, grid.cols - ask.size.w), row: 0 },
+      grid,
+    );
+    if (placed) surface = placed;
+  }
+  const setup = widgetById(registry, "setup");
+  if (setup && roleAdmits(actorRole, setup.roles)) {
+    const placed = addItem(
+      surface,
+      { kind: "widget", id: nextId("item"), widgetId: setup.id, w: setup.size.w, h: setup.size.h },
+      // Under Ask, on the same edge: the two pre-placed things read as one
+      // column rather than two unrelated cards. `addItem` settles on the
+      // nearest free cell, so a desk too short for this row places it
+      // wherever it fits instead of dropping it.
+      { col: Math.max(0, grid.cols - setup.size.w), row: ask ? ask.size.h : 0 },
       grid,
     );
     if (placed) surface = placed;
@@ -412,7 +441,7 @@ export function OsProvider({
 
   const [state, setState] = useState<OsState>(() => {
     const loaded = storeRef.current.load();
-    return loaded ? stateFromDocument(loaded) : seedDocument(registry, grid);
+    return loaded ? stateFromDocument(loaded) : seedDocument(registry, grid, actorRole);
   });
   const [notice, setNotice] = useState<OsNotice | null>(null);
 
