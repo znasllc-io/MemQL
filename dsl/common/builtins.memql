@@ -702,3 +702,23 @@ builtin fleetModelPull {
   registrationId  string!  @description("v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.")
   model           string!  @description("The model id in the runtime's own vocabulary. Carried verbatim -- the router selects on this exact string, so a model pulled under one spelling is unreachable under any other.")
 }
+
+// ---- routing rules (epic memql#5127, design D7) ----
+
+@executor("integration.router.activateRoutingRule")
+@args(when="object", excludes="array")
+@description("Add a routing rule at runtime. Renders the form into a `rule` construct DETERMINISTICALLY -- no model is involved -- runs it through the same authoring gates a DSL rule passes, and arms it live; it survives a restart through the authored-bundle re-arm. Owner or developer. A form naming a SHIPPED rule is refused: the shipped set is re-read from the embedded tree on every boot, so a custom rule taking one of those names would be replaced at the next restart with nothing saying so. `when` is an OBJECT of condition keys (level, modality, prompt, role, actorRole, tag, touches) and that shape is load-bearing: a key present with an empty value is a condition matching only an empty value, while an ABSENT key is no condition at all, and separate string arguments could not tell those apart.")
+builtin routingRuleActivate {
+  name           string!
+  policy         string!
+  precedence     integer!
+  description    string
+  level          string  @enum("fast", "strong", "reasoning", "embeddings")
+  onUnavailable  string  @enum("degrade", "park")
+}
+
+@executor("integration.router.retireRoutingRule")
+@description("Retire a runtime-authored routing rule by name. Owner or developer. A shipped rule is refused -- one you want out of the way is out-ranked with a custom rule at a higher precedence, not removed.")
+builtin routingRuleRetire {
+  name  string!
+}
