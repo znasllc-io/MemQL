@@ -744,6 +744,25 @@ type AutomationExecution struct {
 	// Error contains the automation-level error if any.
 	Error string `json:"error,omitempty"`
 
+	// FailedStepId, FailedStepType, FailedStepAttempt and FailedStepRetries
+	// are what the failure path's symptom table reads (epic memql#5127). They
+	// are recorded at the point of failure rather than derived afterwards
+	// because the two things the table most needs -- how many attempts were
+	// spent and how many were allowed -- exist only inside the executor's
+	// retry loop, and "was this tried until it ran out" is the difference
+	// between a blip worth retrying and a stall worth escalating.
+	FailedStepId      string `json:"-"`
+	FailedStepType    string `json:"-"`
+	FailedStepAttempt int    `json:"-"`
+	FailedStepRetries int    `json:"-"`
+
+	// PreconditionMissed records that a first-class precondition did not hold
+	// on this machine, which emitPreconditionMiss already published as an
+	// event. It is carried on the execution as well because the symptom table
+	// reads a VALUE, and re-deriving "was this a precondition miss" from the
+	// error text would be a parser of our own output (epic memql#5127).
+	PreconditionMissed bool `json:"-"`
+
 	// ErrorValue is the same failure as a VALUE, kept for the journal
 	// (epic memql#5096). It is `json:"-"` and never serialized: a checkpoint
 	// carries the string, and an error value that survived a round trip
@@ -801,6 +820,21 @@ func (e *AutomationExecution) Complete() {
 	e.Status = "completed"
 	e.CompletedAt = time.Now()
 	e.Duration = e.CompletedAt.Sub(e.StartedAt)
+}
+
+// RecordFailedStep notes which step failed and how hard it was tried. It is
+// called at the point of failure, beside Fail, because the attempt count and
+// the retry budget exist only inside the executor's retry loop -- and
+// re-deriving them afterwards from the error text would be a parser of our own
+// output, which is the mistake ErrorValue exists to avoid.
+func (e *AutomationExecution) RecordFailedStep(step *Step, attempt int) {
+	if e == nil || step == nil {
+		return
+	}
+	e.FailedStepId = step.ID
+	e.FailedStepType = string(step.Type)
+	e.FailedStepAttempt = attempt
+	e.FailedStepRetries = step.RetryCount
 }
 
 // Fail marks the execution as failed.
