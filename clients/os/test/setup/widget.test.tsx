@@ -97,7 +97,21 @@ describe("the rail a fresh cluster shows", () => {
     mount();
     expect(
       await screen.findByText(
-        "Enough to make this cluster useful -- 4 things, in any order after the first. This card goes when they are done.",
+        "4 things left before this cluster can do useful work. This card goes when they are done.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("counts what is OUTSTANDING, not what is on the rail", async () => {
+    // Which is why the lead makes no claim about ordering: the stop the one
+    // ordering law names leaves the count as soon as it is done, and a
+    // sentence saying "in any order after the first" would then name a first
+    // that is no longer there.
+    h.connection = ONE_PASSKEY;
+    mount();
+    expect(
+      await screen.findByText(
+        "3 things left before this cluster can do useful work. This card goes when they are done.",
       ),
     ).toBeTruthy();
   });

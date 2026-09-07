@@ -88,7 +88,11 @@ export function SetupWidget() {
   function lead(left: number): string {
     if (left === 0) return "The core is set up. This card goes now.";
     if (left === 1) return "One thing left before this cluster can do useful work. This card goes when it is done.";
-    return `Enough to make this cluster useful -- ${left} things, in any order after the first. This card goes when they are done.`;
+    // NO ORDERING CLAUSE. An earlier draft read "in any order after the
+    // first", which is false the moment the passkey is done and the "first"
+    // it names is no longer on the rail. The one ordering law is stated by
+    // the stop it governs, which is where it can be true (rule 7).
+    return `${left} things left before this cluster can do useful work. This card goes when they are done.`;
   }
 
   function bodyFor(stop: SetupStop) {

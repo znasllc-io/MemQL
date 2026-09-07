@@ -39,7 +39,10 @@ rail and the widget states it in one sentence.
 
 Everything after it may be done in any order. There is no Next, no Back and no
 step number: the rail opens the first stop still outstanding, you may open any
-other whenever you like, and finishing one moves the rail on by itself.
+other whenever you like, and finishing one moves the rail on by itself. The
+card's own line counts what is left and says nothing about order -- the one
+ordering law is stated by the stop it governs, which is the only place it stays
+true once that stop is done.
 
 ### The inference stop offers three doors
 
