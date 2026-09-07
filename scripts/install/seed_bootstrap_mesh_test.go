@@ -113,8 +113,15 @@ case "$verb" in
         done < "$FAKE_STATE/deploys"
         exit 0 ;;
       deploy)
-        # The pod selector, read off the Deployment.
         d="${args#deploy }"; d="${d%% *}"
+        case "$args" in
+          *.image*)
+            # The container images, which is how the script tells a retired
+            # engine node type from one it still builds (memql#5061).
+            awk -v d="$d" '$1==d {printf "%s ", $2}' "$FAKE_STATE/images" 2>/dev/null
+            exit 0 ;;
+        esac
+        # The pod selector, read off the Deployment.
         printf 'app.kubernetes.io/name=%s,' "$d"
         exit 0 ;;
       pods)
@@ -130,6 +137,11 @@ esac
 exit 0
 `
 
+// sbRetired are the node types an OLDER release still runs and this tree no
+// longer builds -- `47e81134a` took the engine from nine to seven. An upgrade
+// meets them; a fresh install never does.
+var sbRetired = []string{"voice", "voice-agent", "cognition"}
+
 // sbNewMeshWorld builds the cluster an install actually meets: nine engine nodes
 // carrying the bootstrap Secret plus two that do not, each with a running pod.
 func sbNewMeshWorld(t *testing.T) sbMeshWorld {
@@ -140,23 +152,46 @@ func sbNewMeshWorld(t *testing.T) sbMeshWorld {
 		t.Fatalf("write kubectl stub: %v", err)
 	}
 
-	var deploys, pods strings.Builder
-	// The nine the local overlay patches, exactly as
-	// deploy/k8s/overlays/local/kustomization.yaml names them.
-	for _, d := range []string{"identity", "bff", "cognition", "agent", "planner", "workbench", "mcp"} {
+	var deploys, pods, images strings.Builder
+	// The node types THIS TREE BUILDS -- ENGINE_NODE_TYPES, which is what the
+	// roll must cover. `cognition` used to be in this list and is not a node
+	// type any more: `47e81134a` took the engine from nine to seven, retiring
+	// cognition and voice together. It moves to the retired group below rather
+	// than being deleted, because a cluster being upgraded FROM an older
+	// release still has one.
+	for _, d := range []string{"identity", "bff", "edge", "agent", "planner", "workbench", "mcp"} {
 		fmt.Fprintf(&deploys, "%s 1 memql-secrets memql-bootstrap\n", d)
 		fmt.Fprintf(&pods, "%s-old-0 %s true\n", d, d)
+		fmt.Fprintf(&images, "%s acrmemql.azurecr.io/memql-%s:0.9.9\n", d, d)
 	}
-	// The voice lane: gated to zero on a machine with no LiveKit credentials
-	// (memql#2416), and still a consumer. Nothing to roll and nothing to wait
-	// for -- a wait that counted "at least one ready pod" would hang here.
-	for _, d := range []string{"voice", "voice-agent"} {
-		fmt.Fprintf(&deploys, "%s 0 memql-secrets memql-bootstrap\n", d)
+	// RETIRED NODE TYPES, which an upgrade from an older release still has
+	// running (memql#5061). They consume the bootstrap Secret, so they are
+	// consumers -- and they must not be rolled, because current
+	// `seed-secrets.sh` no longer creates the `livekit-secrets` their pods also
+	// mount, so a replacement can never become ready and the roll spends its
+	// whole budget waiting for one.
+	//
+	// AT ONE REPLICA, deliberately. They used to be listed at zero because
+	// `gate_voice_lane` scaled them down on a machine with no LiveKit
+	// credentials -- and that gating went out with the removal, which is the
+	// half of memql#5061 that made the `upgrade` leg red on every branch.
+	for _, d := range []string{"voice", "voice-agent", "cognition"} {
+		fmt.Fprintf(&deploys, "%s 1 memql-secrets memql-bootstrap\n", d)
+		fmt.Fprintf(&pods, "%s-old-0 %s true\n", d, d)
+		// Both voice Deployments run the SAME image, which is what makes the
+		// image the right thing to key on -- `voice-agent` is not a node type
+		// name and a name-based rule would miss it.
+		img := d
+		if d == "voice-agent" {
+			img = "voice"
+		}
+		fmt.Fprintf(&images, "%s acrmemql.azurecr.io/memql-%s:0.9.9\n", d, img)
 	}
 	// Infrastructure, which reads no bootstrap values.
 	for _, d := range []string{"postgres", "azurite"} {
 		fmt.Fprintf(&deploys, "%s 1 memql-secrets\n", d)
 		fmt.Fprintf(&pods, "%s-old-0 %s true\n", d, d)
+		fmt.Fprintf(&images, "%s %s:16\n", d, d)
 	}
 
 	write := func(name, body string) {
@@ -166,6 +201,7 @@ func sbNewMeshWorld(t *testing.T) sbMeshWorld {
 	}
 	write("deploys", deploys.String())
 	write("pods", pods.String())
+	write("images", images.String())
 	write("annotations", "")
 	write("argv", "")
 
@@ -247,32 +283,90 @@ func TestSeedBootstrapRestartsTheNodesThatReadTheSecret(t *testing.T) {
 	}
 
 	rolled := w.rolled(t)
-	// Every consumer, and only consumers. identity is the one that creates the
-	// owner; the rest need the AI provider key in the same Secret.
-	for _, want := range []string{"identity", "bff", "cognition", "agent", "planner", "workbench", "mcp"} {
+	// Every consumer THIS TREE BUILDS, and only those. identity is the one that
+	// creates the owner; the rest need the AI provider key in the same Secret.
+	for _, want := range []string{"identity", "bff", "edge", "agent", "planner", "workbench", "mcp"} {
 		if !containsString(rolled, want) {
 			t.Errorf("%s consumes the bootstrap Secret and was not restarted, so it is still running\n"+
 				"without the values -- which is the whole defect (rolled: %v)", want, rolled)
 		}
 	}
-	for _, never := range []string{"postgres", "azurite"} {
+	for _, never := range append([]string{"postgres", "azurite"}, sbRetired...) {
 		if containsString(rolled, never) {
-			t.Errorf("%s does not read the bootstrap Secret and must not be restarted for it", never)
+			t.Errorf("%s must not be restarted for the bootstrap Secret (rolled: %v)", never, rolled)
 		}
 	}
 
-	// No CONSUMER pod from before the seed is still running. postgres and azurite
-	// keep theirs, which is the other half of the assertion above.
+	// No CONSUMER pod from before the seed is still running -- except the ones
+	// this roll is not responsible for. postgres and azurite read no bootstrap
+	// values; the retired node types belong to the release being upgraded from.
+	skip := map[string]bool{"postgres": true, "azurite": true}
+	for _, d := range sbRetired {
+		skip[d] = true
+	}
 	for _, line := range strings.Split(strings.TrimSpace(w.pods(t)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || !strings.Contains(fields[0], "-old-") {
 			continue
 		}
-		if fields[1] == "postgres" || fields[1] == "azurite" {
+		if skip[fields[1]] {
 			continue
 		}
 		t.Errorf("%s reads the bootstrap Secret and is still running a pod that predates it: %s",
 			fields[1], fields[0])
+	}
+}
+
+// THE UPGRADE LEG, REPRODUCED (memql#5061).
+//
+// The `upgrade` leg installs the last RELEASE and then moves the cluster to the
+// branch under test, so NEW scripts run against an OLD checkout's manifests.
+// Teaching clusterUp's wait to skip a retired node type got that leg past
+// `clusterUp` and the failure moved HERE:
+//
+//	seedBootstrap: FAILED -- exit 5: voice did not come back after being
+//	restarted to pick up the bootstrap values
+//
+// `voice` reads memql-secrets, so it is a consumer, so it was rolled -- and it
+// can never come back, because current seed-secrets.sh no longer creates the
+// `livekit-secrets` its pod also mounts. One retired Deployment spent the whole
+// 240s budget and failed the install.
+//
+// The assertion is the one that fails against the pre-fix script: a retired node
+// type is NOT rolled, and the step still succeeds.
+func TestSeedBootstrapDoesNotRollARetiredNodeType(t *testing.T) {
+	w := sbNewMeshWorld(t)
+	stdout, stderr, code := sbRun(t, w.env, sbCompleteArgs()...)
+	if code != 0 {
+		t.Fatalf("exit %d -- a retired node type must not fail the bootstrap: %s\n%s", code, stdout, stderr)
+	}
+	rolled := w.rolled(t)
+	for _, gone := range sbRetired {
+		if containsString(rolled, gone) {
+			t.Errorf("%s was restarted: it runs an engine node type this tree no longer builds, so its\n"+
+				"replacement can never become ready and the roll spends its whole budget on it", gone)
+		}
+	}
+	// SAID OUT LOUD. A roll that silently skips a consumer is indistinguishable
+	// from one that rolled it, which is the false green this whole issue is about.
+	if !strings.Contains(stderr, "no longer builds") {
+		t.Errorf("the run never said which consumers it skipped, or why:\n%s", stderr)
+	}
+}
+
+// AND THE OTHER DIRECTION, so the fix cannot be "stop rolling things". A node
+// type this tree DOES build is still rolled, even though it is named similarly
+// enough to be caught by a sloppier rule.
+func TestSeedBootstrapStillRollsTheNodeTypesThisTreeBuilds(t *testing.T) {
+	w := sbNewMeshWorld(t)
+	if _, stderr, code := sbRun(t, w.env, sbCompleteArgs()...); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	rolled := w.rolled(t)
+	for _, want := range []string{"identity", "bff", "edge", "agent", "planner", "workbench", "mcp"} {
+		if !containsString(rolled, want) {
+			t.Errorf("%s is in ENGINE_NODE_TYPES and was not rolled (rolled: %v)", want, rolled)
+		}
 	}
 }
 
