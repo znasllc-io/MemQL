@@ -15,7 +15,6 @@ seed agentRole row-crop-farmer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -29,7 +28,6 @@ seed agentRole livestock-rancher {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -43,6 +41,5 @@ seed agentRole horticulturist {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }

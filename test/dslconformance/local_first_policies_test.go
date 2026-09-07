@@ -1,32 +1,41 @@
 package dslconformance
 
-// THE SHIPPED POLICIES TRY THE DOORS IN COST ORDER (epic memql#5096, task
-// memql#5101, design D4).
+// THE SHIPPED POLICIES TRY THE DOORS IN COST ORDER, AND THE SHIPPED RULES NAME
+// ONLY SHIPPED POLICIES (epic memql#5127, design D4 / D6).
 //
-// This gate replaces the one memql#4676 wrote, and the property it checks
-// changed with the design rather than being relaxed. That gate said: a seeded
-// local-first policy must author NO cloud fallback, because a chain reaching
-// the cloud starts billing the moment a laptop closes -- silently, since
-// nothing about a working reply says which vendor produced it.
+// This gate is the third version of itself, and the property has changed twice
+// with the design rather than being relaxed:
 //
-// It was the right rule when the only alternative to a laptop was a metered
-// key. There is now a middle step that costs nothing extra -- a Claude Code or
-// Codex subscription the person already pays for -- and the federation hop,
-// the one that does cost money, asks the cost ceiling before it is taken
-// (component/router's doors_test.go). So the default falls through, and what
-// this gate protects is the ORDER: local, then an app, then anybody's money.
+//   - memql#4676 said a seeded local-first policy must author NO cloud
+//     fallback, because a chain reaching the cloud starts billing the moment a
+//     laptop closes -- silently, since nothing about a working reply says which
+//     vendor produced it.
+//   - memql#5096 added a middle step that costs nothing extra (a Claude Code or
+//     Codex subscription the person already pays for) and made the federation
+//     hop ask the cost ceiling before it is taken, so the default falls through
+//     and what the gate protects is the ORDER: local, then an app, then
+//     anybody's money.
+//   - memql#5127 split WHERE to look (a policy) from WHICH CALLS it is for (a
+//     rule). Six policies became three, and the ordering property moved onto
+//     rules as well: a shipped rule that named an unshipped policy would be a
+//     routing decision with no chain behind it.
 //
-// IT IS A CORPUS SCAN rather than an engine assertion, for the reason the
-// previous version gave about itself: the property is about what the .memql
-// files SAY, and the edit worth catching is an author moving a vendor entry to
-// the front of a shipped chain "so it does not park". The failure message
-// therefore names the alternative -- an explicitly authored policy for that
-// purpose -- rather than only saying no.
+// IT IS A CORPUS SCAN rather than an engine assertion, for the reason the first
+// version gave about itself: the property is about what the .memql files SAY,
+// and the edit worth catching is an author moving a vendor entry to the front
+// of a shipped chain "so it does not park". The failure messages therefore name
+// the alternative -- an explicitly authored policy, or a custom rule at a
+// higher precedence -- rather than only saying no.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -36,6 +45,27 @@ import (
 // is caught by TestEveryShippedPolicyIsCovered below, so the list cannot
 // silently fall behind the tree.
 var shippedPolicies = []string{
+	"localFirst",
+	"localOnly",
+	"federationStrongest",
+}
+
+// shippedRules is every rule this repository seeds, with the policy it names.
+// The pair is spelled out rather than derived so that changing one without the
+// other is a failure rather than a silent re-route.
+var shippedRules = map[string]string{
+	"default":              "localFirst",
+	"backgroundLane":       "localFirst",
+	"backgroundEscalation": "localFirst",
+	"operatorReasoning":    "localFirst",
+	"reasoningParks":       "federationStrongest",
+	"embeddingsPark":       "localFirst",
+}
+
+// retiredPolicies were deleted by memql#5127. A policy nothing can name is a
+// decoration, and these six were named by call sites that now declare a level
+// instead. They are listed so their return is a failure rather than a merge.
+var retiredPolicies = []string{
 	"balancedChat",
 	"cheapestCapable",
 	"fastCoding",
@@ -44,194 +74,424 @@ var shippedPolicies = []string{
 	"backgroundEscalation",
 }
 
-// toolCallingLanes are the shipped policies whose turns carry TOOLS. They
-// deliberately omit the `app:*` step: on a tool turn MemQL is driving, and an
-// app door is an agent that drives itself -- it reaches MemQL's tools through
-// MCP, in the other direction (design D3). An `app:*` entry there would be one
-// the router skips on every call, which reads to a later author like a door
-// that is always shut.
-var toolCallingLanes = map[string]bool{
-	"backgroundExecution":  true,
-	"backgroundEscalation": true,
-}
-
 const (
-	fleetWildcardRef = "fleet:*"
-	appWildcardRef   = "app:*"
-	fleetRefPrefix   = "fleet:"
-	appRefPrefix     = "app:"
+	fleetWildcardRef  = "fleet:*"
+	fleetStrongestRef = "fleet:strongest"
+	appWildcardRef    = "app:*"
+	fleetRefPrefix    = "fleet:"
+	appRefPrefix      = "app:"
+	federationPrefix  = "federation:"
 )
 
 var (
 	policyDeclRe = regexp.MustCompile(`(?m)^policy\s+([A-Za-z0-9_]+)\s*\{`)
+	ruleDeclRe   = regexp.MustCompile(`(?m)^rule\s+([A-Za-z0-9_]+)\s*\{`)
 	annotationRe = regexp.MustCompile(`^@(primary|fallback)\("([^"]*)"\)`)
+	rulePolicyRe = regexp.MustCompile(`^@policy\("([^"]*)"\)`)
+	precedenceRe = regexp.MustCompile(`^@precedence\((-?\d+)\)`)
+	lockedRe     = regexp.MustCompile(`^@locked\s*$`)
 )
 
-// policyChains returns each policy's provider chain in try order: the
-// @primary first, then each @fallback.
+// annotationsAbove walks BACKWARD from a declaration line collecting its
+// annotation block, then REVERSES it.
 //
-// The annotations are collected by walking BACKWARD from the declaration and
-// then REVERSED, because the backward walk yields them bottom-up and a chain
-// read in the wrong order would make every assertion below check the opposite
-// of what it says. Stopping at the first non-annotation, non-comment line is
-// what keeps one policy's annotations from being read as another's.
-func policyChains(t *testing.T) map[string][]string {
+// The reverse is load-bearing: a backward walk yields the block bottom-up, and
+// a chain read in the wrong order would make every ordering assertion below
+// check the opposite of what it says. Stopping at the first line that is
+// neither an annotation nor a comment is what keeps one construct's
+// annotations from being read as another's.
+func annotationsAbove(lines []string, decl int) []string {
+	var reversed []string
+	for j := decl - 1; j >= 0; j-- {
+		trimmed := strings.TrimSpace(lines[j])
+		if strings.HasPrefix(trimmed, "@") {
+			reversed = append(reversed, trimmed)
+			continue
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, "///") || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		break
+	}
+	out := make([]string, 0, len(reversed))
+	for k := len(reversed) - 1; k >= 0; k-- {
+		out = append(out, reversed[k])
+	}
+	return out
+}
+
+func corpusLines(t *testing.T, parts ...string) []string {
 	t.Helper()
-	path := filepath.Join(repoRoot(t), "dsl", "policies", "policies.memql")
+	path := filepath.Join(append([]string{repoRoot(t)}, parts...)...)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
-	lines := strings.Split(string(raw), "\n")
+	return strings.Split(string(raw), "\n")
+}
 
+// policyChains returns each policy's provider chain in try order: the @primary
+// first, then each @fallback.
+func policyChains(t *testing.T) map[string][]string {
+	t.Helper()
+	lines := corpusLines(t, "dsl", "policies", "policies.memql")
 	out := map[string][]string{}
 	for i, line := range lines {
 		m := policyDeclRe.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
-		var reversed []string
-		for j := i - 1; j >= 0; j-- {
-			trimmed := strings.TrimSpace(lines[j])
-			if strings.HasPrefix(trimmed, "@") {
-				if a := annotationRe.FindStringSubmatch(trimmed); a != nil {
-					reversed = append(reversed, a[2])
-				}
-				continue
+		var chain []string
+		for _, ann := range annotationsAbove(lines, i) {
+			if a := annotationRe.FindStringSubmatch(ann); a != nil {
+				chain = append(chain, a[2])
 			}
-			if trimmed == "" || strings.HasPrefix(trimmed, "///") || strings.HasPrefix(trimmed, "//") {
-				continue
-			}
-			break
-		}
-		chain := make([]string, 0, len(reversed))
-		for k := len(reversed) - 1; k >= 0; k-- {
-			chain = append(chain, reversed[k])
 		}
 		out[m[1]] = chain
 	}
 	return out
 }
 
+type shippedRule struct {
+	policy     string
+	precedence int
+	locked     bool
+	hasPrec    bool
+}
+
+func ruleRecords(t *testing.T) map[string]shippedRule {
+	t.Helper()
+	lines := corpusLines(t, "dsl", "rules", "rules.memql")
+	out := map[string]shippedRule{}
+	for i, line := range lines {
+		m := ruleDeclRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		rec := shippedRule{}
+		for _, ann := range annotationsAbove(lines, i) {
+			if a := rulePolicyRe.FindStringSubmatch(ann); a != nil {
+				rec.policy = a[1]
+			}
+			if a := precedenceRe.FindStringSubmatch(ann); a != nil {
+				rec.hasPrec = true
+				rec.precedence = atoiOrFail(t, a[1])
+			}
+			if lockedRe.MatchString(ann) {
+				rec.locked = true
+			}
+		}
+		out[m[1]] = rec
+	}
+	return out
+}
+
+func atoiOrFail(t *testing.T, s string) int {
+	t.Helper()
+	n := 0
+	neg := false
+	for i, c := range s {
+		if i == 0 && c == '-' {
+			neg = true
+			continue
+		}
+		if c < '0' || c > '9' {
+			t.Fatalf("precedence %q is not an integer", s)
+		}
+		n = n*10 + int(c-'0')
+	}
+	if neg {
+		return -n
+	}
+	return n
+}
+
+// TestEveryShippedPolicyStartsAtTheCheapestDoor is the ordering property. Every
+// shipped chain reaches the fleet before an app and an app before a vendor, so
+// paid inference is last BY CONSTRUCTION rather than by care.
 func TestEveryShippedPolicyStartsAtTheCheapestDoor(t *testing.T) {
 	chains := policyChains(t)
 	if len(chains) == 0 {
 		t.Fatal("no policies parsed -- a gate over nothing passes for the wrong reason")
 	}
-
 	for _, name := range shippedPolicies {
 		chain, ok := chains[name]
 		if !ok {
-			t.Errorf("shipped policy %q is not declared in dsl/policies/policies.memql. "+
-				"If it was renamed, rename it in shippedPolicies too -- an entry that resolves "+
-				"to nothing is a gate that passes because it found nothing to check.", name)
+			t.Errorf("shipped policy %q is not in dsl/policies/policies.memql", name)
 			continue
 		}
 		if len(chain) == 0 {
-			t.Errorf("policy %q declares no @primary at all", name)
+			t.Errorf("policy %q has an empty chain; a policy with no entries resolves nothing", name)
 			continue
 		}
-
-		if chain[0] != fleetWildcardRef {
-			t.Errorf("policy %q has @primary(%q). Every shipped policy starts at %q: the local "+
-				"door costs electricity, the app door costs a subscription the person already "+
-				"pays for, and only the vendor entries cost money (design D4).\n\n"+
-				"If this purpose genuinely must reach a vendor first, that is a legitimate "+
-				"operator decision -- but it belongs in an explicitly authored policy for that "+
-				"purpose, not in the shipped default nobody chose.",
-				name, chain[0], fleetWildcardRef)
-			continue
+		if chain[0] != fleetStrongestRef {
+			t.Errorf("policy %q starts at %q, not %q.\n"+
+				"Every shipped chain reaches the person's own hardware first -- that is what makes\n"+
+				"paid-last structural rather than a rule somebody remembers. If a chain genuinely\n"+
+				"needs a vendor first, that is a CUSTOM policy named by a custom rule at a higher\n"+
+				"precedence, where it is explicit and lands on every decision record.",
+				name, chain[0], fleetStrongestRef)
 		}
-
-		if toolCallingLanes[name] {
-			if policyNames(chain, appWildcardRef) {
-				t.Errorf("policy %q is a tool-calling lane and must NOT name %q: an app door does "+
-					"not serve tool turns (design D3), so the entry is one the router skips on "+
-					"every call -- which reads to a later author like a door that is always shut.",
-					name, appWildcardRef)
-			}
-		} else if len(chain) < 2 || chain[1] != appWildcardRef {
-			t.Errorf("policy %q must try %q immediately after the local door; chain is %v. "+
-				"A subscription the person already pays for sits between their own hardware "+
-				"and anybody's money.", name, appWildcardRef, chain)
-		}
-
-		// NO LOCAL ENTRY AFTER A VENDOR ONE. A chain that goes cloud, then
-		// local, spends money it did not have to and then offers the free
-		// option -- which is the ordering bug this gate exists to catch, and
-		// the one an author makes by appending rather than inserting.
-		sawVendor := false
+		seenApp, seenFederation := false, false
 		for _, entry := range chain {
-			local := strings.HasPrefix(entry, fleetRefPrefix) || strings.HasPrefix(entry, appRefPrefix)
-			if !local {
-				sawVendor = true
-				continue
-			}
-			if sawVendor {
-				t.Errorf("policy %q names the local entry %q AFTER a vendor entry; chain is %v. "+
-					"The chain is tried in order, so this spends money before offering the "+
-					"free door.", name, entry, chain)
+			switch {
+			case strings.HasPrefix(entry, fleetRefPrefix):
+				if seenApp || seenFederation {
+					t.Errorf("policy %q reaches the fleet at %q AFTER a more expensive door; the order is local, app, vendor", name, entry)
+				}
+			case strings.HasPrefix(entry, appRefPrefix):
+				if seenFederation {
+					t.Errorf("policy %q reaches an app at %q after a vendor entry", name, entry)
+				}
+				seenApp = true
+			default:
+				seenFederation = true
 			}
 		}
 	}
 }
 
-// The list above must not fall behind the file. A shipped policy added to the
-// tree and not to `shippedPolicies` would be exempt from the ordering gate
-// while looking covered -- the failure mode every allowlist has.
+// TestNoShippedChainWritesTheRetiredFleetWildcard. `fleet:*` said "any", which
+// is not what it did: it resolved to the STRONGEST eligible local model. The
+// loader refuses it with the replacement in the message, and this catches an
+// author reintroducing it in the corpus before boot does.
+func TestNoShippedChainWritesTheRetiredFleetWildcard(t *testing.T) {
+	for _, file := range [][]string{
+		{"dsl", "policies", "policies.memql"},
+		{"dsl", "rules", "rules.memql"},
+	} {
+		for i, line := range corpusLines(t, file...) {
+			if strings.Contains(line, `"`+fleetWildcardRef+`"`) {
+				t.Errorf("%s:%d writes the retired %q; write %q, which is what it always meant",
+					filepath.Join(file...), i+1, fleetWildcardRef, fleetStrongestRef)
+			}
+		}
+	}
+}
+
+// TestEveryShippedPolicyIsCovered keeps the list above from falling behind the
+// file. A policy added to the corpus and not to shippedPolicies would be
+// exempt from every assertion here while looking covered.
 func TestEveryShippedPolicyIsCovered(t *testing.T) {
 	chains := policyChains(t)
+	covered := map[string]bool{}
+	for _, n := range shippedPolicies {
+		covered[n] = true
+	}
+	var uncovered []string
 	for name := range chains {
-		if !policyNames(shippedPolicies, name) {
-			t.Errorf("policy %q is declared in dsl/policies/policies.memql but is not in "+
-				"shippedPolicies, so nothing checks that it tries the doors in cost order. "+
-				"Add it to the list, or say in a comment there why it is exempt.", name)
+		if !covered[name] {
+			uncovered = append(uncovered, name)
 		}
+	}
+	sort.Strings(uncovered)
+	if len(uncovered) > 0 {
+		t.Fatalf("policies in the corpus and not in shippedPolicies: %v.\n"+
+			"Add them there so they are held to the ordering gate -- or delete them: this file's\n"+
+			"own standing rule is that a policy nothing can name is a decoration.", uncovered)
 	}
 }
 
-// The four local-first policies memql#4676 seeded are GONE, and their absence
-// is asserted rather than assumed: design D6 required each wired to a purpose
-// or deleted, and a policy that came back without a consumer would be exactly
-// the decoration that rule removed.
-func TestTheSeededLocalOnlyPoliciesAreGone(t *testing.T) {
+// TestTheRetiredPoliciesAreGone. Six policies were deleted because every call
+// site that named them now declares a LEVEL instead, and a policy nothing can
+// name is a decoration that reads like a default.
+func TestTheRetiredPoliciesAreGone(t *testing.T) {
 	chains := policyChains(t)
-	for _, name := range []string{"localPlanner", "localConductor", "localSuggest", "localEmbeddings"} {
+	for _, name := range retiredPolicies {
 		if _, ok := chains[name]; ok {
-			t.Errorf("policy %q is back. It was deleted because nothing named it and the "+
-				"purposes it stood for are gone or covered by the default chain (design D6); "+
-				"if it has a consumer now, say so here and give it one.", name)
+			t.Errorf("policy %q is back in the corpus. It was deleted with epic memql#5127 because\n"+
+				"the call sites that named it now declare a level, and a rule chooses the chain.\n"+
+				"If this chain is wanted again it needs a RULE naming it, or it is a decoration.", name)
 		}
 	}
 }
 
-// The vendor entries must still EXIST inside the chains. Local-first is an
-// ORDER, not a removal: a turn the fleet and the apps cannot serve still has to
-// reach a model, and a chain with nothing after the local doors parks work that
-// a configured cluster could have done.
-func TestTheCloudEntriesRemainInEveryChain(t *testing.T) {
+// TestEveryShippedRuleNamesAShippedPolicy is the rules half of the same
+// property. A rule naming a policy that is not there is a routing decision with
+// no chain behind it, and the failure mode is a call that resolves nothing.
+func TestEveryShippedRuleNamesAShippedPolicy(t *testing.T) {
+	rules := ruleRecords(t)
+	if len(rules) == 0 {
+		t.Fatal("no rules parsed from dsl/rules/rules.memql -- a gate over nothing passes for the wrong reason")
+	}
 	chains := policyChains(t)
-	for _, name := range shippedPolicies {
-		chain := chains[name]
-		vendor := false
-		for _, entry := range chain {
-			if !strings.HasPrefix(entry, fleetRefPrefix) && !strings.HasPrefix(entry, appRefPrefix) {
-				vendor = true
+	for name, rec := range rules {
+		if rec.policy == "" {
+			t.Errorf("rule %q names no policy; @policy is required", name)
+			continue
+		}
+		if _, ok := chains[rec.policy]; !ok {
+			t.Errorf("rule %q names policy %q, which is not shipped", name, rec.policy)
+		}
+	}
+}
+
+// TestTheShippedRuleSetIsExactlyTheSix pins the set BY NAME and BY POLICY. A
+// rule added to the corpus is a routing decision every cluster inherits, so it
+// is a deliberate edit here as well as there.
+func TestTheShippedRuleSetIsExactlyTheSix(t *testing.T) {
+	rules := ruleRecords(t)
+	for name, wantPolicy := range shippedRules {
+		rec, ok := rules[name]
+		if !ok {
+			t.Errorf("shipped rule %q is missing from dsl/rules/rules.memql", name)
+			continue
+		}
+		if rec.policy != wantPolicy {
+			t.Errorf("rule %q names policy %q, want %q", name, rec.policy, wantPolicy)
+		}
+	}
+	for name := range rules {
+		if _, ok := shippedRules[name]; !ok {
+			t.Errorf("rule %q is in the corpus and not in shippedRules. A shipped rule is a routing\n"+
+				"decision every cluster inherits; add it here with the policy it names, or make it a\n"+
+				"custom rule an owner opts into.", name)
+		}
+	}
+}
+
+// TestEveryShippedRuleIsLocked. Locked means three things and all three are
+// wanted for a shipped rule: it evaluates before every unlocked one, it is
+// re-read from the embedded tree on every boot so nothing done at runtime
+// survives a restart, and no runtime-authored rule may take its name.
+func TestEveryShippedRuleIsLocked(t *testing.T) {
+	for name, rec := range ruleRecords(t) {
+		if !rec.locked {
+			t.Errorf("shipped rule %q is not @locked. Without it an owner can redefine it at runtime and\n"+
+				"the redefinition survives until a restart silently reverts it.", name)
+		}
+	}
+}
+
+// TestShippedRulePrecedencesAreDistinct. A tie between two rules of the same
+// locked-ness is a LOAD ERROR, so a duplicate here would refuse boot -- this
+// catches it in a test that names both rules instead.
+func TestShippedRulePrecedencesAreDistinct(t *testing.T) {
+	seen := map[int]string{}
+	for name, rec := range ruleRecords(t) {
+		if !rec.hasPrec {
+			t.Errorf("shipped rule %q declares no @precedence; its position would depend on nothing", name)
+			continue
+		}
+		if other, clash := seen[rec.precedence]; clash {
+			t.Errorf("rules %q and %q both declare @precedence(%d). A tie is resolved by nothing, so the\n"+
+				"rule that wins would differ between replicas -- and the loader refuses boot on it.",
+				other, name, rec.precedence)
+			continue
+		}
+		seen[rec.precedence] = name
+	}
+}
+
+// TestTheDefaultRuleStatesNoConditions is what makes "a call that matches no
+// rule is impossible" true by construction rather than by care. Every reader
+// downstream assumes it, and none of them handles the other case.
+func TestTheDefaultRuleStatesNoConditions(t *testing.T) {
+	lines := corpusLines(t, "dsl", "rules", "rules.memql")
+	found := false
+	for i, line := range lines {
+		m := ruleDeclRe.FindStringSubmatch(line)
+		if m == nil || m[1] != "default" {
+			continue
+		}
+		found = true
+		for _, ann := range annotationsAbove(lines, i) {
+			if strings.HasPrefix(ann, "@when(") && ann != "@when()" {
+				t.Errorf("the default rule states a condition (%s). It is the FLOOR: the moment it can fail\n"+
+					"to match, a call can match nothing, and nothing downstream handles that case.", ann)
 			}
 		}
-		if !vendor {
-			t.Errorf("policy %q has no vendor entry; chain is %v. Local-first is an order, not a "+
-				"removal -- a chain that ends at the local doors parks every turn a configured "+
-				"cluster could have served.", name, chain)
-		}
+	}
+	if !found {
+		t.Fatal("no rule named `default` in dsl/rules/rules.memql; it is the floor and cannot be removed")
 	}
 }
 
-func policyNames(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
+// retiredPolicyLiterals is retiredPolicies minus one.
+//
+// `backgroundEscalation` is excluded because the WORD survived the policy: it
+// is now a call TAG (core/airoute.TagBackgroundEscalation) that the shipped
+// rule of the same name matches on. A tag is exactly what replaced the policy,
+// so banning the string would ban the replacement.
+var retiredPolicyLiterals = []string{
+	"balancedChat",
+	"cheapestCapable",
+	"fastCoding",
+	"strongReasoning",
+	"backgroundExecution",
+}
+
+// TestNoGoSourceNamesAPolicyByStringLiteral is the gate that keeps the deleted
+// Go literals from growing back.
+//
+// Before this epic the role-to-policy mapping lived TWICE -- once in
+// dsl/policies as @preferredRole and once in integrations/agent/replier.go as a
+// pair of string literals -- and the two happened to agree with nothing
+// enforcing it. The DSL half is gone; this stops the Go half from returning,
+// and it caught one that had already grown: integrations/agents/factory.go
+// stamped `policyName: "balancedChat"` on every new agent row, defaulted from a
+// role-catalog field, long after the replier stopped reading it.
+//
+// It walks the AST rather than the text, so a policy named in a DOC COMMENT --
+// which component/language/ast/ast.go legitimately does, showing what a policy
+// declaration looks like -- is not a finding. A textual scan flags those, and a
+// gate that flags its own documentation is one somebody switches off.
+func TestNoGoSourceNamesAPolicyByStringLiteral(t *testing.T) {
+	root := repoRoot(t)
+	names := map[string]bool{}
+	for _, n := range append(append([]string{}, shippedPolicies...), retiredPolicyLiterals...) {
+		names[n] = true
+	}
+	fset := token.NewFileSet()
+	for _, path := range trackedGoFilesForPolicyGate(t, root) {
+		if strings.HasSuffix(path, "_test.go") || strings.HasPrefix(path, "dsl/") {
+			continue
+		}
+		// component/memql and component/router legitimately name policies: one
+		// loads them and the other walks them.
+		if strings.HasPrefix(path, "component/memql/") || strings.HasPrefix(path, "component/router/") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(root, path), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			value := strings.Trim(lit.Value, "`\"")
+			if !names[value] {
+				return true
+			}
+			t.Errorf("%s:%d names policy %q as a Go string literal.\n"+
+				"A call site declares a LEVEL; a rule chooses the policy. A policy name in Go is a\n"+
+				"routing decision that no rule can see and no decision record explains.",
+				path, fset.Position(lit.Pos()).Line, value)
 			return true
+		})
+	}
+}
+
+// trackedGoFilesForPolicyGate reads the git INDEX rather than walking the
+// filesystem, so an untracked scratch file cannot red the gate and a deleted
+// one cannot green it -- the reason every repo-walking gate in this tree does
+// the same.
+func trackedGoFilesForPolicyGate(t *testing.T, root string) []string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "*.go").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	var files []string
+	for _, p := range strings.Split(string(out), "\x00") {
+		if strings.TrimSpace(p) != "" {
+			files = append(files, p)
 		}
 	}
-	return false
+	if len(files) < 200 {
+		t.Fatalf("the index listed %d .go files, which is too few for this tree", len(files))
+	}
+	return files
 }

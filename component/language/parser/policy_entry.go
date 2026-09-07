@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -41,6 +42,13 @@ const (
 	// EntrySchemeFederation reaches a paid vendor through workload identity
 	// federation.
 	EntrySchemeFederation = "federation"
+	// EntrySchemeEmbedder names the cluster's ACTIVE EMBEDDER BINDING rather
+	// than a door (epic memql#5137). It is its own scheme because the binding
+	// is not a door: whichever model is bound may live on the fleet or at a
+	// vendor, and the DOOR is derived from what the binding resolves to. A
+	// spelling under `fleet:` would have been wrong for every federated
+	// embedder, and one under `federation:` wrong for every local one.
+	EntrySchemeEmbedder = "embedder"
 	// EntrySchemePolicy names another policy, expanded at load so the router
 	// never walks one.
 	EntrySchemePolicy = "policy"
@@ -48,7 +56,7 @@ const (
 
 // entrySchemes is the closed set, in the order an error message lists them:
 // the three doors in cost order, then the composition form.
-var entrySchemes = []string{EntrySchemeFleet, EntrySchemeApp, EntrySchemeFederation, EntrySchemePolicy}
+var entrySchemes = []string{EntrySchemeFleet, EntrySchemeApp, EntrySchemeFederation, EntrySchemeEmbedder, EntrySchemePolicy}
 
 // fleetSelectors and federationSelectors are the reserved words behind their
 // scheme. Anything else after the colon is a concrete id -- which is why a
@@ -135,6 +143,21 @@ func ValidatePolicyEntry(entry string) error {
 		}
 		return nil
 
+	case EntrySchemeEmbedder:
+		// A CLOSED SET OF ONE. There is exactly one question worth asking of
+		// the binding -- which model is bound right now -- and a second
+		// selector here would be a second answer to it. An id-shaped entry is
+		// refused rather than passed through: naming a concrete embedder is
+		// what `fleet:<modelId>` and `federation:<providerName>` already do,
+		// and admitting it here would give one thing two spellings whose
+		// decision records read differently.
+		if !embedderSelectors[rest] {
+			return fmt.Errorf("policy entry %q: the embedder scheme takes %s and nothing else -- "+
+				"to name a concrete embedder write fleet:<modelId> or federation:<providerName>",
+				trimmed, strings.Join(sortedKeysOf(embedderSelectors), ", "))
+		}
+		return nil
+
 	case EntrySchemePolicy:
 		if rest == "" {
 			return fmt.Errorf("policy entry %q names no policy: write policy:<name>", trimmed)
@@ -192,6 +215,8 @@ func entryFormsForMessage() []string {
 			out = append(out, "app:*, app:<id>")
 		case EntrySchemeFederation:
 			out = append(out, "federation:cheapest, federation:strongest, federation:<providerName>")
+		case EntrySchemeEmbedder:
+			out = append(out, "embedder:active")
 		case EntrySchemePolicy:
 			out = append(out, "policy:<name>")
 		}
@@ -239,4 +264,23 @@ func validateEntryId(entry, id, what string) error {
 		return fmt.Errorf("policy entry %q: the %s %q contains whitespace", entry, what, id)
 	}
 	return nil
+}
+
+// embedderSelectors is the closed set the `embedder` scheme accepts.
+//
+// `active` is the only member and is likely to stay the only one: the binding
+// answers one question. It resolves through a seam epic memql#5137 installs;
+// until then the router refuses it by name rather than treating it as a door
+// that happens to be shut, because those need different fixes.
+var embedderSelectors = map[string]bool{"active": true}
+
+// sortedKeysOf renders a selector set in a stable order for an error message,
+// so two authors reading the same refusal see the same sentence.
+func sortedKeysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

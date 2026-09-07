@@ -160,3 +160,37 @@ func TestIsPolicyEntry_NamesTheReferencedPolicy(t *testing.T) {
 		}
 	}
 }
+
+// TestValidatePolicyEntry_EmbedderSchemeIsClosedAtOne covers the scheme epic
+// memql#5137 fills. The grammar half ships here so that epic never has to
+// touch this parser; the RESOLVER is its own, and until it exists the router
+// refuses the entry by name.
+func TestValidatePolicyEntry_EmbedderSchemeIsClosedAtOne(t *testing.T) {
+	if err := ValidatePolicyEntry("embedder:active"); err != nil {
+		t.Fatalf("ValidatePolicyEntry(%q): %v", "embedder:active", err)
+	}
+	for _, bad := range []string{"embedder:", "embedder:*", "embedder:strongest", "embedder:qwen3-embedding"} {
+		err := ValidatePolicyEntry(bad)
+		if err == nil {
+			t.Fatalf("ValidatePolicyEntry(%q) was accepted; the embedder scheme takes one selector", bad)
+		}
+		// Naming a concrete embedder already has two spellings, and the
+		// message must send an author to them rather than leaving them to
+		// invent a third.
+		if !strings.Contains(err.Error(), "fleet:<modelId>") {
+			t.Fatalf("the refusal %q does not say how to name a concrete embedder", err)
+		}
+	}
+}
+
+// TestEntryFormsMessageListsEveryScheme keeps the unknown-scheme message
+// honest. A scheme added to the closed set and left out of the message is one
+// an author is told does not exist while the parser accepts it.
+func TestEntryFormsMessageListsEveryScheme(t *testing.T) {
+	joined := strings.Join(entryFormsForMessage(), " ")
+	for _, scheme := range entrySchemes {
+		if !strings.Contains(joined, scheme+":") {
+			t.Fatalf("the entry-forms message %q omits the %q scheme", joined, scheme)
+		}
+	}
+}

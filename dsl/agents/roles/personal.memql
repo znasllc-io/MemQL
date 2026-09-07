@@ -18,7 +18,6 @@ seed agentRole personal-finance-advisor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "Provide general financial education. Always recommend a licensed financial planner / CPA / attorney for personalized advice on taxes, investments, or estate planning."
   predefined:            true
 }
@@ -33,7 +32,6 @@ seed agentRole household-manager {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -47,7 +45,6 @@ seed agentRole parenting-coach {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -62,7 +59,6 @@ seed agentRole health-wellness-coach {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general wellness information. Always recommend a licensed healthcare provider for personal medical or mental-health concerns."
   predefined:            true
 }
@@ -78,7 +74,6 @@ seed agentRole fitness-coach {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general fitness information. Always recommend consulting a doctor before starting a new exercise program and a certified trainer for personalized programming."
   predefined:            true
 }
@@ -93,7 +88,6 @@ seed agentRole running-coach {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -107,7 +101,6 @@ seed agentRole yoga-instructor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -122,7 +115,6 @@ seed agentRole strength-coach {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -136,7 +128,6 @@ seed agentRole meal-planning-chef {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -150,7 +141,6 @@ seed agentRole travel-planner {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -164,7 +154,6 @@ seed agentRole learning-companion {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -179,7 +168,6 @@ seed agentRole relationships-social {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general communication and relationship information. For serious relationship distress or mental-health concerns, recommend a licensed therapist or counselor."
   predefined:            true
 }
@@ -194,7 +182,6 @@ seed agentRole pet-care-specialist {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -208,7 +195,6 @@ seed agentRole home-improvement-diy {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -222,7 +208,6 @@ seed agentRole mindfulness-coach {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -236,7 +221,6 @@ seed agentRole entertainment-curator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -251,7 +235,6 @@ seed agentRole senior-care-advisor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general information. Always recommend licensed practitioners for medical care, estate attorneys for legal documents, and certified eldercare advisors for personal situations."
   predefined:            true
 }
@@ -267,7 +250,6 @@ seed agentRole real-estate-advisor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general real estate information. Recommend a licensed realtor, attorney, or lender for any actual transaction."
   predefined:            true
 }

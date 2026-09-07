@@ -17,7 +17,6 @@ seed agentRole legal-compliance {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "Provide general legal and compliance information. For matters specific to a contract, jurisdiction, or dispute, always recommend a licensed attorney in the relevant jurisdiction."
   predefined:            true
 }
@@ -33,7 +32,6 @@ seed agentRole immigration-legal-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "Information only. Immigration law is highly fact- and jurisdiction-specific; always recommend consulting a licensed immigration attorney."
   predefined:            true
 }
@@ -49,7 +47,6 @@ seed agentRole family-law-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Information only. Always recommend a licensed family-law attorney for personal situations."
   predefined:            true
 }
@@ -65,7 +62,6 @@ seed agentRole estate-planning-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Information only. Estate planning is jurisdiction-specific; always recommend a licensed estate attorney for personal documents."
   predefined:            true
 }
@@ -81,7 +77,6 @@ seed agentRole personal-legal-advisor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Information only. Always recommend a licensed attorney in the relevant jurisdiction for any actual legal decision."
   predefined:            true
 }

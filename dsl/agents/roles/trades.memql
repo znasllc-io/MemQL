@@ -16,7 +16,6 @@ seed agentRole general-contractor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -31,7 +30,6 @@ seed agentRole electrician {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general electrical information. Live electrical work is dangerous and frequently licensed by jurisdiction; recommend a licensed electrician for any actual work."
   predefined:            true
 }
@@ -46,7 +44,6 @@ seed agentRole plumber {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -60,7 +57,6 @@ seed agentRole hvac-technician {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -74,7 +70,6 @@ seed agentRole carpenter {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -88,7 +83,6 @@ seed agentRole automotive-mechanic {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -102,7 +96,6 @@ seed agentRole welder {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -116,6 +109,5 @@ seed agentRole landscaping-grounds {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }

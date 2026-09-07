@@ -242,8 +242,25 @@ func (r *RuleRegistry) Finalize() error {
 	// operationally: an owner may add rules and give them any precedence they
 	// like, and the shipped ones still evaluate first. Precedence orders
 	// within each half.
+	//
+	// `default` IS EXEMPT FROM THAT PARTITION AND ALWAYS SORTS LAST, and the
+	// exemption is not a tidiness choice -- without it the whole authored tier
+	// is unreachable. `default` is locked and states NO conditions, so it
+	// matches every call; ordered with the locked group it would win before
+	// any unlocked rule was ever consulted, and design D7's "a runtime-authored
+	// rule may add and may take precedence" would be false of every rule
+	// anybody wrote. It is the FLOOR, not a locked rule that outranks yours,
+	// and those are different things wearing one annotation.
+	//
+	// It keeps @locked for the OTHER two things the annotation means: it is
+	// re-read from the embedded tree on every boot, and no runtime-authored
+	// rule may take its name.
+	isFloor := func(c *RuleConfig) bool { return c.Name == DefaultRuleName }
 	sort.SliceStable(enabled, func(i, j int) bool {
 		a, b := enabled[i], enabled[j]
+		if isFloor(a) != isFloor(b) {
+			return isFloor(b)
+		}
 		if a.Locked != b.Locked {
 			return a.Locked
 		}
@@ -251,9 +268,13 @@ func (r *RuleRegistry) Finalize() error {
 	})
 
 	// A tie between two rules of the same locked-ness is refused, naming both.
-	// Resolving it by map order would be a routing decision nobody wrote.
+	// Resolving it by map order would be a routing decision nobody wrote. The
+	// floor is exempt: it is alone at the end and ties with nothing.
 	for i := 1; i < len(enabled); i++ {
 		a, b := enabled[i-1], enabled[i]
+		if isFloor(a) || isFloor(b) {
+			continue
+		}
 		if a.Locked == b.Locked && a.Precedence == b.Precedence {
 			return fmt.Errorf("rules %q (%s) and %q (%s) both declare @precedence(%d): "+
 				"a tie is resolved by nothing, so the rule that wins would differ between replicas -- "+

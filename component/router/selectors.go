@@ -37,6 +37,11 @@ import (
 // federation, so the ceiling gates both identically.
 const FederationReferencePrefix = "federation:"
 
+// EmbedderReferencePrefix is how a policy names the cluster's ACTIVE EMBEDDER
+// BINDING (epic memql#5137). The grammar half ships with the rules epic so
+// that epic never has to touch the parser; the resolver is its own.
+const EmbedderReferencePrefix = "embedder:"
+
 // Federation selectors -- orderings over the registry's federated records.
 const (
 	// FederationSelectorCheapest orders by input plus output cost per million,
@@ -101,6 +106,22 @@ func (r *Router) expandEntry(ctx context.Context, req ResolveRequest, entry stri
 		// nothing for a selector to order here that the app door does not
 		// already order itself.
 		return []candidate{{Name: entry, Door: DoorApp}}, nil
+	}
+
+	// THE EMBEDDER BINDING IS NOT A DOOR, so it has neither a fleet nor a
+	// federation arm: whichever model is bound may live on either side, and
+	// the door is DERIVED from what the binding resolves to. Epic memql#5137
+	// installs the resolver; until it does, the entry is refused BY NAME
+	// rather than reported as a door that happens to be shut, because those
+	// two are fixed in different places -- one by an operator opening a lid,
+	// the other by a release.
+	//
+	// No shipped policy names it, so this arm is reachable only from an
+	// authored chain that got ahead of the resolver.
+	if strings.HasPrefix(entry, EmbedderReferencePrefix) {
+		report.note(entry, "the embedder binding cannot be resolved on this node: the binding resolver is not installed "+
+			"(epic memql#5137 installs it). Name a concrete embedder with fleet:<modelId> or federation:<providerName> until then")
+		return nil, nil
 	}
 
 	if strings.HasPrefix(entry, FederationReferencePrefix) {

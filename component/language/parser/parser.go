@@ -3036,6 +3036,21 @@ func (p *Parser) parseTypeRef() (*TypeRef, error) {
 	}
 }
 
+// IsKeywordUsableAsName reports whether a lexer-promoted keyword token may
+// stand where an identifier is expected -- an annotation argument name, or the
+// NAME of a top-level construct.
+//
+// It exists as an exported one-liner because two surfaces have to agree about
+// it and they are in different packages: the parser, which accepts
+// `rule default { }`, and component/memql/sense's construct scanner, which
+// locates the same declaration for the editor. When only the parser knew, the
+// scanner silently failed to locate `rule default` -- and because it locates
+// declarations by walking forward, MISSING one shifted every following span by
+// a construct, so the NEXT rule was reported with the previous one's body. The
+// symptom was a source-hash parity failure naming a construct nobody had
+// edited, which reads as drift and gets debugged in the wrong place.
+func IsKeywordUsableAsName(t TokenType) bool { return isKeywordTokenForAttribute(t) }
+
 // isKeywordTokenForAttribute reports whether a token type that the
 // lexer promoted to a keyword is still a valid annotation name. Covers
 // the annotations that clash with control-flow keywords in practice:

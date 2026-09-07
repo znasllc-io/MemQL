@@ -15,6 +15,7 @@ require (
 	github.com/uptrace/bun/driver/pgdriver v1.2.18
 	github.com/znasllc-io/memql/component/events v0.0.0
 	github.com/znasllc-io/memql/component/grpc/gen v0.0.0
+	github.com/znasllc-io/memql/component/healing v0.0.0
 	github.com/znasllc-io/memql/component/observe v0.0.0-00010101000000-000000000000
 	golang.org/x/sync v0.22.0
 	google.golang.org/grpc v1.83.2
@@ -45,7 +46,6 @@ require (
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeozeozeo/gomplerate v0.0.0-20250404113140-0fbb236df825 // indirect
-	github.com/znasllc-io/memql/component/healing v0.0.0 // indirect
 	github.com/znasllc-io/memql/component/node/gen v0.0.0 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect

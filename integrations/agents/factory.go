@@ -208,10 +208,9 @@ type roleSnapshot struct {
 	// use sparingly for Tier-C medical roles that should never carry
 	// operator-computer-use, regulated finance roles whose audit
 	// story can't tolerate workbench shell access, etc.
-	ForbiddenSkillIds     []string
-	MaxSkills             int
-	RecommendedPolicySlug string
-	SystemPromptHints     string
+	ForbiddenSkillIds []string
+	MaxSkills         int
+	SystemPromptHints string
 	// Predefined marks a row seeded from dsl/agents/roles/*.memql. Read here so
 	// slug resolution can prefer the seeded catalog row over a user row that
 	// claims the same slug (memql#3066) -- see findRoleBySlug.
@@ -592,9 +591,18 @@ func buildCreateAgentArgs(agentId, ownerUserId string, decision factoryDecision,
 		"voiceToVoice": false,
 		"claw":         false,
 	}
-	provider := map[string]any{
-		"llm": map[string]any{"policyName": coalesceString(role.RecommendedPolicySlug, "balancedChat")},
-	}
+	// NO POLICY IS STAMPED ON A NEW AGENT (epic memql#5127). An agent used to
+	// carry providerConfig.llm.policyName, defaulted from the role catalog's
+	// recommendedPolicySlug, and the replier read it to pick a chain. Both are
+	// gone: a call declares a LEVEL and a rule chooses the policy, and the
+	// agent's ROLE is what a rule matches on -- `@when(role="operator")` reads
+	// the same slug the catalog already carries, without a second copy of the
+	// routing decision on every agent row.
+	//
+	// The empty map is deliberate rather than a nil: providerConfig.llm still
+	// holds `provider`, `model`, `temperature` and `maxTokens`, and a caller
+	// setting `provider` still pins explicitly.
+	provider := map[string]any{"llm": map[string]any{}}
 	// Lineage attribution. The createdBy bucket is the agent.lineage
 	// field (NOT the row intrinsic createdBy that the engine stamps from
 	// the actor) -- it records the bootstrap source ("user" vs "planner"
@@ -780,18 +788,17 @@ func roleSnapshotFromRow(row map[string]any) (roleSnapshot, bool) {
 		return roleSnapshot{}, false
 	}
 	return roleSnapshot{
-		Slug:                  slug,
-		Name:                  stringField(payload, "name"),
-		Category:              stringField(payload, "category"),
-		Tier:                  stringField(payload, "tier"),
-		LockedSkillIds:        stringSliceFromAny(payload["lockedSkillIds"]),
-		DefaultSkillIds:       stringSliceFromAny(payload["defaultSkillIds"]),
-		AvailableSkillIds:     stringSliceFromAny(payload["availableSkillIds"]),
-		ForbiddenSkillIds:     stringSliceFromAny(payload["forbiddenSkillIds"]),
-		MaxSkills:             intFromAnyLoose(payload["maxSkills"]),
-		RecommendedPolicySlug: stringField(payload, "recommendedPolicySlug"),
-		SystemPromptHints:     stringField(payload, "systemPromptHints"),
-		Predefined:            boolField(payload, "predefined"),
+		Slug:              slug,
+		Name:              stringField(payload, "name"),
+		Category:          stringField(payload, "category"),
+		Tier:              stringField(payload, "tier"),
+		LockedSkillIds:    stringSliceFromAny(payload["lockedSkillIds"]),
+		DefaultSkillIds:   stringSliceFromAny(payload["defaultSkillIds"]),
+		AvailableSkillIds: stringSliceFromAny(payload["availableSkillIds"]),
+		ForbiddenSkillIds: stringSliceFromAny(payload["forbiddenSkillIds"]),
+		MaxSkills:         intFromAnyLoose(payload["maxSkills"]),
+		SystemPromptHints: stringField(payload, "systemPromptHints"),
+		Predefined:        boolField(payload, "predefined"),
 		// The id lives on the ROW, not the payload -- fall back to the payload
 		// spelling for the flat shape some callers pass.
 		ID: coalesceString(stringField(row, "id"), stringField(payload, "id")),
@@ -939,7 +946,7 @@ func findById(agents []agentSnapshot, id string) (agentSnapshot, bool) {
 //
 // This function was first-match-wins over an UNORDERED result set, so the
 // forged row could supply Name, SystemPromptHints, DefaultSkillIds and
-// RecommendedPolicySlug for a newly created agent -- what it is called, how it
+// systemPromptHints for a newly created agent -- what it is called, how it
 // is instructed, and which AI-router policy it runs under.
 //
 // The grant ceiling was never affected: fetchAgentRole keys on `id = slug` with

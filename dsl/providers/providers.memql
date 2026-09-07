@@ -206,7 +206,13 @@ provider computerUse {
 @modality("embedding")
 provider embedding3Large {
   params {
-    dimensions  3072
+    dimensions    3072
+    // The vendor's per-request input limit, in tokens. It is declared because
+    // the router's context floor became a LIVE gate in epic memql#5127 and
+    // fails CLOSED: a record with no window is passed over as soon as a call
+    // states one, so an undeclared limit here would refuse every embedding
+    // call rather than silently truncating.
+    contextWindow 8191
   }
 }
 
@@ -220,7 +226,9 @@ provider embedding3Large {
 @modality("embedding")
 provider embedding3Small {
   params {
-    dimensions  1536
+    dimensions    1536
+    // See embedding3Large: the context floor is a live, fail-closed gate.
+    contextWindow 8191
   }
 }
 
