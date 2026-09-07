@@ -134,6 +134,16 @@ type Policy struct {
 	RequireLabels map[string]string
 	PreferLabels  map[string]string
 	Fallback      string
+	// ModelPreference is an explicit ordered list of model ids, consulted
+	// when a policy names `fleet:*` (epic memql#5096, design D5). Empty for
+	// most users, and that is why the default size ordering has to be good
+	// on its own rather than a fallback nobody exercises.
+	//
+	// It orders; it does not filter. A model absent from the list is still
+	// eligible, it is simply tried after every model the list names --
+	// because a preference that silently removed a model would take the
+	// fleet's only tool-capable one out of every tool turn.
+	ModelPreference []string
 }
 
 // DefaultPolicy is what a user who never opened the Fleet page gets: the

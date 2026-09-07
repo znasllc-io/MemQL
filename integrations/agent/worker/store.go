@@ -314,11 +314,12 @@ func (s *EngineStore) RoutingPolicyForOwner(ctx context.Context, ownerUserId str
 			continue
 		}
 		return &Policy{
-			Id:            rowString(row, "id"),
-			Strategy:      rowString(row, "strategy"),
-			RequireLabels: rowStringMap(row, "requireLabels"),
-			PreferLabels:  rowStringMap(row, "preferLabels"),
-			Fallback:      rowString(row, "fallback"),
+			Id:              rowString(row, "id"),
+			Strategy:        rowString(row, "strategy"),
+			RequireLabels:   rowStringMap(row, "requireLabels"),
+			PreferLabels:    rowStringMap(row, "preferLabels"),
+			Fallback:        rowString(row, "fallback"),
+			ModelPreference: rowStringList(row, "modelPreference"),
 		}, nil
 	}
 	return nil, nil

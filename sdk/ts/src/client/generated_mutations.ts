@@ -3155,6 +3155,8 @@ export interface CreateRoutingPolicyArgs {
   strategy: string;
   requireLabels?: Record<string, unknown>;
   preferLabels?: Record<string, unknown>;
+  /** Ordered model ids for a policy naming fleet:*. Ordering only -- a model absent from the list stays eligible, tried after the ones named. */
+  modelPreference?: unknown[];
   // Enum: none | nextMatching
   fallback: string;
 }
@@ -3165,6 +3167,7 @@ export function buildCreateRoutingPolicy(args: CreateRoutingPolicyArgs): string 
   parts.push("strategy: " + renderMemQLValue(args.strategy));
   if (args.requireLabels !== undefined) parts.push("requireLabels: " + renderMemQLValue(args.requireLabels));
   if (args.preferLabels !== undefined) parts.push("preferLabels: " + renderMemQLValue(args.preferLabels));
+  if (args.modelPreference !== undefined) parts.push("modelPreference: " + renderMemQLValue(args.modelPreference));
   parts.push("fallback: " + renderMemQLValue(args.fallback));
   return "mutation createRoutingPolicy(" + parts.join(", ") + ")";
 }
@@ -3686,6 +3689,8 @@ export interface CreateWorkerRegistrationArgs {
   buildTag?: string;
   /** Local-app inventory the cockpit reported (memql#4359): a list of {id, version, signedIn, subscription, allowed}. Stored verbatim, including apps this engine cannot drive. */
   apps?: unknown[];
+  /** How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for. */
+  appDescriptors?: unknown[];
   registeredAt: string;
   lastSeenAt?: string;
   lastConnectedFromIP?: string;
@@ -3706,6 +3711,7 @@ export function buildCreateWorkerRegistration(args: CreateWorkerRegistrationArgs
   if (args.version !== undefined) parts.push("version: " + renderMemQLValue(args.version));
   if (args.buildTag !== undefined) parts.push("buildTag: " + renderMemQLValue(args.buildTag));
   if (args.apps !== undefined) parts.push("apps: " + renderMemQLValue(args.apps));
+  if (args.appDescriptors !== undefined) parts.push("appDescriptors: " + renderMemQLValue(args.appDescriptors));
   parts.push("registeredAt: " + renderMemQLValue(args.registeredAt));
   if (args.lastSeenAt !== undefined) parts.push("lastSeenAt: " + renderMemQLValue(args.lastSeenAt));
   if (args.lastConnectedFromIP !== undefined) parts.push("lastConnectedFromIP: " + renderMemQLValue(args.lastConnectedFromIP));
@@ -5271,6 +5277,8 @@ export interface RefreshWorkerRegistrationArgs {
   buildTag?: string;
   /** Local-app inventory from the latest Register (memql#4359). An omitted list CLEARS the persisted one, the same way the capability descriptor does: the worker no longer reports apps. */
   apps?: unknown[];
+  /** How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for. */
+  appDescriptors?: unknown[];
   lastSeenAt: string;
   lastConnectedFromIP?: string;
   connectedNodeId?: string;
@@ -5289,6 +5297,7 @@ export function buildRefreshWorkerRegistration(args: RefreshWorkerRegistrationAr
   if (args.version !== undefined) parts.push("version: " + renderMemQLValue(args.version));
   if (args.buildTag !== undefined) parts.push("buildTag: " + renderMemQLValue(args.buildTag));
   if (args.apps !== undefined) parts.push("apps: " + renderMemQLValue(args.apps));
+  if (args.appDescriptors !== undefined) parts.push("appDescriptors: " + renderMemQLValue(args.appDescriptors));
   parts.push("lastSeenAt: " + renderMemQLValue(args.lastSeenAt));
   if (args.lastConnectedFromIP !== undefined) parts.push("lastConnectedFromIP: " + renderMemQLValue(args.lastConnectedFromIP));
   if (args.connectedNodeId !== undefined) parts.push("connectedNodeId: " + renderMemQLValue(args.connectedNodeId));
@@ -8248,6 +8257,8 @@ export interface UpdateRoutingPolicyArgs {
   strategy: string;
   requireLabels?: Record<string, unknown>;
   preferLabels?: Record<string, unknown>;
+  /** Ordered model ids for a policy naming fleet:*. Ordering only -- a model absent from the list stays eligible, tried after the ones named. */
+  modelPreference?: unknown[];
   // Enum: none | nextMatching
   fallback: string;
 }
@@ -8258,6 +8269,7 @@ export function buildUpdateRoutingPolicy(args: UpdateRoutingPolicyArgs): string 
   parts.push("strategy: " + renderMemQLValue(args.strategy));
   if (args.requireLabels !== undefined) parts.push("requireLabels: " + renderMemQLValue(args.requireLabels));
   if (args.preferLabels !== undefined) parts.push("preferLabels: " + renderMemQLValue(args.preferLabels));
+  if (args.modelPreference !== undefined) parts.push("modelPreference: " + renderMemQLValue(args.modelPreference));
   parts.push("fallback: " + renderMemQLValue(args.fallback));
   return "mutation updateRoutingPolicy(" + parts.join(", ") + ")";
 }

@@ -108,6 +108,29 @@ func (f *FleetInference) Catalog(ctx context.Context, actingUserId string) ([]me
 	return projectCatalog(machines, f.clock()), nil
 }
 
+// ModelPreference reads the owner's explicit model ordering off their routing
+// policy (design D5).
+//
+// A user with no policy row, and SYSTEM WORK with no acting user at all, both
+// get nil -- which is not a degraded answer: the size ordering is the default,
+// and a preference is a statement one user made about their own hardware.
+// Applying somebody's preference to a call that may land on another user's
+// machine would let it cross the ownership boundary the rest of this file
+// exists to hold, which is why the system path does not read one.
+func (f *FleetInference) ModelPreference(ctx context.Context, actingUserId string) ([]string, error) {
+	if f == nil || f.store == nil || strings.TrimSpace(actingUserId) == "" {
+		return nil, nil
+	}
+	policy, err := f.store.RoutingPolicyForOwner(ctx, actingUserId)
+	if err != nil {
+		return nil, err
+	}
+	if policy == nil {
+		return nil, nil
+	}
+	return policy.ModelPreference, nil
+}
+
 // projectCatalog turns registrations into one entry per model.
 //
 // A model appears when ANY machine advertises it, and its attributes are the
@@ -140,6 +163,21 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 			entry.StructuredOutput = entry.StructuredOutput || attrs.StructuredOutput
 			entry.Embeddings = entry.Embeddings || attrs.Embeddings
 			entry.Tools = entry.Tools || attrs.Tools
+			// MAX of params across the machines behind the model, for the
+			// same reason every capability is a union: a machine that
+			// under-reports must not shrink a model the fleet demonstrably
+			// runs at full size.
+			if attrs.Params > entry.Params {
+				entry.Params = attrs.Params
+			}
+			// The quantization is the FIRST non-empty one reported, and it
+			// is operator-facing only. Two machines running different
+			// quantizations of one model are the same model to a caller, so
+			// there is nothing to reconcile -- and a concatenated list would
+			// read as a claim about the model rather than about a machine.
+			if entry.Quant == "" {
+				entry.Quant = attrs.Quant
+			}
 			entry.Machines = append(entry.Machines, memqlengine.FleetMachine{
 				RegistrationId: m.RegistrationId,
 				Name:           m.Name,

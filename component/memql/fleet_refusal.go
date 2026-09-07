@@ -60,7 +60,11 @@ func (e *FleetUnavailable) Error() string {
 		return ErrFleetUnavailable.Error()
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: no eligible machine for model %s", FeedbackReasonNoLocalModel, e.ModelId)
+	if e.ModelId == "*" {
+		fmt.Fprintf(&b, "%s: no local model can serve this call", FeedbackReasonNoLocalModel)
+	} else {
+		fmt.Fprintf(&b, "%s: no eligible machine for model %s", FeedbackReasonNoLocalModel, e.ModelId)
+	}
 	if e.Total == 0 {
 		b.WriteString(" (no machines are paired)")
 	}
@@ -224,6 +228,23 @@ func (r *ProviderRegistry) FleetRefusal(ctx context.Context, actingUserId, model
 		}
 	}
 	out.Total = len(seen)
+
+	// THE WILDCARD REPORTS ON MODELS, NOT MACHINES (epic memql#5096, D5).
+	// `fleet:*` asked for any eligible local model, so "which machine was
+	// ruled out" is the wrong question -- the operator wants to know what
+	// their fleet is running and why none of it fit. Reporting machines here
+	// would name the same laptop three times, once per model it hosts.
+	if modelId == "*" {
+		out.Total = len(models)
+		for _, m := range models {
+			if !m.Online() {
+				out.Considered[m.ModelId] = "no machine offering it is online"
+				continue
+			}
+			out.Considered[m.ModelId] = "online, but not eligible for what this call needs"
+		}
+		return out
+	}
 
 	for _, m := range models {
 		if m.ModelId != modelId {

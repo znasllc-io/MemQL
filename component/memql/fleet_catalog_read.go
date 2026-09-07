@@ -95,6 +95,8 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 			"structuredOutput": m.StructuredOutput,
 			"embeddings":       m.Embeddings,
 			"tools":            m.Tools,
+			"params":           m.Params,
+			"quant":            m.Quant,
 			"online":           m.Online(),
 			"machineCount":     len(m.Machines),
 			"onlineCount":      online,
@@ -233,6 +235,12 @@ func (e *MemQLEngine) fleetCatalogForCaller(ctx context.Context) ([]FleetModel, 
 			entry.StructuredOutput = entry.StructuredOutput || m.StructuredOutput
 			entry.Embeddings = entry.Embeddings || m.Embeddings
 			entry.Tools = entry.Tools || m.Tools
+			if m.Params > entry.Params {
+				entry.Params = m.Params
+			}
+			if entry.Quant == "" {
+				entry.Quant = m.Quant
+			}
 			for _, machine := range m.Machines {
 				key := m.ModelId + "\x00" + machine.RegistrationId
 				if seenMachine[key] {

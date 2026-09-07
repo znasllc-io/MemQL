@@ -18,11 +18,18 @@ type stubFleet struct {
 	answer    string
 	toolCalls []common.ToolCall
 	err       error
+	// preference stands in for the owner's routingPolicy.modelPreference.
+	preference    []string
+	preferenceErr error
 }
 
 func (s *stubFleet) Catalog(_ context.Context, actingUserId string) ([]FleetModel, error) {
 	s.lastActor = actingUserId
 	return s.models, nil
+}
+
+func (s *stubFleet) ModelPreference(_ context.Context, _ string) ([]string, error) {
+	return s.preference, s.preferenceErr
 }
 
 func (s *stubFleet) Call(_ context.Context, req FleetCallRequest) (FleetCallResult, error) {

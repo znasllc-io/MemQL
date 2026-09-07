@@ -212,6 +212,8 @@ func (f *perActorFleet) Catalog(_ context.Context, actingUserId string) ([]Fleet
 	return f.mine, nil
 }
 
+func (f *perActorFleet) ModelPreference(context.Context, string) ([]string, error) { return nil, nil }
+
 func (f *perActorFleet) Call(context.Context, FleetCallRequest) (FleetCallResult, error) {
 	return FleetCallResult{}, nil
 }

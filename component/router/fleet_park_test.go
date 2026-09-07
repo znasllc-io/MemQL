@@ -20,6 +20,10 @@ func (s *stubFleetInference) Catalog(context.Context, string) ([]memql.FleetMode
 	return s.models, nil
 }
 
+func (s *stubFleetInference) ModelPreference(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
 func (s *stubFleetInference) Call(_ context.Context, req memql.FleetCallRequest) (memql.FleetCallResult, error) {
 	s.calls++
 	return memql.FleetCallResult{Content: "local answer", ExecutionSurface: "fleet:laptop"}, nil

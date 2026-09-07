@@ -142,6 +142,7 @@ shape routingPolicy workerRoutingPolicyFull {
   strategy
   requireLabels
   preferLabels
+  modelPreference
   fallback
   active
   row.createdAt

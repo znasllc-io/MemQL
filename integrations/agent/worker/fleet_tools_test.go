@@ -14,6 +14,7 @@ package worker
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	memqlengine "github.com/znasllc-io/memql/component/memql"
@@ -154,5 +155,51 @@ func TestAToolResultCarriesItsCallIdToTheRuntime(t *testing.T) {
 	}
 	if len(msgs[1].GetToolCalls()) != 1 || msgs[1].GetToolCalls()[0].GetId() != "call_a" {
 		t.Errorf("the assistant's own calls must be replayed so the model sees what it asked for: %+v", msgs[1])
+	}
+}
+
+// The size attributes round-trip, and neither is a capability (design D5).
+func TestSizeAttributesRoundTripAndGateNothing(t *testing.T) {
+	want := ModelAttributes{
+		ContextWindow:    131072,
+		StructuredOutput: true,
+		Tools:            true,
+		Params:           70_000_000_000,
+		Quant:            "Q4_K_M",
+		MaxConcurrent:    1,
+	}
+	if got := ParseModelAttributes(want.String()); got != want {
+		t.Fatalf("round trip lost something.\n want %+v\n  got %+v\n via %q", want, got, want.String())
+	}
+	if want.String() != "ctx=131072,structured=1,tools=1,params=70000000000,quant=Q4_K_M,max=1" {
+		t.Errorf("label value = %q; the cockpit parses this string literally", want.String())
+	}
+
+	// NEITHER GATES ANYTHING. A machine that reports no size stays eligible
+	// for every turn it advertised the capabilities for -- it simply does not
+	// win the ordering. Satisfies reading Params would take a whole class of
+	// machine out of the fleet for a field that is a preference.
+	silent := ParseModelAttributes("ctx=8192,structured=1,tools=1")
+	if silent.Params != 0 || silent.Quant != "" {
+		t.Fatalf("a machine that said nothing must report nothing: %+v", silent)
+	}
+	if ok, why := silent.Satisfies(ModelNeeds{StructuredOutput: true, Tools: true, MinContextWindow: 8192}); !ok {
+		t.Errorf("a model with no declared size must still be eligible: %s", why)
+	}
+}
+
+// A garbled or oversized value costs the ATTRIBUTE, never the machine. Taking
+// a working laptop out of the fleet over a cosmetic number is the wrong trade,
+// and the zero value is fail-closed on everything that matters.
+func TestAGarbledSizeAttributeDoesNotUnrouteTheMachine(t *testing.T) {
+	got := ParseModelAttributes("ctx=8192,structured=1,params=eight-billion,quant=" + strings.Repeat("x", 200))
+	if got.Params != 0 {
+		t.Errorf("params = %d, want 0 for an unparseable value", got.Params)
+	}
+	if len(got.Quant) != maxQuantLen {
+		t.Errorf("quant length = %d, want it bounded to %d", len(got.Quant), maxQuantLen)
+	}
+	if !got.StructuredOutput || got.ContextWindow != 8192 {
+		t.Error("the attributes that DID parse must survive a neighbour that did not")
 	}
 }

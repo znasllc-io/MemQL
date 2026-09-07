@@ -502,6 +502,10 @@ mutate routingPolicy createRoutingPolicy {
     strategy       enum("firstFit", "roundRobin", "leastLoaded", "labelMatch")!
     requireLabels  object
     preferLabels   object
+    /// Ordered model ids for a policy naming fleet:*. Ordering only --
+    /// a model absent from the list stays eligible, tried after the
+    /// ones named.
+    modelPreference  array
     fallback       enum("none", "nextMatching")!
   }
   insert {
@@ -510,6 +514,7 @@ mutate routingPolicy createRoutingPolicy {
     args.strategy
     requireLabels: args.requireLabels ?? {}
     preferLabels: args.preferLabels ?? {}
+    modelPreference: args.modelPreference ?? []
     args.fallback
     active: true
   }
@@ -523,6 +528,10 @@ mutate routingPolicy updateRoutingPolicy {
     strategy       enum("firstFit", "roundRobin", "leastLoaded", "labelMatch")!
     requireLabels  object
     preferLabels   object
+    /// Ordered model ids for a policy naming fleet:*. Ordering only --
+    /// a model absent from the list stays eligible, tried after the
+    /// ones named.
+    modelPreference  array
     fallback       enum("none", "nextMatching")!
   }
   update {
@@ -530,6 +539,7 @@ mutate routingPolicy updateRoutingPolicy {
     args.strategy
     requireLabels: args.requireLabels ?? {}
     preferLabels: args.preferLabels ?? {}
+    modelPreference: args.modelPreference ?? []
     args.fallback
     active: true
   }

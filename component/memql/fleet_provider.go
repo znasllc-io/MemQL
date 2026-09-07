@@ -49,6 +49,20 @@ const FleetProviderName = "fleet"
 // `@primary("fleet:llama3.1:8b")`.
 const FleetReferencePrefix = "fleet:"
 
+// FleetWildcard is the whole reference a policy writes to mean ANY eligible
+// local model, strongest first (epic memql#5096, design D5).
+//
+// It exists because the alternative is a policy that names one model id, and
+// a model id is the one thing an operator cannot know in advance: which
+// weights are pulled is a decision made on each machine, and a chain pinned
+// to `fleet:llama3.1:8b` parks on a fleet that is running qwen2.5:7b and
+// would have served the turn perfectly.
+//
+// The model is chosen at CALL time rather than at entry time, because
+// eligibility depends on what the call needs -- a structured turn and a tool
+// turn can legitimately resolve to different models on the same fleet.
+const FleetWildcard = FleetReferencePrefix + "*"
+
 // Model call kinds, mirroring the wire.
 const (
 	FleetKindChat      = "chat"
@@ -87,8 +101,21 @@ func (m FleetMachine) Busy() bool {
 // FleetModel is one entry in the live catalog: a model, its attributes, and
 // the machines behind it.
 type FleetModel struct {
-	ModelId          string
-	ContextWindow    int
+	ModelId       string
+	ContextWindow int
+	// Params is the model's parameter count, as the runtime reported it
+	// (Ollama's `details.parameter_size`, e.g. "8B" -> 8_000_000_000).
+	//
+	// It is an ORDERING signal, never a capability gate: `Satisfies` does
+	// not read it, so a model that never said how big it is stays eligible
+	// for every turn it advertised the capabilities for. It simply does not
+	// WIN by silence -- unknown size sorts last.
+	Params int64
+	// Quant is the quantization level the runtime reported (Q4_K_M, F16).
+	// Carried for the operator, not for selection: two quantizations of one
+	// model are the same model to a caller, and ordering by a string nobody
+	// agreed on would be an arbitrary preference wearing a technical name.
+	Quant            string
 	StructuredOutput bool
 	Embeddings       bool
 	// Tools reports that at least one machine behind this model can carry a
@@ -189,6 +216,14 @@ type FleetInference interface {
 	// Call runs one model call, streaming through req.OnDelta when set.
 	// ErrFleetUnavailable when no eligible machine could serve it.
 	Call(ctx context.Context, req FleetCallRequest) (FleetCallResult, error)
+	// ModelPreference returns the owner's explicit ordered model list from
+	// their routing policy, or nil when they have none -- which is most
+	// users, and is why the default ordering has to be good on its own.
+	//
+	// It is a SEAM METHOD rather than a field on FleetModel because it is a
+	// property of the CALLER, not of a model: two users looking at the same
+	// machine can legitimately want different models tried first.
+	ModelPreference(ctx context.Context, actingUserId string) ([]string, error)
 }
 
 // SetFleetInference installs the implementation. Called once during cluster
@@ -236,7 +271,8 @@ func (r *ProviderRegistry) FleetCatalog(ctx context.Context, actingUserId string
 }
 
 // IsFleetReference reports whether a policy's provider name refers to a fleet
-// model, and returns the model id.
+// model, and returns the model id. The wildcard returns "*", which is a model
+// id no runtime can serve -- callers that care ask IsFleetWildcard.
 func IsFleetReference(name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if !strings.HasPrefix(name, FleetReferencePrefix) {
@@ -244,6 +280,93 @@ func IsFleetReference(name string) (string, bool) {
 	}
 	modelId := strings.TrimSpace(strings.TrimPrefix(name, FleetReferencePrefix))
 	return modelId, modelId != ""
+}
+
+// IsFleetWildcard reports whether a reference names ANY eligible local model
+// rather than one in particular.
+func IsFleetWildcard(name string) bool {
+	return strings.TrimSpace(name) == FleetWildcard
+}
+
+// orderModels ranks a catalog strongest-first (design D5).
+//
+// The order is: the caller's explicit preference for the ids it names, then
+// PARAMETERS descending, then CONTEXT WINDOW descending, then model id.
+//
+// MISSING ATTRIBUTES SORT LAST, NEVER FIRST, and that direction is the whole
+// of the rule. A model that does not say how big it is must not win by
+// silence: a cockpit that predates the attribute, or a runtime that reports
+// nothing, would otherwise become the fleet's strongest model on every
+// machine it runs on. Sorting it last costs it a turn it might have served;
+// sorting it first would quietly route every planning turn to a 1B model.
+//
+// The sort is STABLE over the input order, so a fleet whose models tie on
+// every signal is ordered identically on every replica -- the property the
+// routing strategies already depend on.
+func orderModels(models []FleetModel, preference []string) []FleetModel {
+	out := make([]FleetModel, len(models))
+	copy(out, models)
+
+	rank := make(map[string]int, len(preference))
+	for i, id := range preference {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, seen := rank[id]; !seen {
+			rank[id] = i
+		}
+	}
+	// A model the preference does not name sorts after every one it does.
+	prefRank := func(m FleetModel) int {
+		if r, ok := rank[m.ModelId]; ok {
+			return r
+		}
+		return len(preference) + 1
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := prefRank(a), prefRank(b); ra != rb {
+			return ra < rb
+		}
+		// Unknown size last, in both directions: it is not "zero
+		// parameters", it is "the machine did not say".
+		if (a.Params > 0) != (b.Params > 0) {
+			return a.Params > 0
+		}
+		if a.Params != b.Params {
+			return a.Params > b.Params
+		}
+		if a.ContextWindow != b.ContextWindow {
+			return a.ContextWindow > b.ContextWindow
+		}
+		return a.ModelId < b.ModelId
+	})
+	return out
+}
+
+// eligibleFor reports whether a model can serve a call with these needs, and
+// names the miss when it cannot. It mirrors ModelAttributes.Satisfies on the
+// agent side -- the same questions asked of the CATALOG rather than of one
+// machine's label, which is what the wildcard resolver needs.
+func (m FleetModel) eligibleFor(n FleetNeeds) (bool, string) {
+	if !m.Online() {
+		return false, "no machine offering it is online"
+	}
+	if n.StructuredOutput && !m.StructuredOutput {
+		return false, "does not advertise structured output"
+	}
+	if n.Embeddings && !m.Embeddings {
+		return false, "does not advertise embeddings"
+	}
+	if n.Tools && !m.Tools {
+		return false, "does not advertise tool calling"
+	}
+	if n.MinContextWindow > 0 && m.ContextWindow < n.MinContextWindow {
+		return false, fmt.Sprintf("context window %d is under the floor %d", m.ContextWindow, n.MinContextWindow)
+	}
+	return true, ""
 }
 
 // fleetEntry synthesizes the registry entry for `fleet:<modelId>`.
@@ -265,12 +388,13 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 	f := r.fleet
 	r.mu.RUnlock()
 
+	wildcard := modelId == "*"
 	cfg := ProviderConfig{
 		Name:  FleetReferencePrefix + modelId,
 		Type:  FleetProviderType,
 		Model: modelId,
 	}
-	client := &fleetProvider{registry: r, modelId: modelId, actingUserId: actingUserId}
+	client := &fleetProvider{registry: r, modelId: modelId, actingUserId: actingUserId, wildcard: wildcard}
 	entry := &ProviderConfigEntry{Config: cfg, Client: client}
 	if f == nil {
 		// No worker service on this node. UNAVAILABLE, not an error: the
@@ -284,6 +408,28 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 		entry.err = err
 		return entry, true
 	}
+
+	// THE WILDCARD IS AVAILABLE WHEN ANY MODEL IS ONLINE, and the concrete
+	// model is chosen later, in call(), once the needs are known.
+	//
+	// Deciding it here would mean deciding it without them, and a fleet
+	// running one structured-capable model and one embeddings model would
+	// answer "unavailable" for whichever the entry happened to pick -- for a
+	// call the other one could have served. Availability here answers "is
+	// there any local model at all", which is exactly the question the chain
+	// walk is asking.
+	if wildcard {
+		for _, m := range models {
+			if m.Online() {
+				entry.Available = true
+				cfg.Model = "*"
+				return entry, true
+			}
+		}
+		entry.err = fmt.Errorf("no local model is online")
+		return entry, true
+	}
+
 	for _, m := range models {
 		if m.ModelId != modelId {
 			continue
@@ -326,7 +472,10 @@ type fleetProvider struct {
 	// machines are eligible -- a disagreement in that direction is a silent
 	// cloud call for a user whose laptop was awake.
 	actingUserId string
-	attributes   FleetModel
+	// wildcard marks the `fleet:*` provider, whose concrete model is chosen
+	// per call rather than at entry time.
+	wildcard   bool
+	attributes FleetModel
 	// lastMu guards the surface bookkeeping the ledger reads back after a
 	// call. It is per-entry rather than per-call because the provider
 	// interfaces return a string and have nowhere to carry it.
@@ -367,6 +516,14 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 		req.ActingUserId = actingUserFromContext(ctx)
 	}
 
+	if p.wildcard {
+		chosen, err := p.resolveWildcard(ctx, f, req)
+		if err != nil {
+			return FleetCallResult{}, err
+		}
+		req.ModelId = chosen
+	}
+
 	// THE GUARDS (memql#4680). This is the one seam every fleet call passes,
 	// and it is where the chokepoint moved to: a local call has no
 	// *http.Client, so guardedTransport -- which the whole defense-in-depth
@@ -385,6 +542,50 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 	p.lastUsage = res.Usage
 	p.lastMu.Unlock()
 	return res, nil
+}
+
+// resolveWildcard picks the concrete model a `fleet:*` call runs on.
+//
+// Strongest first, among the models that can actually serve THIS call: the
+// needs come off the request, so a structured turn and an embedding turn on
+// the same fleet legitimately land on different models. The owner's
+// modelPreference, when they have one, wins over the size ordering -- it is
+// an explicit statement about their own hardware, and the default ordering
+// exists precisely for the users who have not made one.
+//
+// A miss is the TYPED refusal naming every model considered and why each was
+// ruled out, in the same grammar the machine-level refusal uses. "Your fleet
+// has nothing that can do this" is the answer, and an operator reading it
+// needs to know whether the fix is waking a laptop, pulling a bigger model,
+// or using a runtime that supports tools.
+func (p *fleetProvider) resolveWildcard(ctx context.Context, f FleetInference, req FleetCallRequest) (string, error) {
+	models, err := f.Catalog(ctx, req.ActingUserId)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrFleetUnavailable, err)
+	}
+	preference, err := f.ModelPreference(ctx, req.ActingUserId)
+	if err != nil {
+		// A policy read that failed must not decide the model. Falling back
+		// to the default ordering is the honest degrade: the caller gets the
+		// strongest eligible model rather than a refusal over a row nobody
+		// asked about.
+		preference = nil
+	}
+
+	needs := req.Needs()
+	considered := map[string]string{}
+	for _, m := range orderModels(models, preference) {
+		if ok, why := m.eligibleFor(needs); ok {
+			return m.ModelId, nil
+		} else {
+			considered[m.ModelId] = why
+		}
+	}
+	return "", &FleetUnavailable{
+		ModelId:    "*",
+		Considered: considered,
+		Total:      len(models),
+	}
 }
 
 // Call implements AIProvider -- the bare prompt form.
