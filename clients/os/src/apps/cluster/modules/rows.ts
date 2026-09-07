@@ -1,6 +1,9 @@
 import type { Module, ModuleEnvVar } from "@znasllc-io/memql-sdk-core/client";
 
 import type { ChipTone } from "../../../kit";
+import type { Readiness } from "../../../live/readiness";
+import { isModuleId } from "../../../system/modules";
+import type { Verdict } from "../../../system/readinessFold";
 
 // Reading the module inventory: everything about it that is a DECISION rather
 // than a rendering, kept pure so it can be asserted without a DOM.
@@ -170,4 +173,28 @@ export function envVarReading(v: Pick<ModuleEnvVar, "secret" | "set" | "value">)
  *  promise that the other arm exists. */
 export function flipOutcomeSentence(packDomain: string, enabled: boolean): string {
   return `${packDomain} is now recorded as ${enabled ? "enabled" : "disabled"}. Nothing running has changed: each node reads this at its NEXT BOOT, so it takes effect when the nodes restart.`;
+}
+
+/**
+ * The cluster-wide readiness for a module row, when the registry's name is
+ * also a readiness module id.
+ *
+ * TWO READINGS OF DIFFERENT SCOPE sit in one row, and that is the point of
+ * putting them side by side. The inventory's `state` is THIS node's answer
+ * about its own registries and environment; the verdict is every LIVE node's,
+ * folded. They can honestly differ mid-rollout, which is why the column
+ * carries the disagreement rather than a single word -- an operator reading
+ * "configured" here while a sibling replica refuses every send has no way to
+ * tell from one word which node they are looking at.
+ *
+ * Null when the registry module has no readiness counterpart, which is most
+ * of them: the module registry is every compiled-in component, and readiness
+ * declares the seven a person configures.
+ */
+export function readinessForModule(
+  module: { name: string },
+  readiness: Readiness | undefined,
+): Verdict | null {
+  if (!readiness || !readiness.loaded || !isModuleId(module.name)) return null;
+  return readiness.of(module.name);
 }

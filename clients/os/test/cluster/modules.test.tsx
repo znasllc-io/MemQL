@@ -14,12 +14,17 @@ vi.mock("../../src/live/connection", () => ({
 
 const { ModulesSection } = await import("../../src/apps/cluster/modules/ModulesSection");
 const { fakeConnection, withSession } = await import("./harness");
+import type { SessionFacts } from "../../src/chrome/access";
 
 type Conn = ReturnType<typeof fakeConnection>;
 
-function mount(connection: Conn, clusterRole = "owner") {
+function mount(
+  connection: Conn,
+  clusterRole = "owner",
+  readiness?: SessionFacts["readiness"],
+) {
   h.connection = connection;
-  return render(withSession(<ModulesSection />, { clusterRole }));
+  return render(withSession(<ModulesSection />, { clusterRole, readiness }));
 }
 
 async function click(el: Element) {
@@ -32,6 +37,9 @@ async function click(el: Element) {
 // a rendering that simply echoed the wire would pass nothing here.
 const MODULES = [
   { kind: "component", name: "identity", state: "built_in", scope: "node", description: "The identity service." },
+  // `storage` is also a READINESS module id, which is what makes the
+  // cluster-wide column reachable in this suite.
+  { kind: "component", name: "storage", state: "built_in", scope: "node", description: "Blob storage." },
   { kind: "node-type", name: "planner", state: "compiled_out", scope: "cluster", description: "Task planning." },
   { kind: "integration", name: "shopify", state: "credential_gated", scope: "node", description: "The Shopify connector." },
   { kind: "pack", name: "referencepack", state: "enabled", scope: "cluster", description: "The reference pack." },
@@ -175,5 +183,46 @@ describe("the pack switch", () => {
     await click(await screen.findByText("planner"));
     expect(screen.queryByRole("button", { name: /this pack/i })).toBeNull();
     expect(screen.getByText(/A node type has no switch/)).toBeTruthy();
+  });
+});
+
+describe("the cluster-wide readiness column", () => {
+  // THE CLUSTER-WIDE READING beside this node's own. The two are different
+  // scopes and may honestly differ mid-rollout, so the column carries the
+  // disagreement rather than a word that hides which node it came from.
+  it("shows the cluster-wide readiness beside a module that has one", async () => {
+    const readiness = {
+      loaded: true,
+      state: "live" as const,
+      reseed: () => {},
+      of: (id: string) =>
+        id === "storage"
+          ? {
+              module: "storage",
+              state: "partial" as const,
+              core: true,
+              disagreement: ["bff-b=unconfigured", "bff-a=configured"],
+              nodes: [],
+              lanes: [],
+            }
+          : null,
+    };
+    mount(fakeConnection({}, { modules: MODULES }), "owner", readiness);
+    expect(await screen.findByText(/Partly set up/)).toBeTruthy();
+    expect(screen.getByText(/bff-b=unconfigured/)).toBeTruthy();
+  });
+
+  // Most registry modules have no readiness counterpart, and drawing an
+  // empty chip for them would put a column of nothing beside every row.
+  it("draws no readiness chip for a module that has none", async () => {
+    const readiness = {
+      loaded: true,
+      state: "live" as const,
+      reseed: () => {},
+      of: () => null,
+    };
+    mount(fakeConnection({}, { modules: MODULES }), "owner", readiness);
+    await screen.findByText("referencepack");
+    expect(screen.queryByText(/Partly set up|Not set up|Not reported/)).toBeNull();
   });
 });

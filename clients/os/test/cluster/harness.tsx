@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { vi } from "vitest";
 import { Result, type Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { SessionProvider } from "../../src/chrome/access";
+import { SessionProvider, type SessionFacts } from "../../src/chrome/access";
 import { UNKNOWN_RUNTIME_CONFIG, type OsRuntimeConfig } from "../../src/cluster/config";
 
 // The Cluster app's test harness: a connection-shaped double, and the session
@@ -217,7 +217,13 @@ export function fakeConnection(seed: QuerySeed = {}, modules: ModulesSeed = {}):
 
 export function withSession(
   children: ReactNode,
-  overrides: { userId?: string; domain?: string; clusterRole?: string; identityUrl?: string } = {},
+  overrides: {
+    userId?: string;
+    domain?: string;
+    clusterRole?: string;
+    identityUrl?: string;
+    readiness?: SessionFacts["readiness"];
+  } = {},
 ) {
   const config: OsRuntimeConfig = {
     ...UNKNOWN_RUNTIME_CONFIG,
@@ -237,6 +243,7 @@ export function withSession(
         },
         config,
         ladderLoaded: true,
+        readiness: overrides.readiness,
       }}
     >
       {children}
