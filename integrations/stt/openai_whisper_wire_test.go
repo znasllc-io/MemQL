@@ -135,7 +135,6 @@ type capturedMultipart struct {
 	fileName        string
 	fileContentType string
 	fileBytes       []byte
-	header    http.Header
 }
 
 func newRecordingWhisperServer(t *testing.T) (*httptest.Server, *capturedMultipart) {
@@ -144,7 +143,6 @@ func newRecordingWhisperServer(t *testing.T) (*httptest.Server, *capturedMultipa
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		captured.path = req.URL.Path
-		captured.header = req.Header.Clone()
 
 		mediaType, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
 		if err != nil || !strings.HasPrefix(mediaType, "multipart/") {

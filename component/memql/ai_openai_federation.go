@@ -166,14 +166,20 @@ type BearerSource interface {
 	Bearer(ctx context.Context) (token string, expiresAt time.Time, err error)
 }
 
-// Refresh thresholds. The advisory one re-exchanges early enough that no
-// request waits on the network; the mandatory one is the point past which a
-// cached token is not handed out at all. They are the Anthropic SDK's own
-// numbers, adopted rather than invented so both vendors behave alike.
-const (
-	openaiRefreshAdvisory  = 120 * time.Second
-	openaiRefreshMandatory = 30 * time.Second
-)
+// openaiRefreshMandatory is the point past which a cached bearer is not handed
+// out at all: inside this window the next caller pays for a fresh exchange.
+//
+// ONE THRESHOLD, NOT TWO, and the design named two. Its second -- an advisory
+// 120s at which a refresh is STARTED EARLY so no request waits on the network
+// -- only means something for a BACKGROUND refresher, and this exchanger is
+// synchronous. Pre-empting inside an advisory window here would make some
+// unlucky caller wait for a round trip in order to spare a later one, which is
+// not a trade, and a constant declared for a behaviour that does not exist is
+// the kind of thing a reader later takes for a description of one.
+//
+// The number is the Anthropic SDK's own, adopted rather than invented so both
+// vendors behave alike.
+const openaiRefreshMandatory = 30 * time.Second
 
 // openaiExchanger performs the RFC 8693 token exchange and caches the result.
 type openaiExchanger struct {
@@ -203,11 +209,6 @@ func (x *openaiExchanger) Bearer(ctx context.Context) (string, time.Time, error)
 
 	now := x.now()
 	if x.token != "" && x.expiresAt.After(now.Add(openaiRefreshMandatory)) {
-		// Inside the advisory window the cached token is still handed out --
-		// this is a synchronous refresh, so pre-empting here would make some
-		// unlucky caller wait for a network round trip in order to spare a
-		// later one. The mandatory threshold is what protects correctness; the
-		// advisory one is what the check command reports.
 		return x.token, x.expiresAt, nil
 	}
 
