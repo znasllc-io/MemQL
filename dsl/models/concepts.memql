@@ -1,0 +1,48 @@
+// models/concepts.memql -- the curated model catalog (epic memql#5137, D1).
+//
+// WHAT THIS IS AND IS NOT. The catalog says what a machine SHOULD pull, by
+// category and by machine class. It gates nothing. Eligibility for a call is
+// what a machine ADVERTISES on its registration label (`model:<id>` with
+// ctx=, structured=, tools=, vision=, ...), which is a fact about a running
+// process; a profile here is a recommendation about a model, which is a fact
+// about weights. Conflating the two would let a catalog entry make a machine
+// eligible for work it cannot do, and the failure lands on somebody's laptop
+// three layers from the decision.
+//
+// WHY DSL DATA RATHER THAN A LIST IN GO. A model is a data change now, not a
+// release. The alternative considered and rejected in D1 was an unbounded
+// mirror of the Ollama library: the owner asked for the best few entries per
+// category, and a mirror is a different product -- it answers "what exists"
+// where the question is "what should I run".
+
+/// A curated model the catalog recommends, by category and machine class.
+///
+/// TIER: public, requiresIdentity. Any signed-in person reads it. The Fleet models surface has to
+/// say what this fleet COULD run before anybody has pulled anything, and a catalog narrowed by owner
+/// would show a new operator an empty page with no way to tell that from "nothing is recommended".
+/// There is nothing here to protect: every row is a public model id and a published size.
+@rowAuthz(public, requiresIdentity)
+@displayCard(primary="modelId", secondary="category", tertiary="runtime", status="curated")
+concept modelProfile {
+  modelId          string!  @description("The runtime's own id, byte-identical to what a machine advertises as `model:<id>` -- an Ollama tag (qwen3.5:9b) or hf.co/<owner>/<repo>. A catalog hit is therefore a string equality and never a fuzzy match, which is what stops qwen3.5:9b and qwen3.5:9b-q4 from being read as one model. NOT the row id: a tag carries ':' and '/', and the canonical row id is {concept}:{shortId}, so the row id is a slug of this and this is the field everything compares on.")
+  category         enum("text", "reasoning", "omni", "vision", "audioIn", "audioOut", "imageGen", "videoGen", "embeddings")!  @description("What the model is FOR. Streaming is deliberately absent and is a flag instead: it is true of models in every category, and a category for it would put one model in two rows -- the exact shape the vendor provider records are losing in this epic. `vision` is a category for a model whose PURPOSE is seeing; a text model that can also see carries the flag and stays in `text`.")
+  runtime          enum("ollama", "mlx", "whispercpp", "nemo", "kokoro", "mflux", "comfyui")!  @description("Which runtime serves it. A machine lacking the runtime cannot pull the model at all, which is one of the three reasons the Fleet page gives for a profile this fleet cannot serve. The set is closed because each value is a thing the cockpit knows how to install; a runtime nobody installs is not a recommendation.")
+  family           string   @description("The model family (qwen3.5, gemma4, gpt-oss), for grouping on a page. Not parsed from modelId: the tag's shape is the runtime's business and has changed before.")
+  params           int      @description("Parameter count expanded to a number (9B -> 9000000000). Zero means the publisher did not state one -- an ORDERING signal, never a capability gate, the same rule fleetModel.params follows.")
+  quant            string   @description("The quantization the recommended tag carries (Q4_K_M, MXFP4). Operator-facing only; nothing selects on it, because two quantizations of one model are the same model to a caller.")
+  sizeBytes        int      @description("Download size of the recommended tag as the library reported it on the day of seeding. Zero means it was not stated there -- and a zero is left as a zero rather than estimated, because a made-up download size is indistinguishable on a page from a measured one.")
+  memoryNeedBytes  int      @description("What the model needs resident to run at this quantization. An ESTIMATE derived from sizeBytes plus KV-cache headroom at the stated context window, with NO measurement behind it -- said plainly because the number reads like a measurement and is not one. epic memql#5146's probe supersedes it into `measured`. Zero means not estimated. minMachineClass, not this, is what decides where a model is offered.")
+  contextWindow    int      @description("Largest context window the model supports, in tokens, as published. Zero means not stated.")
+  flags            []string @description("What the MODEL can do, as the subset of {structured, tools, thinking, vision, audioIn, audioOut, imageGen, streaming} that is TRUE. A LIST rather than an object of booleans, and absence rather than false, for the same reason the registration label omits a flag it does not advertise: the two vocabularies are deliberately the same eight words, and making the two spellings the same shape is what lets the Fleet page compare a profile against a machine without translating. A model listing a flag and a machine not advertising it is the ORDINARY case -- the runtime behind an endpoint is half of every one of these capabilities.")
+  dimensions       int      @description("Vector width, for an embeddings entry; zero for every other category. This is the field that makes the embedder binding's width a fact about the PROVIDER rather than a constant in the schema (memql#5142), so an embeddings entry without it is refused by the seed gate -- a binding cannot create its table without knowing the width.")
+  license          string   @description("The weights' licence (apache-2.0, mit, gemma, qwen). Recorded because a person choosing what to run on hardware they own is entitled to know what they are agreeing to, and because two entries in one category can differ on exactly this.")
+  source           string   @description("URL of the library or vendor page this entry was verified against, on the day it was seeded. Curation is a release-time act and this is its receipt.")
+  recommendedFor   []string @description("Levels this model is a good answer for: fast | strong | reasoning | embeddings. EMPTY means listed and recommended for nothing, which is how videoGen is honest: the catalog names those models so an operator can see they exist and were considered, and recommends them nowhere.")
+  minMachineClass  enum("16", "24", "32", "64", "128")!  @description("Gigabytes of unified memory or VRAM below which this model does not run usefully. A machine's recommended set is every profile whose class it meets. A declared floor rather than a computed one: the computation needs a measurement nobody has taken yet, and a floor that is wrong in the permissive direction is a model that swaps to disk on somebody's laptop.")
+  offeredOn        []string @description("macos | linux. A videoGen entry is linux-only and SAYS so, rather than being absent on a Mac and unexplained -- the third of the three reasons the Fleet page gives for a profile this fleet cannot serve.")
+  notes            string   @description("One sentence for an operator: what this entry is the best pick FOR. The catalog is a recommendation and a recommendation with no reason is a preference.")
+  measured         object   @description("Empty until epic memql#5146. Measured throughput and quality with provenance. The catalog ranks nothing on it this release, and an empty object here is 'nobody has measured this', never 'it measured zero'.")
+  active           bool     @default("true")  @description("False once an operator removed their entry. A soft delete, because the row is the record that somebody added this id and then took it out again; a hard delete leaves the next operator asking the same question with nothing to read. Separate from `unavailable` on purpose -- that one is about the world (the runtime stopped serving the id), this one is about the operator's list.")
+  curated          bool     @default("true")  @description("False for an entry an operator added by id. A curated entry is a release-time act re-seeded on every boot; an operator's entry is theirs and is not re-seeded, which is also why modelProfileRemove refuses a curated row -- removing one is a lie the next restart undoes.")
+  unavailable      bool     @default("false") @description("Set when a pull failed because the runtime no longer serves the id. The row STAYS and says so rather than vanishing: curation is a release-time act, and a catalog entry that disappeared answers 'why can I not pull this' with silence.")
+}

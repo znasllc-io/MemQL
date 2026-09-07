@@ -1,0 +1,74 @@
+// models/mutations.memql -- the operator's half of the catalog (epic memql#5137, D1).
+//
+// THE WRITE FLOOR IS developer, WHICH IS RANK >= 300 -- {developer, owner}, and
+// deliberately NOT admin. D1 says "owner or developer". The ladder puts
+// developer (300) above admin (200) because they are different power axes:
+// admin manages people, developer authors what the cluster runs. A catalog
+// entry is a thing the cluster runs, so it is the engineering axis.
+//
+// THESE TWO WRITE OPERATOR ENTRIES ONLY. `curated` is stamped false and is not
+// in accept{}: a caller cannot mint a row that survives the next boot's
+// re-seed, because a row that claimed to be curated and was not would be
+// silently replaced by the SeedMaterializer and the operator would watch their
+// edit disappear with no error anywhere.
+
+/// Add a model to the catalog by id. The operator's entry, marked `curated: false`.
+///
+/// The catalog is release-time curation; this is the escape hatch for a model an operator wants
+/// their fleet told about before the next release curates it. It gates nothing either -- a machine
+/// still has to advertise the model before anything routes to it -- so the blast radius of a wrong
+/// entry is a recommendation nobody can act on, which is why the floor is a rank rather than the
+/// cluster owner alone.
+@createOnly("modelId", "category", "runtime", "family", "params", "quant", "sizeBytes", "memoryNeedBytes", "contextWindow", "flags", "dimensions", "license", "source", "recommendedFor", "minMachineClass", "offeredOn", "notes")
+@requiresRank("developer")
+mutate modelProfile modelProfileAdd {
+  args {
+    profileId        string!
+    modelId          string!  @maxLength(200)
+    category         enum("text", "reasoning", "omni", "vision", "audioIn", "audioOut", "imageGen", "videoGen", "embeddings")!
+    runtime          enum("ollama", "mlx", "whispercpp", "nemo", "kokoro", "mflux", "comfyui")!
+    minMachineClass  enum("16", "24", "32", "64", "128")!
+    family           string   @maxLength(100)
+    params           int      @minimum(0)
+    quant            string   @maxLength(40)
+    sizeBytes        int      @minimum(0)
+    memoryNeedBytes  int      @minimum(0)
+    contextWindow    int      @minimum(0)
+    /// The subset of {structured, tools, thinking, vision, audioIn, audioOut, imageGen, streaming} that is true.
+    flags            []string
+    /// Vector width. Required in practice for an embeddings entry -- a binding cannot create its
+    /// table without one -- and the seed gate says so; here it is an ordinary field, because an
+    /// operator adding a text model has no dimensions to give.
+    dimensions       int      @minimum(0)
+    license          string   @maxLength(100)
+    source           string   @maxLength(500)
+    recommendedFor   []string
+    offeredOn        []string
+    notes            string   @maxLength(500)
+  }
+  insert {
+    accept { modelId, category, runtime, family, params, quant, sizeBytes, memoryNeedBytes, contextWindow, flags, dimensions, license, source, recommendedFor, minMachineClass, offeredOn, notes }
+    stamp {
+      id:          args.profileId
+      curated:     false
+      unavailable: false
+    }
+  }
+}
+
+/// Remove an operator's catalog entry.
+///
+/// REFUSES A CURATED ROW, and the refusal is the point rather than caution. A curated entry is
+/// re-materialized by the SeedMaterializer on every boot, so "removing" one succeeds, looks
+/// correct, and is undone at the next pod restart with nothing to explain it. A refusal that names
+/// the reason is the only honest answer; the way to retire a curated entry is a release.
+@requiresRank("developer")
+mutate modelProfile modelProfileRemove {
+  args {
+    profileId  string!
+  }
+  update {
+    id:      args.profileId
+    active:  false
+  }
+}

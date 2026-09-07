@@ -59,6 +59,12 @@ type writeMeta struct {
 	// already-predefined role even if the caller tries to flip the flag
 	// to false in the same delta (memql#2070).
 	priorPredefined bool
+	// priorCurated is the prior row's v1:models:modelProfile `curated` flag
+	// (false when absent), captured before the delta overwrites it so the
+	// catalog's curated-entry guard rejects a write that targets an
+	// already-curated profile even if the caller flips the flag to false in
+	// the same delta (epic memql#5137).
+	priorCurated bool
 	// priorUserRole is the prior row's v1:identity:user `role` (empty when
 	// absent), captured before the delta overwrites it so the last-owner
 	// deletion guard judges a PARTIAL update correctly (memql#3967).
@@ -793,6 +799,11 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 			// immutability guard can reject an edit that targets an
 			// already-predefined role even if the delta flips the flag.
 			meta.priorPredefined = boolFromAny(priorPayload["predefined"])
+			// Capture the PRIOR curated flag before the delta overwrites
+			// it (epic memql#5137) so the model-catalog guard can reject
+			// an edit that targets an already-curated profile even if the
+			// delta flips the flag to false in the same write.
+			meta.priorCurated = boolFromAny(priorPayload["curated"])
 			// Capture the PRIOR healing tier before the delta overwrites
 			// it (memql#2140) so the self-healing base-tier immutability
 			// guard can reject an edit that targets an already-base-tier
@@ -1051,6 +1062,18 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 		// existing ranks while bounding them by the creator's rank. See
 		// rbac_custom_role_rankbound.go.
 		if err := e.validateRbacCustomRoleRankBound(ctx, payload, meta.priorPredefined, actor); err != nil {
+			return nil, meta, err
+		}
+	}
+	// Curated model-catalog guard (epic memql#5137): dsl/models/seeds.memql is
+	// re-materialized by the SeedMaterializer on every boot, so a runtime edit
+	// to a curated entry succeeds, looks correct, and is undone at the next
+	// restart with nothing anywhere to explain it -- which leaves an operator
+	// watching their own change revert at a restart they did not cause. Mirrors
+	// the two guards above, including the system-actor carve-out that keeps the
+	// idempotent re-seed working. See model_profile_curated_validation.go.
+	if conceptMeta.Name == conceptModelsModelProfile {
+		if err := e.validateModelProfileCuratedImmutable(ctx, payload, meta.priorCurated, actor); err != nil {
 			return nil, meta, err
 		}
 	}
