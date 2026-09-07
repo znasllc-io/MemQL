@@ -110,6 +110,9 @@ function InferenceLine({
       doorsOpen: stringsOf(row, "doorsOpen"),
       localModelCount: numberOf(row, "localModelCount"),
       eligibleModelIds: stringsOf(row, "eligibleModelIds"),
+      appEligible: boolOr(row, "appEligible", false),
+      runnableApps: stringsOf(row, "runnableApps"),
+      appSessionsInstalled: boolOr(row, "appSessionsInstalled", false),
       cloudConfigured: boolOr(row, "cloudConfigured", false),
       federationConfigured: boolOr(row, "federationConfigured", false),
       fleetInferenceInstalled: boolOr(row, "fleetInferenceInstalled", false),
@@ -145,6 +148,13 @@ function InferenceLine({
               {facts.minimumContextWindow.toLocaleString()}-token floor.
             </Caption>
           )}
+          {facts.appEligible ? (
+            <Caption>
+              {facts.runnableApps.join(", ")}{" "}
+              {facts.runnableApps.length === 1 ? "is" : "are"} signed in and reachable on a machine
+              you have paired.
+            </Caption>
+          ) : null}
         </>
       ) : (
         <Notice
@@ -176,12 +186,19 @@ function notReadyNext(facts: {
   cloudConfigured: boolean;
   federationConfigured: boolean;
   fleetInferenceInstalled: boolean;
+  appSessionsInstalled: boolean;
 }): string {
   const routes: string[] = [];
   if (facts.fleetInferenceInstalled) {
     routes.push("pair a machine that runs a local model (Fleet -> Machines)");
   } else {
     routes.push("this node cannot place fleet model calls at all, so a local model is not a route from here");
+  }
+  // The app door, in the order the chain tries it: after a local model and
+  // before anything metered, because it costs a subscription the person is
+  // already paying for (epic memql#5096).
+  if (facts.appSessionsInstalled) {
+    routes.push("sign into Claude Code or Codex on a machine you have paired (Fleet -> Apps)");
   }
   if (!facts.cloudConfigured) routes.push("add a provider key (Settings -> AI providers)");
   if (!facts.federationConfigured) routes.push("configure Anthropic workload-identity federation");
@@ -196,11 +213,13 @@ function doorPhrase(doors: readonly string[]): string {
   const named = doors.map((door) =>
     door === "local"
       ? "a local model on your fleet"
-      : door === "federation"
-        ? "Anthropic workload-identity federation"
-        : door === "apiKey"
-          ? "a configured provider key"
-          : door,
+      : door === "app"
+        ? "a signed-in app on one of your machines"
+        : door === "federation"
+          ? "Anthropic workload-identity federation"
+          : door === "apiKey"
+            ? "a configured provider key"
+            : door,
   );
   if (named.length === 1) return named[0] as string;
   return `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;

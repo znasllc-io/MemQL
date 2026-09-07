@@ -1,0 +1,372 @@
+import { useMemo } from "react";
+
+import { Button, Caption, Chip, Chips, Fact, Facts, Head, Notice, Panel, Subhead } from "../../../kit";
+import { eligibleFor, formatContext, formatParams, orderModels, type ModelNeeds } from "./ordering";
+import { useInference, type CatalogModel, type DoorsReading } from "./useInference";
+
+// Models: what this fleet can actually serve, in the order the router would
+// pick from (epic memql#5096).
+//
+// ===========================================================================
+// THE ORDER IS THE POINT
+// ===========================================================================
+// Every other list in this app answers "what do I have". This one answers
+// "what will be used", which is a different question and the only one an
+// operator asks when something is slow, expensive or refusing. A policy names
+// `fleet:*`; the router ranks the caller's own catalog strongest-first and
+// takes the first model that can serve THAT turn. So the list is rendered in
+// exactly that order, the first eligible row is marked, and the ranking rule
+// is stated ONCE above the list rather than restated per row.
+//
+// It is not alphabetical, and the shape of the screen is what says so.
+//
+// ===========================================================================
+// WHY A TURN KIND CHANGES THE ANSWER
+// ===========================================================================
+// A structured turn needs a model that advertises structured output; a tool
+// turn needs one that advertises tool calling; an embedding turn needs a
+// different model entirely. So there is no single "next model" -- there is one
+// per kind of turn, and printing a single one would be confidently wrong for
+// two thirds of the traffic. The header row names all four.
+
+/** The turns the platform makes, and what each needs of a model. */
+const TURNS: Array<{ id: string; label: string; needs: ModelNeeds }> = [
+  { id: "chat", label: "Chat", needs: {} },
+  { id: "structured", label: "Structured", needs: { structuredOutput: true } },
+  { id: "tools", label: "Tool calling", needs: { tools: true } },
+  { id: "embedding", label: "Embeddings", needs: { embeddings: true } },
+];
+
+export function ModelsSection() {
+  const { catalog, doors, preference } = useInference();
+  const models = catalog.value ?? [];
+  const reading = catalog.state === "reading" || doors.state === "reading";
+
+  // ORDERED ONCE, here, and rendered in that order. Every "which model" answer
+  // below reads this array rather than re-sorting, so the marks and the list
+  // cannot disagree about the ranking.
+  const ranked = useMemo(() => orderModels(models, preference), [models, preference]);
+
+  // The first eligible model per turn kind. `null` when the fleet cannot serve
+  // that kind at all, which is a state the header states rather than hides.
+  const nextByTurn = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const turn of TURNS) {
+      const hit = ranked.find((m) => eligibleFor(m, turn.needs).ok);
+      if (hit) out.set(turn.id, hit.modelId);
+    }
+    return out;
+  }, [ranked]);
+
+  return (
+    <div className="os-fleet">
+      <Head
+        title="Models"
+        meta={models.length === 0 ? undefined : `${models.length} on your fleet`}
+      >
+        {/* A REFRESH CONTROL BELONGS HERE, unlike on the live sections: both
+            readings are on-demand projections that are never broadcast, so
+            offering to look again is the honest affordance rather than a
+            contradiction of a feed that arrives on its own. */}
+        <Button
+          tone="quiet"
+          busy={reading}
+          busyLabel="Reading"
+          onClick={() => {
+            catalog.reread();
+            doors.reread();
+          }}
+        >
+          Read again
+        </Button>
+      </Head>
+
+      <DoorsPanel doors={doors.value} state={doors.state} error={doors.error} />
+
+      {catalog.state === "failed" ? (
+        <Notice
+          tone="info"
+          sentence="We could not read your fleet's catalog."
+          next="That is not the same as a fleet with no models -- try again, or read the agent node's logs."
+          detail={catalog.error}
+        />
+      ) : null}
+
+      <Subhead>Ranked for your fleet</Subhead>
+      <Caption>
+        A policy that names <span className="os-mono">fleet:*</span> takes the first model here
+        that can serve the turn it is making. The order is your preference first, then parameters,
+        then context window, then model id — and a model that did not report its size sorts last,
+        never first.
+      </Caption>
+
+      {preference.length > 0 ? (
+        <Chips label="Your preferred order">
+          {preference.map((id, i) => (
+            <Chip key={`${id}:${i}`} tone="accent">
+              {id}
+            </Chip>
+          ))}
+        </Chips>
+      ) : null}
+
+      <NextForEachTurn next={nextByTurn} known={models.length > 0} />
+
+      {catalog.state === "read" && ranked.length === 0 ? (
+        <Notice
+          tone="info"
+          sentence="Your fleet offers no models."
+          next="Pair a machine in Machines, install a runtime on it, and pull a model. Ollama and any OpenAI-compatible endpoint are discovered automatically."
+        />
+      ) : null}
+
+      <ul className="os-fleet-models">
+        {ranked.map((model, index) => (
+          <ModelLine
+            key={model.modelId}
+            model={model}
+            rank={index + 1}
+            preferred={preference.includes(model.modelId)}
+            serves={TURNS.filter((t) => nextByTurn.get(t.id) === model.modelId).map((t) => t.label)}
+          />
+        ))}
+      </ul>
+
+      {catalog.at === null ? null : (
+        <Caption>Read {catalog.at.toLocaleTimeString()}.</Caption>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Which doors this cluster can reach, in the order the default chain tries
+ * them. It is supporting context for the list below, so it sits in a Panel.
+ */
+function DoorsPanel({
+  doors,
+  state,
+  error,
+}: {
+  doors: DoorsReading | null;
+  state: string;
+  error: string;
+}) {
+  return (
+    <Panel label="Doors">
+      {state === "failed" ? (
+        <Notice
+          tone="info"
+          sentence="We could not ask this cluster which doors are open."
+          next="That is not the same as a cluster with no inference."
+          detail={error}
+        />
+      ) : null}
+      {doors === null ? (
+        state === "reading" ? <Caption>Asking the cluster.</Caption> : null
+      ) : (
+        <>
+          <p className="os-cluster-fact">{doorSentence(doors)}</p>
+          <div className="os-fleet-doors">
+            <DoorState
+              name="Local model"
+              open={doors.localEligible}
+              detail={
+                doors.localEligible
+                  ? `${doors.eligibleModelIds.length} of ${doors.localModelCount} meet the ${doors.minimumContextWindow.toLocaleString()}-token floor`
+                  : doors.fleetInferenceInstalled
+                    ? doors.localModelCount === 0
+                      ? "your fleet offers no models"
+                      : "nothing meets the floor with structured output"
+                    : "this node cannot place fleet calls at all"
+              }
+            />
+            <DoorState
+              name="Signed-in app"
+              open={doors.appEligible}
+              detail={
+                doors.appEligible
+                  ? doors.runnableApps.join(", ")
+                  : doors.appSessionsInstalled
+                    ? "no machine has one allowed, signed in and online here"
+                    : "this node cannot open app sessions at all"
+              }
+            />
+            <DoorState
+              name="Federation"
+              open={doors.federationConfigured}
+              detail={
+                doors.federationConfigured
+                  ? "workload-identity federation"
+                  : "not configured"
+              }
+            />
+            <DoorState
+              name="Provider key"
+              open={doors.cloudConfigured && !doors.federationConfigured}
+              detail={
+                doors.federationConfigured
+                  ? "superseded by federation"
+                  : doors.cloudConfigured
+                    ? "a paid key is configured"
+                    : "no key configured"
+              }
+            />
+          </div>
+          <Caption>
+            The chain tries them in this order: your own hardware, then a subscription you already
+            pay for, then anybody's money. Work parks only when every one is shut.
+          </Caption>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function DoorState({ name, open, detail }: { name: string; open: boolean; detail: string }) {
+  return (
+    <div className="os-fleet-door" data-open={open || undefined}>
+      <span className="os-fleet-door-name">{name}</span>
+      <span className="os-fleet-door-state">{open ? "open" : "shut"}</span>
+      <span className="os-caption">{detail}</span>
+    </div>
+  );
+}
+
+/**
+ * One line per kind of turn, naming the model that would serve it.
+ *
+ * FOUR ANSWERS RATHER THAN ONE, because a structured turn and an embedding
+ * turn legitimately resolve to different models on the same fleet, and a
+ * single "next model" would be confidently wrong for most of the traffic.
+ */
+function NextForEachTurn({ next, known }: { next: Map<string, string>; known: boolean }) {
+  if (!known) return null;
+  return (
+    <div className="os-fleet-turns">
+      {TURNS.map((turn) => {
+        const model = next.get(turn.id);
+        return (
+          <div className="os-fleet-turn" key={turn.id} data-served={model ? true : undefined}>
+            <span className="os-fleet-turn-kind">{turn.label}</span>
+            <span className={model ? "os-mono" : "os-caption"}>
+              {model ?? "nothing on your fleet can serve this"}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ModelLine({
+  model,
+  rank,
+  preferred,
+  serves,
+}: {
+  model: CatalogModel;
+  rank: number;
+  preferred: boolean;
+  serves: string[];
+}) {
+  const size = formatParams(model.params);
+  const window = formatContext(model.contextWindow);
+
+  return (
+    <li className="os-fleet-model" data-offline={model.online ? undefined : true}>
+      <div className="os-fleet-model-head">
+        <span className="os-fleet-model-rank" aria-hidden="true">
+          {rank}
+        </span>
+        <span className="os-fleet-model-id os-mono">{model.modelId}</span>
+        {/* The ONE standing mark on this screen. It names what the model is
+            about to be used for, which is the question the whole section
+            answers; everything else here is quiet. */}
+        {serves.length > 0 ? (
+          <span className="os-fleet-model-next">next for {serves.join(", ").toLowerCase()}</span>
+        ) : null}
+        {preferred ? <Chip tone="accent">preferred</Chip> : null}
+        {model.online ? null : <Chip tone="muted">offline</Chip>}
+      </div>
+
+      <Facts>
+        {/* SIZE IS NOT PRINTED AS ZERO. Zero parameters is not a thing, and a
+            "0" here would make the unmeasured model look like the smallest
+            rather than the one that did not say -- which is precisely the
+            distinction the ordering rule turns on. */}
+        <Fact
+          label="Size"
+          value={size === "" ? "not reported — sorts last" : size}
+          mono={size !== ""}
+        />
+        <Fact label="Context" value={window === "" ? "not reported" : `${window} tokens`} />
+        {model.quant === "" ? null : <Fact label="Quantization" value={model.quant} mono />}
+        <Fact
+          label="Machines"
+          value={
+            model.machineCount === 0
+              ? "none"
+              : `${model.onlineCount} of ${model.machineCount} online`
+          }
+        />
+      </Facts>
+
+      <Chips label="Capabilities">
+        <Chip tone={model.structuredOutput ? "accent" : "muted"}>
+          {model.structuredOutput ? "structured output" : "no structured output"}
+        </Chip>
+        <Chip tone={model.tools ? "accent" : "muted"}>
+          {model.tools ? "tool calling" : "no tool calling"}
+        </Chip>
+        <Chip tone={model.embeddings ? "accent" : "muted"}>
+          {model.embeddings ? "embeddings" : "no embeddings"}
+        </Chip>
+      </Chips>
+
+      {model.machines.length === 0 ? null : (
+        <ul className="os-fleet-model-machines">
+          {model.machines.map((machine) => (
+            <li key={machine.registrationId} className="os-fleet-model-machine">
+              <span className="os-mono">{machine.displayName || machine.name || machine.registrationId}</span>
+              <span className="os-caption">
+                {machine.online ? (machine.busy ? "busy" : "online") : "offline"}
+                {machine.maxConcurrent > 0
+                  ? ` · ${machine.activeCount} of ${machine.maxConcurrent} calls`
+                  : ""}
+                {machine.runtimes.length > 0 ? ` · ${machine.runtimes.join(", ")}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** The doors in a sentence, because the first question is not a list. */
+function doorSentence(doors: DoorsReading): string {
+  const open = doors.doorsOpen.map(doorWord);
+  if (open.length === 0) {
+    return "No door to a model is open, so anything that needs one will refuse or park.";
+  }
+  if (open.length === 1) return `This cluster reaches a model through ${open[0]}.`;
+  return `This cluster reaches a model through ${open.slice(0, -1).join(", ")} and ${open[open.length - 1]}, in that order.`;
+}
+
+/** The doors in the reader's words. An unrecognised value is printed as it
+ *  came, never dropped: a door this build has no name for is still a door. */
+function doorWord(door: string): string {
+  switch (door) {
+    case "local":
+      return "a model on your own machines";
+    case "app":
+      return "a signed-in app on one of your machines";
+    case "federation":
+      return "workload-identity federation";
+    case "apiKey":
+      return "a configured provider key";
+    default:
+      return door;
+  }
+}

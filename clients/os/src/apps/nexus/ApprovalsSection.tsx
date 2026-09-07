@@ -343,7 +343,15 @@ function ApprovalDetail({
   onOpenRun: (runId: string) => void;
 }) {
   const isFeedback = approval.kind === "feedback";
-  const subjectEntries = Object.entries(approval.subject ?? {});
+  const shutDoors = doorsFromSubject(approval);
+  // The door report has its OWN panel below, so it is kept out of the generic
+  // key/value dump -- where it would render as one line of JSON.stringify and
+  // tell a reader nothing they could act on. A generic renderer over a
+  // structured subject is how a human gate becomes invisible while remaining
+  // technically present.
+  const subjectEntries = Object.entries(approval.subject ?? {}).filter(
+    ([key]) => shutDoors === null || (key !== "doors" && key !== "code"),
+  );
 
   return (
     <>
@@ -384,6 +392,45 @@ function ApprovalDetail({
           )
         ) : null}
       </Panel>
+
+      {shutDoors === null ? null : (
+        <Panel label="Which doors were shut">
+          <Caption>
+            The router tries these in order: your own hardware, then a subscription you already pay
+            for, then anybody's money. It stopped because every one it tried was shut.
+          </Caption>
+          <ul className="os-nexus-doors">
+            {shutDoors.map((door, i) => (
+              <li className="os-nexus-door" key={`${door.name}:${i}`}>
+                <div className="os-nexus-door-head">
+                  <span className="os-mono">{door.name === "" ? "(unnamed)" : door.name}</span>
+                  {door.door === "" ? null : <Chip tone="muted">{door.door}</Chip>}
+                </div>
+                <p className="os-caption">{door.reason}</p>
+                {/* THE MACHINE-LEVEL DETAIL IS THE HALF SOMEBODY CAN ACT ON.
+                    "Your fleet is unavailable" sends a person nowhere;
+                    "laptop: offline" names the laptop to open. */}
+                {door.considered.length === 0 ? null : (
+                  <ul className="os-nexus-door-considered">
+                    {door.considered.map((one) => (
+                      <li key={one.subject}>
+                        <span className="os-mono">{one.subject}</span>
+                        <span className="os-caption">{one.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+          {shutDoors.length === 0 ? (
+            <Caption>
+              No door list was recorded with this one -- the refusal reached the run as text
+              rather than as a report. The evidence below still says which condition it was.
+            </Caption>
+          ) : null}
+        </Panel>
+      )}
 
       {/* THE EVIDENCE, VERBATIM AND IN THE DATA VOICE. This is the classifier's
           own account of why the run stopped rather than carrying on, and the
@@ -487,4 +534,52 @@ function ApprovalDetail({
       )}
     </>
   );
+}
+
+/** One door the router tried, as the approval's subject records it. */
+interface ShutDoor {
+  door: string;
+  name: string;
+  reason: string;
+  considered: Array<{ subject: string; reason: string }>;
+}
+
+/**
+ * The door report off an `inferenceUnavailable` approval, or null for every
+ * other kind.
+ *
+ * It returns an EMPTY ARRAY rather than null for an inference approval whose
+ * subject carries no doors -- the refusal reached the run as text rather than
+ * as a report, which happens on a resumed run -- so the panel still appears
+ * and says so. Collapsing that into "not an inference approval" would hide the
+ * one kind of park a person most needs to recognise.
+ */
+function doorsFromSubject(approval: ApprovalRow): ShutDoor[] | null {
+  if (approval.kind !== "inferenceUnavailable") return null;
+  const raw = approval.subject?.["doors"];
+  if (!Array.isArray(raw)) return [];
+  const out: ShutDoor[] = [];
+  for (const entry of raw) {
+    if (entry === null || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const considered: Array<{ subject: string; reason: string }> = [];
+    const rawConsidered = record["considered"];
+    if (Array.isArray(rawConsidered)) {
+      for (const one of rawConsidered) {
+        if (one === null || typeof one !== "object") continue;
+        const c = one as Record<string, unknown>;
+        considered.push({
+          subject: typeof c["subject"] === "string" ? c["subject"] : "",
+          reason: typeof c["reason"] === "string" ? c["reason"] : "",
+        });
+      }
+    }
+    out.push({
+      door: typeof record["door"] === "string" ? record["door"] : "",
+      name: typeof record["name"] === "string" ? record["name"] : "",
+      reason: typeof record["reason"] === "string" ? record["reason"] : "",
+      considered,
+    });
+  }
+  return out;
 }

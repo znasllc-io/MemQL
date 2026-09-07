@@ -2414,6 +2414,195 @@ button:not(:disabled):active {
   padding: 0 7px;
 }
 
+/* The model-order field. `os-input` gives it the kit's field look; the two
+ * overrides are the ones a multiline field needs and a single-line one does
+ * not: a height that grows with rows, and a mono face because every line is a
+ * model id the person copied from somewhere else. */
+.os-fleet-modelorder {
+  height: auto;
+  min-height: calc(var(--os-control-h) * 2.5);
+  padding: 7px 9px;
+  font-family: var(--os-font-mono);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* The door report on an `inferenceUnavailable` approval (epic memql#5096).
+ * A structured subject rendered as one line of JSON is how a human gate stays
+ * technically present and practically invisible, so this one gets a shape:
+ * the door, then why it did not open, then the machines it looked at -- which
+ * is the half somebody can act on. */
+.os-nexus-doors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+.os-nexus-door {
+  display: grid;
+  gap: 3px;
+  padding: 8px 11px;
+  border-left: 2px solid var(--os-line);
+  background: var(--os-raised);
+  border-radius: var(--os-radius-xs);
+}
+.os-nexus-door-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.os-nexus-door-considered {
+  list-style: none;
+  margin: 3px 0 0;
+  padding: 0 0 0 11px;
+  display: grid;
+  gap: 2px;
+  border-left: 1px solid var(--os-line);
+}
+.os-nexus-door-considered li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--os-text-sm);
+}
+
+/* ===========================================================================
+ * MODELS: what the fleet can serve, ranked (epic memql#5096)
+ * ===========================================================================
+ * The screen's one job is to show WHICH MODEL WILL BE USED, so the ORDER is
+ * the design and the styling stays out of its way. There is exactly one
+ * standing mark -- the "next for ..." tag on the rows the router would pick --
+ * and everything else is the app's ordinary quiet: hairline, raised ground,
+ * muted captions. No colour is introduced; themes carry colour and nothing
+ * here is themeable.
+ */
+
+/* The doors, in the order the chain tries them. A row rather than a grid of
+ * equal cards: they are a SEQUENCE, and a grid would say they are alternatives
+ * of equal standing when the whole point is that the first free one wins. */
+.os-fleet-doors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.os-fleet-door {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 6px 9px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  color: var(--os-muted);
+}
+.os-fleet-door[data-open] {
+  color: var(--os-ink);
+  border-color: var(--os-accent);
+}
+.os-fleet-door-name {
+  font-weight: 600;
+  font-size: var(--os-text-base);
+  min-width: 9.5rem;
+}
+.os-fleet-door-state {
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-xs);
+}
+
+/* One line per kind of turn. A structured turn and an embedding turn
+ * legitimately resolve to different models on the same fleet, so there is no
+ * single answer to print -- these are the four. */
+.os-fleet-turns {
+  display: grid;
+  gap: 3px;
+  padding: 9px 0;
+}
+.os-fleet-turn {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  font-size: var(--os-text-base);
+  color: var(--os-muted);
+}
+.os-fleet-turn[data-served] {
+  color: var(--os-ink);
+}
+.os-fleet-turn-kind {
+  min-width: 7.5rem;
+  font-weight: 600;
+}
+
+.os-fleet-models {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.os-fleet-model {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 13px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  background: var(--os-raised);
+}
+/* An offline model stays LISTED and reads back. It is the operator's question
+ * -- why is my model not being used -- and a row that vanished would answer it
+ * with silence. */
+.os-fleet-model[data-offline] {
+  color: var(--os-muted);
+  background: none;
+}
+.os-fleet-model-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+/* The rank is a POSITION, not a step in a process, so it is set as a quiet
+ * ordinal beside the id rather than as a numbered marker with its own weight.
+ * A "01 / 02 / 03" treatment would say these are stages to work through. */
+.os-fleet-model-rank {
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  min-width: 1.25rem;
+}
+.os-fleet-model-id {
+  font-size: var(--os-text-md);
+  font-weight: 600;
+}
+/* THE ONE MARK ON THIS SCREEN. It names what the model is about to be used
+ * for, which is the question the whole section answers. */
+.os-fleet-model-next {
+  font-size: var(--os-text-xs);
+  color: var(--os-accent);
+  border-bottom: 1px solid var(--os-accent);
+  padding-bottom: 1px;
+}
+.os-fleet-model-machines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--os-line);
+  padding-top: 6px;
+}
+.os-fleet-model-machine {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  font-size: var(--os-text-sm);
+}
+
 .os-fleet-labels {
   display: grid;
   gap: 12px;

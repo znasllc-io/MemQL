@@ -5,6 +5,7 @@ import { AppLogsSection } from "../../logs/AppLogsSection";
 import type { OsAppProps } from "../../system/registry";
 import { AppsSection } from "./apps/AppsSection";
 import { MachinesSection } from "./machines/MachinesSection";
+import { ModelsSection } from "./models/ModelsSection";
 import { RoutingSection } from "./routing/RoutingSection";
 import { WorkbenchesSection } from "./workbenches/WorkbenchesSection";
 import {
@@ -102,6 +103,7 @@ export function FleetApp({
       />
     );
   }
+  if (sectionId === "models") return <ModelsSection />;
   if (sectionId === "routing") return <RoutingSection />;
   if (sectionId === "workbenches") return <WorkbenchesSection />;
   if (sectionId === "apps") return <AppsSection />;

@@ -135,6 +135,11 @@ describe("the routing policy editor", () => {
       // would silently wipe the operator's requirements.
       requireLabels: { gpu: "true" },
       preferLabels: {},
+      // Re-sent for the same reason the label maps are: `updateRoutingPolicy`
+      // writes `modelPreference: args.modelPreference ?? []`, so an omitted
+      // argument BLANKS the order (epic memql#5096). A strategy-only save
+      // that dropped it would silently discard the operator's model ranking.
+      modelPreference: [],
     });
   });
 

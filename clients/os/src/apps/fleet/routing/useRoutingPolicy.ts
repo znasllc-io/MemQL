@@ -57,6 +57,8 @@ export interface RoutingPolicyDraft {
   strategy: string;
   requireLabels: LabelMap;
   preferLabels: LabelMap;
+  /** Ordered model ids for a policy naming `fleet:*` (epic memql#5096). */
+  modelPreference: string[];
   fallback: string;
 }
 
@@ -150,6 +152,11 @@ export function useRoutingPolicy(): RoutingPolicyState {
         strategy: draft.strategy,
         requireLabels: draft.requireLabels,
         preferLabels: draft.preferLabels,
+        // Blanks dropped on the way out. The editor is a text list and an
+        // empty line is somebody pressing enter, not a model id -- and a
+        // blank entry in the order would silently match nothing while
+        // occupying a position.
+        modelPreference: draft.modelPreference.map((id) => id.trim()).filter((id) => id !== ""),
         fallback: draft.fallback,
       };
 

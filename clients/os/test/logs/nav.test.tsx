@@ -30,6 +30,7 @@ describe("the Logs section in a window's nav", () => {
     // pins.
     expect(navNames("Fleet")).toEqual([
       "Machines",
+      "Models",
       "Routing",
       "Workbenches",
       "Apps",
@@ -45,6 +46,7 @@ describe("the Logs section in a window's nav", () => {
     // composite owner tier -- so a reader keeps it and loses only Logs.
     expect(navNames("Fleet")).toEqual([
       "Machines",
+      "Models",
       "Routing",
       "Workbenches",
       "Apps",

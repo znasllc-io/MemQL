@@ -75,13 +75,17 @@ beforeEach(() => {
 });
 
 describe("the Fleet manifest", () => {
-  it("declares the epic's four sections plus Apps and Logs, Machines first, with a settings gear target", () => {
+  it("declares its sections in order, Machines first, with a settings gear target", () => {
     const fleet = appById(OS_REGISTRY, "fleet");
     expect(fleet).toBeTruthy();
-    // Apps sits after Workbenches (epic memql#5009): the cluster's own
-    // sandbox, then the person's own computer, then the logs about both.
+    // Models sits between Machines and Routing (epic memql#5096): the
+    // hardware, then what runs on it, then how calls are steered to it -- and
+    // Routing's model preference reorders the ranking Models shows. Apps sits
+    // after Workbenches (epic memql#5009): the cluster's own sandbox, then the
+    // person's own computer, then the logs about both.
     expect(sectionsForRole(fleet!, "owner").map((s) => s.id)).toEqual([
       "machines",
+      "models",
       "routing",
       "workbenches",
       "apps",
@@ -99,12 +103,14 @@ describe("the Fleet manifest", () => {
   it("admits every signed-in user: the engine's row tiers decide what comes back", () => {
     const fleet = appById(OS_REGISTRY, "fleet")!;
     expect(fleet.roles).toBeUndefined();
-    // Five for a reader: the Logs section is the one floored at admin (epic
-    // memql#4895), because every read on the log store is. Apps is NOT
-    // floored -- both concepts behind it declare the composite owner tier, so
-    // every signed-in person has a policy and runs of their own.
+    // Everything but Logs for a reader: that is the one section floored at
+    // admin (epic memql#4895), because every read on the log store is. Apps
+    // is NOT floored -- both concepts behind it declare the composite owner
+    // tier -- and neither is Models, whose two readings are caller-scoped
+    // projections of the reader's own fleet (epic memql#5096).
     expect(sectionsForRole(fleet, "reader").map((s) => s.id)).toEqual([
       "machines",
+      "models",
       "routing",
       "workbenches",
       "apps",

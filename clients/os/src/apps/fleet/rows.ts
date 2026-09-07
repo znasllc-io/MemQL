@@ -262,6 +262,15 @@ export interface RoutingPolicyRow {
   strategy: string;
   requireLabels: LabelMap;
   preferLabels: LabelMap;
+  /**
+   * An explicit ordered list of model ids, consulted when a policy names
+   * `fleet:*` (epic memql#5096). It ORDERS; it does not filter -- a model
+   * absent from the list is still eligible, tried after every model the list
+   * names. Empty for most people, which is why the default ordering
+   * (parameters, then context window, then id, unknown size LAST) has to be
+   * good on its own rather than a fallback nobody exercises.
+   */
+  modelPreference: string[];
   fallback: string;
   active: boolean;
   createdAt: string;
@@ -275,6 +284,9 @@ export function routingPolicyFromRow(raw: Row): RoutingPolicyRow {
     strategy: rowString(row, "strategy"),
     requireLabels: labelMapFrom(row["requireLabels"]),
     preferLabels: labelMapFrom(row["preferLabels"]),
+    modelPreference: (rowArray(row, "modelPreference") ?? []).filter(
+      (v): v is string => typeof v === "string",
+    ),
     fallback: rowString(row, "fallback"),
     active: row["active"] === true,
     createdAt: rowString(row, "createdAt"),
