@@ -50,20 +50,39 @@ name: install-cluster-e2e
 #     released version, moves the cluster to the revision under test, and then
 #     uninstalls it -- so a receipt that lost track of anything across the move
 #     shows up as drift rather than as a cluster somebody has to find later.
+#   * THE FROM-SOURCE GRAPH RUNS AT ALL (memql#5067). Every other leg installs
+#     with a ref that is not `main`, so `imagesFromSource` is false and the
+#     RELEASE graph loads -- and that graph has no `buildImages` step. So
+#     `install-main.json`, the lane a developer's "install from main" actually
+#     runs, was exercised by NO job, and it SHIPPED THE SAME CLASS OF BUG TWICE:
+#     memql#5056 fixed `rebuildFromCheckout` and missed `buildImages`,
+#     memql#5064 fixed `buildImages`, and neither could have been caught here.
+#     Both were found by an operator on a real machine. The `from-source` leg
+#     installs with `--commit=<revision> --from-source`, which is the pair no
+#     job could express before: the from-source GRAPH over the revision under
+#     test rather than over main's tip.
 #
 # ========================== WHAT IT DOES NOT PROVE ========================
 #
 # Be honest about the gaps rather than let a green tick imply more than it is.
 # Each of these is a real limit, not a caveat:
 #
-#   * IT DOES NOT RUN THE ENGINE UNDER TEST. The images come from GHCR at the
-#     newest PUBLISHED release; a pull request's Go changes are not in them.
-#     What this lane exercises against a real cluster is the MANIFESTS
-#     (deploy/k8s/**), the SCRIPTS (scripts/install/**, scripts/k3d/**) and the
-#     INSTALLER (editors/vscode/src/install/**) -- which is exactly the path
-#     filter below, and exactly where the bugs listed above lived. It is the
-#     same deliberate skew a `main` install carries (see imageTagForVersion):
-#     two thirds of the fixes arrive, the engine binary is not one of them.
+#   * THREE OF THE FOUR LEGS DO NOT RUN THE ENGINE UNDER TEST. Their images
+#     come from GHCR at the newest PUBLISHED release; a pull request's Go
+#     changes are not in them. What those legs exercise against a real cluster
+#     is the MANIFESTS (deploy/k8s/**), the SCRIPTS (scripts/install/**,
+#     scripts/k3d/**) and the INSTALLER (editors/vscode/src/install/**) --
+#     which is exactly the path filter below, and exactly where the bugs listed
+#     above lived. It is the same deliberate skew a release install carries
+#     (see imageTagForVersion): two thirds of the fixes arrive, the engine
+#     binary is not one of them.
+#
+#     `from-source` is the exception and it is NOT a general answer to this
+#     gap. It BUILDS the revision's node images, so it does run the engine
+#     under test -- but it is one leg, it is the slowest by a wide margin, and
+#     it exists to cover `install-main.json` rather than to be the lane a Go
+#     change is proved by. Do not read a green `from-source` as "the engine
+#     works"; read it as "the from-source install path works".
 #   * IT DOES NOT RUN FOR A FORK'S PULL REQUEST. ArgoCD reconciles the revision
 #     under test by fetching it from github.com/znasllc-io/memql.git, and a
 #     fork's branch is not there. The jobs are skipped rather than run against
@@ -189,7 +208,16 @@ jobs:
     # workloads are already Available) but it is not free. A timeout tight
     # enough to cancel a healthy run turns a slow morning into a red gate, which
     # is the headroom convention scripts/ci/workflow_timeout_test.go records.
-    timeout-minutes: 50
+    #
+    # `from-source` gets its own number because it is a different job wearing
+    # the same YAML: it COMPILES seven engine images before the cluster can
+    # start, on top of everything the other legs do. The graph gives
+    # `buildImages` 2700s of its own, which does not fit inside 50 minutes
+    # beside a cold cluster bring-up -- and a job timeout that fires during a
+    # legitimate build reports "the installer hung" about a runner that was
+    # working. 90 keeps the nesting rule above intact: 1680s clusterUp +
+    # 2700s buildImages = 4380s, inside 90m with room for the round trip.
+    timeout-minutes: ${{ matrix.leg == 'from-source' && 90 || 50 }}
     strategy:
       fail-fast: false
       matrix:
@@ -201,6 +229,17 @@ jobs:
           - repair
           # install a RELEASE, move to the revision under test, then uninstall.
           - upgrade
+          # ...and the FROM-SOURCE graph, which no leg above can reach
+          # (memql#5067). `buildImages` exists only in install-main.json, and
+          # every ref the other legs pass makes `imagesFromSource` false.
+          #
+          # IT BUILDS ALL SEVEN NODE TYPES, and that is forced rather than
+          # chosen. A from-source install starts with no `memql-<node>:local`
+          # image on the machine at all, so building one node leaves the other
+          # six on ImagePullBackOff and `seedBootstrap` fails on a cluster that
+          # was never going to come up. The cost is real -- see the leg's own
+          # timeout below -- and it buys the only coverage this graph has.
+          - from-source
     env:
       # THE REVISION ARGOCD RECONCILES. The pull-request head SHA rather than
       # `github.sha`, which for a `pull_request` event is the ephemeral merge
@@ -385,6 +424,21 @@ jobs:
       - name: Write the stub key file
         run: printf 'not-a-real-key-the-stub-ignores-it\n' > "$RUNNER_TEMP/provider-key"
 
+      # DISK, ON THE ONE LEG THAT BUILDS (memql#5067). The other three pull
+      # published images; this one compiles seven of them, plus a builder stage,
+      # onto the same runner that is also holding a k3d cluster. A runner that
+      # runs out of space fails somewhere far from the cause -- a layer write, a
+      # containerd import, a pod that will not start -- so the number is
+      # recorded before and after rather than inferred from the wreckage.
+      #
+      # It REPORTS and does not free anything. No measurement here says the
+      # space is short, and pre-emptively deleting half the runner image costs
+      # minutes on every run to solve a problem nobody has observed. If a build
+      # does run out, this is the line that says so.
+      - name: Disk before the build
+        if: matrix.leg == 'from-source'
+        run: df -h / /var/lib/docker 2>/dev/null || df -h /
+
       # ====================================================================
       # THE INSTALL
       # ====================================================================
@@ -420,20 +474,31 @@ jobs:
           LEG: ${{ matrix.leg }}
         run: |
           set -euo pipefail
+          # AN ARRAY, because one leg passes two flags. A quoted scalar holding
+          # "--commit=x --from-source" reaches the CLI as ONE argument and is
+          # refused as an unknown flag -- which would read as the flag being
+          # broken rather than as the quoting being wrong.
           if [ "$LEG" = "upgrade" ]; then
             # The released cluster an operator already has. --tag also pins the
             # node images to that release (imageTagFor), so this really is the
             # previous version and not this one wearing an old checkout.
-            ref_flag="--tag=${FROM_VERSION}"
+            ref_flags=("--tag=${FROM_VERSION}")
+          elif [ "$LEG" = "from-source" ]; then
+            # THE LANE AND THE VERSION ARE TWO QUESTIONS (memql#5067), and this
+            # leg needs opposite answers: the from-source GRAPH, over the
+            # revision under test. `--tag=main` would answer both and clone
+            # main's tip, so the lane would green-light a tree that is not this
+            # pull request. --from-source names only the lane.
+            ref_flags=("--commit=${REVISION}" "--from-source")
           else
-            ref_flag="--commit=${REVISION}"
+            ref_flags=("--commit=${REVISION}")
           fi
-          echo "INFO: installing with ${ref_flag}"
+          echo "INFO: installing with ${ref_flags[*]}"
           sudo -E env "HOME=$HOME" "PATH=$PATH" \
             node editors/vscode/dist-install/cli.js install \
               --root="$GITHUB_WORKSPACE" \
               --receipt="$RUNNER_TEMP/install-receipt.json" \
-              "$ref_flag" \
+              "${ref_flags[@]}" \
               --domain="$DOMAIN" \
               --owner-email=ci@example.com \
               --owner-first-name=Continuous \
@@ -453,6 +518,10 @@ jobs:
           sudo chown "$(id -u):$(id -g)" \
             "$RUNNER_TEMP/install-receipt.json" "$RUNNER_TEMP/install-report.json"
 
+      - name: Disk after the build
+        if: ${{ always() && matrix.leg == 'from-source' }}
+        run: df -h / /var/lib/docker 2>/dev/null || df -h /
+
       - name: Show what the install recorded
         run: jq . "$RUNNER_TEMP/install-receipt.json"
 
@@ -470,6 +539,8 @@ jobs:
       # what the RECEIPT says each step reported about the machine, and which
       # SURFACES the machine's own fingerprint says moved.
       - name: The install built a cluster, and the receipt says so
+        env:
+          LEG: ${{ matrix.leg }}
         run: |
           set -euo pipefail
           receipt="$RUNNER_TEMP/install-receipt.json"
@@ -502,7 +573,37 @@ jobs:
           # trusting the run's exit code, because scripts/k3d/up.sh reports this
           # false and still EXITS 0 -- the graph is what fails on it, and this
           # line is what fails if that ever stops being true.
-          expect "clusterUp.result.workloadsReady" "$(field clusterUp result.workloadsReady)" "true"
+          #
+          # THE TWO GRAPHS VERIFY DIFFERENT THINGS HERE, and asserting the
+          # release graph's field on the from-source leg would fail a healthy
+          # run. install-main.json's clusterUp proves `argocdReady`, not
+          # `workloadsReady`, because on that lane the node images DO NOT EXIST
+          # YET -- `buildImages` is the next step. Demanding Available workloads
+          # at that moment is demanding pods pull an image nothing has built.
+          if [ "$LEG" = "from-source" ]; then
+            expect "clusterUp.result.argocdReady" "$(field clusterUp result.argocdReady)" "true"
+            # THE POSITIVE CONTROL FOR THIS LEG'S WHOLE REASON TO EXIST. Without
+            # it the leg could pass having quietly loaded the release graph --
+            # which is the failure it was added to make impossible, and it looks
+            # exactly like a pass.
+            expect "buildImages.result.imageSource" "$(field buildImages result.imageSource)" "checkout"
+            # ...and the workloads still have to come up, one step later, which
+            # is where this lane's equivalent of workloadsReady lands.
+            expect "seedBootstrap.result.bootstrapComplete" \
+              "$(field seedBootstrap result.bootstrapComplete)" "true"
+          else
+            expect "clusterUp.result.workloadsReady" "$(field clusterUp result.workloadsReady)" "true"
+            # THE NEGATIVE CONTROL, and the two legs prove each other: if this
+            # step ever appears on a release install, `buildImages` has stopped
+            # being the difference between the graphs and the from-source leg
+            # has stopped testing anything the others do not.
+            if [ "$(field buildImages result.imageSource)" != "MISSING" ]; then
+              echo "[ ] ERROR: a release-graph install recorded a buildImages step; install.json is not supposed to have one" >&2
+              fail=1
+            else
+              echo "[x] no buildImages on the release graph, as expected"
+            fi
+          fi
           # The cluster was CREATED by this install, not adopted from something
           # already on the machine. `create_cluster` skips rather than fails
           # when a cluster of the same name exists, so an adopted cluster is a
