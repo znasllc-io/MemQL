@@ -299,7 +299,7 @@ func TestAnUnavailableFleetPromptProviderYieldsTheTypedRefusal(t *testing.T) {
 	if refusal == nil {
 		t.Fatal("expected a refusal")
 	}
-	if refusal.Code() != FeedbackReasonNoLocalModel {
+	if refusal.Code() != RefusalCodeNoLocalModel {
 		t.Fatalf("code = %q", refusal.Code())
 	}
 	if refusal.Considered["laptop"] != "offline" {

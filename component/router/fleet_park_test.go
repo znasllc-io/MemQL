@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/work"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -79,18 +80,24 @@ func TestAnUnavailableFleetWithNoAuthoredFallbackRefusesRatherThanSpending(t *te
 	if err == nil {
 		t.Fatal("an unavailable fleet primary with no authored fallback must refuse")
 	}
-	refusal, ok := memql.FleetUnavailableFrom(err)
-	if !ok {
-		t.Fatalf("err = %v, want the typed no_local_model_available refusal -- 'router resolved "+
+	var refusal *InferenceUnavailable
+	if !errors.As(err, &refusal) {
+		t.Fatalf("err = %v, want the typed every_door_shut refusal -- 'router resolved "+
 			"no provider' describes a registry lookup and tells an operator nothing they can act on", err)
 	}
-	if refusal.Code() != memql.FeedbackReasonNoLocalModel {
-		t.Fatalf("code = %q", refusal.Code())
+	if refusal.Code != work.RefusalEveryDoorShut {
+		t.Fatalf("code = %q", refusal.Code)
 	}
-	if refusal.ModelId != "llama3.1:8b" {
-		t.Fatalf("the refusal must name the model, got %q", refusal.ModelId)
+	if len(refusal.Doors) != 1 || refusal.Doors[0].Name != "fleet:llama3.1:8b" {
+		t.Fatalf("the refusal must name the door it tried, got %+v", refusal.Doors)
 	}
-	if why := refusal.Considered["laptop"]; why != "offline" {
+	if refusal.Doors[0].Door != DoorLocal {
+		t.Fatalf("door = %q, want %q", refusal.Doors[0].Door, DoorLocal)
+	}
+	// THE MACHINE-LEVEL DETAIL SURVIVES the move to a door-shaped report.
+	// The door line says which door; this says why it could not open, and it
+	// is the half somebody can act on.
+	if why := refusal.Doors[0].Considered["laptop"]; why != "offline" {
 		t.Fatalf("the refusal must name every machine considered and why; laptop = %q", why)
 	}
 	if cloud.calls != 0 {
@@ -155,15 +162,22 @@ func TestAnOnlineFleetPrimaryServesTheCall(t *testing.T) {
 func TestARefusalDistinguishesNoMachinesFromNoMatch(t *testing.T) {
 	r, _, _ := newParkRouter(t, nil, []string{"fleet:llama3.1:8b"}, "")
 	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"})
-	refusal, ok := memql.FleetUnavailableFrom(err)
-	if !ok {
+	var refusal *InferenceUnavailable
+	if !errors.As(err, &refusal) {
 		t.Fatalf("err = %v, want the typed refusal", err)
 	}
-	if refusal.Total != 0 {
-		t.Fatalf("Total = %d, want 0 for a user with no machines", refusal.Total)
+	if len(refusal.Doors) != 1 {
+		t.Fatalf("doors = %+v, want the one the chain named", refusal.Doors)
 	}
-	if !strings.Contains(refusal.Error(), "no machines are paired") {
-		t.Fatalf("the message must distinguish 'you have no machines' from 'none matched': %q", refusal.Error())
+	// A user with NO machines and a user whose machines did not match are
+	// different problems with different fixes, and the report must say which:
+	// here there is no machine to name, so the considered list is empty and
+	// the door's own reason carries the answer.
+	if len(refusal.Doors[0].Considered) != 0 {
+		t.Fatalf("considered = %v, want none for a user with no machines", refusal.Doors[0].Considered)
+	}
+	if !strings.Contains(refusal.Doors[0].Reason, "no machine offers") {
+		t.Fatalf("the reason must say the fleet offers nothing, got %q", refusal.Doors[0].Reason)
 	}
 }
 
@@ -271,11 +285,17 @@ func TestConsentOnAFullyLocalClusterStillRefusesAndExplains(t *testing.T) {
 	r, _, _ := newParkRouter(t, []memql.FleetModel{fleetModel("llama3.1:8b", false)},
 		[]string{"fleet:llama3.1:8b"}, "")
 	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice", CloudConsent: true})
-	refusal, ok := memql.FleetUnavailableFrom(err)
-	if !ok {
+	var refusal *InferenceUnavailable
+	if !errors.As(err, &refusal) {
 		t.Fatalf("err = %v, want the refusal to stand", err)
 	}
-	if !strings.Contains(refusal.LastError, "no configured cloud provider") {
-		t.Fatalf("the refusal must say why the consent could not be used, got %q", refusal.LastError)
+	found := false
+	for _, d := range refusal.Doors {
+		if strings.Contains(d.Reason, "none configured") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the refusal must say why the consent could not be used, got %v", refusal.Doors)
 	}
 }

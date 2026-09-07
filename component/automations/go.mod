@@ -25,6 +25,7 @@ require (
 	github.com/znasllc-io/memql/component/language/ast v0.0.0
 	github.com/znasllc-io/memql/component/memql v0.0.0
 	github.com/znasllc-io/memql/component/provenance v0.0.0
+	github.com/znasllc-io/memql/component/work v0.0.0
 	github.com/znasllc-io/memql/core v0.0.0
 	github.com/znasllc-io/memql/dsl v0.0.0
 	google.golang.org/protobuf v1.36.12
@@ -136,3 +137,5 @@ replace github.com/znasllc-io/memql/docs => ../../docs
 replace github.com/znasllc-io/memql/dsl => ../../dsl
 
 replace github.com/znasllc-io/memql/component/frontdoor => ../frontdoor
+
+replace github.com/znasllc-io/memql/component/work => ../work

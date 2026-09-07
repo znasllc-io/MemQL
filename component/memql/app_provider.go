@@ -62,7 +62,7 @@ const AppWildcard = AppReferencePrefix + "*"
 var ErrAppUnavailable = errors.New("no machine can run this app right now")
 
 // AppRefusalCode is the stable tag for a refused app call. It sits beside
-// FeedbackReasonNoLocalModel in the same vocabulary an operator reads across
+// RefusalCodeNoLocalModel in the same vocabulary an operator reads across
 // the park card, the log line and the row.
 const AppRefusalCode = "no_app_available"
 

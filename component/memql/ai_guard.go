@@ -621,6 +621,77 @@ func (g *llmGuard) recordAndMaybeLatchCost(scopeIds []string, cost float64) (rea
 	return "", false
 }
 
+// CostCeilingReached asks whether a PAID call would be admitted by the
+// cumulative budget right now, WITHOUT charging anything (epic memql#5096,
+// design D4).
+//
+// The router calls it before taking the federation hop, so a chain whose local
+// doors are shut refuses at the ceiling instead of spending past it. Two
+// properties make it the right shape for that:
+//
+//   - IT IS A READ. Nothing has been spent at the moment it is asked, and a
+//     probe that incremented a tally would make merely CONSIDERING the cloud
+//     count against the ceiling -- so a run that ended up on a local model
+//     anyway would still have moved the process closer to its cap.
+//   - IT ANSWERS FOR THE SCOPES THE CALL WOULD BE CHARGED TO, read off the
+//     same context the charge would use. Asking only the process-wide budget
+//     would let a per-scope latch be discovered one call too late, which is
+//     the difference between refusing a hop and taking one that then blocks.
+//
+// It reports the guard's own sentence, which names the env var to change --
+// the one thing a person reading "ceiling reached" needs.
+func CostCeilingReached(ctx context.Context) (reason string, reached bool) {
+	return sharedLLMGuard.costCeilingReached(ctx)
+}
+
+// costCeilingReached is CostCeilingReached against a specific guard, so a test
+// can drive it without mutating process-wide state every other test shares.
+func (g *llmGuard) costCeilingReached(ctx context.Context) (string, bool) {
+	if g == nil || (!g.killSwitchEnabled && !g.scopeEnabled) {
+		return "", false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.killSwitchEnabled {
+		if g.latched {
+			return g.latchReason, true
+		}
+		if g.maxTotalCalls > 0 && g.totalCalls >= int64(g.maxTotalCalls) {
+			return fmt.Sprintf(
+				"cumulative LLM call ceiling reached: %d calls admitted this process (MEMQL_LLM_MAX_TOTAL_CALLS=%d)",
+				g.totalCalls, g.maxTotalCalls), true
+		}
+		if g.maxTotalCostUSD > 0 && g.totalCostUSD >= g.maxTotalCostUSD {
+			return fmt.Sprintf(
+				"cumulative LLM cost ceiling reached: est $%.2f spent this process (MEMQL_LLM_MAX_TOTAL_COST_USD=$%.2f)",
+				g.totalCostUSD, g.maxTotalCostUSD), true
+		}
+	}
+	if g.scopeEnabled {
+		for _, sid := range budgetScopesFromContext(ctx) {
+			sb := g.scopes[sid]
+			if sb == nil {
+				continue
+			}
+			if sb.latched {
+				return sb.reason, true
+			}
+			if g.scopeMaxCalls > 0 && sb.calls >= int64(g.scopeMaxCalls) {
+				return fmt.Sprintf(
+					"per-scope LLM call ceiling reached for scope %q: %d cumulative calls (MEMQL_LLM_SCOPE_MAX_CALLS=%d)",
+					sid, sb.calls, g.scopeMaxCalls), true
+			}
+			if g.scopeMaxCostUSD > 0 && sb.costUSD >= g.scopeMaxCostUSD {
+				return fmt.Sprintf(
+					"per-scope LLM cost ceiling reached for scope %q: est $%.2f cumulative (MEMQL_LLM_SCOPE_MAX_COST_USD=$%.2f)",
+					sid, sb.costUSD, g.scopeMaxCostUSD), true
+			}
+		}
+	}
+	return "", false
+}
+
 // tripLocked latches the breaker open permanently and logs ONE loud alert.
 // The caller must hold g.mu. Returns the latch reason for convenience.
 func (g *llmGuard) tripLocked(reason string) string {

@@ -744,6 +744,18 @@ type AutomationExecution struct {
 	// Error contains the automation-level error if any.
 	Error string `json:"error,omitempty"`
 
+	// ErrorValue is the same failure as a VALUE, kept for the journal
+	// (epic memql#5096). It is `json:"-"` and never serialized: a checkpoint
+	// carries the string, and an error value that survived a round trip
+	// through JSON would be a different error wearing the same words.
+	//
+	// It exists because one decision needs the error's TYPE rather than its
+	// text -- whether a failed run parks on a shut inference door or fails --
+	// and the structured door report is on the error the router raised.
+	// Reading that report back out of the message would be a parser of our
+	// own output.
+	ErrorValue error `json:"-"`
+
 	// StartedAt is when the execution began.
 	StartedAt time.Time `json:"startedAt"`
 
@@ -796,6 +808,7 @@ func (e *AutomationExecution) Fail(err error) {
 	e.Status = "failed"
 	if err != nil {
 		e.Error = err.Error()
+		e.ErrorValue = err
 	}
 	e.CompletedAt = time.Now()
 	e.Duration = e.CompletedAt.Sub(e.StartedAt)

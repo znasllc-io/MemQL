@@ -30,9 +30,14 @@ import (
 	"strings"
 )
 
-// FeedbackReasonNoLocalModel is the Plan.feedbackReason discriminator for a
-// plan parked on an unavailable fleet.
-const FeedbackReasonNoLocalModel = "no_local_model_available"
+// RefusalCodeNoLocalModel is the stable tag for an unavailable fleet.
+//
+// It was RefusalCodeNoLocalModel, named for `Plan.feedbackReason` -- a
+// field on a concept retired in memql#5000. The NAME went with the row; the
+// VALUE stayed, because it is what an operator reads in a log line, on the
+// park approval and in the refusal message, and three spellings of one
+// condition is what a single constant exists to prevent.
+const RefusalCodeNoLocalModel = "no_local_model_available"
 
 // FleetUnavailable is the typed refusal: no eligible machine for a model, WITH
 // the machines considered and why each was ruled out.
@@ -53,7 +58,7 @@ type FleetUnavailable struct {
 // Code is the stable machine-readable tag. It is the same string as the
 // Plan.feedbackReason value on purpose: an operator reading a log line, a
 // park card and a plan row should see one word, not three spellings of it.
-func (e *FleetUnavailable) Code() string { return FeedbackReasonNoLocalModel }
+func (e *FleetUnavailable) Code() string { return RefusalCodeNoLocalModel }
 
 func (e *FleetUnavailable) Error() string {
 	if e == nil {
@@ -61,9 +66,9 @@ func (e *FleetUnavailable) Error() string {
 	}
 	var b strings.Builder
 	if e.ModelId == "*" {
-		fmt.Fprintf(&b, "%s: no local model can serve this call", FeedbackReasonNoLocalModel)
+		fmt.Fprintf(&b, "%s: no local model can serve this call", RefusalCodeNoLocalModel)
 	} else {
-		fmt.Fprintf(&b, "%s: no eligible machine for model %s", FeedbackReasonNoLocalModel, e.ModelId)
+		fmt.Fprintf(&b, "%s: no eligible machine for model %s", RefusalCodeNoLocalModel, e.ModelId)
 	}
 	if e.Total == 0 {
 		b.WriteString(" (no machines are paired)")
@@ -102,7 +107,7 @@ func (e *FleetUnavailable) AsMap() map[string]any {
 		considered = append(considered, map[string]any{"machine": k, "reason": e.Considered[k]})
 	}
 	out := map[string]any{
-		"code":             FeedbackReasonNoLocalModel,
+		"code":             RefusalCodeNoLocalModel,
 		"model":            e.ModelId,
 		"machinesTotal":    e.Total,
 		"machinesRuledOut": considered,
@@ -160,10 +165,6 @@ func CloudConsentFromContext(ctx context.Context) bool {
 	v, _ := ctx.Value(cloudConsentCtxKey{}).(bool)
 	return v
 }
-
-// CloudApprovedMetricKey is where a per-PLAN approval lives on
-// Plan.metrics, mirroring budgetApproved / specialistApproved.
-const CloudApprovedMetricKey = "cloudApproved"
 
 // HasCloudProviderConfigured reports whether the cluster has any paid provider
 // that could serve a call at all.

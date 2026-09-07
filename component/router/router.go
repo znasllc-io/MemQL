@@ -12,6 +12,7 @@ import (
 	"github.com/znasllc-io/memql/component/auth"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/work"
 	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 )
@@ -38,6 +39,14 @@ type Router struct {
 	// skipped because the engine was unavailable or returned an
 	// error. Exposed for health metrics; not on the hot path.
 	recordsDropped atomic.Uint64
+
+	// ceilingCheck is the cost-ceiling probe the federation hop consults
+	// (epic memql#5096, design D4). It defaults to memql.CostCeilingReached
+	// and is a FIELD so a test can drive the refusal without mutating the
+	// process-wide guard every other test in the tree shares -- the same
+	// reason ai_guard_fleet.go keeps admitLocalCall separate from its
+	// package-level wrapper.
+	ceilingCheck func(context.Context) (string, bool)
 }
 
 // New constructs a Router. Provider registry is required; policies
@@ -49,10 +58,11 @@ func New(providers *memql.ProviderRegistry, policies *memql.PolicyRegistry, engi
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &Router{
-		providers: providers,
-		policies:  policies,
-		engine:    engine,
-		logger:    logger,
+		providers:    providers,
+		policies:     policies,
+		engine:       engine,
+		logger:       logger,
+		ceilingCheck: memql.CostCeilingReached,
 	}
 }
 
@@ -162,31 +172,72 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 		return nil, Resolved{}, fmt.Errorf("router: no provider resolved (no explicit, no policy, no default)")
 	}
 
-	// Pick the first available provider in the chain to stamp as the
-	// "primary" on the initial Resolved. The fallback wrapper may
-	// advance past this if the primary errors pre-flight.
+	// THE CHAIN WALK (epic memql#5096, design D4). It picks the first entry
+	// that is available AND serves the requested modality, and it records a
+	// REASON for every entry it passes over -- which is what turns an
+	// exhausted chain from "no provider available" into a report a person can
+	// act on. The previous version dropped rejected entries silently, so the
+	// only thing an operator learned was the chain they had already written.
+	report := &doorReporter{}
+	sawLocalDoor := false
 	for _, name := range chain {
-		// EntryForUser, not Entry: a `fleet:<modelId>` entry resolves against
-		// the ACTING USER'S machines (epic memql#4676), and resolving it
-		// against the system catalog instead would report a live laptop as
-		// unavailable -- which, with an authored @fallback, is a silent cloud
-		// call for a user whose machine was awake the whole time.
+		door := doorFor(name)
+
+		// THE FEDERATION HOP ASKS THE GUARD FIRST, and only when a LOCAL
+		// door preceded it in the chain. That condition is the whole
+		// distinction between the default three-step chain and a policy an
+		// operator wrote to reach a vendor directly: the ceiling governs
+		// falling BACK to paid inference, not choosing it. A chain that
+		// starts at a vendor is a decision somebody made, and refusing it
+		// here would break every cloud-quality policy in the tree.
+		if door == DoorFederation && sawLocalDoor {
+			if reason, reached := r.ceilingReached(context.Background()); reached {
+				report.note(name, "the cost ceiling for this process has been reached")
+				return nil, Resolved{}, report.refusal(work.RefusalCeilingReached, policyName, reason)
+			}
+		}
+		if door == DoorLocal || door == DoorApp {
+			sawLocalDoor = true
+		}
+
+		// EntryForUser, not Entry: a `fleet:` or `app:` entry resolves
+		// against the ACTING USER'S machines (epic memql#4676), and
+		// resolving it against the system catalog instead would report a
+		// live laptop as unavailable -- which, with a fallback, is a silent
+		// paid call for a user whose machine was awake the whole time.
 		entry, ok := r.providers.EntryForUser(context.Background(), req.UserId, name)
-		if !ok || !entry.Available {
+		if !ok {
+			report.note(name, "no provider by that name is registered")
+			continue
+		}
+		if !entry.Available {
+			reason := "unavailable"
+			if err := entry.Err(); err != nil {
+				reason = err.Error()
+			}
+			report.noteLocal(name, reason, r.consideredFor(req.UserId, name))
 			continue
 		}
 		// Confirm interface support for the requested modality.
+		//
+		// An app door lands here for a TOOL turn and is passed over, which
+		// is the design rather than a gap (D3): on a tool turn MemQL is
+		// driving, and an app is an agent that drives itself. It reaches
+		// MemQL's tools through MCP, in the other direction.
 		switch mod {
 		case modalityStreamTools:
 			if _, ok := entry.Client.(common.ChatStreamWithToolsProvider); !ok {
+				report.note(name, "does not serve streaming tool-calling turns")
 				continue
 			}
 		case modalityTools:
 			if _, ok := entry.Client.(common.ToolCallingChatAIProvider); !ok {
+				report.note(name, "does not serve tool-calling turns")
 				continue
 			}
 		default:
 			if _, ok := entry.Client.(common.ChatAIProvider); !ok {
+				report.note(name, "does not serve chat turns")
 				continue
 			}
 		}
@@ -199,48 +250,27 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 			PolicyName:   policyName,
 		}, nil
 	}
-	// A FLEET PRIMARY WITH NO WORKING ALTERNATIVE IS A REFUSAL, NOT AN ERROR
-	// (epic memql#4676, design D2). The chain is exhausted, and if it started
-	// with a fleet model the honest answer is "your machines cannot serve
-	// this", carrying which machines were considered and why each was ruled
-	// out -- not "the router resolved no provider", which describes a
-	// registry lookup and tells an operator nothing they can act on.
-	//
-	// Reaching HERE is already the proof that no cloud fallback was authored:
-	// had one been written into the policy it would have been in this chain
-	// and, being available, would have been returned above. That is what makes
-	// the no-silent-spend property structural rather than a rule somebody has
-	// to remember -- there is no branch here that could choose a paid provider,
-	// because choosing one would mean picking a name the policy never
-	// mentioned.
-	if refusal := r.fleetRefusalFor(req.UserId, chain); refusal != nil {
-		// The one exception, and it is a person's decision rather than a
-		// code path: the caller carries explicit consent to use a paid
-		// provider for this call. The surface that set it showed the refusal
-		// first and got a yes; nothing here can set it on its own.
-		if req.CloudConsent {
-			if client, resolved, ok := r.consentedCloudFallback(mod); ok {
-				r.logger.Info("router: local model unavailable and the user consented to cloud for this call",
-					"model", refusal.ModelId, "provider", resolved.ProviderName)
-				_ = client
-				return []string{resolved.ProviderName}, resolved, nil
-			}
-			// Consent given and nothing to spend it on. The refusal stands,
-			// which is more useful than a generic "no provider": the person
-			// said yes to something the cluster does not have.
-			refusal.LastError = "cloud was approved for this call, but this cluster has no configured cloud provider"
-		}
-		return nil, Resolved{}, refusal
-	}
 
-	// Every entry in the chain was unregistered, unavailable, or
-	// lacked the requested modality -- e.g. a policy whose @primary +
-	// every @fallback provider is @disabled. Name the policy (when the
-	// chain came from one) so the empty-chain error is actionable.
-	if policyName != "" {
-		return nil, Resolved{}, fmt.Errorf("router: policy %q resolved no available provider; every entry in its chain %v is disabled/unavailable for the requested modality", policyName, chain)
+	// EVERY DOOR IS SHUT. The chain is exhausted, and reaching here is itself
+	// the proof that no paid fallback was authored past the ones already
+	// tried: had one been in the chain and been available, it would have been
+	// returned above. That is what makes the no-silent-spend property
+	// structural rather than a rule somebody has to remember -- there is no
+	// branch here that could choose a provider the policy never mentioned.
+	//
+	// The one exception is a person's decision rather than a code path: the
+	// caller carries explicit consent for THIS call. The surface that set it
+	// showed the refusal first and got a yes; nothing here can set it.
+	if req.CloudConsent {
+		if client, resolved, ok := r.consentedCloudFallback(mod); ok {
+			r.logger.Info("router: every door was shut and the user consented to a paid provider for this call",
+				"provider", resolved.ProviderName, "policy", policyName)
+			_ = client
+			return []string{resolved.ProviderName}, resolved, nil
+		}
+		report.note("(consent)", "a paid provider was approved for this call, but this cluster has none configured")
 	}
-	return nil, Resolved{}, fmt.Errorf("router: no provider in chain %v is available for the requested modality", chain)
+	return nil, Resolved{}, report.refusal(work.RefusalEveryDoorShut, policyName, "")
 }
 
 // providerLookup resolves a chain entry by name into its client +
@@ -421,27 +451,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// fleetRefusalFor builds the typed no_local_model_available refusal when an
-// exhausted chain named a fleet model, or nil when it did not.
-//
-// It reports on the FIRST fleet entry in the chain, which is the one the
-// operator wrote as the primary and therefore the one whose machines they
-// want to hear about. A chain naming several fleet models is unusual; naming
-// them all would bury the answer.
-func (r *Router) fleetRefusalFor(userId string, chain []string) *memql.FleetUnavailable {
-	if r == nil || r.providers == nil {
-		return nil
-	}
-	for _, name := range chain {
-		modelId, isFleet := memql.IsFleetReference(name)
-		if !isFleet {
-			continue
-		}
-		return r.providers.FleetRefusal(context.Background(), userId, modelId)
-	}
-	return nil
-}
-
 // consentedCloudFallback finds a paid provider to honour a one-shot consent.
 //
 // It takes the registry DEFAULT rather than scanning for anything that
@@ -473,4 +482,44 @@ func (r *Router) Providers() *memql.ProviderRegistry {
 		return nil
 	}
 	return r.providers
+}
+
+// consideredFor asks a LOCAL door for its own report: which machines or apps
+// it looked at and why each was ruled out.
+//
+// It is asked only when the door did not open, and only of the doors that have
+// such a report -- a vendor entry's unavailability is about a credential, not
+// about a set of machines, and inventing a considered-list for it would put
+// the same word in front of two different kinds of failure.
+func (r *Router) consideredFor(userId, name string) map[string]string {
+	if r == nil || r.providers == nil {
+		return nil
+	}
+	if modelId, ok := memql.IsFleetReference(name); ok {
+		if refusal := r.providers.FleetRefusal(context.Background(), userId, modelId); refusal != nil {
+			return refusal.Considered
+		}
+		return nil
+	}
+	if appId, ok := memql.IsAppReference(name); ok {
+		if refusal := r.providers.AppRefusal(context.Background(), userId, appId); refusal != nil {
+			return refusal.Considered
+		}
+	}
+	return nil
+}
+
+// ceilingReached asks the cost ceiling, through the injectable probe.
+//
+// A Router built by hand (a test, an embedding that skipped New) has no probe
+// and answers NOT REACHED. That direction is the safe one here and it is the
+// opposite of the usual fail-closed rule for a reason worth stating: a missing
+// probe reporting "reached" would refuse every federation hop on any cluster
+// whose router was not built through New, which turns an unwired dependency
+// into a silent, total loss of paid inference.
+func (r *Router) ceilingReached(ctx context.Context) (string, bool) {
+	if r == nil || r.ceilingCheck == nil {
+		return "", false
+	}
+	return r.ceilingCheck(ctx)
 }

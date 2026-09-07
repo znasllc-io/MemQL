@@ -3,13 +3,56 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-/// Default chat policy for non-operator agents. Claude Sonnet 4.6 primary, GPT-5.4 Pro as
-/// cross-vendor fallback, Claude Haiku as tertiary safety net. Was previously Mini-primary, which
-/// produced too many hedged + un-cited replies (the LLM smoothed RAG'd specifics into generic
-/// platitudes); the floor for agent replies is now Sonnet-class regardless of role. Use
-/// cheapestCapable for paths that legitimately need Mini-class speed/cost
-/// tradeoffs (batch, background).
-@primary("streamClaudeSonnet")
+// THE DEFAULT ORDER IS LOCAL-STRONGEST, THEN AN APP, THEN FEDERATION
+// (epic memql#5096, design D4).
+//
+// Every shipped policy below begins `fleet:*`, then `app:*`, then the vendor
+// entries an author wrote. The three steps are three different kinds of cost,
+// in increasing order:
+//
+//   fleet:*   a model on hardware the person already owns. Costs electricity.
+//   app:*     a signed-in Claude Code or Codex on one of their machines. Costs
+//             a subscription they already pay for; MemQL is not billed.
+//   vendors   a metered key or workload-identity federation. Costs money, and
+//             is therefore the hop the cost ceiling gates.
+//
+// `fleet:*` and `app:*` are WILDCARDS, and that is what makes this shippable
+// as a default: a policy naming one model id would park on every fleet running
+// something else, and which weights a person pulled is not knowable here. The
+// wildcard resolves per call, strongest first, among the models that can serve
+// THAT call.
+//
+// WHAT CHANGED, AND WHAT DID NOT. The local-models epic (memql#4676) made four
+// seeded policies local-first with NO fallback, so an idle fleet PARKED. That
+// was right when the only alternative to a laptop was a metered key: a chain
+// reaching the cloud starts billing the moment a lid closes, silently, because
+// nothing about a working reply says which vendor produced it. There is now a
+// middle step that costs nothing extra, so the default falls through to it --
+// and the FEDERATION hop, the one that does cost money, asks the cost ceiling
+// before it is taken and refuses with `ceiling_reached` rather than spending
+// past it. Work still parks; it parks when EVERY door is shut.
+//
+// PARK-NOT-FALLBACK STILL HOLDS FOR A PINNED POLICY. A policy that names one
+// fleet model and authors no fallback refuses exactly as it did, and
+// `consentedCloudFallback` still exists for a person's one-shot yes. What
+// changed is the DEFAULT, not the rule.
+//
+// The four `local*` policies this file used to carry are DELETED. They were
+// seeded and never named by anything -- design D6 required them wired to a
+// purpose or removed, and the purposes they named are gone or covered: the
+// planner loop was retired (memql#5052), there is no conductor in the engine,
+// and suggest and embeddings reach the fleet through the chain below and
+// through `fleet:` resolution on the embedding provider. A policy nothing
+// names is not a default; it is a decoration that reads like one.
+
+/// Default chat policy for non-operator agents. Local first, then a signed-in app on the person's
+/// own machine, then Claude Sonnet 4.6, GPT-5.4 Pro as a cross-vendor fallback and Claude Haiku as
+/// a tertiary safety net. The cloud entries stay Sonnet-class-or-better because a Mini-primary
+/// produced too many hedged, un-cited replies (the model smoothed RAG'd specifics into generic
+/// platitudes); use cheapestCapable for paths that legitimately need Mini-class speed and cost.
+@primary("fleet:*")
+@fallback("app:*")
+@fallback("streamClaudeSonnet")
 @fallback("stream54Pro")
 @fallback("streamClaudeHaiku")
 @maxLatencyMs(60000)
@@ -22,7 +65,9 @@ policy balancedChat { }
 /// Cheapest capable -- bulk suggestion + classification work where cost per call matters more than
 /// model ceiling. GPT-5.4 Mini primary, Claude Haiku as the cross-vendor second, GPT-5.4 Nano as
 /// the rock-bottom third.
-@primary("stream54Mini")
+@primary("fleet:*")
+@fallback("app:*")
+@fallback("stream54Mini")
 @fallback("streamClaudeHaiku")
 @fallback("stream54Nano")
 @maxLatencyMs(15000)
@@ -32,7 +77,9 @@ policy cheapestCapable { }
 
 /// Fast coding -- cheap + quick for code generation and refactor assistance. Codex 5.3 primary
 /// (coding-specialized), GPT-5.4 Mini as fallback, Claude Haiku as a cross-vendor last resort.
-@primary("streamCodex53")
+@primary("fleet:*")
+@fallback("app:*")
+@fallback("streamCodex53")
 @fallback("stream54Mini")
 @fallback("streamClaudeHaiku")
 @maxLatencyMs(20000)
@@ -42,7 +89,9 @@ policy fastCoding { }
 
 /// Strong reasoning -- for operator-enabled agents driving the UI and for complex tool-calling
 /// choreography. Claude Sonnet primary, GPT-5.4 Pro as a second, Claude Opus as a third.
-@primary("streamClaudeSonnet")
+@primary("fleet:*")
+@fallback("app:*")
+@fallback("streamClaudeSonnet")
 @fallback("stream54Pro")
 @fallback("streamClaudeOpus")
 @maxLatencyMs(60000)
@@ -51,16 +100,24 @@ policy strongReasoning { }
 
 // ---- policies/v1/backgroundExecution.memql ----
 
-/// Background / batch execution lane -- CHEAP DEFAULT tier (memql#898). Planner-dispatched
-/// plan/task execution (e.g. produceArtifact file generation) is routine work that does not need
-/// the strong/expensive interactive model, so it defaults to GPT-5.4 Mini with cross-vendor cheap
-/// fallbacks (Claude Haiku, then GPT-5.4 Nano). Every entry is OpenAI/Anthropic because only those
-/// vendors implement the NON-streaming tool-calling surface the background lane uses. When the
-/// cheap tier gets stuck on a turn (repeated tool-call failures), the background executor escalates
-/// mid-turn to the backgroundEscalation policy. Kept separate from the interactive chat policies
-/// (memql#897) so the batch tier is tuned independently of live chat; higher maxLatencyMs because
-/// no human waits on its first token; pairs with the background si_guard rate bucket.
-@primary("stream54Mini")
+/// Background / batch execution lane -- CHEAP DEFAULT tier (memql#898). Routine background work
+/// (e.g. produceArtifact file generation) does not need the strong interactive model, so the cloud
+/// half of this chain is GPT-5.4 Mini with cross-vendor cheap fallbacks (Claude Haiku, then GPT-5.4
+/// Nano). When the cheap tier gets stuck on a turn (repeated tool-call failures), the background
+/// executor escalates mid-turn to backgroundEscalation. Kept separate from the interactive chat
+/// policies (memql#897) so the batch tier is tuned independently of live chat; higher maxLatencyMs
+/// because no human waits on its first token; pairs with the background si_guard rate bucket.
+///
+/// NO `app:*` STEP, and its absence is the design rather than an omission (epic memql#5096, D3).
+/// This lane runs TOOL-CALLING turns, and an app door does not serve them: on a tool turn MemQL is
+/// driving, and an app is an agent that drives itself -- it reaches MemQL's tools through MCP, in
+/// the other direction. An `app:*` entry here would be one the router skips on every call, which
+/// reads to a later author like a door that is always shut.
+///
+/// `fleet:*` DOES belong here: a local model that advertises `tools=1` serves this lane exactly as
+/// a vendor does, which is what memql#5098 built.
+@primary("fleet:*")
+@fallback("stream54Mini")
 @fallback("streamClaudeHaiku")
 @fallback("stream54Nano")
 @maxLatencyMs(120000)
@@ -68,77 +125,19 @@ policy backgroundExecution { }
 
 // ---- policies/v1/backgroundEscalation.memql ----
 
-/// Background lane ESCALATION tier (memql#898). The strong/expensive chain the background executor
-/// swaps to when the cheap backgroundExecution tier gets stuck on a turn (an explicit stuck signal
-/// -- repeated rounds where every tool call errored, which usually means the cheap model is
-/// mishandling the workbench/worker tool). Claude Sonnet primary, GPT-5.4 Pro as a tool-capable
-/// cross-vendor fallback (both implement the non-streaming tool surface). Escalation happens at
-/// most once per turn and reuses the in-progress message history, so it costs one stronger
-/// continuation, not a full re-run.
-@primary("streamClaudeSonnet")
+/// Background lane ESCALATION tier (memql#898). The strong chain the background executor swaps to
+/// when the cheap backgroundExecution tier gets stuck on a turn (an explicit stuck signal --
+/// repeated rounds where every tool call errored, which usually means the cheap model is
+/// mishandling the workbench/worker tool). Escalation happens at most once per turn and reuses the
+/// in-progress message history, so it costs one stronger continuation, not a full re-run.
+///
+/// `fleet:*` leads here too, and that is not a contradiction of "escalate to something stronger":
+/// the wildcard resolves to the STRONGEST eligible local model, and a fleet running a 70B is a
+/// better escalation than a cloud Sonnet is a cheaper one. When the fleet cannot serve the turn --
+/// no tool support, nothing awake -- the chain falls to Claude Sonnet and GPT-5.4 Pro exactly as
+/// before. No `app:*` step, for the tool-turn reason stated on backgroundExecution.
+@primary("fleet:*")
+@fallback("streamClaudeSonnet")
 @fallback("stream54Pro")
 @maxLatencyMs(120000)
 policy backgroundEscalation { }
-
-// ---- policies/v1/fleet/localPlanner.memql ----
-
-// LOCAL-FIRST DEFAULTS (epic memql#4676, design D2/D3).
-//
-// The four policies below are the platform's own operations -- planning,
-// conductor/routing, suggestions, embeddings -- and every one of them names a
-// fleet model as @primary with NO cloud @fallback.
-//
-// THE MISSING @fallback IS THE FEATURE. A chain that reaches a cloud provider
-// is a chain that spends money the moment a laptop closes, and it would do so
-// silently: nothing about a working reply says which vendor produced it. With
-// no fallback authored, an idle fleet PARKS the work and says why, naming the
-// machines it considered (memql#4682). Adding a fallback here is a legitimate
-// operator decision -- but it must be a DECISION, written down, not a default
-// nobody chose.
-//
-// The cloud-quality policies above (balancedChat, strongReasoning,
-// cheapestCapable, ...) are unchanged and remain available: a purpose that
-// genuinely needs a stronger model is wired to one of them explicitly, per
-// purpose. That is design D3 -- quality tiers are authored, exactly as they
-// are for cloud providers today.
-//
-// The model floor is a 7-8B instruct model with structured output
-// (llama3.1:8b / qwen2.5:7b class) plus a small embeddings model. It is what
-// onboarding RECOMMENDS installing; what ENFORCES it per call is the catalog's
-// capability gating (memql#4679), which will not route a structured prompt to
-// a model that never advertised structured output.
-
-/// Planner, locally. The Planner Agent's decompose / dispatch / escalate loop runs on the user's
-/// own hardware. No cloud fallback: an idle fleet parks the plan with the machines it considered,
-/// rather than quietly billing a key for work the user expected to be free.
-@primary("fleet:llama3.1:8b")
-@maxLatencyMs(120000)
-policy localPlanner { }
-
-// ---- policies/v1/fleet/localConductor.memql ----
-
-/// Conductor + routing, locally. The single-brain conductor call that decides whether and which
-/// agent responds. Latency-sensitive, structured-output, and run on every utterance -- which is
-/// exactly the shape that makes a local model worth having.
-@primary("fleet:llama3.1:8b")
-@maxTimeToFirstTokenMs(2000)
-@maxLatencyMs(30000)
-policy localConductor { }
-
-// ---- policies/v1/fleet/localSuggest.memql ----
-
-/// Suggestions, locally. The lightweight one-line paths (space titles, group descriptions, card
-/// summaries) and the richer suggest domains. Highest-volume, lowest-stakes LLM traffic in the
-/// product, and the first thing anyone would want off a metered key.
-@primary("fleet:llama3.1:8b")
-@maxLatencyMs(30000)
-policy localSuggest { }
-
-// ---- policies/v1/fleet/localEmbeddings.memql ----
-
-/// Embeddings, locally. A small embeddings model on the user's machine. Routed only to catalog
-/// entries advertising embeddings capability, so a fleet running only a chat model reports this
-/// purpose as unavailable rather than returning something that is not a vector.
-@primary("fleet:nomic-embed-text")
-@maxLatencyMs(60000)
-policy localEmbeddings { }
