@@ -28,23 +28,23 @@ import { Button, Caption, ChoiceStack, useAppReach, type ChoiceOption } from "..
 
 type DoorId = "fleet" | "anthropic" | "openai";
 
+// THE DOORS CARRY NO DESCRIPTION, AND THE CHOSEN ONE'S SENTENCE SITS UNDER
+// THEM. Three named cards each with two lines of prose is 210px inside a desk
+// widget, which pushed the act itself below the fold -- and a first-run
+// surface whose one button has to be scrolled to has not done its job. Three
+// names read at a glance, and a person reads the sentence for the one they
+// are actually considering, which is what a selection is for.
 const DOORS: readonly (ChoiceOption & { value: DoorId })[] = [
-  {
-    value: "fleet",
-    label: "A machine on your fleet",
-    description: "Pair a computer you already own and let it serve the model. Nothing leaves your hardware, and there is no bill.",
-  },
-  {
-    value: "anthropic",
-    label: "Anthropic",
-    description: "Federate this cluster with Anthropic, so no API key exists anywhere -- or seal a key instead.",
-  },
-  {
-    value: "openai",
-    label: "OpenAI",
-    description: "Seal an API key. OpenAI publishes no federation mechanism yet.",
-  },
+  { value: "fleet", label: "A machine on your fleet" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "openai", label: "OpenAI" },
 ];
+
+const SAYS: Record<DoorId, string> = {
+  fleet: "A computer you already own serves the model. Nothing leaves it, and there is no bill.",
+  anthropic: "Federate the cluster, so no API key exists anywhere -- or seal a key instead.",
+  openai: "Seal an API key. OpenAI publishes no federation mechanism yet.",
+};
 
 export function InferenceStop({ role }: { role: string }) {
   const [door, setDoor] = useState<DoorId>("fleet");
@@ -64,6 +64,7 @@ export function InferenceStop({ role }: { role: string }) {
         onChange={(next) => setDoor(next as DoorId)}
         options={DOORS}
       />
+      <Caption>{SAYS[door]}</Caption>
       <div className="os-setup-stop-act">{act()}</div>
     </div>
   );

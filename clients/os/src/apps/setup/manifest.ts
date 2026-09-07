@@ -20,10 +20,13 @@ export const setupWidget: OsWidgetManifest = {
   name: "Set up",
   roles: { any: ["owner", "developer"] },
   icon: ListChecks,
-  // Four stops with one open, inside a desk widget. Three cells tall keeps it
-  // placeable on a five-row desk (a 1280x720 browser); the body scrolls when
-  // the open stop is the tall one.
-  size: { w: 4, h: 3 },
+  // FOUR CELLS TALL BECAUSE THE INFERENCE STOP IS, and the visual pass is
+  // what settled it: at three, the three doors and the act sat below the
+  // fold of a card whose whole job is to offer them. Four holds every stop
+  // with one open and nothing scrolled. A desk too short for it places the
+  // widget wherever it fits instead -- `addItem` settles on the nearest free
+  // cell -- which is a worse position and not a missing wizard.
+  size: { w: 4, h: 4 },
   component: SetupWidget,
   gate: SetupGate,
 };

@@ -47,18 +47,31 @@ function mount(role: string) {
 describe("the doors an owner is offered", () => {
   it("offers three, with the fleet one first and selected", () => {
     mount("owner");
-    const doors = screen.getAllByRole("radio").map((el) => el.textContent);
-    expect(doors[0]).toContain("A machine on your fleet");
-    expect(doors[1]).toContain("Anthropic");
-    expect(doors[2]).toContain("OpenAI");
+    // THE ORDER IS THE RECOMMENDATION, and it is the only one this surface
+    // makes: a machine somebody already owns costs nothing, and the two
+    // vendors need an account.
+    expect(screen.getAllByRole("radio").map((el) => el.textContent)).toEqual([
+      "A machine on your fleet",
+      "Anthropic",
+      "OpenAI",
+    ]);
     expect(screen.getAllByRole("radio")[0]?.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("says what each door costs, in the words a person decides on", () => {
+  it("says what the CHOSEN door costs, one sentence at a time", () => {
+    // The doors carry no prose of their own: three names read at a glance,
+    // and the sentence belongs to the one being considered. Three
+    // descriptions at once put the act below the fold of a desk widget,
+    // which the visual pass caught and no test would have.
     mount("owner");
-    expect(screen.getByText(/Nothing leaves your hardware, and there is no bill/)).toBeTruthy();
-    expect(screen.getByText(/no API key exists anywhere/)).toBeTruthy();
+    expect(screen.getByText("A computer you already own serves the model. Nothing leaves it, and there is no bill.")).toBeTruthy();
+    expect(screen.queryByText(/no API key exists anywhere/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Anthropic" }));
+    expect(screen.getByText("Federate the cluster, so no API key exists anywhere -- or seal a key instead.")).toBeTruthy();
+
     // OpenAI's is honest about the absence rather than silent about it.
+    fireEvent.click(screen.getByRole("radio", { name: "OpenAI" }));
     expect(screen.getByText("Seal an API key. OpenAI publishes no federation mechanism yet.")).toBeTruthy();
   });
 

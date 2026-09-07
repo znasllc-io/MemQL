@@ -174,6 +174,12 @@ owner profile, registration mode, and notification recipients,
 then emails a magic link to the owner address. Click the link,
 land on `/admin`, you're the cluster owner.
 
+Signing in to MemQL OS from there puts a **Set up** card on the
+first desk: the four things this cluster needs before it can do
+useful work, each opening the one place it is configured, and
+gone once they are done. See
+[What an owner sees first](../operate/first-run.md).
+
 ### B) Unattended -- env vars on first boot
 
 Set the full `IDENTITY_BOOTSTRAP_*` envelope on the identity
@@ -239,6 +245,7 @@ traefik front door + mkcert `*.memql.localhost` wildcard), no port-forward. See
 - **Architecture:** [docs/public/concepts/architecture.md](../concepts/architecture.md)
 - **Write your first automation:** [docs/public/language/memql.md](../language/memql.md) -- the DSL reference; real examples live in `dsl/<namespace>/automations.memql`
 - **MemQL gotchas:** [docs/public/language/authoring-rules.md](../language/authoring-rules.md) -- read before authoring `.memql` files
+- **What an owner sees first:** [docs/public/operate/first-run.md](../operate/first-run.md) -- the first-run wizard, its four stops, and what it deliberately does not cover
 
 ---
 

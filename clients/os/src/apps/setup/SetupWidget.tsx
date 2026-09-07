@@ -46,7 +46,13 @@ export function SetupWidget() {
     id: stop.id,
     name: stop.name,
     state: drawnState(stop, openStop),
-    sentence: stop.sentence,
+    // SAY IT ONCE (interface rule 7). A stop's sentence is drawn under its
+    // line while the stop is open, and the inference stop's body is three
+    // doors that ARE that sentence enumerated -- "a machine on your fleet
+    // serving a model, or a federated cloud vendor" beside a list reading
+    // exactly that put the same answer on one card twice, and pushed the act
+    // it was introducing below the fold.
+    sentence: stop.id === "ai" ? undefined : stop.sentence,
     answer: stop.answer,
     body: bodyFor(stop),
   }));
