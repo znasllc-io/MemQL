@@ -70,7 +70,7 @@ func TestRecordEmitsExpectedQueryShape(t *testing.T) {
 		`reason: "ok"`,
 		`agentId: "a1"`,
 		`ownerUserId: "u1"`,
-		`planId: "p1"`,
+		`runId: "p1"`,
 		`correlationId: "c1"`,
 		`categories: "destructive"`,
 	} {

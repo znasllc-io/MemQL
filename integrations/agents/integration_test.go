@@ -123,9 +123,11 @@ func (e *recordingEngine) Execute(_ context.Context, query string) (*memql.Execu
 	return &memql.ExecuteResult{}, nil
 }
 
-// fakeWorkGoals records the goals the two entry points open.
+// fakeWorkGoals records the goals the two entry points open, and the
+// questions requestUserFeedback parks a run on.
 type fakeWorkGoals struct {
 	opened []DirectGoal
+	asked  []FeedbackApproval
 	err    error
 }
 
@@ -135,6 +137,14 @@ func (f *fakeWorkGoals) OpenDirectGoal(_ context.Context, g DirectGoal) (string,
 	}
 	f.opened = append(f.opened, g)
 	return "v1:work:goal:g1", "v1:work:run:r1", nil
+}
+
+func (f *fakeWorkGoals) RaiseFeedbackApproval(_ context.Context, _ string, a FeedbackApproval) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	f.asked = append(f.asked, a)
+	return "v1:work:approval:a1", nil
 }
 
 // TestHandleProduceArtifact_OpensExactlyOneGoal is the memql#1133 FIX-2
@@ -255,27 +265,34 @@ func TestHandleRequestUserFeedback_RejectsBadKind(t *testing.T) {
 	_, err := i.handleRequestUserFeedback(context.Background(), map[string]any{
 		"question": "Which quarter?",
 		"kind":     "freeform",
-		"planId":   "plan-1",
+		"runId":    "v1:work:run:r1",
 	}, 0)
 	if err == nil || !strings.Contains(err.Error(), "must be choice / text / multi") {
 		t.Fatalf("expected bad-kind error, got: %v", err)
 	}
 }
 
-func TestHandleRequestUserFeedback_RequiresPlanId(t *testing.T) {
+func TestHandleRequestUserFeedback_RequiresRunId(t *testing.T) {
 	i := New(memql.NewAgentRegistry(), nil)
 	_, err := i.handleRequestUserFeedback(context.Background(), map[string]any{
 		"question": "Which quarter?",
 		"kind":     "text",
 	}, 0)
-	if err == nil || !strings.Contains(err.Error(), "'planId' required") {
-		t.Fatalf("expected missing-planId error, got: %v", err)
+	// The message must say what could not be found and WHY, because the tool
+	// does not take a run id from the model -- it is injected from the turn.
+	// "'runId' required" alone would send an agent author looking for an
+	// argument to pass.
+	if err == nil || !strings.Contains(err.Error(), "'runId' required") {
+		t.Fatalf("expected missing-runId error, got: %v", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "no active run in the turn context") {
+		t.Errorf("the error names no cause: %v", err)
 	}
 }
 
 // The handler's three early error paths are testable without a real
 // engine handle: registry-nil, missing required args, and missing
-// agent registration. The success path (which mints a Plan via
+// agent registration. The success path (which raises a v1:work:approval via
 // engine.Execute) needs a wired engine + database; that lives behind
 // an integration test that the planner integration's tests will pick
 // up, not here. Keeping the unit tests focused on contract-shape
