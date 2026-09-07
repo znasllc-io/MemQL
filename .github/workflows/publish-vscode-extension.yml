@@ -87,7 +87,7 @@ jobs:
   # having been moved deliberately. Deriving it from the tag instead would let a
   # release publish a manifest that still says 0.3.1.
   version:
-    name: resolve the version
+    name: resolve the extension version
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -222,7 +222,7 @@ jobs:
   # THE LAST MILE
   # ==========================================================================
   publish:
-    name: publish
+    name: publish the extension
     needs: [version, package]
     runs-on: ubuntu-latest
     timeout-minutes: 20
