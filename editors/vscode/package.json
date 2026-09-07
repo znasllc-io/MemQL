@@ -681,5 +681,17 @@
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.28.1",
     "typescript": "^5.4.0"
-  }
+  },
+  "keywords": [
+    "memql",
+    "dsl",
+    "language server",
+    "kubernetes",
+    "k3d",
+    "graph database"
+  ],
+  "bugs": {
+    "url": "https://github.com/znasllc-io/memql/issues"
+  },
+  "homepage": "https://github.com/znasllc-io/memql/tree/main/editors/vscode#readme"
 }
