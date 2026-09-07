@@ -211,3 +211,78 @@ func TestTheProductionTimingsAreWhatTheRecordSays(t *testing.T) {
 		t.Errorf("the boot re-write delay is %s; D5 says thirty seconds", ReadinessBootRewriteDelay)
 	}
 }
+
+// THE WIRE, from a real event bus to a real rewrite (epic memql#5118, D5).
+//
+// Everything above tests the debounce loop through `Notify`, and
+// TestTheRegistrationPatternsMatchTheCdcTopics tests that the pattern matches
+// the topics the CDC path publishes. Neither tests the LINE BETWEEN THEM.
+//
+// That gap is the one this package has been bitten by before: a subscriber
+// that is registered and inert is green on every unit test and does nothing on
+// a cluster, and the symptom is the exact defect the feature exists to fix --
+// a wizard whose rail does not move when you pair a machine. So this drives a
+// real `events.Bus` through `StartReadinessRecomputeSubscriber` and asserts a
+// rewrite came out the far end.
+//
+// It uses a REAL bus rather than a fake for the reason engineWithProviders
+// does: a fabricated bus that called the handler directly would pass against a
+// subscription that was never registered.
+func TestAGraphEventOnTheBusReachesTheRewrite(t *testing.T) {
+	bus := events.NewBus()
+	t.Cleanup(bus.Close)
+
+	eng := &MemQLEngine{specs: newSpecRegistry(), functions: newFunctionRegistry()}
+	eng.SetEventBus(bus)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	sub := eng.StartReadinessRecomputeSubscriber(ctx)
+	if sub == nil {
+		t.Fatal("no subscriber was returned; nothing is wired")
+	}
+	// Swap the write for a counter AFTER Start, so what is under test is the
+	// subscription rather than the engine's own write path -- which needs a
+	// database and is covered by the db-gated readiness tests.
+	var writes atomic.Int32
+	sub.write = func(context.Context) error {
+		writes.Add(1)
+		return nil
+	}
+	sub.debounce = testDebounce
+
+	// A REACHABLE POSITIVE FIRST. If Notify does not produce a rewrite, the
+	// assertion below would pass over a broken loop rather than over a broken
+	// subscription, and it would name the wrong thing.
+	sub.Notify("probe")
+	waitFor(t, 3*time.Second, "the probe rewrite", func() bool { return writes.Load() == 1 })
+
+	// THE ACTUAL EVENT, published exactly as the CDC path publishes it.
+	bus.Publish(events.NewEvent(
+		events.TopicNodeCreated(WorkerRegistrationConcept),
+		events.KindNodeCreated,
+		map[string]any{"id": "v1:worker:registration:m-1"},
+	))
+	waitFor(t, 3*time.Second, "the rewrite a paired machine causes", func() bool {
+		return writes.Load() == 2
+	})
+
+	// AND NOT EVERY GRAPH EVENT. A readiness rewrite on every row written
+	// anywhere would be a cluster-wide registration read per write, on every
+	// replica -- and a rewrite triggered by a READINESS write would loop.
+	bus.Publish(events.NewEvent(
+		events.TopicNodeUpdated(ModuleReadinessConcept),
+		events.KindNodeUpdated,
+		map[string]any{"id": "v1:platform:moduleReadiness:ai--n"},
+	))
+	bus.Publish(events.NewEvent(
+		events.TopicNodeCreated("v1:identity:user"),
+		events.KindNodeCreated,
+		map[string]any{"id": "v1:identity:user:u-1"},
+	))
+	time.Sleep(6 * testDebounce)
+	if got := writes.Load(); got != 2 {
+		t.Fatalf("%d rewrites; the subscription is matching topics beyond the registration concept", got)
+	}
+}
