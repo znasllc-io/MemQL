@@ -71,11 +71,17 @@ test("uninstall is offered only where there is something to remove", () => {
 // -----------------------------------------------------------------------------
 
 /** An installed local cluster whose install recorded where it cloned the code. */
+/** A PINNED install: it has a checkout, cloned at a tag, and no branch. */
 function withCheckout(presence: Instance["presence"]): Instance {
   return { ...local(presence), checkout: "/home/me/.memql/src" };
 }
 
-test("an installed cluster with a checkout is offered a rebuild, in both orders", () => {
+/** A FROM-SOURCE install: a checkout it can also bring up to date. */
+function withBranch(presence: Instance["presence"]): Instance {
+  return { ...withCheckout(presence), checkoutBranch: "main" };
+}
+
+test("an installed cluster with a branch is offered both, in both orders", () => {
   // It sits after Repair rather than beside Create deployment: an operator on
   // this row is choosing between "move to a release" and "run my own code", and
   // the second is the specialised one.
@@ -85,28 +91,56 @@ test("an installed cluster with a checkout is offered a rebuild, in both orders"
   // fetch, so an operator comparing them should not have to read past a third
   // verb to find the other one.
   assert.deepEqual(
-    instanceActions(withCheckout("installed-healthy")).map((a) => a.id),
+    instanceActions(withBranch("installed-healthy")).map((a) => a.id),
     ["createDeployment", "repair", "rebuildFromCheckout", "updateAndRebuild", "uninstall"],
   );
   // The unreachable ordering still leads with repair, and both keep their place
   // relative to the other three.
   assert.deepEqual(
-    instanceActions(withCheckout("installed-unreachable")).map((a) => a.id),
+    instanceActions(withBranch("installed-unreachable")).map((a) => a.id),
     ["repair", "createDeployment", "rebuildFromCheckout", "updateAndRebuild", "uninstall"],
   );
 });
 
-test("the update is offered under exactly the rebuild's gate, and reaches its own graph", () => {
-  // SAME GATE. A rebuild needs something to build from; this needs the same
-  // thing and nothing more. Whether the checkout can actually be moved is the
-  // checklist's question and then the run's, both of which can say WHY --
-  // withholding the button on those grounds would be the panel guessing at a
-  // refusal it is not the authority on.
-  assert.equal(offersAction(local("installed-healthy"), "updateAndRebuild"), false);
-  assert.equal(offersAction(withCheckout("installed-healthy"), "updateAndRebuild"), true);
-  assert.equal(offersAction(withCheckout("absent"), "updateAndRebuild"), false);
+test("a PINNED install is offered the rebuild and not the update", () => {
+  // memql#5073. A release install has a checkout -- the manifests are cloned
+  // from it -- so the old `hasCheckout` gate offered both, and the second could
+  // never run: detached at a tag, `recordedStackBranch` "" by design, refused by
+  // the preflight every time. That is the default install path.
+  //
+  // THE REBUILD STAYS. It is the documented lane crossing (memql#4246): build
+  // the tag's own source and roll onto it. It works on a pinned install; only
+  // the UPDATE half has nothing to update TO.
+  assert.deepEqual(
+    instanceActions(withCheckout("installed-healthy")).map((a) => a.id),
+    ["createDeployment", "repair", "rebuildFromCheckout", "uninstall"],
+  );
+});
 
-  const update = instanceActions(withCheckout("installed-healthy")).find(
+test("the update is offered under a NARROWER gate than the rebuild, and reaches its own graph", () => {
+  // IT USED TO BE THE SAME GATE, and the reasoning was sound as far as it went:
+  // whether the checkout can actually be MOVED -- dirty files, diverged commits,
+  // an unreachable remote -- is the checklist's question and then the run's,
+  // both of which can say WHY, and withholding the button on those grounds would
+  // be the panel guessing at a refusal it is not the authority on.
+  //
+  // That still holds. What it conflated is a PREDICTION with a FACT (memql#5073).
+  // "Can this move?" is uncertain and belongs to the preflight. "Is there a
+  // branch at all?" is neither uncertain nor temporary: it is read off the same
+  // receipt as every other local fact, and for a pinned install the answer is no
+  // and always will be. The panel is the authority on that one, and `hasCheckout`
+  // -- which already withholds BOTH buttons on a determinate fact -- is the
+  // precedent for acting on it.
+  assert.equal(offersAction(local("installed-healthy"), "updateAndRebuild"), false);
+  assert.equal(offersAction(withBranch("installed-healthy"), "updateAndRebuild"), true);
+  assert.equal(offersAction(withCheckout("installed-healthy"), "updateAndRebuild"), false);
+  assert.equal(offersAction(withBranch("absent"), "updateAndRebuild"), false);
+
+  // The rebuild's gate is unchanged, which is the half of this that must NOT
+  // move: a pinned install can still cross to its own build.
+  assert.equal(offersAction(withCheckout("installed-healthy"), "rebuildFromCheckout"), true);
+
+  const update = instanceActions(withBranch("installed-healthy")).find(
     (a) => a.id === "updateAndRebuild",
   );
   // Its OWN graph, never the rebuild's. Routing it into `rebuildGraph` would

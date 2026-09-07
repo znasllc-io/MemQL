@@ -246,7 +246,24 @@ export function instanceActions(
     // Offering a button whose only possible outcome is a refusal teaches an
     // operator that the extension is broken.
     const hasCheckout = (instance.checkout ?? "") !== "";
-    const rebuild = hasCheckout ? [REBUILD, UPDATE_AND_REBUILD] : [];
+    // AND AN UPDATE NEEDS SOMETHING TO UPDATE TO, which is a STRICTLY NARROWER
+    // condition (memql#5073). A release install has a checkout -- the manifests
+    // are cloned from it -- so `hasCheckout` offered both, and the second could
+    // never run: its checkout is detached at a tag, `recordedStackBranch`
+    // answers "" for a pinned install deliberately, and the preflight refused
+    // every time. That is the default install path, so it was most operators,
+    // and it is the rule four lines above being broken by the case it did not
+    // consider.
+    //
+    // REBUILD STAYS OFFERED THERE. It is the documented lane crossing
+    // (memql#4246) -- build the tag's own source and roll onto it -- and it
+    // works. Only the UPDATE half has nothing to do.
+    const hasBranch = (instance.checkoutBranch ?? "") !== "";
+    const rebuild = hasCheckout
+      ? hasBranch
+        ? [REBUILD, UPDATE_AND_REBUILD]
+        : [REBUILD]
+      : [];
     return instance.presence === "absent"
       ? [CREATE_LOCAL_ABSENT]
       : // `installed-unreachable` gets the same set as `installed-healthy`:
