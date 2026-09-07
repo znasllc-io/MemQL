@@ -29,6 +29,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { redactSecrets, withholdResult } from "./secrets.js";
+import { MAIN_BRANCH_CHOICE } from "./stackPin.js";
 
 /** Bumped when the on-disk shape changes incompatibly. */
 export const RECEIPT_VERSION = 1;
@@ -604,20 +605,83 @@ export function recordedStackRefKind(receipt: Receipt | null): string {
  * a repair into an upgrade (memql#3605). This says which branch the checkout
  * belongs to, which is what an UPDATE needs and what a repair must never use.
  *
- * EMPTY FOR A TAG OR COMMIT INSTALL, and that emptiness is the right answer
- * rather than a gap to fill in. A release install pins a tag on purpose; a
- * caller substituting `main` there would quietly offer to move a pinned cluster
- * onto the tip of a branch nobody named.
+ * EMPTY FOR A TAG INSTALL, and that emptiness is the right answer rather than a
+ * gap to fill in. A release install pins a tag on purpose; a caller
+ * substituting `main` there would quietly offer to move a pinned cluster onto
+ * the tip of a branch nobody named.
  *
  * It exists at all because a detached checkout is ORDINARY on the branch lane:
  * a repair reconciles onto an exact commit and detaches, so the branch the
  * install asked for is no longer readable from HEAD (memql#4578).
+ *
+ * A FROM-SOURCE INSTALL STILL ANSWERS EVEN WHEN ITS REF HAS NARROWED TO A
+ * COMMIT (memql#5071), and it is the one case where substituting `main` is not
+ * the mistake the paragraph above describes -- because there is no pin to
+ * override. That lane has no tag and no release by construction; it exists to
+ * track a branch, and `MAIN_BRANCH_CHOICE` is the only branch either front end
+ * offers.
+ *
+ * It has to answer, because the ref DOES narrow. `recordedCheckout` turns a
+ * branch install's record into a commit so a repair replays the code rather
+ * than re-resolving a moved ref, and until memql#5071 a later install passed
+ * that commit straight back into `--commit`, which re-recorded `refKind=commit`
+ * and erased the branch for good. Reading the lane rather than the ref is what
+ * makes an install already in that state recoverable instead of needing a
+ * hand-run `git checkout -B main` on the product's own checkout.
  */
+/**
+ * The checkout pin an install run should use: what the receipt recorded on a
+ * REPAIR, and the operator's own choice on anything else (memql#5071).
+ *
+ * WHY THIS IS A FUNCTION AND NOT FOUR FIELDS AT THE CALL SITE. It was four
+ * fields, in a webview object literal no unit test can reach -- the same shape,
+ * and the same place, that memql#3560 already had to fix once. Three of them
+ * were guarded on the action and one was not:
+ *
+ *     tag:    recordedCheckout(prior).tag || inputs.version,   // choice can win
+ *     commit: recordedCheckout(prior).commit,                  // choice cannot
+ *
+ * and `installPlan`'s precedence is `commit > main > tag`, so the unguarded one
+ * always won. An uninstall does not clear the receipt -- `removeCheckout`
+ * refuses to delete a checkout the installer did not create, which is right --
+ * so a REINSTALL replayed the previous attempt's commit over the version the
+ * operator had just picked. The cluster silently stopped tracking main, and
+ * because the replay re-recorded `refKind=commit` it could never start again.
+ *
+ * A REPAIR MUST STILL REPLAY THE COMMIT. Replaying `--branch=main` there checks
+ * out wherever main is today and turns a repair into an upgrade, which is
+ * memql#3605 by the one route that reopens it. The rule is not "stop replaying
+ * the pin"; it is "only a repair is allowed to be steered by it".
+ */
+export function checkoutPinFor(
+  action: string,
+  priorReceipt: Receipt | null,
+  chosenVersion: string,
+): { tag: string; commit: string; imageTag: string; imagesFromSource: boolean } {
+  if (action === "repair") {
+    const recorded = recordedCheckout(priorReceipt);
+    return {
+      // The receipt is checked FIRST so a repair can never be steered by a
+      // field the repair flow does not collect.
+      tag: recorded.tag || chosenVersion,
+      commit: recorded.commit,
+      imageTag: recorded.imageTag,
+      imagesFromSource: recorded.fromSource,
+    };
+  }
+  // NOTHING RECORDED IS CARRIED. Every one of these is what a fresh install
+  // wants: the chosen version, and empties that let `installPlan` derive the
+  // rest from it rather than replaying a cluster that is being replaced.
+  return { tag: chosenVersion, commit: "", imageTag: "", imagesFromSource: false };
+}
+
 export function recordedStackBranch(receipt: Receipt | null): string {
   if (!receipt) return "";
-  if (recordedStackRefKind(receipt) !== "branch") return "";
-  const ref = entryFor(receipt, "stackCheckout")?.result?.ref;
-  return typeof ref === "string" ? ref.trim() : "";
+  if (recordedStackRefKind(receipt) === "branch") {
+    const ref = entryFor(receipt, "stackCheckout")?.result?.ref;
+    return typeof ref === "string" ? ref.trim() : "";
+  }
+  return recordedImagesFromSource(receipt) ? MAIN_BRANCH_CHOICE : "";
 }
 
 /** The directory `install.cloneStack` put the checkout in, or "" when the receipt records none. */

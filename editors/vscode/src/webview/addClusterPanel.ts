@@ -67,6 +67,7 @@ import {
   recordedOwner,
   recordedProvider,
   recordedProviderKeyFile,
+  checkoutPinFor,
   recordedCheckout,
   recordedImageSource,
   recordedStackDir,
@@ -1117,6 +1118,14 @@ export class AddClusterPanel {
     const controller = new AbortController();
     this.runAbort = controller;
 
+    // ONE DECISION, MADE ONCE (memql#5071): what this run pins the checkout to.
+    // A repair replays what the receipt recorded; anything else honours the
+    // version the operator picked. It used to be four fields inlined below,
+    // three guarded on the action and one not -- and the unguarded one wins the
+    // precedence in `installPlan`, so a reinstall silently replayed the previous
+    // attempt's commit over the choice just made.
+    const pin = checkoutPinFor(action, priorReceipt, inputs.version);
+
     const recorder = await RunRecorder.begin({
       dir: this.deps.runsDir ?? defaultRunsDir(),
       instance: LOCAL_INSTANCE_NAME,
@@ -1179,8 +1188,8 @@ export class AddClusterPanel {
           // resolved COMMIT: replaying `--branch=main` would check out wherever
           // main is today, which is memql#3605's failure by the one route that
           // reopens it.
-          tag: recordedCheckout(priorReceipt).tag || inputs.version,
-          commit: recordedCheckout(priorReceipt).commit,
+          tag: pin.tag,
+          commit: pin.commit,
           // AND THE IMAGES THAT CHECKOUT RAN AGAINST (memql#4068). The two lines
           // above replay the recorded CODE; without this one the node images
           // were derived again, from the empty tag a branch install's record
@@ -1192,13 +1201,13 @@ export class AddClusterPanel {
           // Empty on a fresh install, where there is nothing recorded and
           // `installPlan`'s own derivation from the chosen version is the right
           // answer.
-          imageTag: recordedCheckout(priorReceipt).imageTag,
+          imageTag: pin.imageTag,
           // AND THE LANE (memql#4430), for the reason the line above exists. A
           // from-source install records no image tag, so replaying only the tag
           // would leave this run deriving the pin for a cluster whose images were
           // built from its own checkout. False on a fresh install, where
           // `installPlan` reads the lane off the chosen version instead.
-          imagesFromSource: recordedCheckout(priorReceipt).fromSource,
+          imagesFromSource: pin.imagesFromSource,
           timeoutMs: STEP_TIMEOUT_MS,
           env: this.sudoEnv(),
         }),

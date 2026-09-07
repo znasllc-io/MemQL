@@ -43,8 +43,10 @@ import {
   isMainBranchChoice,
 } from "../src/install/stackPin.js";
 import {
+  checkoutPinFor,
   emptyReceipt,
   recordedCheckout,
+  recordedStackBranch,
   recordedImageTag,
   recordedStackCommit,
   recordedStackRefKind,
@@ -591,4 +593,133 @@ test("main is not duplicated when the listing itself carries it", () => {
 test("choosing main does not insert it among the releases", () => {
   const list = versionChoiceList(["v0.19.0", "v0.18.0"], "main");
   assert.deepEqual(list.map((c) => c.value), ["v0.19.0", "v0.18.0", "main"]);
+});
+
+// ---------------------------------------------------------------------------
+// the ratchet: branch -> commit, and never back (memql#5071)
+//
+// An uninstall does NOT clear the receipt -- `removeCheckout` refuses to delete
+// a checkout the installer did not create, which is right -- so a REINSTALL sees
+// a prior receipt. `recordedCheckout` narrows a branch install's record to the
+// commit it resolved, correctly, so a repair replays code rather than
+// re-resolving a moved ref. Passing that commit into a fresh install too made
+// the operator's version choice unreachable, and re-recorded `refKind=commit`,
+// which erased the branch permanently.
+// ---------------------------------------------------------------------------
+
+/** A receipt from a from-source install: a stackCheckout AND a buildImages. */
+function fromSourceReceipt(result: Record<string, unknown>): Receipt {
+  const receipt = receiptWith(result);
+  receipt.entries.push({
+    stepId: "buildImages",
+    script: "k3d.dev",
+    receipt: "",
+    preExisting: false,
+    params: {},
+    result: { imageSource: "checkout" },
+    changed: true,
+    recordedAt: "2026-08-16T00:00:00.000Z",
+  } as ReceiptEntry);
+  return receipt;
+}
+
+test("a reinstall does not replay the previous attempt's commit over the choice just made", () => {
+  // THE REPORTED FAILURE. The operator picked main; the run before it had
+  // recorded a commit; the install pinned to that commit and said nothing.
+  const prior = fromSourceReceipt({
+    tag: "",
+    ref: MAIN_BRANCH_CHOICE,
+    refKind: "branch",
+    commit: "a".repeat(40),
+  });
+
+  const pin = checkoutPinFor("install", prior, MAIN_BRANCH_CHOICE);
+
+  assert.equal(pin.commit, "", "a fresh install must not be steered by what was here before");
+  assert.equal(pin.tag, MAIN_BRANCH_CHOICE, "the operator's choice is the answer");
+});
+
+test("...and neither does the guided install, which is the same lane", () => {
+  const prior = fromSourceReceipt({ tag: "", ref: "main", refKind: "branch", commit: "a".repeat(40) });
+  assert.equal(checkoutPinFor("installGuided", prior, MAIN_BRANCH_CHOICE).commit, "");
+});
+
+test("a repair STILL replays the recorded commit", () => {
+  // The rule is not "stop replaying the pin", it is "only a repair is allowed to
+  // be steered by it". Replaying `--branch=main` here would check out wherever
+  // main is today and turn a repair into an upgrade -- memql#3605, by the one
+  // route that reopens it.
+  const prior = fromSourceReceipt({
+    tag: "",
+    ref: MAIN_BRANCH_CHOICE,
+    refKind: "branch",
+    commit: "a".repeat(40),
+  });
+
+  const pin = checkoutPinFor("repair", prior, MAIN_BRANCH_CHOICE);
+
+  assert.equal(pin.commit, "a".repeat(40));
+  assert.equal(pin.imagesFromSource, true, "and the lane it ran in, or the images are re-derived");
+});
+
+test("a repair of a TAG install still replays the tag", () => {
+  // The tag is read off the step's PARAMS, not its result -- `recordedStackTag`
+  // answers "what was this install asked for", which is the question a repair
+  // replays. The fixture has to carry both, as the tag-install test above does.
+  const prior = receiptWith(
+    { tag: "v0.18.0", ref: "v0.18.0", refKind: "tag", commit: "b".repeat(40) },
+    { tag: "v0.18.0" },
+  );
+  const pin = checkoutPinFor("repair", prior, "v9.9.9");
+  assert.equal(pin.tag, "v0.18.0", "the receipt is checked first, so a repair cannot be re-steered");
+  assert.equal(pin.commit, "");
+});
+
+test("a fresh install with no prior receipt is just the choice", () => {
+  const pin = checkoutPinFor("install", null, "v0.18.0");
+  assert.deepEqual(pin, { tag: "v0.18.0", commit: "", imageTag: "", imagesFromSource: false });
+});
+
+// ---------------------------------------------------------------------------
+// recovering an install already caught by the ratchet
+// ---------------------------------------------------------------------------
+
+test("a from-source install whose ref narrowed to a commit still knows it tracks main", () => {
+  // Without this the button never comes back: the checkout is detached, the
+  // receipt says `refKind=commit`, and the only way out is a hand-run
+  // `git checkout -B main` on the product's own checkout.
+  const degraded = fromSourceReceipt({
+    tag: "",
+    ref: "c".repeat(40),
+    refKind: "commit",
+    commit: "c".repeat(40),
+  });
+
+  assert.equal(recordedStackBranch(degraded), MAIN_BRANCH_CHOICE);
+});
+
+test("a branch install answers with the branch it recorded, not a guess", () => {
+  const receipt = fromSourceReceipt({
+    tag: "",
+    ref: MAIN_BRANCH_CHOICE,
+    refKind: "branch",
+    commit: "a".repeat(40),
+  });
+  assert.equal(recordedStackBranch(receipt), MAIN_BRANCH_CHOICE);
+});
+
+test("a TAG install still answers with no branch at all", () => {
+  // The emptiness is the right answer, not a gap to fill: a release install
+  // pins on purpose, and offering to move it onto the tip of a branch nobody
+  // named is the mistake this guard exists to avoid.
+  const receipt = receiptWith({ tag: "v0.18.0", ref: "v0.18.0", refKind: "tag", commit: "b".repeat(40) });
+  assert.equal(recordedStackBranch(receipt), "");
+});
+
+test("a repair of a tag install -- detached on a commit, but still pinned -- offers no branch", () => {
+  // The dangerous near-miss: refKind is `commit` here too, exactly as it is for
+  // a degraded from-source install. What tells them apart is the LANE, not the
+  // ref, which is why the check reads `buildImages` rather than the ref kind.
+  const receipt = receiptWith({ tag: "", ref: "b".repeat(40), refKind: "commit", commit: "b".repeat(40) });
+  assert.equal(recordedStackBranch(receipt), "");
 });
