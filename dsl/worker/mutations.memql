@@ -918,6 +918,12 @@ mutate modelPull createModelPull {
 /// is not happening, on a surface a person is watching precisely because they cannot see the
 /// machine.
 ///
+/// actor.userId scoping is not the fix, and it is the same subtlety createModelPull records: the
+/// caller IS the owner of their own machine's pull, so a self-scoped filter admits exactly this
+/// call. Scoping answers "whose row is it", and the hazard is not whose -- it is that these
+/// fields are a report about a MACHINE, and only the replica holding that machine's stream has
+/// heard from it. Anyone else writing them is describing a download that is not happening.
+///
 /// THE COUNTERS ARE NOT MONOTONIC and this mutation must not pretend otherwise: they describe
 /// the CURRENT layer and reset to zero on each new one. `completedBytes` going down is the
 /// ordinary shape of a working pull, which is why `layer` travels with them -- it is what turns
@@ -934,13 +940,13 @@ mutate modelPull recordModelPullProgress {
     updatedAt       string!
   }
   update {
-    id: args.pullId
-    statusLine: args.statusLine ?? ""
-    layer: args.layer ?? ""
-    status: "running"
-    args.completedBytes
-    args.totalBytes
-    args.updatedAt
+    accept { completedBytes, totalBytes, updatedAt }
+    stamp {
+      id: args.pullId
+      statusLine: args.statusLine ?? ""
+      layer: args.layer ?? ""
+      status: "running"
+    }
   }
 }
 
@@ -951,6 +957,11 @@ mutate modelPull recordModelPullProgress {
 /// disk and will be invisible until this machine reconnects". Only the machine can report
 /// which, and a client that could write it could tell a person their fleet had gained a model
 /// it has not.
+///
+/// actor.userId scoping is not the fix, for the reason its sibling states: the caller is the
+/// owner, so a self-scoped filter admits this call unchanged. What only the server knows is what
+/// the MACHINE said -- and a terminal status is the one field on this row that a later reader
+/// treats as settled, so a caller who could write it could close a pull that is still running.
 @actor
 @serverOnly
 mutate modelPull finishModelPull {
@@ -963,12 +974,12 @@ mutate modelPull finishModelPull {
     endedAt       string!
   }
   update {
-    id: args.pullId
-    args.status
-    statusLine: args.statusLine ?? ""
-    errorMessage: args.errorMessage ?? ""
-    args.readvertised
-    args.endedAt
-    updatedAt: args.endedAt
+    accept { status, readvertised, endedAt }
+    stamp {
+      id: args.pullId
+      statusLine: args.statusLine ?? ""
+      errorMessage: args.errorMessage ?? ""
+      updatedAt: args.endedAt
+    }
   }
 }

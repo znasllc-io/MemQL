@@ -195,3 +195,68 @@ names on the supported distributions; Homebrew's Ollama formula versus the app; 
 `ollama pull hf.co/<repo>` accepts a quantization suffix in the current release. All were
 read on 2026-09-06 from the two trees; the vendor facts are the executing session's to
 confirm.
+
+---
+
+## 9. What shipped, and the three places it differs from the above
+
+Recorded here rather than left for a reader to discover, because each
+difference is a decision and two of them contradict a sentence above.
+
+### The attributes are epic 3's, and `quant` is a string
+
+D4 gives `fleetModel` `params` and `quant` "with a stated reduction: the
+MAXIMUM across machines for `params` ... and the set of quantizations". Epic 3
+(memql#5096) shipped both fields first, with `params` as the MAX as specified
+and `quant` as a **string** -- the first machine that reported one -- and the
+cockpit half merged against that contract (memql-cockpit#392).
+
+So epic 4 consumes them rather than re-implementing them. Changing `quant` to a
+set now would break a shipped wire contract to fix a field nothing selects on:
+it is operator-facing only, because two quantizations of one model are the same
+model to a caller. **Epic 3 owns the attributes; epic 4 reads them.**
+
+### Progress is a persisted row, not a virtual one
+
+The plan called for progress "as rows on a virtual `v1:worker:modelPullProgress`".
+A virtual concept is produced at query time and never persisted -- the
+`fleetModel` pattern -- and a query-time projection cannot stream, so nothing
+would have reached the browser between one read and the next.
+
+What shipped is `v1:worker:modelPull`: a real, owner-tiered, BROADCAST row,
+written at request, updated on a two-second throttle while the download runs,
+and finalised at the end. That is a deliberate inversion of this record's
+instinct elsewhere, and it survives the same test the virtual concepts pass: a
+pull is an EVENT WITH A DURATION rather than a fact to re-derive, so there is no
+live source to compute it from -- and if the process holding it dies, the row is
+the only thing that can say a pull was ever asked for. The same rows answer "why
+is this model here" long after anyone stopped watching.
+
+### The act and the download run on different nodes, and the claim is a field
+
+D3 says "the engine names the model" without saying which engine. It cannot be
+the one that takes the call: `fleetModelPull` is served by a bff, and everything
+that can reach a machine's stream is behind the `agent` build tag.
+
+So the act DECIDES and RECORDS -- every refusal (not yours, revoked, not
+connected) happens before a row exists -- and an agent replica picks the row up
+off the broadcast event. The claim is `targetNodeId`, the replica holding the
+machine's stream when the pull was asked for: exactly one matches, so exactly
+one acts, with no lock and no election. A machine that reconnected to a sibling
+in between is reached over the `ModelPullForward*` hop, which is an ordinary
+event rather than a corner case, since a cockpit reconnects on every restart. A
+replica that is GONE claims nothing, and `workerModelPullStaleSweep` closes what
+it left every two minutes -- on the cluster's maintenance principal, because a
+sweep for abandoned work cannot know whose work was abandoned before it looks.
+
+### One thing this record got exactly right, and it shaped the whole surface
+
+Section 4.2's progress fields are per-blob, and the counters restart at zero for
+each. That is the single fact the implementation is organised around: the
+engine's handle deliberately does NOT inherit `ModelCallHandle`'s
+monotonic-or-drop rule, the hop relays the counters untouched, the row's own
+documentation says the numbers describe one layer, and the OS labels its bar "in
+this step" and draws no overall percentage at all. Applying the model call's
+rule would have swallowed the first observation of every layer after the first
+-- a bar that fills once and then freezes, reading as a hung download of a pull
+that is working perfectly.

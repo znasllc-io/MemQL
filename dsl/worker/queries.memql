@@ -3,7 +3,7 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-use common.traits.{ isActiveRecord, isNotDeleted }
+use common.traits.{ isActiveRecord, isNotDeleted, statusIsRunning }
 
 /// List worker invocation rows for retention pruning. When createdBefore is supplied, restricts to
 /// rows created strictly before it -- the retention sweep's logic computes the cutoff (now -
@@ -442,6 +442,6 @@ query modelPull openModelPulls {
   args {
     requestedBefore  string
   }
-  filter  actor.isClusterOwner==true && (status=="requested" || status=="running") && isNotDeleted && when(args.requestedBefore) { requestedAt<args.requestedBefore }
+  filter  actor.isClusterOwner==true && (status=="requested" || statusIsRunning) && isNotDeleted && when(args.requestedBefore) { requestedAt<args.requestedBefore }
   shape   workerModelPullFull
 }

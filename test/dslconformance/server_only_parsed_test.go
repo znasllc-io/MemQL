@@ -875,6 +875,29 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "worker/mutations.memql", Name: "createAppSession"}:           true,
 		{Path: "worker/mutations.memql", Name: "appendAppSessionTranscript"}: true,
 		{Path: "worker/mutations.memql", Name: "endAppSession"}:              true,
+		// epic memql#5103, the model-pull trio. Same shape as the three
+		// above, and the same reason caller-scoping is no help: the caller
+		// IS the owner of their own machine, so a self-scoped filter admits
+		// exactly these writes. What only the server knows is different in
+		// each.
+		//
+		// createModelPull carries `targetNodeId`, which is the CLAIM: exactly
+		// one agent replica acts on the row, the one whose own MEMQL_NODE_ID
+		// it names, read off the registration the server resolved. A caller
+		// who could write it could point a download at a node holding no
+		// stream for the machine -- a pull that silently never happens.
+		//
+		// recordModelPullProgress and finishModelPull are a report about a
+		// MACHINE, and only the replica holding that machine's stream has
+		// heard from it. Anyone else writing them is describing a download
+		// that is not happening -- on a surface a person is watching
+		// precisely because they cannot see the machine. finishModelPull adds
+		// `readvertised`, which is the difference between a model the cluster
+		// can route to and one it will not see until the machine reconnects,
+		// and a terminal status a later reader treats as settled.
+		{Path: "worker/mutations.memql", Name: "createModelPull"}:         true,
+		{Path: "worker/mutations.memql", Name: "recordModelPullProgress"}: true,
+		{Path: "worker/mutations.memql", Name: "finishModelPull"}:         true,
 		// memql#4389. The connector's own writes, and the two halves of
 		// the push channel. What they share is that the caller is a
 		// CONNECTOR rather than a person, so actor.userId names nobody --
