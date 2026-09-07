@@ -39,6 +39,7 @@ import {
   recordedDomain,
   recordedImageSource,
   recordedRebuild,
+  recordedStackBranch,
   recordedStackDir,
   recordedStackTag,
   type ImageSource,
@@ -110,6 +111,21 @@ export interface Instance {
   imageSource?: ImageSource;
   checkout?: string;
   rebuild?: RecordedRebuild;
+  /**
+   * The branch the recorded checkout can be brought up to date with, or absent
+   * when there is none (memql#5073).
+   *
+   * ABSENT IS THE COMMON CASE AND NOT A GAP: a release install is pinned to a
+   * tag on purpose, and `recordedStackBranch` answers "" for it deliberately.
+   * It is what tells "Update from origin and rebuild" apart from "Rebuild from
+   * checkout" -- the second works on a pinned install, the first cannot,
+   * because there is nothing to update TO.
+   *
+   * NOT DERIVABLE FROM `imageSource`, which is the trap it exists to avoid: a
+   * release user who runs Rebuild from checkout becomes `imageSource=checkout`
+   * while their checkout stays pinned to a tag.
+   */
+  checkoutBranch?: string;
 }
 
 /**
@@ -277,6 +293,7 @@ export function localInstance(input: LocalInstanceInput): Instance {
   const checkout = recordedStackDir(input.receipt);
   const imageSource = recordedImageSource(input.receipt);
   const rebuild = recordedRebuild(input.receipt);
+  const checkoutBranch = recordedStackBranch(input.receipt);
   return {
     name: registeredName !== "" ? registeredName : LOCAL_INSTANCE_NAME,
     kind: "local",
@@ -287,6 +304,7 @@ export function localInstance(input: LocalInstanceInput): Instance {
     ...(checkout !== "" ? { checkout } : {}),
     ...(imageSource !== "" ? { imageSource } : {}),
     ...(rebuild !== undefined ? { rebuild } : {}),
+    ...(checkoutBranch !== "" ? { checkoutBranch } : {}),
   };
 }
 
