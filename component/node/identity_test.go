@@ -87,31 +87,53 @@ func TestNewIdentity_HostnameFallback(t *testing.T) {
 	}
 }
 
-func TestNewIdentity_ExplicitNonWorkerTypeHonored(t *testing.T) {
-	// An explicit, non-empty MEMQL_NODE_TYPE that isn't a valid mesh
-	// worker/bff type (e.g. "identity" for the auth service) is honored
-	// verbatim rather than silently defaulting to the compiled bff type.
-	// Defaulting to bff would make a non-mesh node pass the
-	// `Type == NodeTypeBFF` gate in app/cluster.go, start the worker
-	// dialer / parent connector, and dial peers tokenless -- spamming
-	// "node auth: token extraction failed" on every target. The non-bff
-	// type fails that gate, so no dialer runs. See #430.
+// The WIRING half of the precedence rule: that NewIdentity reads both the
+// compiled type AND the tagged flag and defers to resolveNodeType, which is
+// where the decision itself is tested (node_type_precedence_test.go covers
+// every combination on any build). Wiring is what memql#5115 got wrong -- the
+// decision was never written down as one place to get wrong.
+//
+// Stated against resolveNodeType rather than against a literal because the
+// right answer DEPENDS on the build tag this test is compiled under, and the
+// point is that all seven give an answer rather than that one of them does.
+func TestNewIdentity_BuildTagBeatsTheEnvironment(t *testing.T) {
 	t.Setenv("MEMQL_NODE_TYPE", "identity")
 
 	id := NewIdentity("1.0.0")
 
-	if id.Type != NodeType("identity") {
-		t.Errorf("expected explicit non-worker type %q to be honored, got %q", "identity", id.Type)
+	want, _ := resolveNodeType(CompiledNodeType(), CompiledNodeTypeIsTagged(), NodeTypeIdentity)
+	if id.Type != want {
+		t.Errorf("MEMQL_NODE_TYPE=identity on a compiled=%q tagged=%v build resolved to %q, want %q",
+			CompiledNodeType(), CompiledNodeTypeIsTagged(), id.Type, want)
 	}
-	if ValidNodeTypes[id.Type] {
-		t.Errorf("type %q must not be a valid mesh type (it would re-enable peer dialing)", id.Type)
+
+	// The #430 invariant, in the form that survives the precedence fix: on an
+	// UNTAGGED build an explicit non-mesh MEMQL_NODE_TYPE is honoured verbatim
+	// and must not fall back to the compiled bff default. Falling back would
+	// pass the `Type == NodeTypeBFF` gate in app/cluster.go, start the worker
+	// dialer, and dial every peer tokenless -- "node auth: token extraction
+	// failed" every 30s. A tagged build does not reach this: it is what its
+	// tag says, and a tag that disagrees with the manifest is a warned
+	// misconfiguration rather than a type to negotiate.
+	if !CompiledNodeTypeIsTagged() && ValidNodeTypes[id.Type] {
+		t.Errorf("untagged build asked for non-mesh type %q resolved to mesh type %q (it would re-enable peer dialing)",
+			"identity", id.Type)
 	}
 }
 
 func TestCompiledNodeType(t *testing.T) {
 	compiled := CompiledNodeType()
-	if !ValidNodeTypes[compiled] {
-		t.Errorf("CompiledNodeType() returned invalid type: %s", compiled)
+	if compiled == "" {
+		t.Fatal("CompiledNodeType() is empty -- a compiled_<tag>.go left compiledNodeType unset")
+	}
+	// NOT `ValidNodeTypes[compiled]`, which this asserted until memql#5115.
+	// ValidNodeTypes is the MESH-DIALABLE subset, and identity and edge are
+	// real node roles deliberately outside it; asserting membership here is
+	// what a missing compiled_<tag>.go looked like from the inside -- the two
+	// roles with no file compiled as bff, so the assertion passed by being
+	// asked the wrong question.
+	if !CompiledNodeTypeIsTagged() && compiled != NodeTypeBFF {
+		t.Errorf("an untagged build must compile as %q, got %q", NodeTypeBFF, compiled)
 	}
 }
 

@@ -86,8 +86,9 @@ function engine_build_commit() {
 # ENGINE_NODE_TYPES is the closed set of node types this repo builds an image
 # for -- THE list, in shell. `scripts/k3d/dev.sh` derives `VALID_NODES` from it
 # rather than restating it, and `scripts/ci/node_type_lists_test.go` holds it
-# against the four other places the same set is spelled out (the `app/build_*.go`
-# files, `build_default.go`'s deny-list, the `build-engine-images.yml` release
+# against the six other places the same set is spelled out (the `app/build_*.go`
+# files, `build_default.go`'s deny-list, `component/node/compiled_*.go` and its
+# own `compiled_default.go` deny-list, the `build-engine-images.yml` release
 # matrix, and the Deployments under `deploy/k8s/`).
 #
 # IT IS A LIST BECAUSE RETIRING A NODE TYPE IS THE DANGEROUS EDIT, not adding

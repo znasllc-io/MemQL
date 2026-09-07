@@ -155,15 +155,32 @@ app/
 
 ### Compile-Time Node Type
 
-Each binary knows its compiled type via `node.CompiledNodeType()`. For tagged binaries, this takes precedence over the `MEMQL_NODE_TYPE` env var. For the default (BFF) binary, the env var is still respected as a fallback.
+Each binary knows its compiled type via `node.CompiledNodeType()`. For a tagged
+binary that takes precedence over `MEMQL_NODE_TYPE`, full stop: a disagreeing
+env var is logged as a misconfiguration and ignored. For the untagged (default
+BFF) binary the env var selects the type, and a value outside the mesh set is
+honoured verbatim rather than falling back to bff.
 
 ```go
 import "github.com/znasllc-io/memql/component/node"
 
 compiled := node.CompiledNodeType()
-// default binary → NodeTypeBFF
-// agent binary   → NodeTypeAgent
+// default binary  → NodeTypeBFF
+// agent binary    → NodeTypeAgent
+// identity binary → NodeTypeIdentity
+
+node.CompiledNodeTypeIsTagged()
+// default binary → false   (MEMQL_NODE_TYPE selects)
+// -tags bff      → true    (the tag wins; same VALUE, different meaning)
 ```
+
+**That last pair is why the flag exists** (memql#5115). Until it did, the env
+var won for every mesh type -- so a `-tags agent` binary whose manifest said
+`bff` reported `NodeTypeBFF`, an agent by every wiring decision in
+`app/build_agent.go` and a bff to the `Type == NodeTypeBFF` gate in
+`app/cluster.go` that starts the worker mesh's dialer. `identity` and `edge`
+had no `compiled_<type>.go` at all and so compiled as the bff default, which is
+the same failure with the tag removed rather than overridden.
 
 ## Testing
 

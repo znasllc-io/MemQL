@@ -901,6 +901,17 @@ jobs:
       # Keyed on proto-gen.sh's hash rather than a duplicated version literal,
       # so bumping PROTOC_VERSION in that script invalidates the cache by
       # construction instead of by remembering to edit two places.
+      #
+      # THAT ONLY WORKS BECAUSE EVERY INPUT IS NAMED IN THAT SCRIPT, and one was
+      # not (memql#5116). bin/tools holds the protoc binary -- a downloaded
+      # release, byte-stable for a version -- AND protoc-gen-go /
+      # protoc-gen-go-grpc, which the script BUILDS with `go install`. Those were
+      # compiled by whatever Go the runner happened to have when the cache was
+      # last cold, and Go's comment renderer changed between 1.26 and 1.27, so
+      # the committed .pb.go bytes depended on cache timing rather than on
+      # anything in the key. The script now pins PROTOC_PLUGIN_GOTOOLCHAIN and
+      # keys the plugin directory on it, which puts the dependency back inside
+      # this hash where the key already assumed it was.
       - name: cache pinned protoc
         id: protoc-cache
         if: ${{ env.RUN_PROTO == 'true' }}
@@ -1033,36 +1044,47 @@ jobs:
       # which is how three mcp-tagged suites went their whole life without
       # executing -- including the file the #2888 vulnerability lives in.
       #
-      # The audit is now EXECUTABLE: cmd/citags/scan reads the tags actually
+      # The audit is now EXECUTABLE: scripts/citags reads the tags actually
       # present on *_test.go files and the `go test -tags ...` invocations
       # actually present in this directory, and fails the untagged lane when
       # they disagree. Add a tagged suite without a lane and CI goes red with
       # the file list. Do not reintroduce a prose audit here; a second
       # hand-maintained copy is the defect that gate exists to prevent.
       #
+      # WHAT THAT AUDIT CANNOT SEE, and why ./component/node/ is on every lane
+      # below (memql#5115): it scores TAGGED TEST FILES. component/node has
+      # none -- every test there is untagged -- but its SUBJECT is tag-selected
+      # (`compiled_<type>.go` sets what the binary reports itself as), so the
+      # same untagged test file means a different thing under each tag. Running
+      # it untagged answers for exactly one of the seven. Four of the other six
+      # failed it from the day the file was written, and nothing was red,
+      # because no lane named the package. An untagged test over tag-selected
+      # code is invisible to a tag audit by construction; the fix is to run the
+      # package under every tag, which is cheap and is what these lanes now do.
+      #
       # These lanes are CGO-free, so they ride the warm go-checks cache.
       - name: go test -tags agent (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' }}
-        run: go test -tags agent -timeout=300s ./integrations/agent/ ./integrations/agent/worker/
+        run: go test -tags agent -timeout=300s ./integrations/agent/ ./integrations/agent/worker/ ./component/node/
       # RUN_GO or RUN_DSL: component/mcp/real_engine_surface_test.go pins DSL
       # contracts (e.g. @mcp on readyHarnessStep), so a DSL-only change can red
       # this lane. Mirrors the engine-load-check step's gating.
       - name: go test -tags mcp (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' || env.RUN_DSL == 'true' }}
-        run: go test -tags mcp -timeout=300s ./app/ ./component/mcp/
+        run: go test -tags mcp -timeout=300s ./app/ ./component/mcp/ ./component/node/
       - name: go test -tags identity (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' }}
-        run: go test -tags identity -timeout=300s ./app/
+        run: go test -tags identity -timeout=300s ./app/ ./component/node/
       - name: go test -tags edge (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' }}
-        run: go test -tags edge -timeout=300s ./app/ ./component/server/
+        run: go test -tags edge -timeout=300s ./app/ ./component/server/ ./component/node/
       # POST /sites/{id}/bundles (memql#3713): app/transport_sites_test.go is
       # //go:build bff and would otherwise never execute -- the exact defect
       # this audit exists to catch, caught against this PR before merge
       # rather than after.
       - name: go test -tags bff (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' }}
-        run: go test -tags bff -timeout=300s ./app/ ./component/server/
+        run: go test -tags bff -timeout=300s ./app/ ./component/server/ ./component/node/
       # planner and workbench were the two node tags with NO test lane at all
       # (memql#5003). build-node-tags COMPILES both, and scripts/citags would
       # have gone red the moment somebody added a tagged test under either --
@@ -1073,10 +1095,10 @@ jobs:
       # issue and is not here: it went with epic memql#4988.
       - name: go test -tags planner (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' }}
-        run: go test -tags planner -timeout=300s ./app/
+        run: go test -tags planner -timeout=300s ./app/ ./component/node/
       - name: go test -tags workbench (build-tagged suites)
         if: ${{ env.RUN_GO == 'true' }}
-        run: go test -tags workbench -timeout=300s ./app/
+        run: go test -tags workbench -timeout=300s ./app/ ./component/node/
 
   # Node-tag compile lane (#1584). go-checks builds/tests with the DEFAULT
   # build tags, so a file gated behind a node build tag

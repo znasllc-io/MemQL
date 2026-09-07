@@ -46,6 +46,12 @@ const (
 	// joins the mesh like any other role; the tool surface it serves over the
 	// wire lands in later phases (#1531+).
 	NodeTypeMCP NodeType = "mcp"
+
+	// NodeTypeEdge serves this cluster's hosted web surfaces, resolving a
+	// request Host to a v1:platform:site row (epic memql#3700). Like
+	// identity it is a real node role that is NOT a mesh worker, so it is
+	// deliberately absent from ValidNodeTypes -- nothing dials an edge.
+	NodeTypeEdge NodeType = "edge"
 )
 
 // ValidNodeTypes is the set of recognized node types.
@@ -105,18 +111,63 @@ type Identity struct {
 	tokenMu sync.RWMutex
 }
 
-// CompiledNodeType returns the node type this binary was built for.
-// Default builds (no tag) return NodeTypeBFF. Tagged builds (e.g. -tags cognition)
-// return their specific type. Set via build-tagged compiled_*.go files.
+// CompiledNodeType returns the node type this binary was built for: the one
+// named by its `-tags <type>` build tag, or NodeTypeBFF for an untagged build.
+// Set via the build-tagged compiled_*.go files, one per node type.
 func CompiledNodeType() NodeType {
 	return compiledNodeType
 }
 
+// CompiledNodeTypeIsTagged reports whether CompiledNodeType() came from a BUILD
+// TAG rather than from the untagged default.
+//
+// The distinction is the whole precedence rule (memql#5115) and it cannot be
+// recovered from the type alone: an untagged build compiles as bff, so
+// `CompiledNodeType() == NodeTypeBFF` is true both for `go build .` -- which
+// has no opinion and lets MEMQL_NODE_TYPE choose -- and for
+// `go build -tags bff .`, which does and does not.
+func CompiledNodeTypeIsTagged() bool {
+	return compiledNodeTypeTagged
+}
+
+// resolveNodeType decides this binary's node type from the three things that
+// can name one: the compiled type, whether that type came from a build tag,
+// and MEMQL_NODE_TYPE. It returns the resolved type and whether an explicit
+// MEMQL_NODE_TYPE was OVERRIDDEN by the tag -- a disagreement worth reporting,
+// never worth obeying.
+//
+// A build tag selects which app/build_<type>.go runs, and therefore which
+// integrations and transport layers the binary wired up. Those decisions are
+// made at compile time and an environment variable cannot revisit them, so a
+// tagged binary IS its tag and the env cannot say otherwise. Before memql#5115
+// the env won for any mesh type, which meant a `-tags agent` binary whose
+// manifest said `bff` reported NodeTypeBFF: an agent by every wiring decision
+// in app/build_agent.go, a bff to the gate in app/cluster.go that starts the
+// worker mesh's WorkerDialer.
+//
+// An UNTAGGED build has no such opinion, so MEMQL_NODE_TYPE selects -- and it
+// is honoured VERBATIM, mesh type or not. `go build .` plus an env var is how
+// one binary plays another role, and a value outside ValidNodeTypes must not
+// silently fall back to bff: falling back would pass that same WorkerDialer
+// gate and dial every peer tokenless. See #430.
+func resolveNodeType(compiled NodeType, tagged bool, envType NodeType) (NodeType, bool) {
+	if tagged {
+		return compiled, envType != "" && envType != compiled
+	}
+	if envType != "" {
+		return envType, false
+	}
+	return NodeTypeBFF, false
+}
+
 // NewIdentity creates a node Identity from environment variables.
 //
-// For tagged binaries (built with -tags cognition/agent/planner/bff),
-// the compiled node type takes precedence over MEMQL_NODE_TYPE.
-// MEMQL_NODE_TYPE can override the default for untagged builds.
+// For tagged binaries (built with -tags agent/planner/bff/workbench/mcp/
+// identity/edge) the compiled node type takes precedence over
+// MEMQL_NODE_TYPE, which is reported and ignored when the two disagree.
+// MEMQL_NODE_TYPE selects the type for untagged builds only. See
+// resolveNodeType for why that split is the one the rest of the engine
+// already assumes.
 //
 // Environment variables:
 //   - MEMQL_NODE_TYPE: node type (default: bff)
@@ -128,28 +179,16 @@ func NewIdentity(version string) *Identity {
 	compiled := CompiledNodeType()
 	envType := NodeType(strings.ToLower(strings.TrimSpace(os.Getenv("MEMQL_NODE_TYPE"))))
 
-	var nodeType NodeType
-	if ValidNodeTypes[compiled] {
-		// Tagged binary: compiled type wins
-		nodeType = compiled
-	}
-	if ValidNodeTypes[envType] {
-		// Environment variable override (for untagged binaries)
-		nodeType = envType
-	} else if envType != "" {
-		// The operator set an explicit MEMQL_NODE_TYPE that isn't a
-		// mesh worker/bff type (e.g. "identity" for the auth service).
-		// Honor it verbatim rather than silently falling back to the
-		// compiled bff default -- defaulting to bff would (wrongly)
-		// pass the `Type == NodeTypeBFF` gate in app/cluster.go and
-		// start the worker-mesh WorkerDialer, which then dials every
-		// worker tokenless (the identity service has no node token),
-		// spamming "node auth: token extraction failed" every 30s.
-		// A non-bff type fails that gate, so no dialer is started.
-		nodeType = envType
-	}
-	if nodeType == "" {
-		nodeType = NodeTypeBFF
+	nodeType, envOverridden := resolveNodeType(compiled, CompiledNodeTypeIsTagged(), envType)
+	if envOverridden {
+		// Warned, not refused. The value is now correct either way -- the
+		// binary runs as what it was built as -- so refusing the boot would
+		// trade a reported misconfiguration for an outage. What it means is
+		// that a Deployment and the image it runs disagree, which is worth
+		// a line naming both.
+		slog.Warn("node type: MEMQL_NODE_TYPE disagrees with this binary's build tag; the build tag wins",
+			"compiled_node_type", string(compiled),
+			"memql_node_type", string(envType))
 	}
 
 	nodeId := strings.TrimSpace(os.Getenv("MEMQL_NODE_ID"))

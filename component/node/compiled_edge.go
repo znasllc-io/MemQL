@@ -1,4 +1,4 @@
-//go:build agent
+//go:build edge
 
 package node
 
@@ -8,8 +8,8 @@ package node
 // an untagged build also compiles as bff, so the type alone cannot tell a
 // binary that chose bff from one that merely defaulted to it (memql#5115).
 //
-// Every node type this repo builds an image for has a file here; scripts/ci/node_type_lists_test.go holds that set against app/build_<type>.go.
+// edge had no file here until memql#5115, for the same reason and with the same failure: an edge binary whose MEMQL_NODE_TYPE was unset or wrong reported bff and started the worker mesh's dialer. Nothing dials an edge, so it stays out of ValidNodeTypes.
 var (
-	compiledNodeType       = NodeTypeAgent
+	compiledNodeType       = NodeTypeEdge
 	compiledNodeTypeTagged = true
 )
