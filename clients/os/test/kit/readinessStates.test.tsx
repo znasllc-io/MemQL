@@ -3,6 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SessionProvider } from "../../src/chrome/access";
+import { OsProvider } from "../../src/chrome/state";
+import { OS_REGISTRY } from "../../src/apps/registry";
 import { UNKNOWN_RUNTIME_CONFIG } from "../../src/cluster/config";
 import {
   gateFor,
@@ -21,6 +23,15 @@ function verdict(module: string, state: Verdict["state"], lanes: Verdict["lanes"
 function readiness(loaded: boolean, verdicts: Verdict[]): Readiness {
   const by = new Map(verdicts.map((v) => [v.module, v]));
   return { loaded, state: "live", of: (id) => by.get(id) ?? null, reseed: () => {} };
+}
+
+/** The REAL shell provider, as every other suite mounts it. */
+function withOs(node: ReactNode, role: string) {
+  return (
+    <OsProvider registry={OS_REGISTRY} actorRole={role} grid={{ cols: 12, rows: 8 }} layout="desktop">
+      {node}
+    </OsProvider>
+  );
 }
 
 function withSession(node: ReactNode, clusterRole: string) {
@@ -237,6 +248,35 @@ describe("SetupGroup", () => {
     );
     expect(screen.getByText("Reading this cluster's setup.")).toBeTruthy();
     expect(screen.queryByText("Not set up")).toBeNull();
+  });
+
+  // THE ACT IS GATED ON REACHING THE SECTION, not just on being allowed to
+  // configure. The group is owner-or-developer; Settings' `providers` section
+  // is OWNER-ONLY. A developer offered "Open AI providers" would navigate a
+  // window to a section sectionsForRole does not return -- it goes nowhere and
+  // says nothing, which is the silent failure this guard exists for.
+  it("offers a developer the words, not a button, for an owner-only section", () => {
+    const r = readiness(true, [verdict("ai", "unconfigured")]);
+    for (const [role, wantsButton] of [
+      ["owner", true],
+      ["developer", false],
+    ] as const) {
+      const { unmount } = render(
+        withOs(
+          withSession(<SetupGroup app="Nexus" requires={["ai"]} wants={[]} readiness={r} />, role),
+          role,
+        ),
+      );
+      const button = screen.queryByRole("button", { name: "Open AI providers" });
+      if (wantsButton) {
+        expect(button, `${role} should get the button`).not.toBeNull();
+        expect(screen.queryByText("Settings, under AI providers")).toBeNull();
+      } else {
+        expect(button, `${role} must not get a button that goes nowhere`).toBeNull();
+        expect(screen.getByText("Settings, under AI providers")).toBeTruthy();
+      }
+      unmount();
+    }
   });
 
   it("renders nothing for a viewer", () => {

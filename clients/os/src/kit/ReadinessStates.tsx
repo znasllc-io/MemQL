@@ -3,6 +3,7 @@ import { useOsIfPresent } from "../chrome/state";
 import type { Readiness } from "../live/readiness";
 import { MODULE_NAMES, MODULE_SETTINGS_SECTION, type ModuleId } from "../system/modules";
 import type { Verdict } from "../system/readinessFold";
+import { sectionsForRole } from "../system/registry";
 import { Button, Panel, Subhead } from "./controls";
 import { Caption } from "./Caption";
 import { ProvenanceDot, type DotTone } from "./index";
@@ -164,9 +165,29 @@ export function SetupGroup({
             // The lane that still needs something, else the first: what a
             // person has to set is the incomplete one.
             const lane = v?.lanes.find((l) => !l.complete) ?? v?.lanes[0];
-            // `!== "phone"` rather than `=== "desktop"`: the iPad chrome
-            // carries windows, and an act that opens one works there.
-            const canOpen = target !== null && os !== null && os.layout !== "phone";
+            // THREE things have to hold before an act is offered, and the
+            // third is the one that is easy to miss.
+            //
+            //  - There is somewhere to send them (`target`).
+            //  - There is a window to open. `!== "phone"` rather than
+            //    `=== "desktop"`: the iPad chrome carries windows too.
+            //  - THIS ACTOR MAY REACH THAT SECTION. The group is
+            //    owner-or-developer, and Settings' own `providers` section is
+            //    OWNER-ONLY -- so a developer offered "Open AI providers"
+            //    would navigate a window to a section sectionsForRole does not
+            //    return, which goes nowhere and says nothing. That is the
+            //    silent failure settingsSectionProblem exists to catch for
+            //    gears, arriving by a different door.
+            //
+            // Asked of the REGISTRY rather than restated here: a literal copy
+            // of "providers is owner-only" would be a second place for that
+            // rule to live, and the section's own manifest is the first.
+            const settingsApp = os?.registry.apps.find((a) => a.id === "settings") ?? null;
+            const reachable =
+              target !== null &&
+              settingsApp !== null &&
+              sectionsForRole(settingsApp, role).some((sec) => sec.id === target.section);
+            const canOpen = reachable && os !== null && os.layout !== "phone";
             // A module that is SET UP needs no act. Saying where it would be
             // configured, to somebody looking at a row that says "Set up", is
             // an instruction with nothing behind it -- and a column of them
