@@ -128,8 +128,8 @@ var rewriterHandledDeclKeywords = []string{"automation", "logic", "mutate", "que
 // compile-time derivation.
 var declarationKeywordNames = []string{
 	"action", "automation", "builtin", "capability", "concept", "logic",
-	"mutate", "policy", "prompt", "provider", "query", "seed", "shape",
-	"spec", "tool", "trait",
+	"mutate", "policy", "prompt", "provider", "query", "rule", "seed",
+	"shape", "spec", "tool", "trait",
 }
 
 // invocationKindKeywordList returns the invocation-kind prefixes

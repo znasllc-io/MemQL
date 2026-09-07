@@ -194,15 +194,16 @@ func (i *Integration) handleListPolicies(_ context.Context, _ map[string]any, _ 
 		if p == nil {
 			continue
 		}
+		// maxLatencyMs / maxTimeToFirstTokenMs / preferredRoles are GONE from
+		// this projection with the annotations behind them (epic memql#5127).
+		// They were shown to an operator as though they governed selection,
+		// and nothing read them.
 		payload := map[string]any{
-			"name":                  p.Name,
-			"description":           p.Description,
-			"primary":               p.Primary,
-			"fallbacks":             p.Fallbacks,
-			"chain":                 p.ProviderChain(),
-			"maxLatencyMs":          p.MaxLatencyMs,
-			"maxTimeToFirstTokenMs": p.MaxTimeToFirstTokenMs,
-			"preferredRoles":        p.PreferredRoles,
+			"name":        p.Name,
+			"description": p.Description,
+			"primary":     p.Primary,
+			"fallbacks":   p.Fallbacks,
+			"chain":       p.ProviderChain(),
 		}
 		raw, _ := json.Marshal(payload)
 		nodes = append(nodes, memorynodes.MemoryNode{

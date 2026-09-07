@@ -15,7 +15,6 @@ package memql
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 
 	languageParser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql/baseloader"
@@ -24,9 +23,7 @@ import (
 // LoadUnifiedPolicies walks the unified tree, extracts every
 // `policy NAME { }` block through the langparser's load-time path,
 // and registers the resulting PolicyConfig in the supplied
-// registry. Also rebuilds the role -> policy map so DefaultForRole
-// resolves correctly. First @preferredRole wins (matches legacy
-// behaviour).
+// registry.
 //
 // memql#333 (sub-epic #329 / Stage 1C of #310) migrated the parsing
 // half off the hand-rolled parsePolicyMemQL onto
@@ -63,15 +60,6 @@ func LoadUnifiedPolicies(logger *slog.Logger, registry *PolicyRegistry, report .
 			cfg.Name = slice.Name
 			registry.mu.Lock()
 			registry.byName[cfg.Name] = cfg
-			for _, role := range cfg.PreferredRoles {
-				role = strings.TrimSpace(role)
-				if role == "" {
-					continue
-				}
-				if _, exists := registry.byRole[role]; !exists {
-					registry.byRole[role] = cfg.Name
-				}
-			}
 			registry.mu.Unlock()
 			total++
 		}

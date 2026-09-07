@@ -660,6 +660,8 @@ func descriptionLengthRule(file *parser.File, source string) []Diagnostic {
 			report(d.Name, parser.EffectiveDescription(d.DocComment, d.Description))
 		case *parser.PolicyDecl:
 			report(d.Name, parser.EffectiveDescription(d.DocComment, d.Description))
+		case *parser.RuleDecl:
+			report(d.Name, parser.EffectiveDescription(d.DocComment, d.Description))
 		case *parser.CapabilityDecl:
 			report(d.Name, parser.EffectiveDescription(d.DocComment, attrDesc(d.Attributes)))
 			reportArgs(d.Name, d.Args)

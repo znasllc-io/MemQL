@@ -77,6 +77,7 @@ const (
 	ConstructKindProvider   = "provider"
 	ConstructKindBuiltin    = "builtin"
 	ConstructKindPolicy     = "policy"
+	ConstructKindRule       = "rule"
 	ConstructKindSeed       = "seed"
 )
 
@@ -140,6 +141,7 @@ var constructKeyword = map[string]string{
 	ConstructKindProvider:   "provider",
 	ConstructKindBuiltin:    "builtin",
 	ConstructKindPolicy:     "policy",
+	ConstructKindRule:       "rule",
 	ConstructKindSeed:       "seed",
 }
 
@@ -410,6 +412,7 @@ func (e *MemQLEngine) ConstructCatalog() []ConstructCatalogEntry {
 	e.catalogPrompts(add)
 	e.catalogProviders(add)
 	e.catalogPolicies(add)
+	e.catalogRules(add)
 	e.catalogSeeds(add)
 	e.catalogAutomations(add)
 
@@ -814,6 +817,28 @@ func (e *MemQLEngine) catalogPolicies(add func(ConstructCatalogEntry)) {
 			Name:        p.Name,
 			Kind:        ConstructKindPolicy,
 			Description: p.Description,
+		})
+	}
+}
+
+// catalogRules reports the loaded routing rules.
+//
+// Nil-safe on the registry, which is not merely defensive here: the rule
+// loader lands in a later change, so an engine built today holds no rule
+// registry at all and this reports nothing rather than an empty answer it
+// cannot back up.
+func (e *MemQLEngine) catalogRules(add func(ConstructCatalogEntry)) {
+	if e.rules == nil {
+		return
+	}
+	for _, r := range e.rules.All() {
+		if r == nil {
+			continue
+		}
+		add(ConstructCatalogEntry{
+			Name:        r.Name,
+			Kind:        ConstructKindRule,
+			Description: r.Description,
 		})
 	}
 }

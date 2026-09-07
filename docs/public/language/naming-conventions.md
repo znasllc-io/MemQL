@@ -44,7 +44,7 @@ step decide { logic indexArtifact ( event: event ) }
 
 This is also what the codebase has always done. Measured across the shipped
 tree (excluding the non-embedded `_reference/` skeletons), **0 of 1261
-construct DECLARATIONS carry a kind prefix**, across all 16 declaration
+construct DECLARATIONS carry a kind prefix**, across all 17 declaration
 keywords. The six kinds the retired rule actually named account for 774 of
 those: 0/245 queries, 0/267 mutations, 0/33 logic, 0/33 traits, 0/186 seeds,
 0/10 specs. The prefix rule this document used to state was never followed by
@@ -127,8 +127,8 @@ its own kind as a prefix. That is what stops this page and the tree
 drifting apart again -- the previous rule was documented for months while
 nothing in the corpus followed it, and nothing noticed.
 
-It covers **all 16 declaration keywords**, and both halves are derived
-from the parser: twelve from `parser.TopLevelDeclKeywords` (its dispatch
+It covers **all 17 declaration keywords**, and both halves are derived
+from the parser: thirteen from `parser.TopLevelDeclKeywords` (its dispatch
 table) and the four struct forms the rewriter lowers -- `query` /
 `mutate` / `logic` / `automation` -- from `parser.StructFormKeywords`
 (built from `structFormSteps`, the rewrite chain itself). Adding a
@@ -154,7 +154,7 @@ matching a regex over the source. That is deliberate: the first version
 used a regex and was narrower than the grammar in four ways at once --
 it could not see names containing `-` (legal, and used by 160 of the 185
 seeds), it required the keyword at column 0 though the parser accepts
-leading whitespace, it covered 6 keywords rather than 16, and it counted
+leading whitespace, it covered 6 keywords rather than 17, and it counted
 braces inside string literals and comments as real syntax.
 
 The token rewrite then turned out to be narrower than the grammar too,

@@ -23,6 +23,7 @@
 /// construct it needs. Output contract: {automationName, automationPurpose, dependencies: [{kind,
 /// name, purpose, candidateSource}]}. kind in {query, mutation, logic, spec, trait, shape}.
 /// candidateSource is a self-contained .memql sketch of ONE construct of that kind.
+@level("strong")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/authoringDesign.tmpl")
 prompt authoringDesign {
@@ -47,6 +48,7 @@ prompt authoringDesign {
 /// @enabled on a spec (Gate 1 + the live spec loader both reject them). Output contract:
 /// {constructs: [{kind, name, source}]}. kind in {automation, query, mutation, logic, spec, trait,
 /// shape}. source is the self-contained, compilable .memql for ONE construct.
+@level("reasoning")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/authoringEmit.tmpl")
 prompt authoringEmit {
@@ -70,6 +72,7 @@ prompt authoringEmit {
 /// rule: NEVER emit @shape or @enabled on a spec. Output contract: {constructs: [{kind, name,
 /// source}]} -- the corrected versions keyed by the same (kind, name) so the planner splices them
 /// back into the bundle. May add a missing construct a diagnostic revealed.
+@level("reasoning")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/authoringRepair.tmpl")
 prompt authoringRepair {

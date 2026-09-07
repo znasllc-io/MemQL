@@ -55,6 +55,11 @@ type MemQLEngine struct {
 	seedMaterializer        *SeedMaterializer
 	providers               *ProviderRegistry
 	policies                *PolicyRegistry
+	// rules is the routing-rule corpus (epic memql#5127). Unpopulated until
+	// the rule loader lands: every reader is nil-safe, and a nil registry
+	// reports NOTHING rather than an empty set, so nobody can read "no rules
+	// are loaded" off an engine that never had a loader wired.
+	rules *RuleRegistry
 	// configSnapshot is the bus-distributed ConfigSnapshot that
 	// backs ctx.config.* inside spec bodies. Optional; nil
 	// resolves every allow-listed key to its zero value (sensitive

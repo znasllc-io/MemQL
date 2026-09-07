@@ -64,18 +64,33 @@ func TestPromptDeclToPromptDecl_RejectsUnknownAnnotation(t *testing.T) {
 }
 
 // TestPromptDeclToPromptDecl_AcceptsSupported guards against over-rejection.
+//
+// @level is in the fixture because four places have to learn the annotation in
+// lockstep or the parser refuses it after one of them changes:
+// annotations.ByReceiver["Prompt"], annotations.Docs, the PromptDecl AST doc
+// comment, and this fixture. It also asserts the CARRY -- the parser fills
+// PromptDecl.Level, and a converter that read the annotation without storing
+// it would pass every check here while leaving the field a routing rule
+// branches on permanently empty.
 func TestPromptDeclToPromptDecl_AcceptsSupported(t *testing.T) {
 	decl := &languageParser.PromptDecl{
-		Name: "agentReply",
+		Name:  "agentReply",
+		Level: "strong",
 		Attributes: []*languageParser.Attribute{
 			{Name: "enabled"},
 			{Name: "description", Value: "agent reply"},
+			{Name: "level", Value: "strong"},
 			{Name: "defaultProvider", Value: "chat54Mini"},
 			{Name: "templateFile", Value: "agentReply.tmpl"},
 		},
 	}
 
-	if _, err := promptDeclToPromptDecl(decl, "dsl/cognition/prompts.memql"); err != nil {
+	out, err := promptDeclToPromptDecl(decl, "dsl/cognition/prompts.memql")
+	if err != nil {
 		t.Fatalf("promptDeclToPromptDecl: %v", err)
+	}
+	if out.level != "strong" {
+		t.Errorf("level = %q, want strong -- the level must survive the conversion, or the "+
+			"registry hands the router an empty one and every rule matching on level misses", out.level)
 	}
 }

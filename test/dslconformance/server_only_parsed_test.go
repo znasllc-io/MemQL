@@ -133,7 +133,10 @@ func serverOnlyConstructs(t *testing.T) map[serverOnlyKey]bool {
 // declarations), which is the exact class of hole this file exists to close.
 //
 // SeedDecl / ToolDecl / ProviderDecl / PolicyDecl are deliberately absent: they
-// carry no Attributes field, so there is nothing to read.
+// carry no Attributes field, so there is nothing to read. RuleDecl DOES carry
+// one, so it is listed -- TestServerOnlyParsedSetCoversEveryAttributedDeclKind
+// fires on any kind that has an Attributes field and no arm here, and its
+// silence today only means the tree carries no rule yet.
 func declNameAndAttributes(def languageAst.Node) (string, []*languageAst.Attribute, bool) {
 	switch d := def.(type) {
 	case *languageAst.FunctionDef:
@@ -151,6 +154,8 @@ func declNameAndAttributes(def languageAst.Node) (string, []*languageAst.Attribu
 	case *languageAst.ActionDecl:
 		return d.Name, d.Attributes, true
 	case *languageAst.CapabilityDecl:
+		return d.Name, d.Attributes, true
+	case *languageAst.RuleDecl:
 		return d.Name, d.Attributes, true
 	default:
 		return "", nil, false

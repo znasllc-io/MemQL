@@ -146,6 +146,8 @@ func attachDocComment(def Node, doc string) {
 		d.DocComment = doc
 	case *PolicyDecl:
 		d.DocComment = doc
+	case *RuleDecl:
+		d.DocComment = doc
 	case *SpecDecl:
 		d.DocComment = doc
 	case *CapabilityDecl:

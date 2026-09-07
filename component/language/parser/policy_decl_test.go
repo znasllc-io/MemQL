@@ -7,71 +7,87 @@ import (
 )
 
 // TestParsePolicyDecl_GoldenPath locks the canonical AI-router
-// policy shape: @primary + @fallback + tuning knobs + empty
-// `policy NAME { }` declaration. Mirrors
-// dsl/v1/policies/v1/balancedChat-style files.
+// policy shape: @description + @primary + @fallback + an empty
+// `policy NAME { }` declaration.
 func TestParsePolicyDecl_GoldenPath(t *testing.T) {
-	source := `@description("Balanced LLM for most agent replies.")
-@primary("chat54Mini")
-@fallback("chat53")
-@maxLatencyMs(8000)
-@maxTimeToFirstTokenMs(500)
-@preferredRole("assistant")
-policy balancedChat { }`
+	source := `@description("Local strongest, then an app, then the cheapest federated model.")
+@primary("fleet:strongest")
+@fallback("app:*")
+policy localFirst { }`
 
 	got, err := ParsePolicyDecl(source)
 	if err != nil {
 		t.Fatalf("ParsePolicyDecl: %v", err)
 	}
-	if got.Name != "balancedChat" {
-		t.Errorf("Name = %q, want balancedChat", got.Name)
+	if got.Name != "localFirst" {
+		t.Errorf("Name = %q, want localFirst", got.Name)
 	}
-	if got.Description != "Balanced LLM for most agent replies." {
+	if got.Description != "Local strongest, then an app, then the cheapest federated model." {
 		t.Errorf("Description = %q", got.Description)
 	}
-	if got.Primary != "chat54Mini" {
-		t.Errorf("Primary = %q, want chat54Mini", got.Primary)
+	if got.Primary != "fleet:strongest" {
+		t.Errorf("Primary = %q, want fleet:strongest", got.Primary)
 	}
-	if !reflect.DeepEqual(got.Fallbacks, []string{"chat53"}) {
-		t.Errorf("Fallbacks = %v, want [chat53]", got.Fallbacks)
-	}
-	if got.MaxLatencyMs != 8000 {
-		t.Errorf("MaxLatencyMs = %d, want 8000", got.MaxLatencyMs)
-	}
-	if got.MaxTimeToFirstTokenMs != 500 {
-		t.Errorf("MaxTimeToFirstTokenMs = %d, want 500", got.MaxTimeToFirstTokenMs)
-	}
-	if !reflect.DeepEqual(got.PreferredRoles, []string{"assistant"}) {
-		t.Errorf("PreferredRoles = %v, want [assistant]", got.PreferredRoles)
+	if !reflect.DeepEqual(got.Fallbacks, []string{"app:*"}) {
+		t.Errorf("Fallbacks = %v, want [app:*]", got.Fallbacks)
 	}
 }
 
-// TestParsePolicyDecl_MultipleFallbacksAndRoles locks the
-// repeatable-annotation behaviour: multiple @fallback /
-// @preferredRole annotations accumulate in declaration order.
-func TestParsePolicyDecl_MultipleFallbacksAndRoles(t *testing.T) {
-	source := `@primary("primaryProvider")
-@fallback("fallbackA")
-@fallback("fallbackB")
-@fallback("fallbackC")
-@preferredRole("assistant")
-@preferredRole("specialist")
+// TestParsePolicyDecl_RefusesTheThreeInertAnnotations pins the epic memql#5127
+// removal.
+//
+// @maxLatencyMs, @maxTimeToFirstTokenMs and @preferredRole parsed, stored and
+// steered NOTHING -- no selection path read any of them. An author who wrote
+// one was telling the router something it would not act on, and silence there
+// is worse than a refusal: the policy loads, the annotation shows in the
+// catalog, and the behaviour is whatever it would have been anyway.
+//
+// The refusal comes from the Policy receiver no longer carrying them, so the
+// message is the ordinary unknown-annotation one and names the annotation.
+func TestParsePolicyDecl_RefusesTheThreeInertAnnotations(t *testing.T) {
+	for _, tc := range []struct {
+		annotation string
+		name       string
+	}{
+		{`@maxLatencyMs(60000)`, "maxLatencyMs"},
+		{`@maxTimeToFirstTokenMs(500)`, "maxTimeToFirstTokenMs"},
+		{`@preferredRole("operator")`, "preferredRole"},
+	} {
+		source := "@primary(\"fleet:strongest\")\n" + tc.annotation + "\npolicy someName { }"
+		_, err := ParsePolicyDecl(source)
+		if err == nil {
+			t.Fatalf("ParsePolicyDecl accepted %s; it is removed from the grammar", tc.annotation)
+		}
+		if !strings.Contains(err.Error(), tc.name) {
+			t.Errorf("the refusal of %s does not name it: %v", tc.annotation, err)
+		}
+	}
+}
+
+// TestParsePolicyDecl_MultipleFallbacks locks the repeatable-annotation
+// behaviour: multiple @fallback annotations accumulate in declaration order.
+// Order is the whole content of a policy -- it is three kinds of cost in
+// increasing order -- so an accumulation that reordered would invert the
+// meaning while every name stayed right.
+func TestParsePolicyDecl_MultipleFallbacks(t *testing.T) {
+	source := `@primary("fleet:strongest")
+@fallback("app:*")
+@fallback("federation:cheapest")
+@fallback("federation:strongest")
 policy multiChain { }`
 
 	got, err := ParsePolicyDecl(source)
 	if err != nil {
 		t.Fatalf("ParsePolicyDecl: %v", err)
 	}
-	if !reflect.DeepEqual(got.Fallbacks, []string{"fallbackA", "fallbackB", "fallbackC"}) {
-		t.Errorf("Fallbacks = %v, want [fallbackA fallbackB fallbackC]", got.Fallbacks)
-	}
-	if !reflect.DeepEqual(got.PreferredRoles, []string{"assistant", "specialist"}) {
-		t.Errorf("PreferredRoles = %v, want [assistant specialist]", got.PreferredRoles)
+	want := []string{"app:*", "federation:cheapest", "federation:strongest"}
+	if !reflect.DeepEqual(got.Fallbacks, want) {
+		t.Errorf("Fallbacks = %v, want %v", got.Fallbacks, want)
 	}
 }
 
 // TestParsePolicyDecl_MinimalShape locks a policy with only
-// @primary (no fallbacks, no tuning knobs, no roles). The
+// @primary (no fallbacks). The
 // converter on the memql side enforces @primary being present;
 // the parser itself is permissive.
 func TestParsePolicyDecl_MinimalShape(t *testing.T) {
@@ -87,9 +103,6 @@ policy minimal { }`
 	}
 	if len(got.Fallbacks) != 0 {
 		t.Errorf("Fallbacks = %v, want empty", got.Fallbacks)
-	}
-	if got.MaxLatencyMs != 0 {
-		t.Errorf("MaxLatencyMs = %d, want 0 (unset)", got.MaxLatencyMs)
 	}
 }
 

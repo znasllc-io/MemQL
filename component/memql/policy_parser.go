@@ -8,17 +8,18 @@ import (
 )
 
 // PolicyConfig is the parsed shape of a policy .memql file. Mirrors the
-// annotations: @primary (one), @fallback (many), @maxLatencyMs,
-// @maxTimeToFirstTokenMs, @preferredRole (many). Used by Router to
-// resolve a policy name to a concrete provider + ordered fallback chain.
+// annotations: @primary (one), @fallback (many). Used by Router to resolve a
+// policy name to an ordered chain of entries.
+//
+// MaxLatencyMs, MaxTimeToFirstTokenMs and PreferredRoles were removed with
+// epic memql#5127. All three were parsed, stored, projected into the catalog
+// -- and read by no selection path at all. An annotation that reads as
+// configuration while steering nothing is worse than its absence.
 type PolicyConfig struct {
-	Name                  string
-	Description           string
-	Primary               string
-	Fallbacks             []string
-	MaxLatencyMs          int
-	MaxTimeToFirstTokenMs int
-	PreferredRoles        []string
+	Name        string
+	Description string
+	Primary     string
+	Fallbacks   []string
 }
 
 // ProviderChain returns primary followed by fallbacks, which is the
@@ -43,9 +44,6 @@ func (p PolicyConfig) ProviderChain() []string {
 //	@description("...")
 //	@primary("providerName")
 //	@fallback("providerName")        -- repeatable
-//	@maxLatencyMs(8000)
-//	@maxTimeToFirstTokenMs(500)
-//	@preferredRole("roleName")       -- repeatable
 //	policy <name> { }
 //
 // The `policy` block is empty today; keeping it in the grammar reserves
@@ -133,24 +131,6 @@ func (p *policyMemQLParser) parseDecorator(cfg *PolicyConfig) error {
 			return err
 		}
 		cfg.Fallbacks = append(cfg.Fallbacks, strings.TrimSpace(val))
-	case "maxLatencyMs":
-		val, err := p.ParseParenInt()
-		if err != nil {
-			return err
-		}
-		cfg.MaxLatencyMs = int(val)
-	case "maxTimeToFirstTokenMs":
-		val, err := p.ParseParenInt()
-		if err != nil {
-			return err
-		}
-		cfg.MaxTimeToFirstTokenMs = int(val)
-	case "preferredRole":
-		val, err := p.ParseParenString()
-		if err != nil {
-			return err
-		}
-		cfg.PreferredRoles = append(cfg.PreferredRoles, strings.TrimSpace(val))
 	default:
 		// Unknown decorator -- skip its argument group if present, so
 		// future annotations don't require an immediate parser update.

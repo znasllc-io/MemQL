@@ -98,7 +98,4 @@ concept policyCatalog {
   primary                string  @description("Primary provider registry name.")
   fallbacks              []string  @description("Fallback provider registry names, in try-order.")
   chain                  []string  @description("Full chain (primary + fallbacks) for convenience.")
-  maxLatencyMs           int     @description("Max wall-clock latency allowed; 0 = no limit.")
-  maxTimeToFirstTokenMs  int     @description("Max time-to-first-token allowed; 0 = no limit.")
-  preferredRoles         []string  @description("Agent roles this policy is preferred for by default.")
 }

@@ -286,6 +286,31 @@ func (e *MemQLEngine) Init(concepts concept.Registry) error {
 		e.Logger.Warn("unified policy loader returned an error; legacy stub covers gap",
 			"component", "memql.engine", "error", ulErr)
 	}
+
+	// EXPANSION IS PART OF LOADING, not a step a caller might forget
+	// (epic memql#5127, design D4). A `policy:<name>` entry that survived to
+	// resolve time would make every chain walk a recursion and every cycle an
+	// infinite loop discovered on a live call. Expanding here means the router
+	// only ever sees doors, and a cycle refuses boot naming the loop.
+	//
+	// It REFUSES rather than warning: a chain that could not be expanded is a
+	// chain with entries the router cannot walk, and the failure would present
+	// as a policy that silently loses every entry behind the unresolvable one.
+	if err := ExpandPolicyChains(policyRegistry); err != nil {
+		return err
+	}
+
+	// THE RULES (epic memql#5127). Loaded after the policies, because a rule
+	// names one and the duplicate/order checks are cheaper to read when the
+	// thing they name already exists. LoadUnifiedRules finalizes the
+	// evaluation order itself; an unfinalized registry answers Ordered() with
+	// nil, and a router walking nil rules resolves every call through no rule
+	// at all -- which is the pre-rules behaviour wearing the new vocabulary.
+	ruleRegistry := NewRuleRegistry()
+	if _, ulErr := LoadUnifiedRules(e.Logger, ruleRegistry, report); ulErr != nil {
+		e.Logger.Warn("unified rule loader returned an error",
+			"component", "memql.engine", "error", ulErr)
+	}
 	// Prompt -> provider reference check (memql#3616). Prompts load before
 	// providers, so this is the first point at which a prompt's
 	// @defaultProvider can be resolved against the tree that declares
@@ -300,6 +325,7 @@ func (e *MemQLEngine) Init(concepts concept.Registry) error {
 	e.prompts = promptRegistry
 	e.providers = providerRegistry
 	e.policies = policyRegistry
+	e.rules = ruleRegistry
 	e.aiRuntime = newAIRuntime(e.Logger, promptRegistry, providerRegistry, e.aiCacheConfig)
 	if e.aiRuntime != nil {
 		// The SAME seam value, not a copy: SetModelCallJournal is called

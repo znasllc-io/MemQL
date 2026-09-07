@@ -708,6 +708,17 @@ func (e *MemQLEngine) Policies() *PolicyRegistry {
 	return e.policies
 }
 
+// Rules returns the routing-rule registry -- the corpus a call's metadata is
+// matched against, in the evaluation order the registry fixed at load.
+//
+// It is NIL until the rule loader is wired, and every caller must treat nil as
+// "this engine has no rules", not as "no rules matched". The distinction is
+// the whole difference between a router that refuses and one that silently
+// falls back to a precedence nobody wrote.
+func (e *MemQLEngine) Rules() *RuleRegistry {
+	return e.rules
+}
+
 // SetConfigSnapshot stashes the bus-distributed ConfigSnapshot used
 // to build ctx.config inside policy bodies. The engine accepts the
 // snapshot as an opaque any to avoid a static dependency on the

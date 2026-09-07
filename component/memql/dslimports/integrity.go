@@ -343,6 +343,8 @@ func declNameAndKind(def languageAst.Node) (string, string) {
 		return d.Name, "tool"
 	case *languageAst.PolicyDecl:
 		return d.Name, "policy"
+	case *languageAst.RuleDecl:
+		return d.Name, "rule"
 	case *languageAst.ActionDecl:
 		return d.Name, "action"
 	case *languageAst.CapabilityDecl:

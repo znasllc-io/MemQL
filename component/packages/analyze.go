@@ -307,6 +307,8 @@ func constructKind(def languageAst.Node) string {
 		return "tool"
 	case *languageAst.PolicyDecl:
 		return "policy"
+	case *languageAst.RuleDecl:
+		return "rule"
 	case *languageAst.SeedDecl:
 		return "seed"
 	case *languageAst.ActionDecl:

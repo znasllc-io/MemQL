@@ -143,8 +143,16 @@ func constructs() []Construct {
 		{
 			Keyword:            "policy",
 			Category:           CategoryDeclarative,
-			Doc:                "AI provider-selection record (empty body): @primary / @fallback / @maxLatencyMs / @preferredRole, consumed by the AI Router. (Caller-context checks use specs, not policies.)",
+			Doc:                "AI provider-selection record (empty body): an ordered chain of @primary / @fallback entries -- a provider name, a fleet: / app: / federation: selector, or policy:<name> -- consumed by the AI Router. (Caller-context checks use specs, not policies.)",
 			AnnotationReceiver: "Policy",
+			RegistryBacked:     true,
+			ConceptInSignature: false,
+		},
+		{
+			Keyword:            "rule",
+			Category:           CategoryDeclarative,
+			Doc:                "Routing rule (empty body): maps a call's declared metadata to a policy. @when(...) states the closed condition set, @policy names the chain, @level overrides the call's level, @precedence orders the set (highest first) and @onUnavailable says whether an exhausted chain degrades or parks.",
+			AnnotationReceiver: "Rule",
 			RegistryBacked:     true,
 			ConceptInSignature: false,
 		},

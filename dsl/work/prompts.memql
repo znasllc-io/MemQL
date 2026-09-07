@@ -16,6 +16,7 @@
 /// ONLY when the catalog missed and triage said the goal is neither trivial nor sectionable, so it
 /// is the expensive path by construction and every cheaper tier runs first. The draft must pass
 /// Gate 1 (the isolated compile-and-bind) before the run proceeds.
+@level("reasoning")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/compileGoal.tmpl")
 prompt compileGoal {
@@ -29,6 +30,7 @@ prompt compileGoal {
 /// had no opinion -- most failures never get here, which is the point. Deliberately the cheapest
 /// model in the tree: the answer is one of five words plus a reason, and the acts it selects are
 /// all bounded and reversible.
+@level("fast")
 @defaultProvider("chat54Nano")
 @templateFile("prompts/classifySymptom.tmpl")
 prompt classifySymptom {
@@ -44,6 +46,7 @@ prompt classifySymptom {
 /// prefix is kept and never re-emitted, because the steps that already succeeded are evidence
 /// rather than a draft -- re-planning from the start is the unguided rerun the debugging literature
 /// measured as three times worse than localized repair.
+@level("reasoning")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/replanGap.tmpl")
 prompt replanGap {

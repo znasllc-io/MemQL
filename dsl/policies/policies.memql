@@ -3,141 +3,66 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-// THE DEFAULT ORDER IS LOCAL-STRONGEST, THEN AN APP, THEN FEDERATION
-// (epic memql#5096, design D4).
+// A POLICY SAYS WHERE TO LOOK; A RULE SAYS WHICH CALLS IT IS FOR.
+// The rules are in dsl/rules/rules.memql. Nothing in this file decides which
+// calls it serves, and that separation is why there are three policies here
+// rather than the six a call-site-names-its-own-policy world needed.
 //
-// Every shipped policy below begins `fleet:*`, then `app:*`, then the vendor
-// entries an author wrote. The three steps are three different kinds of cost,
-// in increasing order:
+// THE ORDER INSIDE A CHAIN IS THREE KINDS OF COST, INCREASING:
 //
-//   fleet:*   a model on hardware the person already owns. Costs electricity.
-//   app:*     a signed-in Claude Code or Codex on one of their machines. Costs
-//             a subscription they already pay for; MemQL is not billed.
-//   vendors   a metered key or workload-identity federation. Costs money, and
-//             is therefore the hop the cost ceiling gates.
+//   fleet:      a model on hardware the person already owns. Costs electricity.
+//   app:        a signed-in Claude Code or Codex on one of their machines.
+//               Costs a subscription they already pay for; MemQL is not billed.
+//   federation: a metered vendor. Costs money, and is therefore the hop the
+//               cost ceiling gates -- and gates only when a local door preceded
+//               it, because a chain that STARTS at a vendor is a decision
+//               somebody made rather than a fallback.
 //
-// `fleet:*` and `app:*` are WILDCARDS, and that is what makes this shippable
-// as a default: a policy naming one model id would park on every fleet running
-// something else, and which weights a person pulled is not knowable here. The
-// wildcard resolves per call, strongest first, among the models that can serve
-// THAT call.
+// `fleet:strongest` AND `app:*` ARE SELECTORS, AND THAT IS WHAT MAKES THIS
+// SHIPPABLE AS A DEFAULT. A policy naming one model id would park on every
+// fleet running something else, and which weights a person pulled is not
+// knowable here. A selector resolves per call, among the models that can serve
+// THAT call. `fleet:*` was the old spelling of `fleet:strongest` and is
+// retired: it said "any", which is not what it did.
 //
-// WHAT CHANGED, AND WHAT DID NOT. The local-models epic (memql#4676) made four
-// seeded policies local-first with NO fallback, so an idle fleet PARKED. That
-// was right when the only alternative to a laptop was a metered key: a chain
-// reaching the cloud starts billing the moment a lid closes, silently, because
-// nothing about a working reply says which vendor produced it. There is now a
-// middle step that costs nothing extra, so the default falls through to it --
-// and the FEDERATION hop, the one that does cost money, asks the cost ceiling
-// before it is taken and refuses with `ceiling_reached` rather than spending
-// past it. Work still parks; it parks when EVERY door is shut.
-//
-// PARK-NOT-FALLBACK STILL HOLDS FOR A PINNED POLICY. A policy that names one
-// fleet model and authors no fallback refuses exactly as it did, and
-// `consentedCloudFallback` still exists for a person's one-shot yes. What
-// changed is the DEFAULT, not the rule.
-//
-// The four `local*` policies this file used to carry are DELETED. They were
-// seeded and never named by anything -- design D6 required them wired to a
-// purpose or removed, and the purposes they named are gone or covered: the
-// planner loop was retired (memql#5052), there is no conductor in the engine,
-// and suggest and embeddings reach the fleet through the chain below and
-// through `fleet:` resolution on the embedding provider. A policy nothing
-// names is not a default; it is a decoration that reads like one.
+// A POLICY NOTHING CAN NAME IS A DECORATION. That rule cost this file four
+// policies once already and six more in this epic. `localOnly` is the one
+// exemption and it is deliberate: no shipped rule names it, because it exists
+// as the VOCABULARY a custom rule uses -- an owner saying "this work does not
+// leave my hardware" needs a policy to point at, and inventing one from the OS
+// is a worse first experience than finding one. Delete it only if the rule
+// grammar stops being able to name it.
 
-/// Default chat policy for non-operator agents. Local first, then a signed-in app on the person's
-/// own machine, then Claude Sonnet 4.6, GPT-5.4 Pro as a cross-vendor fallback and Claude Haiku as
-/// a tertiary safety net. The cloud entries stay Sonnet-class-or-better because a Mini-primary
-/// produced too many hedged, un-cited replies (the model smoothed RAG'd specifics into generic
-/// platitudes); use cheapestCapable for paths that legitimately need Mini-class speed and cost.
-@primary("fleet:*")
-@fallback("app:*")
-@fallback("streamClaudeSonnet")
-@fallback("stream54Pro")
-@fallback("streamClaudeHaiku")
-@maxLatencyMs(60000)
-@preferredRole("assistant")
-@preferredRole("specialist")
-policy balancedChat { }
-
-// ---- policies/v1/cheapestCapable.memql ----
-
-/// Cheapest capable -- bulk suggestion + classification work where cost per call matters more than
-/// model ceiling. GPT-5.4 Mini primary, Claude Haiku as the cross-vendor second, GPT-5.4 Nano as
-/// the rock-bottom third.
-@primary("fleet:*")
-@fallback("app:*")
-@fallback("stream54Mini")
-@fallback("streamClaudeHaiku")
-@fallback("stream54Nano")
-@maxLatencyMs(15000)
-policy cheapestCapable { }
-
-// ---- policies/v1/fastCoding.memql ----
-
-/// Fast coding -- cheap + quick for code generation and refactor assistance. Codex 5.3 primary
-/// (coding-specialized), GPT-5.4 Mini as fallback, Claude Haiku as a cross-vendor last resort.
-@primary("fleet:*")
-@fallback("app:*")
-@fallback("streamCodex53")
-@fallback("stream54Mini")
-@fallback("streamClaudeHaiku")
-@maxLatencyMs(20000)
-policy fastCoding { }
-
-// ---- policies/v1/strongReasoning.memql ----
-
-/// Strong reasoning -- for operator-enabled agents driving the UI and for complex tool-calling
-/// choreography. Claude Sonnet primary, GPT-5.4 Pro as a second, Claude Opus as a third.
-@primary("fleet:*")
-@fallback("app:*")
-@fallback("streamClaudeSonnet")
-@fallback("stream54Pro")
-@fallback("streamClaudeOpus")
-@maxLatencyMs(60000)
-@preferredRole("operator")
-policy strongReasoning { }
-
-// ---- policies/v1/backgroundExecution.memql ----
-
-/// Background / batch execution lane -- CHEAP DEFAULT tier (memql#898). Routine background work
-/// (e.g. produceArtifact file generation) does not need the strong interactive model, so the cloud
-/// half of this chain is GPT-5.4 Mini with cross-vendor cheap fallbacks (Claude Haiku, then GPT-5.4
-/// Nano). When the cheap tier gets stuck on a turn (repeated tool-call failures), the background
-/// executor escalates mid-turn to backgroundEscalation. Kept separate from the interactive chat
-/// policies (memql#897) so the batch tier is tuned independently of live chat; higher maxLatencyMs
-/// because no human waits on its first token; pairs with the background si_guard rate bucket.
+/// The default chain: local strongest, then a signed-in app on the person's own
+/// machine, then the cheapest federated model that qualifies. Named by every
+/// shipped rule except reasoningParks.
 ///
-/// NO `app:*` STEP, and its absence is the design rather than an omission (epic memql#5096, D3).
-/// This lane runs TOOL-CALLING turns, and an app door does not serve them: on a tool turn MemQL is
-/// driving, and an app is an agent that drives itself -- it reaches MemQL's tools through MCP, in
-/// the other direction. An `app:*` entry here would be one the router skips on every call, which
-/// reads to a later author like a door that is always shut.
-///
-/// `fleet:*` DOES belong here: a local model that advertises `tools=1` serves this lane exactly as
-/// a vendor does, which is what memql#5098 built.
-@primary("fleet:*")
-@fallback("stream54Mini")
-@fallback("streamClaudeHaiku")
-@fallback("stream54Nano")
-@maxLatencyMs(120000)
-policy backgroundExecution { }
+/// `federation:cheapest` orders by input plus output cost per million ascending
+/// among the records that can serve the call. A vendor record with no cost
+/// figures sorts LAST and the decision record says so -- sorting it first would
+/// make a price nobody filled in the cheapest thing in the catalog.
+@primary("fleet:strongest")
+@fallback("app:*")
+@fallback("federation:cheapest")
+policy localFirst { }
 
-// ---- policies/v1/backgroundEscalation.memql ----
-
-/// Background lane ESCALATION tier (memql#898). The strong chain the background executor swaps to
-/// when the cheap backgroundExecution tier gets stuck on a turn (an explicit stuck signal --
-/// repeated rounds where every tool call errored, which usually means the cheap model is
-/// mishandling the workbench/worker tool). Escalation happens at most once per turn and reuses the
-/// in-progress message history, so it costs one stronger continuation, not a full re-run.
+/// Local only, with no fallback authored on purpose. When the fleet cannot
+/// serve the call the rule's onUnavailable decides, and every door being shut
+/// is the honest answer rather than a vendor call the person did not ask for.
 ///
-/// `fleet:*` leads here too, and that is not a contradiction of "escalate to something stronger":
-/// the wildcard resolves to the STRONGEST eligible local model, and a fleet running a 70B is a
-/// better escalation than a cloud Sonnet is a cheaper one. When the fleet cannot serve the turn --
-/// no tool support, nothing awake -- the chain falls to Claude Sonnet and GPT-5.4 Pro exactly as
-/// before. No `app:*` step, for the tool-turn reason stated on backgroundExecution.
-@primary("fleet:*")
-@fallback("streamClaudeSonnet")
-@fallback("stream54Pro")
-@maxLatencyMs(120000)
-policy backgroundEscalation { }
+/// No shipped rule names this. It is the policy a CUSTOM rule points at, which
+/// is why it survives the no-decorations rule this file's header states.
+@primary("fleet:strongest")
+policy localOnly { }
+
+/// Local strongest, then an app, then the STRONGEST federated model rather than
+/// the cheapest. Named by reasoningParks, for work where a wrong answer costs
+/// more than a dear one.
+///
+/// It is still paid-last: the vendor hop is third and the cost ceiling gates
+/// it exactly as it gates localFirst's. What differs is which vendor record
+/// wins once the chain gets there.
+@primary("fleet:strongest")
+@fallback("app:*")
+@fallback("federation:strongest")
+policy federationStrongest { }

@@ -41,6 +41,10 @@ const (
 	SymbolProvider
 	SymbolBuiltin
 	SymbolPolicy
+	// SymbolRule is the routing rule (epic memql#5127). Added at the END: the
+	// values are iota-assigned and compared in-process, so appending renumbers
+	// nothing.
+	SymbolRule
 )
 
 // String returns the lowercase identifier for a SymbolKind.
@@ -70,6 +74,8 @@ func (k SymbolKind) String() string {
 		return "builtin"
 	case SymbolPolicy:
 		return "policy"
+	case SymbolRule:
+		return "rule"
 	default:
 		return "unknown"
 	}

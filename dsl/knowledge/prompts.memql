@@ -8,6 +8,7 @@
 /// the kind of cross-cutting insight per-domain chunks miss because they're scoped to one domain.
 /// Per docs/internal/planning/knowledge-seeder.md (v2 bridge chunks). Hash-keyed by (roleSlug,
 /// sortedDomainIds) so this prompt fires once per unique combination across the tenant.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/seedDomainBridge.tmpl")
 prompt seedDomainBridge {
@@ -23,6 +24,7 @@ prompt seedDomainBridge {
 /// self-contained, 100-300 words, dense, citation-worthy, declarative -- the kind of content an
 /// agent answering a question in this domain benefits from having retrieved into its prompt
 /// context. See docs/internal/planning/knowledge-seeder.md for the full pipeline.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/seedDomainContent.tmpl")
 prompt seedDomainContent {

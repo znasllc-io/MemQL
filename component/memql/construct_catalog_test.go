@@ -200,6 +200,19 @@ func catalogEnumeratesEveryKind(t *testing.T) {
 	if got, want := len(groups[ConstructKindSeed]), len(eng.seeds.All()); got != want {
 		t.Errorf("seed count: catalog %d, seed registry %d", got, want)
 	}
+	// Rules (epic memql#5127). Both sides are zero until the rule LOADER is
+	// wired -- the registry is nil on this engine and dsl/rules carries no
+	// declarations yet -- so this compares two real numbers that happen to
+	// agree, not a tautology: it starts failing the moment one side moves
+	// without the other. That is exactly the ordering hazard worth catching,
+	// because shipping the corpus before the loader would leave every rule
+	// loaded by nothing and reported by nothing, with no error anywhere.
+	//
+	// ConstructKindRule is deliberately ABSENT from the must-be-non-empty list
+	// below for the same reason: it belongs there once the loader lands.
+	if got, want := len(groups[ConstructKindRule]), eng.rules.Count(); got != want {
+		t.Errorf("rule count: catalog %d, rule registry %d", got, want)
+	}
 
 	// The function + spec registries hold several kinds each, so parity is over
 	// the sum: every entry is reported exactly once, under exactly one kind.

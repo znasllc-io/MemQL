@@ -467,6 +467,8 @@ func resolvedConstructDescs(source string) map[string]string {
 			put("provider", d.Name, d.DocComment, d.Description)
 		case *PolicyDecl:
 			put("policy", d.Name, d.DocComment, d.Description)
+		case *RuleDecl:
+			put("rule", d.Name, d.DocComment, d.Description)
 		case *SpecDecl:
 			kind := "spec"
 			if d.IsTrait {

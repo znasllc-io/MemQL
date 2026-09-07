@@ -164,8 +164,8 @@ var declKeywordPrefixes = func() map[string][]string {
 // (#2036), and would move no total.
 var declKeywordsPinned = []string{
 	"action", "automation", "builtin", "capability", "concept", "logic",
-	"mutate", "policy", "prompt", "provider", "query", "seed", "shape",
-	"spec", "tool", "trait",
+	"mutate", "policy", "prompt", "provider", "query", "rule", "seed",
+	"shape", "spec", "tool", "trait",
 }
 
 // TestDeclKeywordSetMatchesTheParser is the drift guard on the keyword set.

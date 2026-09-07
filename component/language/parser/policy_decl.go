@@ -23,10 +23,18 @@ import (
 // they were previously walked over and silently ignored).
 //
 // All semantic configuration lives in the leading attribute set:
-// @description, @primary, @fallback (repeatable), @maxLatencyMs,
-// @maxTimeToFirstTokenMs, @preferredRole (repeatable). Repeatable
+// @description, @primary, @fallback (repeatable). Repeatable
 // attributes accumulate (order preserved); the converter in the
-// memql package validates @primary is present.
+// memql package validates @primary is present, and the loader holds
+// every entry to ValidatePolicyEntry's closed grammar.
+//
+// @maxLatencyMs, @maxTimeToFirstTokenMs and @preferredRole were
+// removed with epic memql#5127. All three parsed, stored and steered
+// NOTHING -- no selection path read any of them -- and an annotation
+// that reads as configuration while doing nothing is worse than its
+// absence: an author who writes one believes they have told the
+// router something. They are refused now, by name, because the
+// receiver no longer carries them.
 func (p *Parser) parsePolicyDecl(attrs []*ast.Attribute) (*ast.PolicyDecl, error) {
 	if !p.check(TokenIdentifier) || p.current.Literal != "policy" {
 		return nil, newParseErrorf(&p.current, "expected 'policy' keyword, got %q", p.current.Literal)
@@ -56,18 +64,6 @@ func (p *Parser) parsePolicyDecl(attrs []*ast.Attribute) (*ast.PolicyDecl, error
 			if v := strings.TrimSpace(attrStringValue(attr)); v != "" {
 				decl.Fallbacks = append(decl.Fallbacks, v)
 			}
-		case "maxLatencyMs":
-			if n, ok := attrIntValue(attr); ok {
-				decl.MaxLatencyMs = n
-			}
-		case "maxTimeToFirstTokenMs":
-			if n, ok := attrIntValue(attr); ok {
-				decl.MaxTimeToFirstTokenMs = n
-			}
-		case "preferredRole":
-			if v := strings.TrimSpace(attrStringValue(attr)); v != "" {
-				decl.PreferredRoles = append(decl.PreferredRoles, v)
-			}
 		}
 	}
 
@@ -87,24 +83,22 @@ func (p *Parser) parsePolicyDecl(attrs []*ast.Attribute) (*ast.PolicyDecl, error
 	}
 	if !p.check(TokenBraceClose) {
 		return nil, newParseErrorf(&p.current,
-			"policy %q: non-empty body -- a policy is an empty-bodied provider-selection record; configuration lives in the leading annotations (@primary / @fallback / @maxLatencyMs / @maxTimeToFirstTokenMs / @preferredRole)",
+			"policy %q: non-empty body -- a policy is an empty-bodied provider-selection record; configuration lives in the leading annotations (@description / @primary / @fallback)",
 			decl.Name)
 	}
 	p.advance()
 	return decl, nil
 }
 
-// attrIntValue pulls a single integer value off an annotation. The
-// shared parser stores `@maxLatencyMs(8000)` with attr.Value as a
-// float64 (the langparser's literal numeric type); convert to int
-// for the PolicyDecl int fields. Returns (0, false) when the value
+// attrIntValue reads an integer annotation argument. The shared parser stores
+// `@precedence(60)` with attr.Value as an int64 or float64 (the langparser's
+// literal numeric types); convert to int. Returns (0, false) when the value
 // isn't a number.
-// attrIntValue reads an integer annotation argument.
 //
-// SATURATES out of range (memql#4779). These are latency BUDGETS
-// (@maxLatencyMs, @maxTimeToFirstTokenMs), and a budget that wrapped negative
-// would read as "every provider is too slow" -- a policy that routes nowhere,
-// from a number a person typed into a .memql file.
+// SATURATES out of range (memql#4779), rather than wrapping negative on a
+// number a person typed into a .memql file. Its caller, ruleIntAttr, refuses a
+// fractional value before reaching here, because a rule's evaluation order is
+// not a budget and rounding it would pick an order the author did not write.
 //
 // The same package already answers this question in `numericAsInt`
 // (parser.go), which reports ok=false instead. The two are not being unified

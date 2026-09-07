@@ -13,13 +13,11 @@ import (
 type PolicyRegistry struct {
 	mu     sync.RWMutex
 	byName map[string]*PolicyConfig
-	byRole map[string]string // role -> policy name (first @preferredRole wins)
 }
 
 func newPolicyRegistry() *PolicyRegistry {
 	return &PolicyRegistry{
 		byName: make(map[string]*PolicyConfig),
-		byRole: make(map[string]string),
 	}
 }
 
@@ -54,22 +52,15 @@ func (r *PolicyRegistry) All() []*PolicyConfig {
 	return out
 }
 
-// DefaultForRole returns the name of the policy whose @preferredRole
-// list contains the given role, or "" when no policy claims that role.
-// Used by the replier to resolve "what policy should this agent use
-// when it hasn't explicitly picked one?".
-func (r *PolicyRegistry) DefaultForRole(role string) string {
-	if r == nil {
-		return ""
-	}
-	key := strings.TrimSpace(role)
-	if key == "" {
-		return ""
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.byRole[key]
-}
+// DefaultForRole and its byRole index are DELETED (epic memql#5127). They
+// answered "what policy should this agent use when it has not picked one?"
+// from @preferredRole, an annotation nothing selected on -- and by the time
+// they were removed the method had no callers at all.
+//
+// A rule answers that question now, and answers it better: `role` is one of
+// @when's seven keys, the match is recorded on the decision, and the mapping
+// lives in the DSL rather than in a map rebuilt from an annotation. Do not
+// reintroduce a role index here; that is what the rule registry is.
 
 // Count returns the number of registered policies.
 func (r *PolicyRegistry) Count() int {

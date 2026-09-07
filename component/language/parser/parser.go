@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/baseparser"
 	"github.com/znasllc-io/memql/core/num"
 )
@@ -607,6 +608,7 @@ var topLevelDeclParsers = map[string]func(p *Parser, attributes []*Attribute) (N
 	"tool":       func(p *Parser, a []*Attribute) (Node, error) { return p.parseToolDecl(a) },
 	"prompt":     func(p *Parser, a []*Attribute) (Node, error) { return p.parsePromptDecl(a) },
 	"policy":     func(p *Parser, a []*Attribute) (Node, error) { return p.parsePolicyDecl(a) },
+	"rule":       func(p *Parser, a []*Attribute) (Node, error) { return p.parseRuleDecl(a) },
 	"spec":       func(p *Parser, a []*Attribute) (Node, error) { return p.parseSpecDecl(a, false) },
 	"trait":      func(p *Parser, a []*Attribute) (Node, error) { return p.parseSpecDecl(a, true) },
 	"seed":       func(p *Parser, a []*Attribute) (Node, error) { return p.parseSeedDecl(a) },
@@ -2260,6 +2262,30 @@ func (p *Parser) parsePromptDecl(attrs []*Attribute) (*PromptDecl, error) {
 
 	if err := p.validateDeclAnnotations("Prompt", "prompt", decl.Name, attrs); err != nil {
 		return nil, err
+	}
+
+	// @level is the prompt's declared intelligence requirement -- one of
+	// core/airoute's closed four. It is what the router's rules branch on, and
+	// it is why a prompt names no model: a model name at a call site is a
+	// release every time the fleet changes.
+	//
+	// NOT REQUIRED HERE, deliberately. The corpus does not carry one yet, and
+	// requiring it in the parser would refuse every prompt in the tree the
+	// moment this lands. The requirement belongs to the loader, which can put a
+	// prompt with no level on the LoadReport as a skip that strict boot refuses
+	// -- one place, with MEMQL_DSL_ALLOW_SKIPS as the operator break-glass, and
+	// the same rule applied to a bundle mounted at MEMQL_DSL_PATH. An absent
+	// @level leaves Level empty; a PRESENT one is validated here, so a typo is
+	// caught at its source rather than surfacing as "this rule never matches".
+	for _, attr := range attrs {
+		if attr == nil || attr.Name != "level" {
+			continue
+		}
+		value := strings.TrimSpace(attrStringValue(attr))
+		if _, err := airoute.ParseLevel(value); err != nil {
+			return nil, newParseErrorf(&p.current, "prompt %q: %v", decl.Name, err)
+		}
+		decl.Level = value
 	}
 
 	if err := p.expect(TokenBraceOpen); err != nil {

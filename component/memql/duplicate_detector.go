@@ -103,6 +103,7 @@ var structFormKeywordGroups = map[string]string{
 	"prompt":     "prompts",
 	"provider":   "providers",
 	"policy":     "policies",
+	"rule":       "rules",
 	"seed":       "seeds",
 	"automation": "automations",
 	"action":     "actions",

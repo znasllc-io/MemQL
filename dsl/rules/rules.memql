@@ -1,0 +1,115 @@
+// The shipped rules. A rule maps a call's declared metadata to a policy, in
+// explicit precedence order, and the first match wins.
+//
+// WHY RULES AND NOT MORE POLICIES. A policy is an ordered chain -- it says
+// WHERE to look. Nothing in a chain can say WHICH CALLS it is for, so before
+// this file every call site had to name its own policy, which is how twenty-
+// eight of thirty of them ended up naming nothing and resolving a paid vendor
+// model straight off the registry. A rule is the missing half: it looks at
+// what the call IS -- its level, its prompt, its tags, the role acting, what
+// it touches -- and picks the chain. A call site names a level and stops.
+//
+// EVERY RULE HERE IS @locked, AND LOCKED MEANS THREE THINGS. It evaluates
+// before every unlocked rule regardless of precedence; it is re-read from the
+// embedded tree on every boot, so nothing an owner did to it at runtime
+// survives a restart; and no runtime-authored rule may carry the annotation or
+// take one of these names. An owner adds rules beside these and may give them
+// any precedence; they cannot quietly become these.
+//
+// PAID-LAST IS EXPRESSED BY CONSTRUCTION, NOT BY CARE. Every rule below names
+// a policy whose chain reaches the fleet first, a signed-in app second and a
+// vendor last, and the federation hop asks the cost ceiling before it is
+// taken. An owner who wants a paid model for everything writes a rule of
+// higher precedence naming a policy that starts at that vendor: explicit,
+// recorded on every decision record, and still under the ceiling.
+//
+// PRECEDENCE VALUES ARE DISTINCT AND GAPPED. A tie between two rules of the
+// same locked-ness is a load error, because a tie is resolved by nothing and
+// the rule that wins would differ between replicas. The gaps are room for an
+// owner's rules to sit between these without renumbering anything.
+
+/// The floor. It states no conditions, so it matches every call, and it cannot
+/// be removed: a call that matches no rule is impossible by construction rather
+/// than by care, which is why nothing downstream has to handle that case.
+@when()
+@policy("localFirst")
+@precedence(0)
+@onUnavailable("degrade")
+@locked
+rule default { }
+
+/// Background work degrades freely. Nobody is waiting on the first token, so a
+/// smaller model that answers is worth more here than a park that has to be
+/// noticed by a person before anything moves again.
+@when(tag="background")
+@policy("localFirst")
+@precedence(40)
+@onUnavailable("degrade")
+@locked
+rule backgroundLane { }
+
+/// The one stronger continuation the background lane swaps to when the cheap
+/// tier is stuck on a turn -- repeated rounds where every tool call errored,
+/// which usually means the model is mishandling the tool rather than that the
+/// work is hard.
+///
+/// It raises the LEVEL and names no model. That is the whole difference from
+/// the escalation policy it replaces: "stronger" used to be a second hard-coded
+/// chain, so a fleet running a 70B escalated to a cloud Sonnet. Raising the
+/// level asks the same question of whatever is actually available.
+@when(tag="backgroundEscalation")
+@level("strong")
+@policy("localFirst")
+@precedence(50)
+@onUnavailable("degrade")
+@locked
+rule backgroundEscalation { }
+
+/// An operator's agent reply reasons. This is the shipped rule that exists to
+/// be READ as an example: it shows a rule raising a call's level above what the
+/// prompt declared, on a condition the prompt itself cannot see.
+///
+/// It degrades rather than parking, unlike reasoningParks below, and the two
+/// together are the distinction worth learning. A person is waiting on this
+/// reply and would rather have a smaller model's answer than a card telling
+/// them to open a laptop. A call that DECLARED reasoning -- emitting a
+/// construct, re-planning -- would rather park.
+@when(prompt="agentReply", role="operator")
+@level("reasoning")
+@policy("localFirst")
+@precedence(60)
+@onUnavailable("degrade")
+@locked
+rule operatorReasoning { }
+
+/// Reasoning parks rather than degrading, and names the strongest federated
+/// model rather than the cheapest.
+///
+/// Both halves are the same judgement. A degraded reasoning call does not
+/// return a worse answer -- it returns a CONFIDENT answer produced by a model
+/// that could not do the work, and nothing downstream can tell the difference
+/// between that and a good one. A parked run says so and waits. Where a vendor
+/// is reached at all, the extra cost of the strongest one is small against the
+/// cost of a construct that compiles and is wrong.
+@when(level="reasoning")
+@policy("federationStrongest")
+@precedence(100)
+@onUnavailable("park")
+@locked
+rule reasoningParks { }
+
+/// Embeddings park. A degraded embedder is not a worse vector -- it answers in
+/// a DIFFERENT VECTOR SPACE, so the vector does not belong in the index it is
+/// about to be written to, and the corruption is silent: every subsequent
+/// similarity read returns plausible neighbours that are simply wrong.
+///
+/// This is the one rule whose park is not really a policy choice. The level
+/// itself has no next level down, so degrading it is unrepresentable; the rule
+/// states it anyway, because a reader looking for "what happens when the
+/// embedder is unreachable" should find the answer here rather than infer it.
+@when(level="embeddings")
+@policy("localFirst")
+@precedence(110)
+@onUnavailable("park")
+@locked
+rule embeddingsPark { }
