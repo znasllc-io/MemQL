@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,16 @@ const (
 const (
 	AppSessionActionCancel          = "cancel"
 	AppSessionActionRenewCredential = "renew_credential"
+	// AppSessionActionMessage sends a FOLLOW-UP into a session that is
+	// already open (epic memql#5096, design D7): the app keeps its
+	// context, its workspace and its credential, and takes another turn.
+	//
+	// It carries its own `prompt` field rather than riding `reason`,
+	// which is documented as transcript free-text on cancel. A session
+	// whose machine reported FollowUps=false is refused BEFORE the wire,
+	// so the caller learns the machine cannot do this instead of waiting
+	// on a turn that will never arrive.
+	AppSessionActionMessage = "message"
 )
 
 // Chunk streams.
@@ -80,6 +91,11 @@ type AppSessionRequest struct {
 	StepId        string
 	AppSessionRef string
 	Limits        AppSessionLimits
+	// ResponseSchema is the JSON Schema the harness is asked to answer
+	// against. EMPTY MEANS NONE WAS ASKED FOR, which is a different state
+	// from asking and getting nothing back: only a session that asked can
+	// report a missing structured answer as a disappointment.
+	ResponseSchema string
 }
 
 // AppSessionLimits are the policy ceilings the session runs under.
@@ -113,12 +129,21 @@ type AppSessionOutcome struct {
 	AppSessionRef       string
 	ProducedArtifactIds []string
 	Error               string
+	// Result is the harness's structured final answer as raw JSON, when it
+	// produced one. It DOES NOT IMPLY SUCCESS and is deliberately separate
+	// from Error and ExitCode: a harness can answer the schema and still
+	// exit non-zero, and folding the two would make an answer we have
+	// unreadable because the run that produced it also failed.
+	Result []byte
 }
 
 // AppSessionHandle is the caller's view of a running session.
 type AppSessionHandle struct {
 	sessionId string
 	worker    *Worker
+	// app is the id this session is running, kept so a follow-up can ask
+	// the machine's descriptor whether the harness takes one.
+	app string
 
 	chunks chan AppSessionChunk
 	done   chan struct{}
@@ -188,6 +213,45 @@ func (h *AppSessionHandle) RenewCredential(credential string) error {
 		SessionId:  h.sessionId,
 		Action:     AppSessionActionRenewCredential,
 		Credential: credential,
+	})
+}
+
+// ErrAppSessionNoFollowUps is the refusal for a follow-up on a machine whose
+// descriptor says its harness cannot take one. Typed rather than a formatted
+// string because the caller's next move differs: this is "start a new
+// session", not "retry".
+var ErrAppSessionNoFollowUps = errors.New("worker: this app's harness on this machine does not take follow-up turns")
+
+// Message sends a follow-up prompt into a running session (design D7).
+//
+// The refusal is asked HERE rather than on the far side, because the far side
+// answers by not answering: a cockpit whose harness cannot continue a session
+// has nowhere to put the prompt and no turn to end, so the caller would wait
+// out its own deadline for a capability the registration already told us was
+// absent. A machine that reported NO descriptor at all is allowed through --
+// absent is not the same as declared-false, and refusing on silence would
+// take follow-ups away from every cockpit that predates the field.
+func (h *AppSessionHandle) Message(prompt string) error {
+	if h == nil {
+		return ErrAppSessionNotFound
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return fmt.Errorf("worker: a follow-up needs a prompt")
+	}
+	h.mu.Lock()
+	ended := h.ended
+	app := h.app
+	h.mu.Unlock()
+	if ended {
+		return ErrAppSessionNotFound
+	}
+	if desc, ok := h.worker.AppDescriptor(app); ok && !desc.FollowUps {
+		return fmt.Errorf("%w (%s via %s)", ErrAppSessionNoFollowUps, app, desc.Harness)
+	}
+	return h.control(&memqlv1.AppSessionControl{
+		SessionId: h.sessionId,
+		Action:    AppSessionActionMessage,
+		Prompt:    prompt,
 	})
 }
 

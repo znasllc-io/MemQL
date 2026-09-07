@@ -525,9 +525,19 @@ type Register struct {
 	// engine does not know is stored on the registration and never
 	// produces a routing label, so a cockpit may report more than the
 	// engine can drive without a coordinated release.
-	Apps          []*AppInfo `protobuf:"bytes,10,rep,name=apps,proto3" json:"apps,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Apps []*AppInfo `protobuf:"bytes,10,rep,name=apps,proto3" json:"apps,omitempty"`
+	// app_descriptors say HOW the cockpit drives each app it reported
+	// (epic memql#5096, design D8). The id set stays closed in the engine;
+	// what grows is the SHAPE, so a newer cockpit never makes the engine
+	// attempt a protocol the machine does not have.
+	//
+	// Register is accepted exactly ONCE per stream, so these cannot be
+	// refreshed on a heartbeat the way `apps` can. A cockpit that gains a
+	// harness mid-connection advertises it on its next reconnect -- the
+	// same rollout cost the model labels already carry.
+	AppDescriptors []*AppDescriptor `protobuf:"bytes,11,rep,name=app_descriptors,json=appDescriptors,proto3" json:"app_descriptors,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Register) Reset() {
@@ -630,6 +640,98 @@ func (x *Register) GetApps() []*AppInfo {
 	return nil
 }
 
+func (x *Register) GetAppDescriptors() []*AppDescriptor {
+	if x != nil {
+		return x.AppDescriptors
+	}
+	return nil
+}
+
+// AppDescriptor is how one app on this machine is DRIVEN.
+//
+// `harness` is the protocol the cockpit will speak to it, and the engine
+// must not infer it from the app id: the cockpit picks codex-app-server
+// only when the binary answers `codex app-server --help` and falls back to
+// codex-mcp otherwise, so one id legitimately reports either word.
+type AppDescriptor struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id matches an AppInfo.id on the same Register.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// harness is one of "claude-headless", "codex-app-server", "codex-mcp".
+	// An unrecognised word leaves the descriptor UNUSED rather than
+	// refusing the registration -- the same rule the closed app-id set
+	// follows, for the same reason.
+	Harness string `protobuf:"bytes,2,opt,name=harness,proto3" json:"harness,omitempty"`
+	// structured_result reports that this harness can return a structured
+	// final answer when AppSessionStart carries a response schema.
+	StructuredResult bool `protobuf:"varint,3,opt,name=structured_result,json=structuredResult,proto3" json:"structured_result,omitempty"`
+	// follow_ups reports that a session can take another turn through
+	// AppSessionControl{action: "message"}. A machine that says false is
+	// refused a follow-up BEFORE the wire, so the engine never waits on a
+	// turn that will not come.
+	FollowUps     bool `protobuf:"varint,4,opt,name=follow_ups,json=followUps,proto3" json:"follow_ups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AppDescriptor) Reset() {
+	*x = AppDescriptor{}
+	mi := &file_worker_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppDescriptor) ProtoMessage() {}
+
+func (x *AppDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AppDescriptor.ProtoReflect.Descriptor instead.
+func (*AppDescriptor) Descriptor() ([]byte, []int) {
+	return file_worker_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *AppDescriptor) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AppDescriptor) GetHarness() string {
+	if x != nil {
+		return x.Harness
+	}
+	return ""
+}
+
+func (x *AppDescriptor) GetStructuredResult() bool {
+	if x != nil {
+		return x.StructuredResult
+	}
+	return false
+}
+
+func (x *AppDescriptor) GetFollowUps() bool {
+	if x != nil {
+		return x.FollowUps
+	}
+	return false
+}
+
 // AppInfo is one local app the cockpit detected. `allowed` is the
 // machine's own `policy.yaml apps.allow` verdict and `signed_in` is
 // the app's auth state as the cockpit can observe it; BOTH must be
@@ -655,7 +757,7 @@ type AppInfo struct {
 
 func (x *AppInfo) Reset() {
 	*x = AppInfo{}
-	mi := &file_worker_proto_msgTypes[3]
+	mi := &file_worker_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -667,7 +769,7 @@ func (x *AppInfo) String() string {
 func (*AppInfo) ProtoMessage() {}
 
 func (x *AppInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[3]
+	mi := &file_worker_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -680,7 +782,7 @@ func (x *AppInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppInfo.ProtoReflect.Descriptor instead.
 func (*AppInfo) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{3}
+	return file_worker_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *AppInfo) GetId() string {
@@ -729,7 +831,7 @@ type PlatformInfo struct {
 
 func (x *PlatformInfo) Reset() {
 	*x = PlatformInfo{}
-	mi := &file_worker_proto_msgTypes[4]
+	mi := &file_worker_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -741,7 +843,7 @@ func (x *PlatformInfo) String() string {
 func (*PlatformInfo) ProtoMessage() {}
 
 func (x *PlatformInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[4]
+	mi := &file_worker_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -754,7 +856,7 @@ func (x *PlatformInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformInfo.ProtoReflect.Descriptor instead.
 func (*PlatformInfo) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{4}
+	return file_worker_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PlatformInfo) GetOs() string {
@@ -790,7 +892,7 @@ type PermissionStatus struct {
 
 func (x *PermissionStatus) Reset() {
 	*x = PermissionStatus{}
-	mi := &file_worker_proto_msgTypes[5]
+	mi := &file_worker_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -802,7 +904,7 @@ func (x *PermissionStatus) String() string {
 func (*PermissionStatus) ProtoMessage() {}
 
 func (x *PermissionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[5]
+	mi := &file_worker_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -815,7 +917,7 @@ func (x *PermissionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PermissionStatus.ProtoReflect.Descriptor instead.
 func (*PermissionStatus) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{5}
+	return file_worker_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PermissionStatus) GetAccessibility() bool {
@@ -858,7 +960,7 @@ type RegisterAck struct {
 
 func (x *RegisterAck) Reset() {
 	*x = RegisterAck{}
-	mi := &file_worker_proto_msgTypes[6]
+	mi := &file_worker_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -870,7 +972,7 @@ func (x *RegisterAck) String() string {
 func (*RegisterAck) ProtoMessage() {}
 
 func (x *RegisterAck) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[6]
+	mi := &file_worker_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -883,7 +985,7 @@ func (x *RegisterAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAck.ProtoReflect.Descriptor instead.
 func (*RegisterAck) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{6}
+	return file_worker_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RegisterAck) GetRegistrationId() string {
@@ -917,7 +1019,7 @@ type RegisterError struct {
 
 func (x *RegisterError) Reset() {
 	*x = RegisterError{}
-	mi := &file_worker_proto_msgTypes[7]
+	mi := &file_worker_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -929,7 +1031,7 @@ func (x *RegisterError) String() string {
 func (*RegisterError) ProtoMessage() {}
 
 func (x *RegisterError) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[7]
+	mi := &file_worker_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -942,7 +1044,7 @@ func (x *RegisterError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterError.ProtoReflect.Descriptor instead.
 func (*RegisterError) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{7}
+	return file_worker_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RegisterError) GetCode() string {
@@ -980,7 +1082,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_worker_proto_msgTypes[8]
+	mi := &file_worker_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -992,7 +1094,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[8]
+	mi := &file_worker_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1005,7 +1107,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{8}
+	return file_worker_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Heartbeat) GetTs() *timestamppb.Timestamp {
@@ -1065,7 +1167,7 @@ type ToolDispatch struct {
 
 func (x *ToolDispatch) Reset() {
 	*x = ToolDispatch{}
-	mi := &file_worker_proto_msgTypes[9]
+	mi := &file_worker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1077,7 +1179,7 @@ func (x *ToolDispatch) String() string {
 func (*ToolDispatch) ProtoMessage() {}
 
 func (x *ToolDispatch) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[9]
+	mi := &file_worker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1090,7 +1192,7 @@ func (x *ToolDispatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolDispatch.ProtoReflect.Descriptor instead.
 func (*ToolDispatch) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{9}
+	return file_worker_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ToolDispatch) GetCallId() string {
@@ -1166,7 +1268,7 @@ type ToolCancel struct {
 
 func (x *ToolCancel) Reset() {
 	*x = ToolCancel{}
-	mi := &file_worker_proto_msgTypes[10]
+	mi := &file_worker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1178,7 +1280,7 @@ func (x *ToolCancel) String() string {
 func (*ToolCancel) ProtoMessage() {}
 
 func (x *ToolCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[10]
+	mi := &file_worker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1191,7 +1293,7 @@ func (x *ToolCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCancel.ProtoReflect.Descriptor instead.
 func (*ToolCancel) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{10}
+	return file_worker_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ToolCancel) GetCallId() string {
@@ -1218,7 +1320,7 @@ type Drain struct {
 
 func (x *Drain) Reset() {
 	*x = Drain{}
-	mi := &file_worker_proto_msgTypes[11]
+	mi := &file_worker_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1230,7 +1332,7 @@ func (x *Drain) String() string {
 func (*Drain) ProtoMessage() {}
 
 func (x *Drain) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[11]
+	mi := &file_worker_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1243,7 +1345,7 @@ func (x *Drain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Drain.ProtoReflect.Descriptor instead.
 func (*Drain) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{11}
+	return file_worker_proto_rawDescGZIP(), []int{12}
 }
 
 type ToolStream struct {
@@ -1261,7 +1363,7 @@ type ToolStream struct {
 
 func (x *ToolStream) Reset() {
 	*x = ToolStream{}
-	mi := &file_worker_proto_msgTypes[12]
+	mi := &file_worker_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1375,7 @@ func (x *ToolStream) String() string {
 func (*ToolStream) ProtoMessage() {}
 
 func (x *ToolStream) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[12]
+	mi := &file_worker_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1388,7 @@ func (x *ToolStream) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolStream.ProtoReflect.Descriptor instead.
 func (*ToolStream) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{12}
+	return file_worker_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ToolStream) GetCallId() string {
@@ -1366,7 +1468,7 @@ type ToolResult struct {
 
 func (x *ToolResult) Reset() {
 	*x = ToolResult{}
-	mi := &file_worker_proto_msgTypes[13]
+	mi := &file_worker_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1378,7 +1480,7 @@ func (x *ToolResult) String() string {
 func (*ToolResult) ProtoMessage() {}
 
 func (x *ToolResult) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[13]
+	mi := &file_worker_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1391,7 +1493,7 @@ func (x *ToolResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolResult.ProtoReflect.Descriptor instead.
 func (*ToolResult) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{13}
+	return file_worker_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ToolResult) GetCallId() string {
@@ -1455,7 +1557,7 @@ type Success struct {
 
 func (x *Success) Reset() {
 	*x = Success{}
-	mi := &file_worker_proto_msgTypes[14]
+	mi := &file_worker_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1467,7 +1569,7 @@ func (x *Success) String() string {
 func (*Success) ProtoMessage() {}
 
 func (x *Success) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[14]
+	mi := &file_worker_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1480,7 +1582,7 @@ func (x *Success) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Success.ProtoReflect.Descriptor instead.
 func (*Success) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{14}
+	return file_worker_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Success) GetResultJson() []byte {
@@ -1539,7 +1641,7 @@ type Failure struct {
 
 func (x *Failure) Reset() {
 	*x = Failure{}
-	mi := &file_worker_proto_msgTypes[15]
+	mi := &file_worker_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1551,7 +1653,7 @@ func (x *Failure) String() string {
 func (*Failure) ProtoMessage() {}
 
 func (x *Failure) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[15]
+	mi := &file_worker_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1564,7 +1666,7 @@ func (x *Failure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Failure.ProtoReflect.Descriptor instead.
 func (*Failure) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{15}
+	return file_worker_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Failure) GetErrorCode() string {
@@ -1590,7 +1692,7 @@ type RotationRequest struct {
 
 func (x *RotationRequest) Reset() {
 	*x = RotationRequest{}
-	mi := &file_worker_proto_msgTypes[16]
+	mi := &file_worker_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1602,7 +1704,7 @@ func (x *RotationRequest) String() string {
 func (*RotationRequest) ProtoMessage() {}
 
 func (x *RotationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[16]
+	mi := &file_worker_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1615,7 +1717,7 @@ func (x *RotationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotationRequest.ProtoReflect.Descriptor instead.
 func (*RotationRequest) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{16}
+	return file_worker_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RotationRequest) GetCurrentTokenExpiresAt() *timestamppb.Timestamp {
@@ -1635,7 +1737,7 @@ type RotationResponse struct {
 
 func (x *RotationResponse) Reset() {
 	*x = RotationResponse{}
-	mi := &file_worker_proto_msgTypes[17]
+	mi := &file_worker_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1647,7 +1749,7 @@ func (x *RotationResponse) String() string {
 func (*RotationResponse) ProtoMessage() {}
 
 func (x *RotationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[17]
+	mi := &file_worker_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1660,7 +1762,7 @@ func (x *RotationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotationResponse.ProtoReflect.Descriptor instead.
 func (*RotationResponse) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{17}
+	return file_worker_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RotationResponse) GetNewToken() string {
@@ -1688,7 +1790,7 @@ type AuditEvent struct {
 
 func (x *AuditEvent) Reset() {
 	*x = AuditEvent{}
-	mi := &file_worker_proto_msgTypes[18]
+	mi := &file_worker_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1700,7 +1802,7 @@ func (x *AuditEvent) String() string {
 func (*AuditEvent) ProtoMessage() {}
 
 func (x *AuditEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[18]
+	mi := &file_worker_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1713,7 +1815,7 @@ func (x *AuditEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEvent.ProtoReflect.Descriptor instead.
 func (*AuditEvent) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{18}
+	return file_worker_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AuditEvent) GetAction() string {
@@ -1773,13 +1875,20 @@ type AppSessionStart struct {
 	// app_session_ref names the app's OWN session id on the kind=attach
 	// path. Empty for run and open.
 	AppSessionRef string `protobuf:"bytes,12,opt,name=app_session_ref,json=appSessionRef,proto3" json:"app_session_ref,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// response_schema_json is the JSON Schema the harness is asked to
+	// answer against (`claude --json-schema`, the Codex app-server turn's
+	// structured output). EMPTY MEANS NO STRUCTURED ANSWER WAS ASKED FOR,
+	// which is not the same as asking for one and getting none: a session
+	// started without it can still end with a transcript, and only a
+	// session that asked can be disappointed.
+	ResponseSchemaJson string `protobuf:"bytes,13,opt,name=response_schema_json,json=responseSchemaJson,proto3" json:"response_schema_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *AppSessionStart) Reset() {
 	*x = AppSessionStart{}
-	mi := &file_worker_proto_msgTypes[19]
+	mi := &file_worker_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1791,7 +1900,7 @@ func (x *AppSessionStart) String() string {
 func (*AppSessionStart) ProtoMessage() {}
 
 func (x *AppSessionStart) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[19]
+	mi := &file_worker_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1804,7 +1913,7 @@ func (x *AppSessionStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSessionStart.ProtoReflect.Descriptor instead.
 func (*AppSessionStart) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{19}
+	return file_worker_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AppSessionStart) GetSessionId() string {
@@ -1891,6 +2000,13 @@ func (x *AppSessionStart) GetAppSessionRef() string {
 	return ""
 }
 
+func (x *AppSessionStart) GetResponseSchemaJson() string {
+	if x != nil {
+		return x.ResponseSchemaJson
+	}
+	return ""
+}
+
 // AppSessionLimits are the policy ceilings a session runs under.
 type AppSessionLimits struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1908,7 +2024,7 @@ type AppSessionLimits struct {
 
 func (x *AppSessionLimits) Reset() {
 	*x = AppSessionLimits{}
-	mi := &file_worker_proto_msgTypes[20]
+	mi := &file_worker_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1920,7 +2036,7 @@ func (x *AppSessionLimits) String() string {
 func (*AppSessionLimits) ProtoMessage() {}
 
 func (x *AppSessionLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[20]
+	mi := &file_worker_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1933,7 +2049,7 @@ func (x *AppSessionLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSessionLimits.ProtoReflect.Descriptor instead.
 func (*AppSessionLimits) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{20}
+	return file_worker_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AppSessionLimits) GetCredentialLifetimeSeconds() int64 {
@@ -1961,19 +2077,25 @@ func (x *AppSessionLimits) GetMaxTranscriptBytes() int64 {
 type AppSessionControl struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// action is "cancel" or "renew_credential".
+	// action is "cancel", "renew_credential" or "message".
 	Action string `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
 	// credential is the replacement bearer on the renew path.
 	Credential string `protobuf:"bytes,3,opt,name=credential,proto3" json:"credential,omitempty"`
 	// reason is free text carried into the transcript on cancel.
-	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	Reason string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	// prompt is the follow-up handed to the app on action="message"
+	// (design D7). It has its OWN field rather than riding `reason`,
+	// which is documented as transcript free-text on cancel: one field
+	// meaning two things is a field whose value cannot be read without
+	// knowing which branch produced it.
+	Prompt        string `protobuf:"bytes,5,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AppSessionControl) Reset() {
 	*x = AppSessionControl{}
-	mi := &file_worker_proto_msgTypes[21]
+	mi := &file_worker_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1985,7 +2107,7 @@ func (x *AppSessionControl) String() string {
 func (*AppSessionControl) ProtoMessage() {}
 
 func (x *AppSessionControl) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[21]
+	mi := &file_worker_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1998,7 +2120,7 @@ func (x *AppSessionControl) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSessionControl.ProtoReflect.Descriptor instead.
 func (*AppSessionControl) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{21}
+	return file_worker_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AppSessionControl) GetSessionId() string {
@@ -2029,6 +2151,13 @@ func (x *AppSessionControl) GetReason() string {
 	return ""
 }
 
+func (x *AppSessionControl) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
 // AppSessionChunk is one piece of session output. Worker -> server.
 type AppSessionChunk struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -2046,7 +2175,7 @@ type AppSessionChunk struct {
 
 func (x *AppSessionChunk) Reset() {
 	*x = AppSessionChunk{}
-	mi := &file_worker_proto_msgTypes[22]
+	mi := &file_worker_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2058,7 +2187,7 @@ func (x *AppSessionChunk) String() string {
 func (*AppSessionChunk) ProtoMessage() {}
 
 func (x *AppSessionChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[22]
+	mi := &file_worker_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2071,7 +2200,7 @@ func (x *AppSessionChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSessionChunk.ProtoReflect.Descriptor instead.
 func (*AppSessionChunk) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{22}
+	return file_worker_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AppSessionChunk) GetSessionId() string {
@@ -2114,14 +2243,24 @@ type AppSessionEnd struct {
 	// produced_artifact_ids are Library artifact ids the cockpit pushed.
 	ProducedArtifactIds []string `protobuf:"bytes,5,rep,name=produced_artifact_ids,json=producedArtifactIds,proto3" json:"produced_artifact_ids,omitempty"`
 	// error is empty on a clean end.
-	Error         string `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	Error string `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	// result_json is the harness's STRUCTURED final answer, when it
+	// produced one -- the reply to AppSessionStart.response_schema_json.
+	//
+	// IT DOES NOT IMPLY SUCCESS, and the separation from `error` and
+	// `exit_code` is the point: Claude Code can emit a structured result
+	// AND exit non-zero, and folding the two would make an answer we have
+	// unreadable because the run that produced it also failed. A session
+	// that ends without one still yields its transcript and artifacts,
+	// exactly as before.
+	ResultJson    string `protobuf:"bytes,7,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AppSessionEnd) Reset() {
 	*x = AppSessionEnd{}
-	mi := &file_worker_proto_msgTypes[23]
+	mi := &file_worker_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2133,7 +2272,7 @@ func (x *AppSessionEnd) String() string {
 func (*AppSessionEnd) ProtoMessage() {}
 
 func (x *AppSessionEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[23]
+	mi := &file_worker_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2146,7 +2285,7 @@ func (x *AppSessionEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSessionEnd.ProtoReflect.Descriptor instead.
 func (*AppSessionEnd) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{23}
+	return file_worker_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AppSessionEnd) GetSessionId() string {
@@ -2191,6 +2330,13 @@ func (x *AppSessionEnd) GetError() string {
 	return ""
 }
 
+func (x *AppSessionEnd) GetResultJson() string {
+	if x != nil {
+		return x.ResultJson
+	}
+	return ""
+}
+
 // AppSessionUsage is what the app REPORTED about its own spend.
 // Never inferred: an app that reports nothing sets known=false and
 // leaves the counts at zero, which the ledger records as billing
@@ -2207,7 +2353,7 @@ type AppSessionUsage struct {
 
 func (x *AppSessionUsage) Reset() {
 	*x = AppSessionUsage{}
-	mi := &file_worker_proto_msgTypes[24]
+	mi := &file_worker_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2219,7 +2365,7 @@ func (x *AppSessionUsage) String() string {
 func (*AppSessionUsage) ProtoMessage() {}
 
 func (x *AppSessionUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[24]
+	mi := &file_worker_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2232,7 +2378,7 @@ func (x *AppSessionUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSessionUsage.ProtoReflect.Descriptor instead.
 func (*AppSessionUsage) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{24}
+	return file_worker_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AppSessionUsage) GetInputTokens() int64 {
@@ -2295,14 +2441,21 @@ type ModelCallStart struct {
 	// purpose names the platform operation this call serves (planner,
 	// conductor, suggest, embeddings). Carried for the ledger and for the
 	// machine's own logs; it steers nothing.
-	Purpose       string `protobuf:"bytes,11,opt,name=purpose,proto3" json:"purpose,omitempty"`
+	Purpose string `protobuf:"bytes,11,opt,name=purpose,proto3" json:"purpose,omitempty"`
+	// tools are the functions the model may call this turn (design D11).
+	// EMPTY IS AN ORDINARY CHAT TURN. A machine whose runtime cannot do
+	// tool calling advertises `tools=0` on its model label and is skipped
+	// for a turn that carries any -- gating, not a downgrade, for the same
+	// reason response_format_schema is gated: a runtime that answered
+	// prose to a tool turn would defeat the selection that put it there.
+	Tools         []*ModelCallTool `protobuf:"bytes,12,rep,name=tools,proto3" json:"tools,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ModelCallStart) Reset() {
 	*x = ModelCallStart{}
-	mi := &file_worker_proto_msgTypes[25]
+	mi := &file_worker_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2314,7 +2467,7 @@ func (x *ModelCallStart) String() string {
 func (*ModelCallStart) ProtoMessage() {}
 
 func (x *ModelCallStart) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[25]
+	mi := &file_worker_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2327,7 +2480,7 @@ func (x *ModelCallStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallStart.ProtoReflect.Descriptor instead.
 func (*ModelCallStart) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{25}
+	return file_worker_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ModelCallStart) GetRequestId() string {
@@ -2407,19 +2560,189 @@ func (x *ModelCallStart) GetPurpose() string {
 	return ""
 }
 
+func (x *ModelCallStart) GetTools() []*ModelCallTool {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
+// ModelCallTool is one function the model may call, as the caller
+// declared it.
+type ModelCallTool struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// parameters_json is the tool's JSON Schema, carried VERBATIM as a
+	// string. Deliberately not a google.protobuf.Struct: the worker
+	// forwards it unchanged into Ollama's /api/chat `tools[].function.
+	// parameters` and the OpenAI-compatible equivalent, and a decode and
+	// re-encode through Struct loses key order and turns every integer
+	// bound into a float -- a schema that still parses and no longer says
+	// what it said.
+	ParametersJson string `protobuf:"bytes,3,opt,name=parameters_json,json=parametersJson,proto3" json:"parameters_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ModelCallTool) Reset() {
+	*x = ModelCallTool{}
+	mi := &file_worker_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelCallTool) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelCallTool) ProtoMessage() {}
+
+func (x *ModelCallTool) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelCallTool.ProtoReflect.Descriptor instead.
+func (*ModelCallTool) Descriptor() ([]byte, []int) {
+	return file_worker_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ModelCallTool) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ModelCallTool) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *ModelCallTool) GetParametersJson() string {
+	if x != nil {
+		return x.ParametersJson
+	}
+	return ""
+}
+
+// ModelCallToolCall is one call the model made.
+type ModelCallToolCall struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// arguments_json is the arguments object as a STRING. The two runtimes
+	// disagree -- Ollama's /api/chat returns an object, the
+	// OpenAI-compatible shape returns a string -- and the worker
+	// normalises to the string so the engine decodes one shape rather than
+	// branching on which machine answered.
+	ArgumentsJson string `protobuf:"bytes,3,opt,name=arguments_json,json=argumentsJson,proto3" json:"arguments_json,omitempty"`
+	// index is the call's position within the assistant turn.
+	//
+	// It exists for the DELTA path and is the reason a delta can carry
+	// tool calls at all: an OpenAI-compatible stream emits tool calls by
+	// index with `arguments` arriving in fragments, so without it a
+	// reassembler cannot tell a second call from the continuation of the
+	// first. Ollama does not stream partial tool calls -- it emits one
+	// complete list on the final message -- so a delta carrying these is
+	// an OpenAI-compatible runtime and an end carrying them is either.
+	Index         int32 `protobuf:"varint,4,opt,name=index,proto3" json:"index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModelCallToolCall) Reset() {
+	*x = ModelCallToolCall{}
+	mi := &file_worker_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelCallToolCall) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelCallToolCall) ProtoMessage() {}
+
+func (x *ModelCallToolCall) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelCallToolCall.ProtoReflect.Descriptor instead.
+func (*ModelCallToolCall) Descriptor() ([]byte, []int) {
+	return file_worker_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ModelCallToolCall) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ModelCallToolCall) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ModelCallToolCall) GetArgumentsJson() string {
+	if x != nil {
+		return x.ArgumentsJson
+	}
+	return ""
+}
+
+func (x *ModelCallToolCall) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
 // ModelCallMessage is one turn of the conversation handed to the model.
 type ModelCallMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// role is "system", "user", "assistant" or "tool".
-	Role          string `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
-	Content       string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	Role    string `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
+	Content string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	// tool_call_id names the call a role="tool" message ANSWERS. Both
+	// runtimes require it to round-trip: a result with no id cannot be
+	// matched to its request, and a model handed one refuses the turn or
+	// invents an answer.
+	ToolCallId string `protobuf:"bytes,3,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
+	// name is the tool's name on a role="tool" message. Carried beside the
+	// id because the OpenAI-compatible shape wants both.
+	Name string `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	// tool_calls are the calls an assistant turn MADE, replayed back into
+	// the conversation so the model can see what it already asked for.
+	ToolCalls     []*ModelCallToolCall `protobuf:"bytes,5,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ModelCallMessage) Reset() {
 	*x = ModelCallMessage{}
-	mi := &file_worker_proto_msgTypes[26]
+	mi := &file_worker_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2431,7 +2754,7 @@ func (x *ModelCallMessage) String() string {
 func (*ModelCallMessage) ProtoMessage() {}
 
 func (x *ModelCallMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[26]
+	mi := &file_worker_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2444,7 +2767,7 @@ func (x *ModelCallMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallMessage.ProtoReflect.Descriptor instead.
 func (*ModelCallMessage) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{26}
+	return file_worker_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ModelCallMessage) GetRole() string {
@@ -2459,6 +2782,27 @@ func (x *ModelCallMessage) GetContent() string {
 		return x.Content
 	}
 	return ""
+}
+
+func (x *ModelCallMessage) GetToolCallId() string {
+	if x != nil {
+		return x.ToolCallId
+	}
+	return ""
+}
+
+func (x *ModelCallMessage) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ModelCallMessage) GetToolCalls() []*ModelCallToolCall {
+	if x != nil {
+		return x.ToolCalls
+	}
+	return nil
 }
 
 // ModelCallParams are the generation knobs.
@@ -2486,7 +2830,7 @@ type ModelCallParams struct {
 
 func (x *ModelCallParams) Reset() {
 	*x = ModelCallParams{}
-	mi := &file_worker_proto_msgTypes[27]
+	mi := &file_worker_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2498,7 +2842,7 @@ func (x *ModelCallParams) String() string {
 func (*ModelCallParams) ProtoMessage() {}
 
 func (x *ModelCallParams) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[27]
+	mi := &file_worker_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2511,7 +2855,7 @@ func (x *ModelCallParams) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallParams.ProtoReflect.Descriptor instead.
 func (*ModelCallParams) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{27}
+	return file_worker_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ModelCallParams) GetTemperature() float64 {
@@ -2593,7 +2937,7 @@ type ModelCallLimits struct {
 
 func (x *ModelCallLimits) Reset() {
 	*x = ModelCallLimits{}
-	mi := &file_worker_proto_msgTypes[28]
+	mi := &file_worker_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2605,7 +2949,7 @@ func (x *ModelCallLimits) String() string {
 func (*ModelCallLimits) ProtoMessage() {}
 
 func (x *ModelCallLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[28]
+	mi := &file_worker_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2618,7 +2962,7 @@ func (x *ModelCallLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallLimits.ProtoReflect.Descriptor instead.
 func (*ModelCallLimits) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{28}
+	return file_worker_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ModelCallLimits) GetTimeoutSeconds() int64 {
@@ -2653,14 +2997,21 @@ type ModelCallDelta struct {
 	// keepalive marks a delta that carries no content and exists only to
 	// reset the idle timer. It still takes a seq, so a keepalive can
 	// never be confused with a replayed content delta.
-	Keepalive     bool `protobuf:"varint,4,opt,name=keepalive,proto3" json:"keepalive,omitempty"`
+	Keepalive bool `protobuf:"varint,4,opt,name=keepalive,proto3" json:"keepalive,omitempty"`
+	// tool_calls carries INCREMENTAL tool-call fragments: `index` names
+	// which call the fragment belongs to and `arguments_json` is a piece
+	// of that call's arguments, not the whole. Only an OpenAI-compatible
+	// runtime populates these; Ollama emits its tool calls complete on the
+	// end. The engine assembles by index and reads the END's list as
+	// authoritative, so a runtime that streams nothing here loses nothing.
+	ToolCalls     []*ModelCallToolCall `protobuf:"bytes,5,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ModelCallDelta) Reset() {
 	*x = ModelCallDelta{}
-	mi := &file_worker_proto_msgTypes[29]
+	mi := &file_worker_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2672,7 +3023,7 @@ func (x *ModelCallDelta) String() string {
 func (*ModelCallDelta) ProtoMessage() {}
 
 func (x *ModelCallDelta) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[29]
+	mi := &file_worker_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2685,7 +3036,7 @@ func (x *ModelCallDelta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallDelta.ProtoReflect.Descriptor instead.
 func (*ModelCallDelta) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{29}
+	return file_worker_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ModelCallDelta) GetRequestId() string {
@@ -2716,6 +3067,13 @@ func (x *ModelCallDelta) GetKeepalive() bool {
 	return false
 }
 
+func (x *ModelCallDelta) GetToolCalls() []*ModelCallToolCall {
+	if x != nil {
+		return x.ToolCalls
+	}
+	return nil
+}
+
 // ModelCallEnd closes a call. Worker -> server.
 type ModelCallEnd struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -2735,14 +3093,19 @@ type ModelCallEnd struct {
 	// error is empty on a clean end.
 	Error string `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	// error_code is a stable machine-readable tag when error is set.
-	ErrorCode     string `protobuf:"bytes,7,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorCode string `protobuf:"bytes,7,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	// tool_calls is the COMPLETE list the turn produced, always populated
+	// by a runtime that made any. It is authoritative over anything
+	// assembled from the deltas: a stream that dropped a fragment would
+	// otherwise hand the engine arguments that parse and are wrong.
+	ToolCalls     []*ModelCallToolCall `protobuf:"bytes,8,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ModelCallEnd) Reset() {
 	*x = ModelCallEnd{}
-	mi := &file_worker_proto_msgTypes[30]
+	mi := &file_worker_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2754,7 +3117,7 @@ func (x *ModelCallEnd) String() string {
 func (*ModelCallEnd) ProtoMessage() {}
 
 func (x *ModelCallEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[30]
+	mi := &file_worker_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2767,7 +3130,7 @@ func (x *ModelCallEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallEnd.ProtoReflect.Descriptor instead.
 func (*ModelCallEnd) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{30}
+	return file_worker_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ModelCallEnd) GetRequestId() string {
@@ -2819,6 +3182,13 @@ func (x *ModelCallEnd) GetErrorCode() string {
 	return ""
 }
 
+func (x *ModelCallEnd) GetToolCalls() []*ModelCallToolCall {
+	if x != nil {
+		return x.ToolCalls
+	}
+	return nil
+}
+
 // ModelCallEmbedding is one vector.
 type ModelCallEmbedding struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2829,7 +3199,7 @@ type ModelCallEmbedding struct {
 
 func (x *ModelCallEmbedding) Reset() {
 	*x = ModelCallEmbedding{}
-	mi := &file_worker_proto_msgTypes[31]
+	mi := &file_worker_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2841,7 +3211,7 @@ func (x *ModelCallEmbedding) String() string {
 func (*ModelCallEmbedding) ProtoMessage() {}
 
 func (x *ModelCallEmbedding) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[31]
+	mi := &file_worker_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2854,7 +3224,7 @@ func (x *ModelCallEmbedding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallEmbedding.ProtoReflect.Descriptor instead.
 func (*ModelCallEmbedding) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{31}
+	return file_worker_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ModelCallEmbedding) GetValues() []float32 {
@@ -2887,7 +3257,7 @@ type ModelCallUsage struct {
 
 func (x *ModelCallUsage) Reset() {
 	*x = ModelCallUsage{}
-	mi := &file_worker_proto_msgTypes[32]
+	mi := &file_worker_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2899,7 +3269,7 @@ func (x *ModelCallUsage) String() string {
 func (*ModelCallUsage) ProtoMessage() {}
 
 func (x *ModelCallUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[32]
+	mi := &file_worker_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2912,7 +3282,7 @@ func (x *ModelCallUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallUsage.ProtoReflect.Descriptor instead.
 func (*ModelCallUsage) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{32}
+	return file_worker_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ModelCallUsage) GetInputTokens() int64 {
@@ -2954,7 +3324,7 @@ type ModelCallCancel struct {
 
 func (x *ModelCallCancel) Reset() {
 	*x = ModelCallCancel{}
-	mi := &file_worker_proto_msgTypes[33]
+	mi := &file_worker_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2966,7 +3336,7 @@ func (x *ModelCallCancel) String() string {
 func (*ModelCallCancel) ProtoMessage() {}
 
 func (x *ModelCallCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_proto_msgTypes[33]
+	mi := &file_worker_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2979,7 +3349,7 @@ func (x *ModelCallCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelCallCancel.ProtoReflect.Descriptor instead.
 func (*ModelCallCancel) Descriptor() ([]byte, []int) {
-	return file_worker_proto_rawDescGZIP(), []int{33}
+	return file_worker_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ModelCallCancel) GetRequestId() string {
@@ -3044,7 +3414,7 @@ const file_worker_proto_rawDesc = "" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
-	"\apayload\"\x95\x05\n" +
+	"\apayload\"\xe6\x05\n" +
 	"\bRegister\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\"\n" +
 	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12E\n" +
@@ -3056,13 +3426,20 @@ const file_worker_proto_rawDesc = "" +
 	"\tbuild_tag\x18\b \x01(\tR\bbuildTag\x12<\n" +
 	"\x1acapability_descriptor_json\x18\t \x01(\tR\x18capabilityDescriptorJson\x124\n" +
 	"\x04apps\x18\n" +
-	" \x03(\v2 .znasllc.memql.worker.v1.AppInfoR\x04apps\x1a9\n" +
+	" \x03(\v2 .znasllc.memql.worker.v1.AppInfoR\x04apps\x12O\n" +
+	"\x0fapp_descriptors\x18\v \x03(\v2&.znasllc.memql.worker.v1.AppDescriptorR\x0eappDescriptors\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
 	"\x10ConcurrencyEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x8e\x01\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x85\x01\n" +
+	"\rAppDescriptor\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\aharness\x18\x02 \x01(\tR\aharness\x12+\n" +
+	"\x11structured_result\x18\x03 \x01(\bR\x10structuredResult\x12\x1d\n" +
+	"\n" +
+	"follow_ups\x18\x04 \x01(\bR\tfollowUps\"\x8e\x01\n" +
 	"\aAppInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1b\n" +
@@ -3145,7 +3522,7 @@ const file_worker_proto_rawDesc = "" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x1f\n" +
 	"\vdetail_json\x18\x02 \x01(\fR\n" +
 	"detailJson\x12*\n" +
-	"\x02ts\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\x82\x03\n" +
+	"\x02ts\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\xb4\x03\n" +
 	"\x0fAppSessionStart\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x10\n" +
@@ -3162,11 +3539,12 @@ const file_worker_proto_rawDesc = "" +
 	"\x06run_id\x18\n" +
 	" \x01(\tR\x05runId\x12\x17\n" +
 	"\astep_id\x18\v \x01(\tR\x06stepId\x12&\n" +
-	"\x0fapp_session_ref\x18\f \x01(\tR\rappSessionRef\"\xb6\x01\n" +
+	"\x0fapp_session_ref\x18\f \x01(\tR\rappSessionRef\x120\n" +
+	"\x14response_schema_json\x18\r \x01(\tR\x12responseSchemaJson\"\xb6\x01\n" +
 	"\x10AppSessionLimits\x12>\n" +
 	"\x1bcredential_lifetime_seconds\x18\x01 \x01(\x03R\x19credentialLifetimeSeconds\x120\n" +
 	"\x14max_duration_seconds\x18\x02 \x01(\x03R\x12maxDurationSeconds\x120\n" +
-	"\x14max_transcript_bytes\x18\x03 \x01(\x03R\x12maxTranscriptBytes\"\x82\x01\n" +
+	"\x14max_transcript_bytes\x18\x03 \x01(\x03R\x12maxTranscriptBytes\"\x9a\x01\n" +
 	"\x11AppSessionControl\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
@@ -3174,13 +3552,14 @@ const file_worker_proto_rawDesc = "" +
 	"\n" +
 	"credential\x18\x03 \x01(\tR\n" +
 	"credential\x12\x16\n" +
-	"\x06reason\x18\x04 \x01(\tR\x06reason\"n\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x16\n" +
+	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"n\n" +
 	"\x0fAppSessionChunk\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
 	"\x06stream\x18\x02 \x01(\tR\x06stream\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\fR\x04data\x12\x10\n" +
-	"\x03seq\x18\x04 \x01(\x04R\x03seq\"\xfd\x01\n" +
+	"\x03seq\x18\x04 \x01(\x04R\x03seq\"\x9e\x02\n" +
 	"\rAppSessionEnd\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1b\n" +
@@ -3188,12 +3567,14 @@ const file_worker_proto_rawDesc = "" +
 	"\x05usage\x18\x03 \x01(\v2(.znasllc.memql.worker.v1.AppSessionUsageR\x05usage\x12&\n" +
 	"\x0fapp_session_ref\x18\x04 \x01(\tR\rappSessionRef\x122\n" +
 	"\x15produced_artifact_ids\x18\x05 \x03(\tR\x13producedArtifactIds\x12\x14\n" +
-	"\x05error\x18\x06 \x01(\tR\x05error\"\x8a\x01\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12\x1f\n" +
+	"\vresult_json\x18\a \x01(\tR\n" +
+	"resultJson\"\x8a\x01\n" +
 	"\x0fAppSessionUsage\x12!\n" +
 	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x02 \x01(\x03R\foutputTokens\x12\x19\n" +
 	"\bcost_usd\x18\x03 \x01(\x01R\acostUsd\x12\x14\n" +
-	"\x05known\x18\x04 \x01(\bR\x05known\"\xcd\x03\n" +
+	"\x05known\x18\x04 \x01(\bR\x05known\"\x8b\x04\n" +
 	"\x0eModelCallStart\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x14\n" +
@@ -3207,10 +3588,25 @@ const file_worker_proto_rawDesc = "" +
 	"\x06run_id\x18\t \x01(\tR\x05runId\x12\x17\n" +
 	"\astep_id\x18\n" +
 	" \x01(\tR\x06stepId\x12\x18\n" +
-	"\apurpose\x18\v \x01(\tR\apurpose\"@\n" +
+	"\apurpose\x18\v \x01(\tR\apurpose\x12<\n" +
+	"\x05tools\x18\f \x03(\v2&.znasllc.memql.worker.v1.ModelCallToolR\x05tools\"n\n" +
+	"\rModelCallTool\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12'\n" +
+	"\x0fparameters_json\x18\x03 \x01(\tR\x0eparametersJson\"t\n" +
+	"\x11ModelCallToolCall\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
+	"\x0earguments_json\x18\x03 \x01(\tR\rargumentsJson\x12\x14\n" +
+	"\x05index\x18\x04 \x01(\x05R\x05index\"\xc1\x01\n" +
 	"\x10ModelCallMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\"\xfc\x01\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12 \n" +
+	"\ftool_call_id\x18\x03 \x01(\tR\n" +
+	"toolCallId\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12I\n" +
+	"\n" +
+	"tool_calls\x18\x05 \x03(\v2*.znasllc.memql.worker.v1.ModelCallToolCallR\ttoolCalls\"\xfc\x01\n" +
 	"\x0fModelCallParams\x12 \n" +
 	"\vtemperature\x18\x01 \x01(\x01R\vtemperature\x12'\n" +
 	"\x0ftemperature_set\x18\x02 \x01(\bR\x0etemperatureSet\x12\x13\n" +
@@ -3223,13 +3619,15 @@ const file_worker_proto_rawDesc = "" +
 	"\x0fModelCallLimits\x12'\n" +
 	"\x0ftimeout_seconds\x18\x01 \x01(\x03R\x0etimeoutSeconds\x120\n" +
 	"\x14idle_timeout_seconds\x18\x02 \x01(\x03R\x12idleTimeoutSeconds\x12+\n" +
-	"\x11keepalive_seconds\x18\x03 \x01(\x03R\x10keepaliveSeconds\"y\n" +
+	"\x11keepalive_seconds\x18\x03 \x01(\x03R\x10keepaliveSeconds\"\xc4\x01\n" +
 	"\x0eModelCallDelta\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12\x1c\n" +
-	"\tkeepalive\x18\x04 \x01(\bR\tkeepalive\"\xad\x02\n" +
+	"\tkeepalive\x18\x04 \x01(\bR\tkeepalive\x12I\n" +
+	"\n" +
+	"tool_calls\x18\x05 \x03(\v2*.znasllc.memql.worker.v1.ModelCallToolCallR\ttoolCalls\"\xf8\x02\n" +
 	"\fModelCallEnd\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
@@ -3241,7 +3639,9 @@ const file_worker_proto_rawDesc = "" +
 	"embeddings\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12\x1d\n" +
 	"\n" +
-	"error_code\x18\a \x01(\tR\terrorCode\",\n" +
+	"error_code\x18\a \x01(\tR\terrorCode\x12I\n" +
+	"\n" +
+	"tool_calls\x18\b \x03(\v2*.znasllc.memql.worker.v1.ModelCallToolCallR\ttoolCalls\",\n" +
 	"\x12ModelCallEmbedding\x12\x16\n" +
 	"\x06values\x18\x01 \x03(\x02R\x06values\"\x84\x01\n" +
 	"\x0eModelCallUsage\x12!\n" +
@@ -3268,102 +3668,110 @@ func file_worker_proto_rawDescGZIP() []byte {
 	return file_worker_proto_rawDescData
 }
 
-var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_worker_proto_goTypes = []any{
 	(*WorkerClientMessage)(nil),   // 0: znasllc.memql.worker.v1.WorkerClientMessage
 	(*WorkerServerMessage)(nil),   // 1: znasllc.memql.worker.v1.WorkerServerMessage
 	(*Register)(nil),              // 2: znasllc.memql.worker.v1.Register
-	(*AppInfo)(nil),               // 3: znasllc.memql.worker.v1.AppInfo
-	(*PlatformInfo)(nil),          // 4: znasllc.memql.worker.v1.PlatformInfo
-	(*PermissionStatus)(nil),      // 5: znasllc.memql.worker.v1.PermissionStatus
-	(*RegisterAck)(nil),           // 6: znasllc.memql.worker.v1.RegisterAck
-	(*RegisterError)(nil),         // 7: znasllc.memql.worker.v1.RegisterError
-	(*Heartbeat)(nil),             // 8: znasllc.memql.worker.v1.Heartbeat
-	(*ToolDispatch)(nil),          // 9: znasllc.memql.worker.v1.ToolDispatch
-	(*ToolCancel)(nil),            // 10: znasllc.memql.worker.v1.ToolCancel
-	(*Drain)(nil),                 // 11: znasllc.memql.worker.v1.Drain
-	(*ToolStream)(nil),            // 12: znasllc.memql.worker.v1.ToolStream
-	(*ToolResult)(nil),            // 13: znasllc.memql.worker.v1.ToolResult
-	(*Success)(nil),               // 14: znasllc.memql.worker.v1.Success
-	(*Failure)(nil),               // 15: znasllc.memql.worker.v1.Failure
-	(*RotationRequest)(nil),       // 16: znasllc.memql.worker.v1.RotationRequest
-	(*RotationResponse)(nil),      // 17: znasllc.memql.worker.v1.RotationResponse
-	(*AuditEvent)(nil),            // 18: znasllc.memql.worker.v1.AuditEvent
-	(*AppSessionStart)(nil),       // 19: znasllc.memql.worker.v1.AppSessionStart
-	(*AppSessionLimits)(nil),      // 20: znasllc.memql.worker.v1.AppSessionLimits
-	(*AppSessionControl)(nil),     // 21: znasllc.memql.worker.v1.AppSessionControl
-	(*AppSessionChunk)(nil),       // 22: znasllc.memql.worker.v1.AppSessionChunk
-	(*AppSessionEnd)(nil),         // 23: znasllc.memql.worker.v1.AppSessionEnd
-	(*AppSessionUsage)(nil),       // 24: znasllc.memql.worker.v1.AppSessionUsage
-	(*ModelCallStart)(nil),        // 25: znasllc.memql.worker.v1.ModelCallStart
-	(*ModelCallMessage)(nil),      // 26: znasllc.memql.worker.v1.ModelCallMessage
-	(*ModelCallParams)(nil),       // 27: znasllc.memql.worker.v1.ModelCallParams
-	(*ModelCallLimits)(nil),       // 28: znasllc.memql.worker.v1.ModelCallLimits
-	(*ModelCallDelta)(nil),        // 29: znasllc.memql.worker.v1.ModelCallDelta
-	(*ModelCallEnd)(nil),          // 30: znasllc.memql.worker.v1.ModelCallEnd
-	(*ModelCallEmbedding)(nil),    // 31: znasllc.memql.worker.v1.ModelCallEmbedding
-	(*ModelCallUsage)(nil),        // 32: znasllc.memql.worker.v1.ModelCallUsage
-	(*ModelCallCancel)(nil),       // 33: znasllc.memql.worker.v1.ModelCallCancel
-	nil,                           // 34: znasllc.memql.worker.v1.WorkerClientMessage.MetadataEntry
-	nil,                           // 35: znasllc.memql.worker.v1.WorkerServerMessage.MetadataEntry
-	nil,                           // 36: znasllc.memql.worker.v1.Register.LabelsEntry
-	nil,                           // 37: znasllc.memql.worker.v1.Register.ConcurrencyEntry
-	nil,                           // 38: znasllc.memql.worker.v1.Heartbeat.ActiveCallsPerCapabilityEntry
-	(*timestamppb.Timestamp)(nil), // 39: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 40: google.protobuf.Duration
+	(*AppDescriptor)(nil),         // 3: znasllc.memql.worker.v1.AppDescriptor
+	(*AppInfo)(nil),               // 4: znasllc.memql.worker.v1.AppInfo
+	(*PlatformInfo)(nil),          // 5: znasllc.memql.worker.v1.PlatformInfo
+	(*PermissionStatus)(nil),      // 6: znasllc.memql.worker.v1.PermissionStatus
+	(*RegisterAck)(nil),           // 7: znasllc.memql.worker.v1.RegisterAck
+	(*RegisterError)(nil),         // 8: znasllc.memql.worker.v1.RegisterError
+	(*Heartbeat)(nil),             // 9: znasllc.memql.worker.v1.Heartbeat
+	(*ToolDispatch)(nil),          // 10: znasllc.memql.worker.v1.ToolDispatch
+	(*ToolCancel)(nil),            // 11: znasllc.memql.worker.v1.ToolCancel
+	(*Drain)(nil),                 // 12: znasllc.memql.worker.v1.Drain
+	(*ToolStream)(nil),            // 13: znasllc.memql.worker.v1.ToolStream
+	(*ToolResult)(nil),            // 14: znasllc.memql.worker.v1.ToolResult
+	(*Success)(nil),               // 15: znasllc.memql.worker.v1.Success
+	(*Failure)(nil),               // 16: znasllc.memql.worker.v1.Failure
+	(*RotationRequest)(nil),       // 17: znasllc.memql.worker.v1.RotationRequest
+	(*RotationResponse)(nil),      // 18: znasllc.memql.worker.v1.RotationResponse
+	(*AuditEvent)(nil),            // 19: znasllc.memql.worker.v1.AuditEvent
+	(*AppSessionStart)(nil),       // 20: znasllc.memql.worker.v1.AppSessionStart
+	(*AppSessionLimits)(nil),      // 21: znasllc.memql.worker.v1.AppSessionLimits
+	(*AppSessionControl)(nil),     // 22: znasllc.memql.worker.v1.AppSessionControl
+	(*AppSessionChunk)(nil),       // 23: znasllc.memql.worker.v1.AppSessionChunk
+	(*AppSessionEnd)(nil),         // 24: znasllc.memql.worker.v1.AppSessionEnd
+	(*AppSessionUsage)(nil),       // 25: znasllc.memql.worker.v1.AppSessionUsage
+	(*ModelCallStart)(nil),        // 26: znasllc.memql.worker.v1.ModelCallStart
+	(*ModelCallTool)(nil),         // 27: znasllc.memql.worker.v1.ModelCallTool
+	(*ModelCallToolCall)(nil),     // 28: znasllc.memql.worker.v1.ModelCallToolCall
+	(*ModelCallMessage)(nil),      // 29: znasllc.memql.worker.v1.ModelCallMessage
+	(*ModelCallParams)(nil),       // 30: znasllc.memql.worker.v1.ModelCallParams
+	(*ModelCallLimits)(nil),       // 31: znasllc.memql.worker.v1.ModelCallLimits
+	(*ModelCallDelta)(nil),        // 32: znasllc.memql.worker.v1.ModelCallDelta
+	(*ModelCallEnd)(nil),          // 33: znasllc.memql.worker.v1.ModelCallEnd
+	(*ModelCallEmbedding)(nil),    // 34: znasllc.memql.worker.v1.ModelCallEmbedding
+	(*ModelCallUsage)(nil),        // 35: znasllc.memql.worker.v1.ModelCallUsage
+	(*ModelCallCancel)(nil),       // 36: znasllc.memql.worker.v1.ModelCallCancel
+	nil,                           // 37: znasllc.memql.worker.v1.WorkerClientMessage.MetadataEntry
+	nil,                           // 38: znasllc.memql.worker.v1.WorkerServerMessage.MetadataEntry
+	nil,                           // 39: znasllc.memql.worker.v1.Register.LabelsEntry
+	nil,                           // 40: znasllc.memql.worker.v1.Register.ConcurrencyEntry
+	nil,                           // 41: znasllc.memql.worker.v1.Heartbeat.ActiveCallsPerCapabilityEntry
+	(*timestamppb.Timestamp)(nil), // 42: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),   // 43: google.protobuf.Duration
 }
 var file_worker_proto_depIdxs = []int32{
-	34, // 0: znasllc.memql.worker.v1.WorkerClientMessage.metadata:type_name -> znasllc.memql.worker.v1.WorkerClientMessage.MetadataEntry
+	37, // 0: znasllc.memql.worker.v1.WorkerClientMessage.metadata:type_name -> znasllc.memql.worker.v1.WorkerClientMessage.MetadataEntry
 	2,  // 1: znasllc.memql.worker.v1.WorkerClientMessage.register:type_name -> znasllc.memql.worker.v1.Register
-	8,  // 2: znasllc.memql.worker.v1.WorkerClientMessage.heartbeat:type_name -> znasllc.memql.worker.v1.Heartbeat
-	13, // 3: znasllc.memql.worker.v1.WorkerClientMessage.tool_result:type_name -> znasllc.memql.worker.v1.ToolResult
-	12, // 4: znasllc.memql.worker.v1.WorkerClientMessage.tool_stream:type_name -> znasllc.memql.worker.v1.ToolStream
-	18, // 5: znasllc.memql.worker.v1.WorkerClientMessage.audit_event:type_name -> znasllc.memql.worker.v1.AuditEvent
-	16, // 6: znasllc.memql.worker.v1.WorkerClientMessage.rotation_request:type_name -> znasllc.memql.worker.v1.RotationRequest
-	22, // 7: znasllc.memql.worker.v1.WorkerClientMessage.app_session_chunk:type_name -> znasllc.memql.worker.v1.AppSessionChunk
-	23, // 8: znasllc.memql.worker.v1.WorkerClientMessage.app_session_end:type_name -> znasllc.memql.worker.v1.AppSessionEnd
-	29, // 9: znasllc.memql.worker.v1.WorkerClientMessage.model_call_delta:type_name -> znasllc.memql.worker.v1.ModelCallDelta
-	30, // 10: znasllc.memql.worker.v1.WorkerClientMessage.model_call_end:type_name -> znasllc.memql.worker.v1.ModelCallEnd
-	35, // 11: znasllc.memql.worker.v1.WorkerServerMessage.metadata:type_name -> znasllc.memql.worker.v1.WorkerServerMessage.MetadataEntry
-	6,  // 12: znasllc.memql.worker.v1.WorkerServerMessage.register_ack:type_name -> znasllc.memql.worker.v1.RegisterAck
-	9,  // 13: znasllc.memql.worker.v1.WorkerServerMessage.tool_dispatch:type_name -> znasllc.memql.worker.v1.ToolDispatch
-	10, // 14: znasllc.memql.worker.v1.WorkerServerMessage.tool_cancel:type_name -> znasllc.memql.worker.v1.ToolCancel
-	11, // 15: znasllc.memql.worker.v1.WorkerServerMessage.drain:type_name -> znasllc.memql.worker.v1.Drain
-	17, // 16: znasllc.memql.worker.v1.WorkerServerMessage.rotation_response:type_name -> znasllc.memql.worker.v1.RotationResponse
-	7,  // 17: znasllc.memql.worker.v1.WorkerServerMessage.register_error:type_name -> znasllc.memql.worker.v1.RegisterError
-	19, // 18: znasllc.memql.worker.v1.WorkerServerMessage.app_session_start:type_name -> znasllc.memql.worker.v1.AppSessionStart
-	21, // 19: znasllc.memql.worker.v1.WorkerServerMessage.app_session_control:type_name -> znasllc.memql.worker.v1.AppSessionControl
-	25, // 20: znasllc.memql.worker.v1.WorkerServerMessage.model_call_start:type_name -> znasllc.memql.worker.v1.ModelCallStart
-	33, // 21: znasllc.memql.worker.v1.WorkerServerMessage.model_call_cancel:type_name -> znasllc.memql.worker.v1.ModelCallCancel
-	36, // 22: znasllc.memql.worker.v1.Register.labels:type_name -> znasllc.memql.worker.v1.Register.LabelsEntry
-	37, // 23: znasllc.memql.worker.v1.Register.concurrency:type_name -> znasllc.memql.worker.v1.Register.ConcurrencyEntry
-	4,  // 24: znasllc.memql.worker.v1.Register.platform:type_name -> znasllc.memql.worker.v1.PlatformInfo
-	5,  // 25: znasllc.memql.worker.v1.Register.permissions:type_name -> znasllc.memql.worker.v1.PermissionStatus
-	3,  // 26: znasllc.memql.worker.v1.Register.apps:type_name -> znasllc.memql.worker.v1.AppInfo
-	39, // 27: znasllc.memql.worker.v1.RegisterAck.registered_at:type_name -> google.protobuf.Timestamp
-	39, // 28: znasllc.memql.worker.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
-	38, // 29: znasllc.memql.worker.v1.Heartbeat.active_calls_per_capability:type_name -> znasllc.memql.worker.v1.Heartbeat.ActiveCallsPerCapabilityEntry
-	3,  // 30: znasllc.memql.worker.v1.Heartbeat.apps:type_name -> znasllc.memql.worker.v1.AppInfo
-	40, // 31: znasllc.memql.worker.v1.ToolDispatch.timeout:type_name -> google.protobuf.Duration
-	14, // 32: znasllc.memql.worker.v1.ToolResult.success:type_name -> znasllc.memql.worker.v1.Success
-	15, // 33: znasllc.memql.worker.v1.ToolResult.failure:type_name -> znasllc.memql.worker.v1.Failure
-	39, // 34: znasllc.memql.worker.v1.RotationRequest.current_token_expires_at:type_name -> google.protobuf.Timestamp
-	39, // 35: znasllc.memql.worker.v1.RotationResponse.new_token_expires_at:type_name -> google.protobuf.Timestamp
-	39, // 36: znasllc.memql.worker.v1.AuditEvent.ts:type_name -> google.protobuf.Timestamp
-	20, // 37: znasllc.memql.worker.v1.AppSessionStart.limits:type_name -> znasllc.memql.worker.v1.AppSessionLimits
-	24, // 38: znasllc.memql.worker.v1.AppSessionEnd.usage:type_name -> znasllc.memql.worker.v1.AppSessionUsage
-	26, // 39: znasllc.memql.worker.v1.ModelCallStart.messages:type_name -> znasllc.memql.worker.v1.ModelCallMessage
-	27, // 40: znasllc.memql.worker.v1.ModelCallStart.params:type_name -> znasllc.memql.worker.v1.ModelCallParams
-	28, // 41: znasllc.memql.worker.v1.ModelCallStart.limits:type_name -> znasllc.memql.worker.v1.ModelCallLimits
-	32, // 42: znasllc.memql.worker.v1.ModelCallEnd.usage:type_name -> znasllc.memql.worker.v1.ModelCallUsage
-	31, // 43: znasllc.memql.worker.v1.ModelCallEnd.embeddings:type_name -> znasllc.memql.worker.v1.ModelCallEmbedding
-	0,  // 44: znasllc.memql.worker.v1.WorkerService.Stream:input_type -> znasllc.memql.worker.v1.WorkerClientMessage
-	1,  // 45: znasllc.memql.worker.v1.WorkerService.Stream:output_type -> znasllc.memql.worker.v1.WorkerServerMessage
-	45, // [45:46] is the sub-list for method output_type
-	44, // [44:45] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	9,  // 2: znasllc.memql.worker.v1.WorkerClientMessage.heartbeat:type_name -> znasllc.memql.worker.v1.Heartbeat
+	14, // 3: znasllc.memql.worker.v1.WorkerClientMessage.tool_result:type_name -> znasllc.memql.worker.v1.ToolResult
+	13, // 4: znasllc.memql.worker.v1.WorkerClientMessage.tool_stream:type_name -> znasllc.memql.worker.v1.ToolStream
+	19, // 5: znasllc.memql.worker.v1.WorkerClientMessage.audit_event:type_name -> znasllc.memql.worker.v1.AuditEvent
+	17, // 6: znasllc.memql.worker.v1.WorkerClientMessage.rotation_request:type_name -> znasllc.memql.worker.v1.RotationRequest
+	23, // 7: znasllc.memql.worker.v1.WorkerClientMessage.app_session_chunk:type_name -> znasllc.memql.worker.v1.AppSessionChunk
+	24, // 8: znasllc.memql.worker.v1.WorkerClientMessage.app_session_end:type_name -> znasllc.memql.worker.v1.AppSessionEnd
+	32, // 9: znasllc.memql.worker.v1.WorkerClientMessage.model_call_delta:type_name -> znasllc.memql.worker.v1.ModelCallDelta
+	33, // 10: znasllc.memql.worker.v1.WorkerClientMessage.model_call_end:type_name -> znasllc.memql.worker.v1.ModelCallEnd
+	38, // 11: znasllc.memql.worker.v1.WorkerServerMessage.metadata:type_name -> znasllc.memql.worker.v1.WorkerServerMessage.MetadataEntry
+	7,  // 12: znasllc.memql.worker.v1.WorkerServerMessage.register_ack:type_name -> znasllc.memql.worker.v1.RegisterAck
+	10, // 13: znasllc.memql.worker.v1.WorkerServerMessage.tool_dispatch:type_name -> znasllc.memql.worker.v1.ToolDispatch
+	11, // 14: znasllc.memql.worker.v1.WorkerServerMessage.tool_cancel:type_name -> znasllc.memql.worker.v1.ToolCancel
+	12, // 15: znasllc.memql.worker.v1.WorkerServerMessage.drain:type_name -> znasllc.memql.worker.v1.Drain
+	18, // 16: znasllc.memql.worker.v1.WorkerServerMessage.rotation_response:type_name -> znasllc.memql.worker.v1.RotationResponse
+	8,  // 17: znasllc.memql.worker.v1.WorkerServerMessage.register_error:type_name -> znasllc.memql.worker.v1.RegisterError
+	20, // 18: znasllc.memql.worker.v1.WorkerServerMessage.app_session_start:type_name -> znasllc.memql.worker.v1.AppSessionStart
+	22, // 19: znasllc.memql.worker.v1.WorkerServerMessage.app_session_control:type_name -> znasllc.memql.worker.v1.AppSessionControl
+	26, // 20: znasllc.memql.worker.v1.WorkerServerMessage.model_call_start:type_name -> znasllc.memql.worker.v1.ModelCallStart
+	36, // 21: znasllc.memql.worker.v1.WorkerServerMessage.model_call_cancel:type_name -> znasllc.memql.worker.v1.ModelCallCancel
+	39, // 22: znasllc.memql.worker.v1.Register.labels:type_name -> znasllc.memql.worker.v1.Register.LabelsEntry
+	40, // 23: znasllc.memql.worker.v1.Register.concurrency:type_name -> znasllc.memql.worker.v1.Register.ConcurrencyEntry
+	5,  // 24: znasllc.memql.worker.v1.Register.platform:type_name -> znasllc.memql.worker.v1.PlatformInfo
+	6,  // 25: znasllc.memql.worker.v1.Register.permissions:type_name -> znasllc.memql.worker.v1.PermissionStatus
+	4,  // 26: znasllc.memql.worker.v1.Register.apps:type_name -> znasllc.memql.worker.v1.AppInfo
+	3,  // 27: znasllc.memql.worker.v1.Register.app_descriptors:type_name -> znasllc.memql.worker.v1.AppDescriptor
+	42, // 28: znasllc.memql.worker.v1.RegisterAck.registered_at:type_name -> google.protobuf.Timestamp
+	42, // 29: znasllc.memql.worker.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
+	41, // 30: znasllc.memql.worker.v1.Heartbeat.active_calls_per_capability:type_name -> znasllc.memql.worker.v1.Heartbeat.ActiveCallsPerCapabilityEntry
+	4,  // 31: znasllc.memql.worker.v1.Heartbeat.apps:type_name -> znasllc.memql.worker.v1.AppInfo
+	43, // 32: znasllc.memql.worker.v1.ToolDispatch.timeout:type_name -> google.protobuf.Duration
+	15, // 33: znasllc.memql.worker.v1.ToolResult.success:type_name -> znasllc.memql.worker.v1.Success
+	16, // 34: znasllc.memql.worker.v1.ToolResult.failure:type_name -> znasllc.memql.worker.v1.Failure
+	42, // 35: znasllc.memql.worker.v1.RotationRequest.current_token_expires_at:type_name -> google.protobuf.Timestamp
+	42, // 36: znasllc.memql.worker.v1.RotationResponse.new_token_expires_at:type_name -> google.protobuf.Timestamp
+	42, // 37: znasllc.memql.worker.v1.AuditEvent.ts:type_name -> google.protobuf.Timestamp
+	21, // 38: znasllc.memql.worker.v1.AppSessionStart.limits:type_name -> znasllc.memql.worker.v1.AppSessionLimits
+	25, // 39: znasllc.memql.worker.v1.AppSessionEnd.usage:type_name -> znasllc.memql.worker.v1.AppSessionUsage
+	29, // 40: znasllc.memql.worker.v1.ModelCallStart.messages:type_name -> znasllc.memql.worker.v1.ModelCallMessage
+	30, // 41: znasllc.memql.worker.v1.ModelCallStart.params:type_name -> znasllc.memql.worker.v1.ModelCallParams
+	31, // 42: znasllc.memql.worker.v1.ModelCallStart.limits:type_name -> znasllc.memql.worker.v1.ModelCallLimits
+	27, // 43: znasllc.memql.worker.v1.ModelCallStart.tools:type_name -> znasllc.memql.worker.v1.ModelCallTool
+	28, // 44: znasllc.memql.worker.v1.ModelCallMessage.tool_calls:type_name -> znasllc.memql.worker.v1.ModelCallToolCall
+	28, // 45: znasllc.memql.worker.v1.ModelCallDelta.tool_calls:type_name -> znasllc.memql.worker.v1.ModelCallToolCall
+	35, // 46: znasllc.memql.worker.v1.ModelCallEnd.usage:type_name -> znasllc.memql.worker.v1.ModelCallUsage
+	34, // 47: znasllc.memql.worker.v1.ModelCallEnd.embeddings:type_name -> znasllc.memql.worker.v1.ModelCallEmbedding
+	28, // 48: znasllc.memql.worker.v1.ModelCallEnd.tool_calls:type_name -> znasllc.memql.worker.v1.ModelCallToolCall
+	0,  // 49: znasllc.memql.worker.v1.WorkerService.Stream:input_type -> znasllc.memql.worker.v1.WorkerClientMessage
+	1,  // 50: znasllc.memql.worker.v1.WorkerService.Stream:output_type -> znasllc.memql.worker.v1.WorkerServerMessage
+	50, // [50:51] is the sub-list for method output_type
+	49, // [49:50] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_worker_proto_init() }
@@ -3395,12 +3803,12 @@ func file_worker_proto_init() {
 		(*WorkerServerMessage_ModelCallStart)(nil),
 		(*WorkerServerMessage_ModelCallCancel)(nil),
 	}
-	file_worker_proto_msgTypes[12].OneofWrappers = []any{
+	file_worker_proto_msgTypes[13].OneofWrappers = []any{
 		(*ToolStream_StdoutChunk)(nil),
 		(*ToolStream_StderrChunk)(nil),
 		(*ToolStream_DataChunk)(nil),
 	}
-	file_worker_proto_msgTypes[13].OneofWrappers = []any{
+	file_worker_proto_msgTypes[14].OneofWrappers = []any{
 		(*ToolResult_Success)(nil),
 		(*ToolResult_Failure)(nil),
 	}
@@ -3410,7 +3818,7 @@ func file_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_worker_proto_rawDesc), len(file_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   39,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

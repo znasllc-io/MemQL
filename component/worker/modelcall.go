@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -91,10 +92,45 @@ func IsValidModelCallKind(kind string) bool {
 	return false
 }
 
+// ModelCallTool is one function the model may call, as the caller declared
+// it. ParametersJSON is the tool's JSON Schema carried VERBATIM: the worker
+// forwards it unchanged into two runtimes' request bodies, and a decode and
+// re-encode through a structured type loses key order and turns every integer
+// bound into a float -- a schema that still parses and no longer says what it
+// said.
+type ModelCallTool struct {
+	Name           string
+	Description    string
+	ParametersJSON string
+}
+
+// ModelCallToolCall is one call the model made.
+//
+// Index is the call's position within the assistant turn, and it is what
+// makes a streamed tool call reassemblable at all: an OpenAI-compatible
+// stream emits calls by index with `arguments` arriving in fragments, so
+// without it a second fragment is indistinguishable from a second call whose
+// name the runtime forgot to send.
+type ModelCallToolCall struct {
+	Id            string
+	Name          string
+	ArgumentsJSON string
+	Index         int32
+}
+
 // ModelCallMessage is one turn handed to the model.
 type ModelCallMessage struct {
 	Role    string
 	Content string
+	// ToolCallId names the call a Role=="tool" message ANSWERS. Both
+	// runtimes require it to round-trip: a result with no id cannot be
+	// matched to its request.
+	ToolCallId string
+	// Name is the tool's name on a Role=="tool" message.
+	Name string
+	// ToolCalls are the calls an assistant turn MADE, replayed into the
+	// conversation so the model can see what it already asked for.
+	ToolCalls []ModelCallToolCall
 }
 
 // ModelCallParams are the generation knobs.
@@ -169,6 +205,10 @@ type ModelCallRequest struct {
 	RunId                string
 	StepId               string
 	Purpose              string
+	// Tools are the functions the model may call this turn. EMPTY IS AN
+	// ORDINARY CHAT TURN; a machine whose runtime cannot do tool calling
+	// advertises `tools=0` and is skipped for a turn that carries any.
+	Tools []ModelCallTool
 }
 
 // ModelCallDelta is one piece of streamed output handed to the caller.
@@ -176,6 +216,11 @@ type ModelCallDelta struct {
 	Seq       uint64
 	Content   string
 	Keepalive bool
+	// ToolCalls carries INCREMENTAL fragments: Index names which call the
+	// fragment belongs to and ArgumentsJSON is a piece of that call's
+	// arguments, not the whole. Only an OpenAI-compatible runtime
+	// populates these; Ollama emits its tool calls complete on the end.
+	ToolCalls []ModelCallToolCall
 }
 
 // ModelCallUsage is what the RUNTIME REPORTED. Known=false means it
@@ -203,6 +248,12 @@ type ModelCallOutcome struct {
 	Embeddings [][]float32
 	Error      string
 	ErrorCode  string
+	// ToolCalls is the assistant turn's complete tool-call list. The END's
+	// list wins over anything assembled from the deltas, for the reason
+	// Content's own rule states in reverse: a stream that dropped a
+	// fragment would otherwise hand the caller arguments that parse and
+	// are wrong, which no later reader can detect.
+	ToolCalls []ModelCallToolCall
 }
 
 // ModelCallHandle is the caller's view of a running call.
@@ -221,6 +272,10 @@ type ModelCallHandle struct {
 	lastSeq  uint64
 	seqSeen  bool
 	assembly strings.Builder
+	// toolAssembly accumulates streamed tool-call fragments by index. It
+	// is a FALLBACK, not the answer: finish() prefers the end's complete
+	// list and reads this only when the runtime sent none there.
+	toolAssembly map[int32]*ModelCallToolCall
 	// lastActivity is when the last accepted delta arrived, or the
 	// call's start. Read by the idle watchdog.
 	lastActivity time.Time
@@ -345,6 +400,7 @@ func (h *ModelCallHandle) deliverDelta(d ModelCallDelta) {
 	if !d.Keepalive && d.Content != "" {
 		h.assembly.WriteString(d.Content)
 	}
+	h.absorbToolFragmentsLocked(d.ToolCalls)
 	h.mu.Unlock()
 
 	// A keepalive is a liveness signal, not output. It has already reset
@@ -360,6 +416,49 @@ func (h *ModelCallHandle) deliverDelta(d ModelCallDelta) {
 	}
 }
 
+// absorbToolFragmentsLocked merges streamed fragments into the per-index
+// assembly. Called with h.mu held.
+//
+// A fragment's id and name arrive ONCE, on the first fragment for that index;
+// every later one carries only more arguments. So a non-empty id or name
+// overwrites and an empty one leaves what is there -- the opposite rule would
+// blank the identity of a call halfway through assembling it.
+func (h *ModelCallHandle) absorbToolFragmentsLocked(fragments []ModelCallToolCall) {
+	if len(fragments) == 0 {
+		return
+	}
+	if h.toolAssembly == nil {
+		h.toolAssembly = make(map[int32]*ModelCallToolCall, len(fragments))
+	}
+	for _, f := range fragments {
+		entry, ok := h.toolAssembly[f.Index]
+		if !ok {
+			entry = &ModelCallToolCall{Index: f.Index}
+			h.toolAssembly[f.Index] = entry
+		}
+		if f.Id != "" {
+			entry.Id = f.Id
+		}
+		if f.Name != "" {
+			entry.Name = f.Name
+		}
+		entry.ArgumentsJSON += f.ArgumentsJSON
+	}
+}
+
+// assembledToolCallsLocked renders the streamed assembly in index order.
+func (h *ModelCallHandle) assembledToolCallsLocked() []ModelCallToolCall {
+	if len(h.toolAssembly) == 0 {
+		return nil
+	}
+	out := make([]ModelCallToolCall, 0, len(h.toolAssembly))
+	for _, c := range h.toolAssembly {
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	return out
+}
+
 // finish records the terminal state and releases every waiter.
 func (h *ModelCallHandle) finish(outcome ModelCallOutcome, err error) {
 	h.closeOne.Do(func() {
@@ -369,6 +468,11 @@ func (h *ModelCallHandle) finish(outcome ModelCallOutcome, err error) {
 			// The worker streamed rather than answering in one piece, so
 			// the text is what this side accepted.
 			outcome.Content = h.assembly.String()
+		}
+		if len(outcome.ToolCalls) == 0 {
+			// Only when the end named none. A runtime that sent its list
+			// there is authoritative -- see the field's own note.
+			outcome.ToolCalls = h.assembledToolCallsLocked()
 		}
 		h.outcome = outcome
 		h.endErr = err

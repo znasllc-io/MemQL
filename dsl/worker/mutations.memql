@@ -107,6 +107,13 @@ mutate registration createWorkerRegistration {
     /// {id, version, signedIn, subscription, allowed}. Stored verbatim,
     /// including apps this engine cannot drive.
     apps                 array
+    /// How the cockpit DRIVES each app it reported (epic memql#5096): a
+    /// list of {id, harness, structuredResult, followUps}. Only entries
+    /// whose app id and harness word this engine knows are stored -- an
+    /// unrecognised one is dropped rather than refusing the
+    /// registration, so a newer cockpit never makes the engine attempt a
+    /// protocol it has no client for.
+    appDescriptors       array
     registeredAt         string!
     lastSeenAt           string
     lastConnectedFromIP  string
@@ -126,6 +133,7 @@ mutate registration createWorkerRegistration {
     version: args.version ?? ""
     buildTag: args.buildTag ?? ""
     apps: args.apps ?? []
+    appDescriptors: args.appDescriptors ?? []
     args.registeredAt
     lastSeenAt: args.lastSeenAt ?? args.registeredAt
     lastConnectedFromIP: args.lastConnectedFromIP ?? ""
@@ -176,6 +184,13 @@ mutate registration refreshWorkerRegistration {
     /// omitted list CLEARS the persisted one, the same way the
     /// capability descriptor does: the worker no longer reports apps.
     apps                 array
+    /// How the cockpit DRIVES each app it reported (epic memql#5096): a
+    /// list of {id, harness, structuredResult, followUps}. Only entries
+    /// whose app id and harness word this engine knows are stored -- an
+    /// unrecognised one is dropped rather than refusing the
+    /// registration, so a newer cockpit never makes the engine attempt a
+    /// protocol it has no client for.
+    appDescriptors       array
     lastSeenAt           string!
     lastConnectedFromIP  string
     connectedNodeId      string
@@ -192,6 +207,7 @@ mutate registration refreshWorkerRegistration {
     version: args.version ?? ""
     buildTag: args.buildTag ?? ""
     apps: args.apps ?? []
+    appDescriptors: args.appDescriptors ?? []
     args.lastSeenAt
     lastConnectedFromIP: args.lastConnectedFromIP ?? ""
     connectedNodeId: args.connectedNodeId ?? ""

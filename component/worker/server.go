@@ -243,6 +243,7 @@ func (s *server) upsertRegistration(
 	}
 
 	apps := AppsFromProto(register.GetApps())
+	descriptors := AppDescriptorsFromProto(register.GetAppDescriptors())
 	registration := RegistrationRow{
 		IdentityId:           identity.IdentityId,
 		OwnerUserId:          identity.OwnerUserId,
@@ -256,6 +257,7 @@ func (s *server) upsertRegistration(
 		// no registry at all, answer the same question.
 		Labels:              mergeAppLabels(copyStringMap(register.GetLabels()), apps),
 		Apps:                apps,
+		AppDescriptors:      descriptors,
 		Concurrency:         register.GetConcurrency(),
 		Platform:            platformInfoToMap(register.GetPlatform()),
 		Permissions:         permissionStatusToMap(register.GetPermissions()),
@@ -877,6 +879,7 @@ func (s *streamSession) openAppSession(ctx context.Context, req AppSessionReques
 	}
 	handle := &AppSessionHandle{
 		sessionId: req.SessionId,
+		app:       req.App,
 		worker:    s.worker,
 		chunks:    make(chan AppSessionChunk, appSessionChunkBuffer),
 		done:      make(chan struct{}),
@@ -915,6 +918,9 @@ func (s *streamSession) openAppSession(ctx context.Context, req AppSessionReques
 		RunId:         req.RunId,
 		StepId:        req.StepId,
 		AppSessionRef: req.AppSessionRef,
+		// Empty when nothing structured was asked for, which the far side
+		// reads as "free text" rather than as an empty schema.
+		ResponseSchemaJson: req.ResponseSchema,
 	}
 	if err := s.send(&memqlv1.WorkerServerMessage{
 		Payload: &memqlv1.WorkerServerMessage_AppSessionStart{AppSessionStart: start},
@@ -1008,6 +1014,12 @@ func (s *streamSession) handleAppSessionEnd(end *memqlv1.AppSessionEnd) {
 		ProducedArtifactIds: end.GetProducedArtifactIds(),
 		Error:               end.GetError(),
 	}
+	// Carried whatever the exit code says. A harness can answer the schema
+	// and still exit non-zero, and dropping the answer because the run
+	// failed would lose the only part of it we can read.
+	if raw := end.GetResultJson(); raw != "" {
+		outcome.Result = []byte(raw)
+	}
 	var err error
 	if outcome.Error != "" {
 		err = fmt.Errorf("worker: app session failed: %s", outcome.Error)
@@ -1065,7 +1077,21 @@ func (s *streamSession) openModelCall(ctx context.Context, req ModelCallRequest)
 
 	msgs := make([]*memqlv1.ModelCallMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
-		msgs = append(msgs, &memqlv1.ModelCallMessage{Role: m.Role, Content: m.Content})
+		msgs = append(msgs, &memqlv1.ModelCallMessage{
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCallId: m.ToolCallId,
+			Name:       m.Name,
+			ToolCalls:  toolCallsToProto(m.ToolCalls),
+		})
+	}
+	tools := make([]*memqlv1.ModelCallTool, 0, len(req.Tools))
+	for _, t := range req.Tools {
+		tools = append(tools, &memqlv1.ModelCallTool{
+			Name:           t.Name,
+			Description:    t.Description,
+			ParametersJson: t.ParametersJSON,
+		})
 	}
 	start := &memqlv1.ModelCallStart{
 		RequestId:            req.RequestId,
@@ -1078,6 +1104,7 @@ func (s *streamSession) openModelCall(ctx context.Context, req ModelCallRequest)
 		RunId:                req.RunId,
 		StepId:               req.StepId,
 		Purpose:              req.Purpose,
+		Tools:                tools,
 		Params: &memqlv1.ModelCallParams{
 			Temperature:     req.Params.Temperature,
 			TemperatureSet:  req.Params.TemperatureSet,
@@ -1153,6 +1180,7 @@ func (s *streamSession) handleModelCallDelta(delta *memqlv1.ModelCallDelta) {
 		Seq:       delta.GetSeq(),
 		Content:   delta.GetContent(),
 		Keepalive: delta.GetKeepalive(),
+		ToolCalls: toolCallsFromProto(delta.GetToolCalls()),
 	})
 }
 
@@ -1183,6 +1211,7 @@ func (s *streamSession) handleModelCallEnd(end *memqlv1.ModelCallEnd) {
 		Content:      end.GetContent(),
 		Error:        end.GetError(),
 		ErrorCode:    end.GetErrorCode(),
+		ToolCalls:    toolCallsFromProto(end.GetToolCalls()),
 	}
 	if len(embeddings) > 0 {
 		outcome.Embeddings = embeddings
@@ -1192,4 +1221,43 @@ func (s *streamSession) handleModelCallEnd(end *memqlv1.ModelCallEnd) {
 		err = fmt.Errorf("worker: model call failed: %s", outcome.Error)
 	}
 	handle.finish(outcome, err)
+}
+
+// toolCallsToProto / toolCallsFromProto are the one mapping between the wire
+// tool call and its Go twin. Kept as a pair beside the handlers rather than as
+// methods, because the direction matters at each call site and a method named
+// on one side reads as if it worked on both.
+func toolCallsToProto(in []ModelCallToolCall) []*memqlv1.ModelCallToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*memqlv1.ModelCallToolCall, 0, len(in))
+	for _, c := range in {
+		out = append(out, &memqlv1.ModelCallToolCall{
+			Id:            c.Id,
+			Name:          c.Name,
+			ArgumentsJson: c.ArgumentsJSON,
+			Index:         c.Index,
+		})
+	}
+	return out
+}
+
+func toolCallsFromProto(in []*memqlv1.ModelCallToolCall) []ModelCallToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ModelCallToolCall, 0, len(in))
+	for _, c := range in {
+		if c == nil {
+			continue
+		}
+		out = append(out, ModelCallToolCall{
+			Id:            c.GetId(),
+			Name:          c.GetName(),
+			ArgumentsJSON: c.GetArgumentsJson(),
+			Index:         c.GetIndex(),
+		})
+	}
+	return out
 }

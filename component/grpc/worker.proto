@@ -94,6 +94,40 @@ message Register {
   // produces a routing label, so a cockpit may report more than the
   // engine can drive without a coordinated release.
   repeated AppInfo apps = 10;
+  // app_descriptors say HOW the cockpit drives each app it reported
+  // (epic memql#5096, design D8). The id set stays closed in the engine;
+  // what grows is the SHAPE, so a newer cockpit never makes the engine
+  // attempt a protocol the machine does not have.
+  //
+  // Register is accepted exactly ONCE per stream, so these cannot be
+  // refreshed on a heartbeat the way `apps` can. A cockpit that gains a
+  // harness mid-connection advertises it on its next reconnect -- the
+  // same rollout cost the model labels already carry.
+  repeated AppDescriptor app_descriptors = 11;
+}
+
+// AppDescriptor is how one app on this machine is DRIVEN.
+//
+// `harness` is the protocol the cockpit will speak to it, and the engine
+// must not infer it from the app id: the cockpit picks codex-app-server
+// only when the binary answers `codex app-server --help` and falls back to
+// codex-mcp otherwise, so one id legitimately reports either word.
+message AppDescriptor {
+  // id matches an AppInfo.id on the same Register.
+  string id = 1;
+  // harness is one of "claude-headless", "codex-app-server", "codex-mcp".
+  // An unrecognised word leaves the descriptor UNUSED rather than
+  // refusing the registration -- the same rule the closed app-id set
+  // follows, for the same reason.
+  string harness = 2;
+  // structured_result reports that this harness can return a structured
+  // final answer when AppSessionStart carries a response schema.
+  bool structured_result = 3;
+  // follow_ups reports that a session can take another turn through
+  // AppSessionControl{action: "message"}. A machine that says false is
+  // refused a follow-up BEFORE the wire, so the engine never waits on a
+  // turn that will not come.
+  bool follow_ups = 4;
 }
 
 // AppInfo is one local app the cockpit detected. `allowed` is the
@@ -303,6 +337,13 @@ message AppSessionStart {
   // app_session_ref names the app's OWN session id on the kind=attach
   // path. Empty for run and open.
   string app_session_ref = 12;
+  // response_schema_json is the JSON Schema the harness is asked to
+  // answer against (`claude --json-schema`, the Codex app-server turn's
+  // structured output). EMPTY MEANS NO STRUCTURED ANSWER WAS ASKED FOR,
+  // which is not the same as asking for one and getting none: a session
+  // started without it can still end with a transcript, and only a
+  // session that asked can be disappointed.
+  string response_schema_json = 13;
 }
 
 // AppSessionLimits are the policy ceilings a session runs under.
@@ -320,12 +361,18 @@ message AppSessionLimits {
 // AppSessionControl steers a running session. Server -> worker.
 message AppSessionControl {
   string session_id = 1;
-  // action is "cancel" or "renew_credential".
+  // action is "cancel", "renew_credential" or "message".
   string action = 2;
   // credential is the replacement bearer on the renew path.
   string credential = 3;
   // reason is free text carried into the transcript on cancel.
   string reason = 4;
+  // prompt is the follow-up handed to the app on action="message"
+  // (design D7). It has its OWN field rather than riding `reason`,
+  // which is documented as transcript free-text on cancel: one field
+  // meaning two things is a field whose value cannot be read without
+  // knowing which branch produced it.
+  string prompt = 5;
 }
 
 // AppSessionChunk is one piece of session output. Worker -> server.
@@ -352,6 +399,16 @@ message AppSessionEnd {
   repeated string produced_artifact_ids = 5;
   // error is empty on a clean end.
   string error = 6;
+  // result_json is the harness's STRUCTURED final answer, when it
+  // produced one -- the reply to AppSessionStart.response_schema_json.
+  //
+  // IT DOES NOT IMPLY SUCCESS, and the separation from `error` and
+  // `exit_code` is the point: Claude Code can emit a structured result
+  // AND exit non-zero, and folding the two would make an answer we have
+  // unreadable because the run that produced it also failed. A session
+  // that ends without one still yields its transcript and artifacts,
+  // exactly as before.
+  string result_json = 7;
 }
 
 // AppSessionUsage is what the app REPORTED about its own spend.
@@ -424,6 +481,50 @@ message ModelCallStart {
   // conductor, suggest, embeddings). Carried for the ledger and for the
   // machine's own logs; it steers nothing.
   string purpose = 11;
+  // tools are the functions the model may call this turn (design D11).
+  // EMPTY IS AN ORDINARY CHAT TURN. A machine whose runtime cannot do
+  // tool calling advertises `tools=0` on its model label and is skipped
+  // for a turn that carries any -- gating, not a downgrade, for the same
+  // reason response_format_schema is gated: a runtime that answered
+  // prose to a tool turn would defeat the selection that put it there.
+  repeated ModelCallTool tools = 12;
+}
+
+// ModelCallTool is one function the model may call, as the caller
+// declared it.
+message ModelCallTool {
+  string name = 1;
+  string description = 2;
+  // parameters_json is the tool's JSON Schema, carried VERBATIM as a
+  // string. Deliberately not a google.protobuf.Struct: the worker
+  // forwards it unchanged into Ollama's /api/chat `tools[].function.
+  // parameters` and the OpenAI-compatible equivalent, and a decode and
+  // re-encode through Struct loses key order and turns every integer
+  // bound into a float -- a schema that still parses and no longer says
+  // what it said.
+  string parameters_json = 3;
+}
+
+// ModelCallToolCall is one call the model made.
+message ModelCallToolCall {
+  string id = 1;
+  string name = 2;
+  // arguments_json is the arguments object as a STRING. The two runtimes
+  // disagree -- Ollama's /api/chat returns an object, the
+  // OpenAI-compatible shape returns a string -- and the worker
+  // normalises to the string so the engine decodes one shape rather than
+  // branching on which machine answered.
+  string arguments_json = 3;
+  // index is the call's position within the assistant turn.
+  //
+  // It exists for the DELTA path and is the reason a delta can carry
+  // tool calls at all: an OpenAI-compatible stream emits tool calls by
+  // index with `arguments` arriving in fragments, so without it a
+  // reassembler cannot tell a second call from the continuation of the
+  // first. Ollama does not stream partial tool calls -- it emits one
+  // complete list on the final message -- so a delta carrying these is
+  // an OpenAI-compatible runtime and an end carrying them is either.
+  int32 index = 4;
 }
 
 // ModelCallMessage is one turn of the conversation handed to the model.
@@ -431,6 +532,17 @@ message ModelCallMessage {
   // role is "system", "user", "assistant" or "tool".
   string role = 1;
   string content = 2;
+  // tool_call_id names the call a role="tool" message ANSWERS. Both
+  // runtimes require it to round-trip: a result with no id cannot be
+  // matched to its request, and a model handed one refuses the turn or
+  // invents an answer.
+  string tool_call_id = 3;
+  // name is the tool's name on a role="tool" message. Carried beside the
+  // id because the OpenAI-compatible shape wants both.
+  string name = 4;
+  // tool_calls are the calls an assistant turn MADE, replayed back into
+  // the conversation so the model can see what it already asked for.
+  repeated ModelCallToolCall tool_calls = 5;
 }
 
 // ModelCallParams are the generation knobs.
@@ -482,6 +594,13 @@ message ModelCallDelta {
   // reset the idle timer. It still takes a seq, so a keepalive can
   // never be confused with a replayed content delta.
   bool keepalive = 4;
+  // tool_calls carries INCREMENTAL tool-call fragments: `index` names
+  // which call the fragment belongs to and `arguments_json` is a piece
+  // of that call's arguments, not the whole. Only an OpenAI-compatible
+  // runtime populates these; Ollama emits its tool calls complete on the
+  // end. The engine assembles by index and reads the END's list as
+  // authoritative, so a runtime that streams nothing here loses nothing.
+  repeated ModelCallToolCall tool_calls = 5;
 }
 
 // ModelCallEnd closes a call. Worker -> server.
@@ -503,6 +622,11 @@ message ModelCallEnd {
   string error = 6;
   // error_code is a stable machine-readable tag when error is set.
   string error_code = 7;
+  // tool_calls is the COMPLETE list the turn produced, always populated
+  // by a runtime that made any. It is authoritative over anything
+  // assembled from the deltas: a stream that dropped a fragment would
+  // otherwise hand the engine arguments that parse and are wrong.
+  repeated ModelCallToolCall tool_calls = 8;
 }
 
 // ModelCallEmbedding is one vector.
