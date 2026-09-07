@@ -4229,6 +4229,28 @@ func MissingCapabilityByKindAndNameBuild(args MissingCapabilityByKindAndNameArgs
 	return b.String()
 }
 
+// ModelPullsForWorker -- The CALLER'S model pulls for one machine, newest first. Backs the machine detail's Models group: a live pull renders its progress, and finished ones answer "why is this model here".
+//
+// Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["modelPullsForWorker"] in generated_concepts.go).
+type ModelPullsForWorkerArgs struct {
+	WorkerId string
+}
+
+// ModelPullsForWorker calls the engine query modelPullsForWorker.
+func (qc *QueryClient) ModelPullsForWorker(ctx context.Context, args ModelPullsForWorkerArgs) (*Result, error) {
+	call := ModelPullsForWorkerBuild(args)
+	return qc.executeNamed(ctx, "modelPullsForWorker", call)
+}
+
+func ModelPullsForWorkerBuild(args ModelPullsForWorkerArgs) string {
+	var b strings.Builder
+	b.WriteString("query modelPullsForWorker(")
+	b.WriteString("workerId: ")
+	b.WriteString(quoteMemQL(args.WorkerId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // ModuleReadinessAll -- Every node's latest verdict on every module: the rows the OS folds live and the moduleReadiness builtin folds on demand. Modules times nodes, consumed whole. Any signed-in caller (the concept's tier); no caller term is written because public, requiresIdentity injects nothing.
 //
 // Bound concept: v1:platform:moduleReadiness (machine-readable: BoundConcepts["moduleReadinessAll"] in generated_concepts.go).
@@ -4564,6 +4586,31 @@ func OidcIdentityBySubjectBuild(args OidcIdentityBySubjectArgs) string {
 	}
 	b.WriteString("subject: ")
 	b.WriteString(quoteMemQL(args.Subject))
+	b.WriteString(")")
+	return b.String()
+}
+
+// OpenModelPulls -- Every model pull that is still open, for the sweep that fails abandoned ones.
+// It reads under `actor.isClusterOwner==true` for the reason expiredWorkerInvocations states at length: its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL, and an identity is only as powerful as the queries it is used for, where a read-path bypass would be available to everything that could reach it. Writing the conjunct is also what makes the failure loud -- strip the principal and this returns zero rows, and the filter says why.
+//
+// Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["openModelPulls"] in generated_concepts.go).
+type OpenModelPullsArgs struct {
+	RequestedBefore string
+}
+
+// OpenModelPulls calls the engine query openModelPulls.
+func (qc *QueryClient) OpenModelPulls(ctx context.Context, args OpenModelPullsArgs) (*Result, error) {
+	call := OpenModelPullsBuild(args)
+	return qc.executeNamed(ctx, "openModelPulls", call)
+}
+
+func OpenModelPullsBuild(args OpenModelPullsArgs) string {
+	var b strings.Builder
+	b.WriteString("query openModelPulls(")
+	if args.RequestedBefore != "" {
+		b.WriteString("requestedBefore: ")
+		b.WriteString(quoteMemQL(args.RequestedBefore))
+	}
 	b.WriteString(")")
 	return b.String()
 }

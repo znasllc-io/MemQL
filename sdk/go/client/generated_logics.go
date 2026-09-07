@@ -684,3 +684,25 @@ func WorkerInvocationRetentionSweepBuild(args WorkerInvocationRetentionSweepArgs
 	b.WriteString(")")
 	return b.String()
 }
+
+// WorkerModelPullStaleSweep -- Every model pull that has been open too long, with the sentence to close it on.
+// TWO SHAPES OF ABANDONMENT, and they are separated because their causes differ and an operator reading the second learns that a download really was running. A row still at `requested` past the claim grace was never picked up: the replica named on it is not there. A row at `running` that has stopped reporting was claimed and then lost mid-download.
+// The graces are read from globalVariables so an operator can widen them on a slow cluster without a release; both default generously, because failing a pull that is merely slow to be claimed is worse than leaving a dead one on screen for another minute.
+type WorkerModelPullStaleSweepArgs struct {
+	Event map[string]any
+}
+
+// WorkerModelPullStaleSweep calls the engine logic workerModelPullStaleSweep.
+func (qc *QueryClient) WorkerModelPullStaleSweep(ctx context.Context, args WorkerModelPullStaleSweepArgs) (*Result, error) {
+	call := WorkerModelPullStaleSweepBuild(args)
+	return qc.executeNamed(ctx, "workerModelPullStaleSweep", call)
+}
+
+func WorkerModelPullStaleSweepBuild(args WorkerModelPullStaleSweepArgs) string {
+	var b strings.Builder
+	b.WriteString("logic workerModelPullStaleSweep(")
+	b.WriteString("event: ")
+	b.WriteString(renderMemQLValue(args.Event))
+	b.WriteString(")")
+	return b.String()
+}

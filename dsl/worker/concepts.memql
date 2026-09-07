@@ -203,3 +203,49 @@ concept routingPolicy {
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
 }
+
+/// One request to pull a model onto a fleet machine, and the record of how it went
+/// (epic memql#5103, design D3).
+///
+/// PERSISTED, DELIBERATELY, and it is the one row in this file whose persistence needs
+/// defending. Its siblings v1:platform:fleetModel and v1:platform:inferenceStatus are
+/// VIRTUAL because they answer "what is true right now" and a stored copy could only be a
+/// staler second answer. A pull is the opposite kind of fact: it is an EVENT WITH A
+/// DURATION that somebody started and is watching, so there is no live source to re-derive
+/// it from -- the download exists only in one process on one replica, and if that process
+/// dies the row is the only thing that can say a pull was ever asked for.
+///
+/// IT IS ALSO THE PROGRESS FEED. A pull runs for minutes to hours and the person who
+/// pressed Pull is watching, so progress has to reach a browser. A virtual concept is
+/// produced at query time and cannot stream; a graph row broadcasts, and the OS's live
+/// surfaces are already fed that way. So the row is written at request, updated on a
+/// throttle while the download runs, and finalised at the end -- and the same rows answer
+/// "why is this model here" long after anyone stopped watching.
+///
+/// THE COUNTERS DESCRIBE ONE LAYER, NEVER THE WHOLE PULL. Ollama fetches a model as a set
+/// of blobs and reports completed/total PER BLOB, restarting at zero for each. There is no
+/// whole-pull denominator anywhere in the protocol, so this row does not invent one: a
+/// reader renders progress WITHIN the current step and reads `statusLine` for where the
+/// pull as a whole has got to. A percentage across layers would be a number this cluster
+/// made up, and it would be wrong in a way nobody could see.
+@rowAuthz(owner="ownerUserId", clusterOwner)
+@displayCard(primary="model", secondary="workerId", tertiary="requestedAt", status="status")
+concept modelPull {
+  ownerUserId    string!  @serverSet  @description("v1:identity:user.id who asked. THE ROW-AUTHZ OWNER FIELD -- stamped from the caller's actor by fleetModelPull, never from an argument. A pull writes gigabytes to this person's own machine, so the owner of the row and the owner of the hardware are the same by construction.")
+  workerId       string!  @description("v1:worker:registration.id of the machine being pulled to. A pull names ONE machine because a person pressed Pull on that machine's page; there is no routing here and no second machine to fall through to.")
+  model          string!  @description("The model id in the runtime's own vocabulary -- llama3.1:8b, hf.co/owner/repo:Q4_K_M. Carried VERBATIM: the router selects on this exact string, so a translation anywhere between the OS and the runtime would leave the pulled model unreachable under the name it was pulled with.")
+  status         enum("requested", "running", "succeeded", "failed", "cancelled")!  @default("requested")  @description("Lifecycle. requested = the row exists and the agent replica holding the machine has not picked it up yet; running = the machine is downloading; succeeded = the model is present AND allowed on the machine; failed = the runtime or the transport said no; cancelled = somebody stopped it. A row left at requested or running is one whose replica died holding it -- workerModelPullStaleSweep marks those failed, because a spinner that never resolves is the one outcome this surface must not produce.")
+  statusLine     string  @description("The runtime's own most recent line, verbatim (\"pulling 8eeb52dfb3bb\", \"verifying sha256 digest\"). It is carried rather than parsed into a phase enum because it is what actually tells a person where the pull has got to, and a phase vocabulary here would have to be kept in step with somebody else's release.")
+  layer          string  @description("The blob the counters below belong to, when the runtime names one. Empty during phases that are not a download. It is what makes the counters legible: without it, a bar that jumps backwards looks like a bug rather than the next layer starting.")
+  completedBytes int  @description("Bytes fetched FOR THE CURRENT LAYER. Resets to zero on every new layer, by construction -- see the concept's own note. Never a running total across the pull.")
+  totalBytes     int  @description("Size of the CURRENT LAYER, or zero when the runtime did not say. Zero is never filled in with a guess: an invented denominator produces a percentage that is wrong and unfalsifiable.")
+  readvertised   bool  @description("Whether the machine pushed its new label set at once rather than waiting for the next fingerprint change (design D3). False after a success means the model is on disk and the CLUSTER cannot see it yet -- a materially different thing to tell the person watching from either success or failure, and the reason the two are separate fields.")
+  errorMessage   string  @description("Populated when status reaches failed. The runtime's own words where it spoke -- a pull can fail inside an HTTP 200, so \"no space left on device\" arrives here rather than as a dropped connection.")
+  targetNodeId   string  @description("MEMQL_NODE_ID of the agent replica that held the machine's stream when the pull was requested. The claim is deterministic and needs no lock: exactly one replica acts on this row, the one whose own id this names. If the machine has reconnected to a sibling since, that replica forwards over ModelPullForward rather than dropping the request -- which is not hypothetical, since a cockpit reconnects on every restart and a person pressing Pull after waking a laptop hits exactly that race.")
+  requestedAt    datetime!  @description("When the act was accepted and this row written.")
+  updatedAt      datetime  @description("When progress was last recorded. Written on a throttle rather than per observation: a pull emits several a second and a row version each would be tens of thousands of versions for one download.")
+  endedAt        datetime  @description("When the pull reached a terminal status. Empty while live.")
+
+  @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
+  @relationship(type="parent", field="workerId", target=registration, direction="outgoing")
+}

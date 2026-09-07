@@ -4204,6 +4204,28 @@ QueryClient.prototype.missingCapabilityByKindAndName = function (this: QueryClie
   return this.executeNamed("missingCapabilityByKindAndName", buildMissingCapabilityByKindAndName(args), opts);
 };
 
+/** The CALLER'S model pulls for one machine, newest first. Backs the machine detail's Models group: a live pull renders its progress, and finished ones answer "why is this model here". */
+// Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["modelPullsForWorker"] in generated_concepts.ts).
+export interface ModelPullsForWorkerArgs {
+  workerId: string;
+}
+
+export function buildModelPullsForWorker(args: ModelPullsForWorkerArgs): string {
+  const parts: string[] = [];
+  parts.push("workerId: " + renderMemQLValue(args.workerId));
+  return "query modelPullsForWorker(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelPullsForWorker(args: ModelPullsForWorkerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelPullsForWorker = function (this: QueryClient, args: ModelPullsForWorkerArgs = {} as ModelPullsForWorkerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelPullsForWorker", buildModelPullsForWorker(args), opts);
+};
+
 /** Every node's latest verdict on every module: the rows the OS folds live and the moduleReadiness builtin folds on demand. Modules times nodes, consumed whole. Any signed-in caller (the concept's tier); no caller term is written because public, requiresIdentity injects nothing. */
 // Bound concept: v1:platform:moduleReadiness (machine-readable: BoundConcepts["moduleReadinessAll"] in generated_concepts.ts).
 export interface ModuleReadinessAllArgs {
@@ -4564,6 +4586,29 @@ declare module "./query.js" {
 
 QueryClient.prototype.oidcIdentityBySubject = function (this: QueryClient, args: OidcIdentityBySubjectArgs = {} as OidcIdentityBySubjectArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("oidcIdentityBySubject", buildOidcIdentityBySubject(args), opts);
+};
+
+/** Every model pull that is still open, for the sweep that fails abandoned ones.
+It reads under `actor.isClusterOwner==true` for the reason expiredWorkerInvocations states at length: its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL, and an identity is only as powerful as the queries it is used for, where a read-path bypass would be available to everything that could reach it. Writing the conjunct is also what makes the failure loud -- strip the principal and this returns zero rows, and the filter says why. */
+// Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["openModelPulls"] in generated_concepts.ts).
+export interface OpenModelPullsArgs {
+  requestedBefore?: string;
+}
+
+export function buildOpenModelPulls(args: OpenModelPullsArgs): string {
+  const parts: string[] = [];
+  if (args.requestedBefore !== undefined) parts.push("requestedBefore: " + renderMemQLValue(args.requestedBefore));
+  return "query openModelPulls(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    openModelPulls(args: OpenModelPullsArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.openModelPulls = function (this: QueryClient, args: OpenModelPullsArgs = {} as OpenModelPullsArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("openModelPulls", buildOpenModelPulls(args), opts);
 };
 
 /** The declared sizes of the caller's OPEN upload sessions -- the in-flight half of the storage quota (memql#4782, design C4): at init and at one-shot upload, the sum of stored file sizes PLUS these declared sizes must stay under MEMQL_LIBRARY_USER_QUOTA_BYTES, or a person could evade the quota by opening sessions they never finish. UNBOUNDED for the quota's reason: a truncated page fails OPEN, admitting bytes the quota should refuse. Owner-scoped, projecting two fields per row. */

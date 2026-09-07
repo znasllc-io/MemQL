@@ -362,6 +362,24 @@ func (pc *ParentConnector) handleServerMessage(msg *nodev1.NodeServerMessage) {
 			dsink.DispatchModelDelta(payload.ModelForwardDelta)
 		}
 
+	case *nodev1.NodeServerMessage_ModelPullForwardResponse:
+		// Terminal answer for a model pull this node forwarded (memql#5103).
+		pc.mu.Lock()
+		psink := pc.workerForwardSink
+		pc.mu.Unlock()
+		if psink != nil {
+			psink.DispatchModelPull(payload.ModelPullForwardResponse)
+		}
+
+	case *nodev1.NodeServerMessage_ModelPullForwardProgress:
+		// Download progress from that machine, relayed across the hop.
+		pc.mu.Lock()
+		ppsink := pc.workerForwardSink
+		pc.mu.Unlock()
+		if ppsink != nil {
+			ppsink.DispatchModelPullProgress(payload.ModelPullForwardProgress)
+		}
+
 	case *nodev1.NodeServerMessage_DeployControlForwardResponse:
 		// Reply to a deploy-control forward this node originated. Set on the
 		// bff; no-op otherwise.

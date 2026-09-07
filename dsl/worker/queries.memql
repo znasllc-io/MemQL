@@ -412,3 +412,36 @@ query invocation invocationsForWorkerAsOperator {
   paginate 25
   shape   workerInvocationFull
 }
+
+/// The CALLER'S model pulls for one machine, newest first. Backs the machine detail's Models
+/// group: a live pull renders its progress, and finished ones answer "why is this model here".
+@actor
+query modelPull modelPullsForWorker {
+  args {
+    workerId  string!
+  }
+  filter  workerId==args.workerId && ownerUserId==actor.userId && isNotDeleted
+  sort    "requestedAt", "desc"
+  // Literal page size -- the struct-query paginate directive only accepts an
+  // integer literal. Small on purpose: the group renders a live pull and the
+  // handful before it, not a history.
+  paginate 20
+  shape   workerModelPullFull
+}
+
+/// Every model pull that is still open, for the sweep that fails abandoned ones.
+///
+/// It reads under `actor.isClusterOwner==true` for the reason expiredWorkerInvocations states at
+/// length: its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL, and an
+/// identity is only as powerful as the queries it is used for, where a read-path bypass would be
+/// available to everything that could reach it. Writing the conjunct is also what makes the
+/// failure loud -- strip the principal and this returns zero rows, and the filter says why.
+@actor
+@unbounded("stale model-pull sweep -- an internal sweep that must see every open pull")
+query modelPull openModelPulls {
+  args {
+    requestedBefore  string
+  }
+  filter  actor.isClusterOwner==true && (status=="requested" || status=="running") && isNotDeleted && when(args.requestedBefore) { requestedAt<args.requestedBefore }
+  shape   workerModelPullFull
+}

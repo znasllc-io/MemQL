@@ -455,6 +455,12 @@ const (
 	// catalog and registry the router reads -- eligibility gets no second
 	// implementation. See fleet_catalog_read.go.
 	BuiltinExecutorInferenceStatus = "inferenceStatus"
+	// BuiltinExecutorFleetModelPull asks one of the CALLER'S machines to pull
+	// a model, and returns at once (epic memql#5103). The only fleet builtin
+	// that makes something happen on somebody's hardware: it decides, records
+	// a v1:worker:modelPull row, and an agent replica picks that row up. See
+	// fleet_model_pull.go.
+	BuiltinExecutorFleetModelPull = "fleetModelPull"
 	// BuiltinExecutorModuleReadiness folds every node's readiness rows into
 	// one verdict per module (design record 2026-09-06-configuration-readiness,
 	// section 4.5). See readiness_read.go.

@@ -691,3 +691,26 @@ QueryClient.prototype.workerInvocationRetentionSweep = function (this: QueryClie
   return this.executeNamed("workerInvocationRetentionSweep", buildWorkerInvocationRetentionSweep(args), opts);
 };
 
+/** Every model pull that has been open too long, with the sentence to close it on.
+TWO SHAPES OF ABANDONMENT, and they are separated because their causes differ and an operator reading the second learns that a download really was running. A row still at `requested` past the claim grace was never picked up: the replica named on it is not there. A row at `running` that has stopped reporting was claimed and then lost mid-download.
+The graces are read from globalVariables so an operator can widen them on a slow cluster without a release; both default generously, because failing a pull that is merely slow to be claimed is worse than leaving a dead one on screen for another minute. */
+export interface WorkerModelPullStaleSweepArgs {
+  event: Record<string, unknown>;
+}
+
+export function buildWorkerModelPullStaleSweep(args: WorkerModelPullStaleSweepArgs): string {
+  const parts: string[] = [];
+  parts.push("event: " + renderMemQLValue(args.event));
+  return "logic workerModelPullStaleSweep(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    workerModelPullStaleSweep(args: WorkerModelPullStaleSweepArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.workerModelPullStaleSweep = function (this: QueryClient, args: WorkerModelPullStaleSweepArgs = {} as WorkerModelPullStaleSweepArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("workerModelPullStaleSweep", buildWorkerModelPullStaleSweep(args), opts);
+};
+

@@ -72,6 +72,13 @@ type ForwardRouter struct {
 	// silent cross-delivery rather than a miss.
 	modelMu       sync.Mutex
 	modelInflight map[string]*modelForwardCall
+
+	// And pulls in a third table, for the same reason again: a pull is a
+	// different payload with a lifetime measured in hours rather than
+	// seconds, and an id collision across the families would be a silent
+	// cross-delivery -- here, of a download's progress into a generation.
+	modelPullMu       sync.Mutex
+	modelPullInflight map[string]*modelPullForwardCall
 }
 
 // peerManagerSender is the production PeerSender: look the replica up by node
@@ -118,11 +125,12 @@ func newForwardRouter(sender PeerSender, self func() (string, string), logger *s
 		self = func() (string, string) { return "", "" }
 	}
 	return &ForwardRouter{
-		sender:        sender,
-		self:          self,
-		logger:        logger,
-		inflight:      make(map[string]*forwardCall),
-		modelInflight: make(map[string]*modelForwardCall),
+		sender:            sender,
+		self:              self,
+		logger:            logger,
+		inflight:          make(map[string]*forwardCall),
+		modelInflight:     make(map[string]*modelForwardCall),
+		modelPullInflight: make(map[string]*modelPullForwardCall),
 	}
 }
 
