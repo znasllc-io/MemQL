@@ -654,3 +654,82 @@ func TestOpenAIExchangeIsPerformedOnceUnderConcurrentCallers(t *testing.T) {
 			"across the exchange, so each caller performed its own", callers, n)
 	}
 }
+
+// TestVerifyProviderCredentialMakesTheLiveCallForOpenAI covers the arm
+// providerVerify gained in this epic.
+//
+// It was an honest REFUSAL before -- "a well-formed key and a reachable base
+// URL is not the same as an accepted one" -- and that refusal is obsolete for a
+// better reason than being inconvenient: a federated OpenAI provider that
+// constructs has a credential OpenAI itself must accept, and models.list is
+// what turns "must" into observed.
+//
+// The second half is the one that matters. A provider TYPE this function
+// recognises whose entry carries no reachable client must REFUSE rather than
+// report success -- several OpenAI types are placeholders with no HTTP client
+// behind them, and reporting those as verified would be the page claiming an
+// observation nobody made.
+func TestVerifyProviderCredentialMakesTheLiveCallForOpenAI(t *testing.T) {
+	t.Run("a constructed provider is verified live", func(t *testing.T) {
+		var listed int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if strings.HasSuffix(req.URL.Path, "/oauth/token") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+				return
+			}
+			listed++
+			writeJSON(w, map[string]any{
+				"object": "list",
+				"data": []any{
+					map[string]any{"id": "gpt-5.4-mini", "object": "model"},
+					map[string]any{"id": "gpt-5.4", "object": "model"},
+				},
+			})
+		}))
+		t.Cleanup(srv.Close)
+
+		auth := openaiFederatedAuth(validOpenAIIdentityToken(t))
+		auth[authKeyOpenAITokenEndpoint] = srv.URL + "/oauth/token"
+		auth["baseURL"] = srv.URL + "/v1"
+		cfg := ProviderConfig{Name: "chatTest", Type: "OpenAI", Model: "gpt-5.4-mini", Auth: auth}
+
+		provider, err := newOpenAIProvider(cfg)
+		if err != nil {
+			t.Fatalf("newOpenAIProvider: %v", err)
+		}
+
+		count, err := verifyProviderCredential(context.Background(),
+			&ProviderConfigEntry{Config: cfg, Client: provider, Available: true})
+		if err != nil {
+			t.Fatalf("verifyProviderCredential: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("models listed = %d, want 2", count)
+		}
+		if listed != 1 {
+			t.Errorf("the models endpoint was called %d times, want 1", listed)
+		}
+	})
+
+	t.Run("a placeholder with no client refuses rather than reporting success", func(t *testing.T) {
+		cfg := ProviderConfig{Name: "sora2", Type: "OpenAIVideo", Model: "sora-2"}
+		// A placeholder provider carries no HTTP client at all.
+		entry := &ProviderConfigEntry{
+			Config:    cfg,
+			Client:    &openAIPlaceholderProvider{name: "sora2", model: "sora-2", capability: "video"},
+			Available: true,
+		}
+
+		count, err := verifyProviderCredential(context.Background(), entry)
+		if err == nil {
+			t.Fatal("a placeholder with no client reported a successful live verification")
+		}
+		if count != 0 {
+			t.Errorf("models listed = %d on a refusal, want 0", count)
+		}
+		if !strings.Contains(err.Error(), "OpenAIVideo") {
+			t.Errorf("the refusal does not name the provider type: %v", err)
+		}
+	})
+}
