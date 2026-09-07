@@ -508,11 +508,13 @@ type Register struct {
 	BuildTag string `protobuf:"bytes,8,opt,name=build_tag,json=buildTag,proto3" json:"build_tag,omitempty"`
 	// Optional structured capability self-description, serialized as
 	// JSON (memql#1330 / memql-cockpit#162). Shape (schemaVersion 1):
-	//   {"platform": "<GOOS>",
-	//    "displayServer": "quartz"|"x11"|"wayland"|"none",
-	//    "computerUseAvailable": bool,
-	//    "actions": ["<workerComputer action name>", ...],
-	//    "schemaVersion": 1}
+	//
+	//	{"platform": "<GOOS>",
+	//	 "displayServer": "quartz"|"x11"|"wayland"|"none",
+	//	 "computerUseAvailable": bool,
+	//	 "actions": ["<workerComputer action name>", ...],
+	//	 "schemaVersion": 1}
+	//
 	// Validated server-side (size cap, schemaVersion, displayServer
 	// enum, action-name pattern -- see component/worker). Workers that
 	// omit it register exactly as before; HEADLESS/COMPUTERUSE capability
@@ -1621,15 +1623,16 @@ func (x *Success) GetOutputPreview() string {
 type Failure struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Common error codes:
-	//   worker_disconnected
-	//   scope_exceeded
-	//   denied_by_policy
-	//   timeout
-	//   exec_failed
-	//   fs_denied
-	//   http_blocked
-	//   kill_switch_engaged
-	//   no_worker_available
+	//
+	//	worker_disconnected
+	//	scope_exceeded
+	//	denied_by_policy
+	//	timeout
+	//	exec_failed
+	//	fs_denied
+	//	http_blocked
+	//	kill_switch_engaged
+	//	no_worker_available
 	ErrorCode     string `protobuf:"bytes,1,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1845,11 +1848,12 @@ type AppSessionStart struct {
 	// app is one of the engine's closed ids ("claude-code", "codex").
 	App string `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`
 	// kind selects what opening the app means:
-	//   run    -- headless and autonomous; the engine reads the output.
-	//   open   -- launch it for the HUMAN with the workspace and prompt
-	//             loaded; ends when the window closes, or immediately
-	//             with a failure if the app cannot be opened.
-	//   attach -- stream a run the human started, named by app_session_ref.
+	//
+	//	run    -- headless and autonomous; the engine reads the output.
+	//	open   -- launch it for the HUMAN with the workspace and prompt
+	//	          loaded; ends when the window closes, or immediately
+	//	          with a failure if the app cannot be opened.
+	//	attach -- stream a run the human started, named by app_session_ref.
 	Kind   string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
 	Prompt string `protobuf:"bytes,4,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	// inputs are Library artifact ids the cockpit pulls with the
