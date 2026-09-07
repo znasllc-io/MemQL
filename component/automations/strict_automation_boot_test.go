@@ -102,11 +102,18 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // invoked by the run that names them.
 //
 // 50 -> 49 with killSwitchSuspendsRunningPlans, deleted in memql#5053 -- it
-// selected Plans on a field runs do not carry, and it had never fired
-// (memql#2870). The enforced computer-use kill switch is the pre-dispatch gate
-// in integrations/agent/worker/dispatch.go, which is untouched; memql#5066
-// decides whether in-flight cancellation is rebuilt.
-const shippedAutomationCount = 49
+// selected Plans on a field runs do not carry. The enforced computer-use kill
+// switch is the pre-dispatch gate in integrations/agent/worker/dispatch.go,
+// which was untouched throughout.
+//
+// 49 -> 50 with killSwitchCancelsComputerUseRuns, its successor on the work
+// spine (memql#5066). Worth recording that the deletion's third reason -- "it
+// had never fired (memql#2870)" -- was wrong: 8ef364cd7 fixed that on
+// 2026-07-27, six weeks before the deletion, and the doc comment asserting it
+// survived its own fix. The successor selects runs through
+// v1:worker:invocation.runId instead of a Plan field, which is why it needs no
+// new field on v1:work:run.
+const shippedAutomationCount = 50
 
 // TestStrictAutomationBoot_MalformedAutomationRefusesBoot is the core
 // acceptance test: a malformed automation injected as a throwaway domain (the

@@ -120,6 +120,10 @@ type Executor struct {
 	// nil journal is a no-op, so the loop below never branches on it.
 	journal *workJournal
 
+	// cancelPollInterval bounds how often a run asks whether it has been
+	// cancelled (cancel.go). Zero means CancelPollInterval.
+	cancelPollInterval time.Duration
+
 	// Chain tracking (enabled via ExecutorOptions.ChainTrackingEnabled)
 	chainTrackingEnabled bool
 
@@ -223,6 +227,15 @@ type ExecutorOptions struct {
 	// when this is set, which is the mechanical form of that rule.
 	SandboxRun bool
 
+	// CancelPollInterval bounds how often a run re-reads its own
+	// `cancelRequested` flag (memql#5066, cancel.go). Zero takes the default.
+	//
+	// It is an option only so a test can drive more than one boundary check
+	// inside a run that finishes in microseconds. It is deliberately NOT
+	// exposed per automation: a knob there would let one template opt out of
+	// a control that exists to bound damage.
+	CancelPollInterval time.Duration
+
 	// ChainTrackingEnabled enables content-addressed chain tracking for executions.
 	// When enabled, each step produces a deterministic fingerprint that chains to
 	// the previous state, enabling replay verification.
@@ -269,6 +282,7 @@ func NewExecutor(opts ExecutorOptions) *Executor {
 		stepRegistry:         opts.StepRegistry,
 		automationTrigger:    opts.AutomationTrigger,
 		sandboxRun:           opts.SandboxRun,
+		cancelPollInterval:   opts.CancelPollInterval,
 		chainTrackingEnabled: opts.ChainTrackingEnabled,
 		dedupEnabled:         opts.DedupEnabled,
 		clusterGuard:         opts.ClusterGuard,
@@ -713,6 +727,10 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 		ChainTrackingEnabled: e.chainTrackingEnabled,
 	}
 
+	// The graph-level stop. See cancel.go: the zero value asks at the FIRST
+	// boundary, so a run cancelled while it was queued runs no step at all.
+	cancelPoll := newCancelPoller(e.cancelPollInterval)
+
 	for stepIndex, step := range automation.Steps {
 		// Track step order for chain verification
 		if e.chainTrackingEnabled {
@@ -726,6 +744,32 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 			journal.closeRun(ctx, exec, chainHead)
 			return exec, ctx.Err()
 		default:
+		}
+
+		// ...and the OTHER cancellation, which is not the same question
+		// (memql#5066). `ctx.Done()` is this process losing interest -- a
+		// shutdown, a deadline, a caller that went away. `cancelRequested` is
+		// somebody DECIDING the work should stop, recorded on the run row so it
+		// survives the ask reaching a different replica from the one executing.
+		// A cluster is the normal topology here, so a stop that only travelled
+		// in a context would be honoured on a coin flip.
+		if cancelPoll.due(time.Now()) {
+			if asked, by := journal.cancelRequested(ctx, exec.ID); asked {
+				if e.logger != nil {
+					e.logger.Info("run cancelled at a step boundary",
+						"component", ComponentName,
+						"automation", automation.Name,
+						"runId", exec.ID,
+						"beforeStep", step.ID,
+						"cancelledBy", by,
+					)
+				}
+				journal.cancelStop(ctx, exec, chainHead, by)
+				// nil, not an error: nothing failed. A cancelled run is a
+				// terminal outcome somebody chose, and returning an error here
+				// would file it under the defects an operator scans.
+				return exec, nil
+			}
 		}
 
 		// Evaluate step condition if present

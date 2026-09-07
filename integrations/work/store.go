@@ -203,6 +203,32 @@ func (s *store) runForOwner(ctx context.Context, runId string) (map[string]any, 
 	return one(s.query(ctx, "query "+call("workRunForOwner", map[string]any{"runId": runId})))
 }
 
+// runningRunsForOwner is the caller's runs that are executing RIGHT NOW.
+//
+// A separate construct from workRunsForOwner rather than a status filter over
+// it: that one is deliberately unbounded and un-narrowed because two surfaces
+// read it, and paging an active person's whole run history to find the few in
+// flight is the wrong read for a control that has to act promptly.
+func (s *store) runningRunsForOwner(ctx context.Context) ([]map[string]any, error) {
+	return s.query(ctx, "query workRunningRunsForOwner()")
+}
+
+// runUsedAWorker reports whether any call inside this run was dispatched to
+// one of the owner's machines.
+//
+// invocationsForRun is caller-scoped (`ownerUserId==actor.userId`), so this
+// answers for the actor in ctx and nobody else -- which is why every caller
+// passes the affected owner's borrowed authority rather than a cluster owner's.
+// Under a cluster owner it would answer false for everyone and the kill switch
+// would stop nothing, silently.
+func (s *store) runUsedAWorker(ctx context.Context, runId string) (bool, error) {
+	rows, err := s.query(ctx, "query "+call("invocationsForRun", map[string]any{"runId": runId}))
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0, nil
+}
+
 // pendingApprovalsForOwner is the caller's own undecided approvals.
 //
 // The id-addressed read (workApprovalById) is @serverOnly, and reaching for it

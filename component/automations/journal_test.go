@@ -270,11 +270,16 @@ func TestExecutor_JournalsEveryStepBoundary(t *testing.T) {
 		n, _ := argsOf(t, c)
 		names = append(names, n)
 	}
-	want := []string{"createWorkRun", "createWorkStep", "updateWorkStep", "updateWorkRun", "createWorkStep", "updateWorkRun"}
+	// `query workRunById` is the cancel read (memql#5066, cancel.go), asked at
+	// the FIRST step boundary and then at most once per CancelPollInterval --
+	// so a run this short asks exactly once, right after the run row is
+	// opened. Its position is load-bearing: asked before createWorkRun it
+	// would be asking about a row that does not exist yet.
+	want := []string{"createWorkRun", "query workRunById", "createWorkStep", "updateWorkStep", "updateWorkRun", "createWorkStep", "updateWorkRun"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
-		t.Fatalf("journal calls = %v, want %v (open; a running; a done + heartbeat; b skipped; close)", names, want)
+		t.Fatalf("journal calls = %v, want %v (open; cancel read; a running; a done + heartbeat; b skipped; close)", names, want)
 	}
-	_, skipped := argsOf(t, rec.calls[4])
+	_, skipped := argsOf(t, rec.calls[5])
 	if skipped["key"] != "b" || skipped["status"] != "skipped" {
 		t.Errorf("skipped step: %v", skipped)
 	}

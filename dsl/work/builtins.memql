@@ -88,3 +88,64 @@ builtin workSweepWaiting {
 builtin workRetentionSweep {
   dryRun  bool  @description("Report what would be archived and deleted without doing either.")
 }
+
+// ---- the computer-use kill switch, in-flight half (memql#5066) ----
+//
+// Declared HERE rather than beside its automation in dsl/worker, because
+// TestCapabilityNamesMatchTheDSL reads this file as the complete set of
+// integration.work.* executors -- and a set split across two files is the
+// list written twice that its own comment refuses. The automation imports it.
+
+/// Ask every in-flight run of one owner that has ACTUALLY dispatched to one of their machines to
+/// stop. The selection is the runs named by that owner's v1:worker:invocation rows, which is a fact
+/// the dispatcher already records per call -- so it is no broader than "runs actually using the
+/// worker", and stricter than the Plan-era predicate it replaces (a plan with a computerUseScope
+/// was one AUTHORIZED to use a machine; an invocation row is one that DID).
+///
+/// Cancellation is REQUESTED, not done: a run notices at its next step boundary, so a step already
+/// in flight finishes and is journaled rather than being abandoned mid-effect. A worker call
+/// already running on somebody's laptop cannot be un-run, and its NEXT call is denied by the
+/// pre-dispatch gate in integrations/agent/worker/dispatch.go, which is the enforced half and is
+/// untouched by any of this.
+///
+/// NOT @sdk, and gated on INTERNAL ORIGIN in its handler. Its argument names WHOSE runs to stop, so
+/// the argument IS the authorization decision -- which is the shape memql#2888 hardened, naming
+/// this automation's predecessor as the worked example: a caller who could supply the trigger
+/// payload could reach a @serverOnly construct with any user's id. Internal origin requires BOTH a
+/// trusted source (an automation from the registered tree) and a payload the caller did not supply,
+/// so a caller-submitted bundle and a direct client call are both refused. A cluster-owner floor
+/// would not have stopped that attack: the payload is what is chosen, not the role.
+@executor("integration.work.cancelComputerUseRuns")
+@description("Ask every in-flight run that used the owner's machines to stop, after their computer-use kill switch was engaged.")
+builtin cancelComputerUseRuns {
+  ownerUserId  string!  @description("The v1:identity:user whose computer-use runs should stop.")
+}
+
+// ---- approval-driven specialist training (memql#5063) ----
+
+/// Ask for a specialist to be trained, as a decision a person makes rather than a thing an agent
+/// does. Raises a skillMint approval on one of the caller's runs; approving it opens the
+/// trainSpecialist work -- the SAME template the refresh cadence opens, so approval and cadence
+/// cannot drift into two trainers.
+///
+/// The successor to the planner agent emitting `spawnTrainingPlan`, whose loop was deleted in
+/// memql#5052 (design record section F: createSpecialist / extendSpecialist / spawnTrainingPlan
+/// "become skill mint and skill training under the same gates"). It keeps that shape: the request
+/// hangs on a RUN, because an approval with no run is a question nobody can answer.
+///
+/// Two gates survive the port, and both are cost-control properties: a specialist with no
+/// domain-bearing skill ESCALATES for feedback rather than starting a bounded tool loop with
+/// nowhere to write, and the approval itself is the idempotency -- one approved decision starts
+/// exactly one training run, inherited from the pending-list resolution rather than re-implemented.
+///
+/// It does NOT check the domain here. A person may attach a domain-bearing skill between asking and
+/// deciding, and refusing at the request would make the fix unreachable from the surface showing
+/// the problem.
+@sdk
+@executor("integration.work.requestSpecialistTraining")
+builtin requestSpecialistTraining {
+  runId         string!  @description("The caller's v1:work:run the request is raised on.")
+  specialistId  string!  @description("The v1:agents:agent to train.")
+  topic         string   @description("What to train on. The resolved knowledge domain when empty.")
+  mode          string   @enum("initial", "refresh")  @description("initial (default) for a fresh training run, refresh for an incremental update.")
+}
