@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,7 +17,9 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/znasllc-io/memql/core/audio"
 	"github.com/znasllc-io/memql/core/common"
@@ -1413,17 +1414,6 @@ func newOpenAIEmbeddingProvider(cfg ProviderConfig) (AIProvider, error) {
 // OpenAI Chat Provider (Standard non-streaming)
 // ============================================================================
 
-// openAIProjectHeaderClient wraps an HTTP client to inject the OpenAI-Project header.
-type openAIProjectHeaderClient struct {
-	inner     openai.HTTPDoer
-	projectId string
-}
-
-func (c *openAIProjectHeaderClient) Do(req *http.Request) (*http.Response, error) {
-	req.Header.Set("OpenAI-Project", c.projectId)
-	return c.inner.Do(req)
-}
-
 // resolveOpenAIProjectId returns the OpenAI-Project header value for a
 // provider config, preferring auth.projectId when the caller set it in
 // a .memql override, and falling back to MEMQL_AI_OPENAI_PROJECT_ID
@@ -1436,6 +1426,37 @@ func resolveOpenAIProjectId(cfg ProviderConfig) string {
 		return pid
 	}
 	return strings.TrimSpace(os.Getenv("MEMQL_AI_OPENAI_PROJECT_ID"))
+}
+
+// newOpenAIClient builds the official SDK's client for a provider config.
+//
+// ONE constructor for every OpenAI client the engine builds, for the reason
+// newAnthropicClient exists: the credential is chosen in exactly one place. It
+// takes a static key today; the OpenAI federation switch replaces that single
+// option with the exchanger's middleware and nothing else in this file moves.
+//
+// The project id is an option rather than an HTTP wrapper now. Two hand-written
+// wrappers used to set the OpenAI-Project header by composing over the client,
+// which meant the header's presence depended on the ORDER the guarded transport
+// and the wrapper were composed in -- and one of the two orders silently sent
+// the header on some calls and not others.
+func newOpenAIClient(cfg ProviderConfig, httpClient *http.Client) (*openai.Client, error) {
+	apiKey := strings.TrimSpace(cfg.Auth["apiKey"])
+	if apiKey == "" {
+		return nil, fmt.Errorf("provider %q missing auth.apiKey", cfg.Name)
+	}
+	opts := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+		option.WithHTTPClient(httpClient),
+	}
+	if baseURL := strings.TrimSpace(cfg.Auth["baseURL"]); baseURL != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
+	}
+	if projectId := resolveOpenAIProjectId(cfg); projectId != "" {
+		opts = append(opts, option.WithProject(projectId))
+	}
+	client := openai.NewClient(opts...)
+	return &client, nil
 }
 
 type openAIProvider struct {
@@ -1452,21 +1473,11 @@ var _ common.ChatStructuredProvider = (*openAIProvider)(nil)
 var _ common.VisionAIProvider = (*openAIProvider)(nil)
 
 func newOpenAIProvider(cfg ProviderConfig) (AIProvider, error) {
-	apiKey := strings.TrimSpace(cfg.Auth["apiKey"])
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q missing auth.apiKey", cfg.Name)
+	// Route through the global LLM circuit breaker (memql#825).
+	client, err := newOpenAIClient(cfg, guardedHTTPClient(nil))
+	if err != nil {
+		return nil, err
 	}
-	config := openai.DefaultConfig(apiKey)
-	if baseURL := strings.TrimSpace(cfg.Auth["baseURL"]); baseURL != "" {
-		config.BaseURL = baseURL
-	}
-	// Route through the global LLM circuit breaker (memql#825) before the
-	// optional project-header wrap composes over it.
-	config.HTTPClient = guardedHTTPClient(nil)
-	if projectId := resolveOpenAIProjectId(cfg); projectId != "" {
-		config.HTTPClient = &openAIProjectHeaderClient{inner: config.HTTPClient, projectId: projectId}
-	}
-	client := openai.NewClientWithConfig(config)
 	return &openAIProvider{
 		client: client,
 		model:  cfg.Model,
@@ -1481,32 +1492,27 @@ func (p *openAIProvider) Call(ctx context.Context, prompt string) (any, error) {
 	if strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
-	req := openai.ChatCompletionRequest{
-		Model: p.model,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
-			},
-		},
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage(prompt)},
 	}
 
 	// Only set temperature/topP when explicitly configured (some models reject these params)
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 
 	// Support both parameter names for compatibility
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1538,26 +1544,26 @@ func (p *openAIProvider) CallChat(ctx context.Context, messages []common.ChatMes
 
 	openAIMessages := toOpenAIChatMessages(messages)
 
-	req := openai.ChatCompletionRequest{
-		Model:    p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
 		Messages: openAIMessages,
 	}
 
 	// Only set temperature/topP when explicitly configured (some models reject these params)
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -1597,35 +1603,47 @@ func (p *openAIProvider) CallChatStructuredWithUsage(ctx context.Context, messag
 		name = "response"
 	}
 
+	// The official SDK types response_format's `schema` as `any` where the
+	// community one took json.RawMessage. Decoding it here rather than handing
+	// over the raw bytes is what makes the wire identical: a json.RawMessage
+	// assigned to an `any` field marshals as a base64 STRING, not as the
+	// object OpenAI expects, and the failure is a 400 about the schema rather
+	// than about the encoding. The recorded fixture is what proves this.
+	var schemaValue any
+	if err := json.Unmarshal(schema.Schema, &schemaValue); err != nil {
+		return "", common.ChatUsage{}, fmt.Errorf("structured chat schema is not valid JSON: %w", err)
+	}
+
 	openAIMessages := toOpenAIChatMessages(messages)
 
-	req := openai.ChatCompletionRequest{
-		Model:    p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
 		Messages: openAIMessages,
-		ResponseFormat: &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
-			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:        name,
-				Description: schema.Description,
-				Schema:      json.RawMessage(schema.Schema),
-				Strict:      schema.Strict,
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+					Name:        name,
+					Description: openai.String(schema.Description),
+					Schema:      schemaValue,
+					Strict:      openai.Bool(schema.Strict),
+				},
 			},
 		},
 	}
 
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return "", common.ChatUsage{}, err
 	}
@@ -1661,12 +1679,12 @@ func (p *openAIProvider) CallChatStructuredWithUsage(ctx context.Context, messag
 			return "", common.ChatUsage{}, fmt.Errorf("model refused structured output: %s", refusal)
 		}
 		switch choice.FinishReason {
-		case openai.FinishReasonLength:
+		case "length":
 			return "", common.ChatUsage{}, fmt.Errorf(
 				"empty content with finish_reason=length (model %q hit completion-token cap before producing output -- raise maxCompletionTokens or shrink the schema/input)",
 				p.model,
 			)
-		case openai.FinishReasonContentFilter:
+		case "content_filter":
 			return "", common.ChatUsage{}, fmt.Errorf("empty content with finish_reason=content_filter (response was suppressed by safety filter)")
 		case "":
 			return "", common.ChatUsage{}, fmt.Errorf("empty content with no finish_reason returned (model %q may not exist or returned a malformed response)", p.model)
@@ -1689,30 +1707,30 @@ func (p *openAIProvider) CallChatWithTools(ctx context.Context, messages []commo
 	openAIMessages := toOpenAIChatMessages(messages)
 	openAITools := toOpenAITools(tools)
 
-	req := openai.ChatCompletionRequest{
-		Model:      p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:      openai.ChatModel(p.model),
 		Messages:   openAIMessages,
 		Tools:      openAITools,
-		ToolChoice: "auto",
+		ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: openai.String("auto")},
 		// Prefer sequential tool calls for determinism/simplicity.
-		ParallelToolCalls: false,
+		ParallelToolCalls: openai.Bool(false),
 	}
 
 	// Only set temperature/topP when explicitly configured (some models reject these params)
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1747,38 +1765,30 @@ func (p *openAIProvider) CallVision(ctx context.Context, prompt string, images [
 		return "", fmt.Errorf("at least one image is required")
 	}
 
-	parts := make([]openai.ChatMessagePart, 0, len(images)+1)
+	parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(images)+1)
 	for _, img := range images {
 		encoded := base64.StdEncoding.EncodeToString(img.Data)
 		dataURI := fmt.Sprintf("data:%s;base64,%s", img.MimeType, encoded)
-		parts = append(parts, openai.ChatMessagePart{
-			Type: openai.ChatMessagePartTypeImageURL,
-			ImageURL: &openai.ChatMessageImageURL{
-				URL:    dataURI,
-				Detail: openai.ImageURLDetailAuto,
-			},
-		})
+		parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+			URL:    dataURI,
+			Detail: "auto",
+		}))
 	}
-	parts = append(parts, openai.ChatMessagePart{
-		Type: openai.ChatMessagePartTypeText,
-		Text: prompt,
-	})
+	parts = append(parts, openai.TextContentPart(prompt))
 
-	req := openai.ChatCompletionRequest{
-		Model: p.model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleUser, MultiContent: parts},
-		},
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage(parts)},
 	}
 	if maxTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	} else {
-		req.MaxCompletionTokens = 1000
+		req.MaxCompletionTokens = openai.Int(1000)
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("vision api: %w", err)
 	}
@@ -1799,21 +1809,12 @@ type openAIStreamProvider struct {
 }
 
 func newOpenAIStreamProvider(cfg ProviderConfig) (AIProvider, error) {
-	apiKey := strings.TrimSpace(cfg.Auth["apiKey"])
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q missing auth.apiKey", cfg.Name)
+	// The streaming client is tuned for long-lived responses rather than the
+	// guarded client's request/response shape.
+	client, err := newOpenAIClient(cfg, streamingHTTPClient())
+	if err != nil {
+		return nil, err
 	}
-	config := openai.DefaultConfig(apiKey)
-	if baseURL := strings.TrimSpace(cfg.Auth["baseURL"]); baseURL != "" {
-		config.BaseURL = baseURL
-	}
-	// Tune the HTTP client BEFORE the project-header wrap so the
-	// projectId layer composes over the timeout-tuned transport.
-	config.HTTPClient = streamingHTTPClient()
-	if projectId := resolveOpenAIProjectId(cfg); projectId != "" {
-		config.HTTPClient = &openAIProjectHeaderClient{inner: config.HTTPClient, projectId: projectId}
-	}
-	client := openai.NewClientWithConfig(config)
 	return &openAIStreamProvider{
 		client: client,
 		model:  cfg.Model,
@@ -1867,26 +1868,26 @@ func (p *openAIStreamProvider) CallChat(ctx context.Context, messages []common.C
 
 	openAIMessages := toOpenAIChatMessages(messages)
 
-	req := openai.ChatCompletionRequest{
-		Model:    p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
 		Messages: openAIMessages,
 	}
 
 	// Only set temperature/topP when explicitly configured (some models reject these params)
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -1908,29 +1909,29 @@ func (p *openAIStreamProvider) CallChatWithTools(ctx context.Context, messages [
 	openAIMessages := toOpenAIChatMessages(messages)
 	openAITools := toOpenAITools(tools)
 
-	req := openai.ChatCompletionRequest{
-		Model:             p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:             openai.ChatModel(p.model),
 		Messages:          openAIMessages,
 		Tools:             openAITools,
-		ToolChoice:        "auto",
-		ParallelToolCalls: false,
+		ToolChoice:        openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: openai.String("auto")},
+		ParallelToolCalls: openai.Bool(false),
 	}
 
 	// Only set temperature/topP when explicitly configured (some models reject these params)
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, req)
+	resp, err := p.client.Chat.Completions.New(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1956,11 +1957,11 @@ func (p *openAIStreamProvider) CallChatWithTools(ctx context.Context, messages [
 	return result, nil
 }
 
-func toOpenAITools(tools []common.ToolDefinition) []openai.Tool {
+func toOpenAITools(tools []common.ToolDefinition) []openai.ChatCompletionToolUnionParam {
 	if len(tools) == 0 {
 		return nil
 	}
-	out := make([]openai.Tool, 0, len(tools))
+	out := make([]openai.ChatCompletionToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		name := strings.TrimSpace(t.Name)
 		if name == "" {
@@ -1974,58 +1975,81 @@ func toOpenAITools(tools []common.ToolDefinition) []openai.Tool {
 				"additionalProperties": false,
 			}
 		}
-		out = append(out, openai.Tool{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
-				Name:        name,
-				Description: strings.TrimSpace(t.Description),
-				Parameters:  params,
-			},
-		})
+		out = append(out, openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
+			Name:        name,
+			Description: openai.String(strings.TrimSpace(t.Description)),
+			Parameters:  toFunctionParameters(params),
+		}))
 	}
 	return out
 }
 
-func toOpenAIChatMessages(messages []common.ChatMessage) []openai.ChatCompletionMessage {
+// toFunctionParameters narrows a tool's declared input schema to the map the
+// SDK's function-definition parameter takes.
+//
+// A tool whose schema is not an object is given the empty object schema rather
+// than nil: `"parameters": null` is refused by OpenAI, and the refusal names
+// the tool, not the schema that produced it.
+func toFunctionParameters(schema any) shared.FunctionParameters {
+	if m, ok := schema.(map[string]any); ok {
+		return shared.FunctionParameters(m)
+	}
+	if m, ok := schema.(shared.FunctionParameters); ok {
+		return m
+	}
+	return shared.FunctionParameters{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": false,
+	}
+}
+
+func toOpenAIChatMessages(messages []common.ChatMessage) []openai.ChatCompletionMessageParamUnion {
 	if len(messages) == 0 {
 		return nil
 	}
-	out := make([]openai.ChatCompletionMessage, len(messages))
+	out := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
-		role := openai.ChatMessageRoleUser
 		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
 		case "system":
-			role = openai.ChatMessageRoleSystem
-		case "assistant":
-			role = openai.ChatMessageRoleAssistant
-		case "user":
-			role = openai.ChatMessageRoleUser
+			out[i] = openai.SystemMessage(msg.Content)
 		case "tool":
-			role = openai.ChatMessageRoleTool
-		}
-		var toolCalls []openai.ToolCall
-		if len(msg.ToolCalls) > 0 {
-			toolCalls = make([]openai.ToolCall, 0, len(msg.ToolCalls))
+			out[i] = openai.ToolMessage(msg.Content, strings.TrimSpace(msg.ToolCallId))
+		case "assistant":
+			// The assistant message is built field by field rather than through
+			// openai.AssistantMessage because it is the only role that carries
+			// tool calls, and those must be preserved in the history or the
+			// provider rejects the tool RESULT that follows them.
+			assistant := &openai.ChatCompletionAssistantMessageParam{}
+			if msg.Content != "" {
+				assistant.Content.OfString = openai.String(msg.Content)
+			}
+			if name := strings.TrimSpace(msg.Name); name != "" {
+				assistant.Name = openai.String(name)
+			}
 			for _, tc := range msg.ToolCalls {
 				if strings.TrimSpace(tc.Name) == "" {
 					continue
 				}
-				toolCalls = append(toolCalls, openai.ToolCall{
-					ID:   strings.TrimSpace(tc.ID),
-					Type: openai.ToolTypeFunction,
-					Function: openai.FunctionCall{
-						Name:      strings.TrimSpace(tc.Name),
-						Arguments: strings.TrimSpace(tc.Arguments),
+				assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallUnionParam{
+					OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+						ID: strings.TrimSpace(tc.ID),
+						Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+							Name:      strings.TrimSpace(tc.Name),
+							Arguments: strings.TrimSpace(tc.Arguments),
+						},
 					},
 				})
 			}
-		}
-		out[i] = openai.ChatCompletionMessage{
-			Role:       role,
-			Content:    msg.Content,
-			Name:       strings.TrimSpace(msg.Name),
-			ToolCallID: strings.TrimSpace(msg.ToolCallId),
-			ToolCalls:  toolCalls,
+			out[i] = openai.ChatCompletionMessageParamUnion{OfAssistant: assistant}
+		default:
+			// Everything unrecognised is a user turn, which is what the
+			// community SDK's role default did.
+			user := openai.UserMessage(msg.Content)
+			if name := strings.TrimSpace(msg.Name); name != "" && user.OfUser != nil {
+				user.OfUser.Name = openai.String(name)
+			}
+			out[i] = user
 		}
 	}
 	return out
@@ -2040,35 +2064,30 @@ func (p *openAIStreamProvider) CallStream(ctx context.Context, prompt string) (<
 		return nil, fmt.Errorf("prompt is required")
 	}
 
-	req := openai.ChatCompletionRequest{
-		Model: p.model,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
-			},
-		},
-		Stream: true,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage(prompt)},
 	}
 
 	// Only set temperature/topP when explicitly configured (some models reject these params)
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	stream, err := p.client.CreateChatCompletionStream(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stream: %w", err)
-	}
+	// NewStreaming returns no error: the request failure surfaces on the first
+	// Next()/Err() instead. That is why the error arm below is inside the
+	// goroutine rather than beside the call -- a failed stream is delivered as
+	// a chunk carrying the error, exactly as a mid-stream failure was.
+	stream := p.client.Chat.Completions.NewStreaming(ctx, req)
 
 	chunks := make(chan StreamChunk, 100)
 
@@ -2076,21 +2095,17 @@ func (p *openAIStreamProvider) CallStream(ctx context.Context, prompt string) (<
 		defer close(chunks)
 		defer stream.Close()
 
-		for {
-			resp, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				chunks <- StreamChunk{Done: true}
-				return
-			}
-			if err != nil {
-				chunks <- StreamChunk{Error: err, Done: true}
-				return
-			}
-
-			if len(resp.Choices) > 0 && resp.Choices[0].Delta.Content != "" {
-				chunks <- StreamChunk{Content: resp.Choices[0].Delta.Content}
+		for stream.Next() {
+			chunk := stream.Current()
+			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+				chunks <- StreamChunk{Content: chunk.Choices[0].Delta.Content}
 			}
 		}
+		if err := stream.Err(); err != nil {
+			chunks <- StreamChunk{Error: err, Done: true}
+			return
+		}
+		chunks <- StreamChunk{Done: true}
 	}()
 
 	return chunks, nil
@@ -2108,28 +2123,24 @@ func (p *openAIStreamProvider) CallChatStream(ctx context.Context, messages []co
 
 	openAIMessages := toOpenAIChatMessages(messages)
 
-	req := openai.ChatCompletionRequest{
-		Model:    p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
 		Messages: openAIMessages,
-		Stream:   true,
 	}
 
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	stream, err := p.client.CreateChatCompletionStream(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chat stream: %w", err)
-	}
+	stream := p.client.Chat.Completions.NewStreaming(ctx, req)
 
 	chunks := make(chan common.StreamChunk, 100)
 
@@ -2137,21 +2148,17 @@ func (p *openAIStreamProvider) CallChatStream(ctx context.Context, messages []co
 		defer close(chunks)
 		defer stream.Close()
 
-		for {
-			resp, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				chunks <- common.StreamChunk{Done: true}
-				return
-			}
-			if err != nil {
-				chunks <- common.StreamChunk{Error: err, Done: true}
-				return
-			}
-
-			if len(resp.Choices) > 0 && resp.Choices[0].Delta.Content != "" {
-				chunks <- common.StreamChunk{Content: resp.Choices[0].Delta.Content}
+		for stream.Next() {
+			chunk := stream.Current()
+			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+				chunks <- common.StreamChunk{Content: chunk.Choices[0].Delta.Content}
 			}
 		}
+		if err := stream.Err(); err != nil {
+			chunks <- common.StreamChunk{Error: err, Done: true}
+			return
+		}
+		chunks <- common.StreamChunk{Done: true}
 	}()
 
 	return chunks, nil
@@ -2170,14 +2177,13 @@ func (p *openAIStreamProvider) CallChatStreamWithTools(ctx context.Context, mess
 	openAIMessages := toOpenAIChatMessages(messages)
 	openAITools := toOpenAITools(tools)
 
-	req := openai.ChatCompletionRequest{
-		Model:    p.model,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(p.model),
 		Messages: openAIMessages,
-		Stream:   true,
 	}
 	if len(openAITools) > 0 {
 		req.Tools = openAITools
-		req.ToolChoice = "auto"
+		req.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: openai.String("auto")}
 		// Let the model emit multiple sequential tool calls in one
 		// response. Critical for multi-step takeovers (e.g. a frontend
 		// UI-operator session = request + navigate + click + click +
@@ -2185,25 +2191,22 @@ func (p *openAIStreamProvider) CallChatStreamWithTools(ctx context.Context, mess
 		// streaming tool-loop iteration budget and the agent stalls
 		// mid-sequence. The server-side loop executes parallel calls
 		// in order and feeds all results back before the next turn.
-		req.ParallelToolCalls = true
+		req.ParallelToolCalls = openai.Bool(true)
 	}
 
 	if _, ok := p.params["temperature"]; ok {
-		req.Temperature = float32(numberParam(p.params["temperature"], 0.0))
+		req.Temperature = openai.Float(numberParam(p.params["temperature"], 0.0))
 	}
 	if _, ok := p.params["topP"]; ok {
-		req.TopP = float32(numberParam(p.params["topP"], 1.0))
+		req.TopP = openai.Float(numberParam(p.params["topP"], 1.0))
 	}
 	if maxCompletionTokens, ok := intParam(p.params["maxCompletionTokens"]); ok {
-		req.MaxCompletionTokens = maxCompletionTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 	} else if maxTokens, ok := intParam(p.params["maxTokens"]); ok {
-		req.MaxCompletionTokens = maxTokens
+		req.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
-	stream, err := p.client.CreateChatCompletionStream(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stream with tools: %w", err)
-	}
+	stream := p.client.Chat.Completions.NewStreaming(ctx, req)
 
 	chunks := make(chan common.StreamToolChunk, 100)
 
@@ -2211,30 +2214,22 @@ func (p *openAIStreamProvider) CallChatStreamWithTools(ctx context.Context, mess
 		defer close(chunks)
 		defer stream.Close()
 
-		for {
-			resp, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				chunks <- common.StreamToolChunk{Done: true}
-				return
-			}
-			if err != nil {
-				chunks <- common.StreamToolChunk{Error: err, Done: true}
-				return
-			}
-			if len(resp.Choices) == 0 {
+		for stream.Next() {
+			current := stream.Current()
+			if len(current.Choices) == 0 {
 				continue
 			}
 
-			delta := resp.Choices[0].Delta
+			delta := current.Choices[0].Delta
 			chunk := common.StreamToolChunk{Content: delta.Content}
 
 			for _, tc := range delta.ToolCalls {
-				idx := 0
-				if tc.Index != nil {
-					idx = *tc.Index
-				}
+				// Index is a plain int64 in the official SDK where the
+				// community one made it a *int. The zero value means the same
+				// thing in both -- the first tool call of the turn -- so the
+				// nil-check the pointer needed simply goes away.
 				chunk.ToolCalls = append(chunk.ToolCalls, common.ToolCallDelta{
-					Index:     idx,
+					Index:     int(tc.Index),
 					ID:        strings.TrimSpace(tc.ID),
 					Name:      strings.TrimSpace(tc.Function.Name),
 					Arguments: tc.Function.Arguments,
@@ -2245,6 +2240,11 @@ func (p *openAIStreamProvider) CallChatStreamWithTools(ctx context.Context, mess
 				chunks <- chunk
 			}
 		}
+		if err := stream.Err(); err != nil {
+			chunks <- common.StreamToolChunk{Error: err, Done: true}
+			return
+		}
+		chunks <- common.StreamToolChunk{Done: true}
 	}()
 
 	return chunks, nil
@@ -3159,35 +3159,63 @@ func extractAnthropicText(resp *anthropic.Message) string {
 // OpenAI TTS Provider (Text-to-Speech)
 // ============================================================================
 
-// openAITTSEndpoint is a var rather than a const so the recorded-request wire
-// test can point it at an httptest server. The hand-rolled speech call is one
-// of the two OpenAI calls that never went through an SDK and therefore has no
-// baseURL option to override; giving it the same seam the embedding client
-// already has (its own baseURL field) is what lets its wire shape be recorded
-// before the migration moves it onto the official SDK.
-var openAITTSEndpoint = "https://api.openai.com/v1/audio/speech"
-
 // Target duration per chunk for progressive decode (milliseconds)
 // 200ms provides good balance between latency and overhead
 const ttsTargetChunkDurationMS = 200
 
 type openAITTSProvider struct {
-	apiKey string
+	client *openai.Client
 	model  string
 	params map[string]any
 }
 
 func newOpenAITTSProvider(cfg ProviderConfig) (AIProvider, error) {
-	apiKey := strings.TrimSpace(cfg.Auth["apiKey"])
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q missing auth.apiKey", cfg.Name)
+	// Speech rides the guarded transport for the first time here (memql#5088).
+	// The guard fingerprints /chat/completions only, so this call is observed
+	// by the transport and deliberately not counted against the LLM loop caps.
+	client, err := newOpenAIClient(cfg, guardedHTTPClient(nil))
+	if err != nil {
+		return nil, err
 	}
-
 	return &openAITTSProvider{
-		apiKey: apiKey,
+		client: client,
 		model:  cfg.Model,
 		params: cfg.Params,
 	}, nil
+}
+
+// speak performs one /audio/speech call and returns the raw audio bytes.
+//
+// Both callers -- Synthesize, which honours the configured format, and
+// synthesizePCM, which forces pcm so it can chunk the result -- go through it,
+// so the request shape is written once. The SDK hands back the *http.Response
+// unread, which is what this endpoint needs: the body is audio, not JSON.
+func (p *openAITTSProvider) speak(ctx context.Context, text, voice, responseFormat string) ([]byte, error) {
+	if p == nil || p.client == nil {
+		return nil, fmt.Errorf("TTS provider is not configured")
+	}
+	resp, err := p.client.Audio.Speech.New(ctx, openai.AudioSpeechNewParams{
+		Model:          openai.SpeechModel(p.model),
+		Input:          text,
+		Voice:          openai.AudioSpeechNewParamsVoiceUnion{OfString: openai.String(voice)},
+		ResponseFormat: openai.AudioSpeechNewParamsResponseFormat(responseFormat),
+		Speed:          openai.Float(numberParam(p.params["speed"], 1.0)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("TTS request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("TTS request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	audioBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read TTS response: %w", err)
+	}
+	return audioBytes, nil
 }
 
 // Call is not the primary interface for TTS - use Synthesize instead.
@@ -3217,42 +3245,7 @@ func (p *openAITTSProvider) Synthesize(ctx context.Context, text string, voice s
 		voice = stringParam(p.params["voice"], "nova")
 	}
 
-	speed := numberParam(p.params["speed"], 1.0)
-	responseFormat := stringParam(p.params["format"], "pcm")
-
-	reqBody := map[string]any{
-		"model":           p.model,
-		"input":           text,
-		"voice":           voice,
-		"response_format": responseFormat,
-		"speed":           speed,
-	}
-
-	reqJSON, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAITTSEndpoint, bytes.NewReader(reqJSON))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create TTS request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("TTS request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("TTS request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	audio, err := io.ReadAll(resp.Body)
+	audio, err := p.speak(ctx, text, voice, stringParam(p.params["format"], "pcm"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read TTS audio response: %w", err)
 	}
@@ -3296,46 +3289,8 @@ func (p *openAITTSProvider) synthesizePCM(ctx context.Context, text string, voic
 		voice = stringParam(p.params["voice"], "nova")
 	}
 
-	speed := numberParam(p.params["speed"], 1.0)
-
-	reqBody := map[string]any{
-		"model":           p.model,
-		"input":           text,
-		"voice":           voice,
-		"response_format": "pcm", // Always request PCM for reliable chunking
-		"speed":           speed,
-	}
-
-	reqJSON, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAITTSEndpoint, bytes.NewReader(reqJSON))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create TTS request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("TTS request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("TTS request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	pcmData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read TTS response: %w", err)
-	}
-
-	return pcmData, nil
+	// Always request PCM for reliable chunking, whatever the configured format.
+	return p.speak(ctx, text, voice, "pcm")
 }
 
 // streamWAVChunks splits PCM audio into independently decodable WAV chunks.

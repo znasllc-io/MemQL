@@ -287,9 +287,40 @@ func assertRecordedShape(t *testing.T, class string, got recordedRequest) {
 	if err := json.Unmarshal(encoded, &gotValue); err != nil {
 		t.Fatalf("recorded request is not valid JSON: %v", err)
 	}
+	dropFalseStreamKey(wantValue)
+	dropFalseStreamKey(gotValue)
 	if !jsonEqual(wantValue, gotValue) {
 		t.Errorf("recorded request for %q does not match %s\n--- want ---\n%s\n--- got ---\n%s",
 			class, path, string(want), string(encoded))
+	}
+}
+
+// dropFalseStreamKey removes `"stream": false` from a recorded body.
+//
+// THIS IS THE ONE NORMALIZATION, AND IT IS NARROW ON PURPOSE. Measured across
+// all nine fixtures, `stream` is the ONLY key whose value differs between the
+// community SDK and openai-go/v3: the community SDK serialised the request
+// struct's zero-valued Stream field as `false`, while v3 has no Stream field at
+// all -- the streaming and non-streaming calls are different methods, and the
+// SDK sets `stream: true` itself in NewStreaming. `stream: false` and an
+// absent `stream` are the same request to OpenAI, whose default is false.
+//
+// It only ever drops the key when the value is FALSE. A `stream: true` is left
+// in place and compared, so the one direction that would matter -- a streaming
+// call that stopped asking to stream, or a non-streaming call that started --
+// still fails the fixture. TestOpenAIWireStreamKeyPresence asserts both halves
+// directly rather than leaving them to this helper's absence.
+func dropFalseStreamKey(value any) {
+	obj, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	body, ok := obj["body"].(map[string]any)
+	if !ok {
+		return
+	}
+	if streaming, present := body["stream"].(bool); present && !streaming {
+		delete(body, "stream")
 	}
 }
 
@@ -593,7 +624,7 @@ func TestOpenAIWireEmbeddings(t *testing.T) {
 	srv, rec := newRecordingOpenAIServer(t)
 
 	client := NewOpenAIEmbeddingClient("sk-wire-test", "text-embedding-3-small", 1536)
-	client.baseURL = srv.URL + "/v1/embeddings"
+	client.baseURL = srv.URL + "/v1"
 
 	vectors, err := client.EmbedBatch(context.Background(), []string{"first", "second"})
 	if err != nil {
@@ -611,15 +642,14 @@ func TestOpenAIWireEmbeddings(t *testing.T) {
 func TestOpenAIWireSpeech(t *testing.T) {
 	srv, rec := newRecordingOpenAIServer(t)
 
-	previous := openAITTSEndpoint
-	openAITTSEndpoint = srv.URL + "/v1/audio/speech"
-	t.Cleanup(func() { openAITTSEndpoint = previous })
-
 	provider, err := newOpenAITTSProvider(ProviderConfig{
-		Name:   "wireTestOpenAITTS",
-		Type:   "OpenAITTS",
-		Model:  "gpt-4o-mini-tts",
-		Auth:   map[string]string{"apiKey": "sk-wire-test"},
+		Name:  "wireTestOpenAITTS",
+		Type:  "OpenAITTS",
+		Model: "gpt-4o-mini-tts",
+		// The endpoint override that recorded this fixture before the migration
+		// is gone: speech is an SDK call now, so the base URL is the seam, the
+		// same one every other OpenAI call site in this file uses.
+		Auth:   map[string]string{"apiKey": "sk-wire-test", "baseURL": srv.URL + "/v1"},
 		Params: map[string]any{"voice": "nova", "speed": 1.0, "format": "pcm"},
 	})
 	if err != nil {
@@ -745,31 +775,70 @@ func TestOpenAIWireFixturesAreAllExercised(t *testing.T) {
 	}
 }
 
-// TestOpenAIWireCommunitySDKGatesGpt5SamplingParams pins the client-side gate
-// described above, so that the migration removing it is a visible, deliberate
-// diff rather than a silent widening.
+// TestOpenAIWireGpt5SamplingParamsReachTheVendor is the AFTER half of the
+// decision recorded on wireTestSamplingModel above.
 //
-// AFTER the SDK migration this test is REPLACED by its opposite --
-// TestOpenAIWireGpt5SamplingParamsReachTheVendor -- which asserts the request
-// is sent. Both spellings must never exist at once: the pair of them is the
-// before and after of one decision, not two behaviours the engine supports.
-func TestOpenAIWireCommunitySDKGatesGpt5SamplingParams(t *testing.T) {
+// The community SDK refused, client-side and before any request, to send
+// temperature or top_p for a model whose name begins "gpt-5". The official SDK
+// has no such gate, and this asserts the widening rather than leaving it to be
+// discovered: the request reaches OpenAI, which is the party entitled to
+// decide what it accepts. Its predecessor,
+// TestOpenAIWireCommunitySDKGatesGpt5SamplingParams, was deleted in the same
+// commit -- the two are the before and after of one decision, not two
+// behaviours the engine supports.
+func TestOpenAIWireGpt5SamplingParamsReachTheVendor(t *testing.T) {
 	srv, rec := newRecordingOpenAIServer(t)
 	provider := wireTestChatProvider(t, srv.URL, wireTestShippedModel, map[string]any{
 		"temperature": 0.2,
 	})
 
-	_, err := provider.CallChat(context.Background(), []common.ChatMessage{
+	if _, err := provider.CallChat(context.Background(), []common.ChatMessage{
 		{Role: "user", Content: "hello"},
+	}); err != nil {
+		t.Fatalf("CallChat was refused rather than sent: %v", err)
+	}
+
+	req := rec.Last(t)
+	if got, _ := req.Body["temperature"].(float64); got != 0.2 {
+		t.Errorf("temperature reached the wire as %v, want 0.2; body=%s", req.Body["temperature"], string(req.Raw))
+	}
+	if got, _ := req.Body["model"].(string); got != wireTestShippedModel {
+		t.Errorf("model is %q, want %q", got, wireTestShippedModel)
+	}
+}
+
+// TestOpenAIWireStreamKeyPresence asserts both halves of the one key the
+// migration changed, directly rather than through dropFalseStreamKey's
+// silence: a non-streaming call must not ask to stream, and a streaming one
+// must.
+func TestOpenAIWireStreamKeyPresence(t *testing.T) {
+	t.Run("non-streaming omits it", func(t *testing.T) {
+		srv, rec := newRecordingOpenAIServer(t)
+		provider := wireTestChatProvider(t, srv.URL, "", nil)
+		if _, err := provider.CallChat(context.Background(),
+			[]common.ChatMessage{{Role: "user", Content: "hello"}}); err != nil {
+			t.Fatalf("CallChat: %v", err)
+		}
+		body := rec.Last(t).Body
+		if value, present := body["stream"]; present && value != false {
+			t.Errorf("non-streaming request carries stream=%v", value)
+		}
 	})
-	if err == nil {
-		t.Fatalf("expected the community SDK to refuse temperature on %q before any request; "+
-			"it did not, and %d request(s) reached the server", wireTestShippedModel, rec.Count())
-	}
-	if !strings.Contains(err.Error(), "beta-limitations") {
-		t.Errorf("refusal came from somewhere other than the reasoning validator: %v", err)
-	}
-	if rec.Count() != 0 {
-		t.Errorf("the refusal was not client-side: %d request(s) reached the server", rec.Count())
-	}
+
+	t.Run("streaming carries stream=true", func(t *testing.T) {
+		srv, rec := newRecordingOpenAIServer(t)
+		provider := wireTestStreamProvider(t, srv.URL, "", nil)
+		streamer := provider.(interface {
+			CallStream(context.Context, string) (<-chan StreamChunk, error)
+		})
+		chunks, err := streamer.CallStream(context.Background(), "hello")
+		if err != nil {
+			t.Fatalf("CallStream: %v", err)
+		}
+		for range chunks {
+		}
+		if streaming, _ := rec.Last(t).Body["stream"].(bool); !streaming {
+			t.Errorf("streaming request does not carry stream=true; body=%s", string(rec.Last(t).Raw))
+		}
+	})
 }

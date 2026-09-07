@@ -5,25 +5,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"mime"
+	"path/filepath"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
-
-// projectHeaderClient wraps an HTTP client to inject the OpenAI-Project header.
-type projectHeaderClient struct {
-	inner     openai.HTTPDoer
-	projectId string
-}
-
-func (c *projectHeaderClient) Do(req *http.Request) (*http.Response, error) {
-	req.Header.Set("OpenAI-Project", c.projectId)
-	return c.inner.Do(req)
-}
 
 const (
 	// defaultWhisperModel is the OpenAI transcription model used when
@@ -64,17 +55,14 @@ func NewOpenAIWhisperProvider(apiKey, projectId string, logger *slog.Logger) *Op
 		logger = NewLogger()
 	}
 
-	config := openai.DefaultConfig(apiKey)
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if projectId != "" {
-		config.HTTPClient = &projectHeaderClient{
-			inner:     config.HTTPClient,
-			projectId: projectId,
-		}
+		opts = append(opts, option.WithProject(projectId))
 	}
-	client := openai.NewClientWithConfig(config)
+	client := openai.NewClient(opts...)
 
 	return &OpenAIWhisperProvider{
-		client: client,
+		client: &client,
 		logger: logger,
 	}
 }
@@ -186,17 +174,24 @@ func (s *whisperSession) Finalize(ctx context.Context) (*FinalTranscription, err
 	// Whisper API accepts various formats, we'll send as WAV
 	audioFile := s.prepareAudioFile(audioData)
 
-	// Build transcription request
-	req := openai.AudioRequest{
-		Model:    resolveWhisperModel(),
-		Reader:   bytes.NewReader(audioFile),
-		FilePath: s.getFilePath(),
+	// Build transcription request.
+	//
+	// THE FILENAME IS AN ARGUMENT NOW, and it is load-bearing. The community
+	// SDK took a FilePath and derived the multipart filename from it; the
+	// official SDK takes an io.Reader and defaults the name to
+	// "anonymous_file" when it is not told one. OpenAI identifies the audio
+	// format from an extension-bearing filename, so dropping it would surface
+	// as a 400 naming the FORMAT and never the filename.
+	// TestWhisperWireTranscription asserts the name that goes on the wire.
+	req := openai.AudioTranscriptionNewParams{
+		Model: openai.AudioModel(resolveWhisperModel()),
+		File:  openai.File(bytes.NewReader(audioFile), s.getFilePath(), audioContentType(s.getFilePath())),
 	}
 
 	// Add language hint if provided (normalize to ISO-639-1 format)
 	if s.config.LanguageHint != "" {
 		normalizedLang := normalizeLanguageCode(s.config.LanguageHint)
-		req.Language = normalizedLang
+		req.Language = openai.String(normalizedLang)
 		s.logger.Debug("language hint applied",
 			"original", s.config.LanguageHint,
 			"normalized", normalizedLang,
@@ -204,14 +199,14 @@ func (s *whisperSession) Finalize(ctx context.Context) (*FinalTranscription, err
 	}
 
 	// Use JSON format for structured response (verbose_json not supported by gpt-4o-transcribe)
-	req.Format = openai.AudioResponseFormatJSON
+	req.ResponseFormat = openai.AudioResponseFormatJSON
 
 	s.logger.Debug("calling whisper API",
 		"audioSize", len(audioData),
 		"language", s.config.LanguageHint,
 	)
 
-	resp, err := s.provider.client.CreateTranscription(ctx, req)
+	resp, err := s.provider.client.Audio.Transcriptions.New(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("whisper transcription failed: %w", err)
 	}
@@ -288,6 +283,28 @@ func (s *whisperSession) prepareAudioFile(audioData []byte) []byte {
 		// Assume PCM16 and wrap in WAV
 		return createWAVFile(audioData, s.config.SampleRate, s.config.Channels)
 	}
+}
+
+// audioContentType returns the Content-Type for the multipart file part.
+//
+// IT MUST NOT BE EMPTY. OpenAI rejects the file part when the part carries no
+// Content-Type (the community SDK carried the same workaround and cited its
+// own issue #1010 for it), and the official SDK refuses an empty string
+// outright rather than substituting one -- "apiform: invalid content type".
+//
+// The rule is the community SDK's, ported rather than reinvented so the
+// migration does not change the bytes: derive from the filename extension, and
+// fall back to the stdlib multipart default when the extension is unknown to
+// this machine's MIME table. That fallback is not hypothetical -- the table is
+// read from system files that differ between a developer's laptop and a
+// distroless container, so a content type derived at runtime is not a constant.
+func audioContentType(filename string) string {
+	if ext := filepath.Ext(filename); ext != "" {
+		if ct := mime.TypeByExtension(ext); ct != "" {
+			return ct
+		}
+	}
+	return "application/octet-stream"
 }
 
 // getFilePath returns a filename with appropriate extension for the audio format.

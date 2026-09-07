@@ -1,20 +1,24 @@
 package memql
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
+
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
-// defaultOpenAIEmbeddingsURL is the upstream embeddings endpoint. The client
-// carries it on a field (defaulted here) rather than inlining it at the request
-// site purely so tests can point the client at an httptest server.
-const defaultOpenAIEmbeddingsURL = "https://api.openai.com/v1/embeddings"
+// defaultOpenAIBaseURL is the API root the embeddings call is made against. The
+// client carries it on a field (defaulted here) rather than inlining it at the
+// request site purely so tests can point the client at an httptest server.
+//
+// It is the ROOT rather than the full endpoint since this call moved onto the
+// official SDK, which composes "embeddings" onto it.
+const defaultOpenAIBaseURL = "https://api.openai.com/v1/"
 
 // OpenAIEmbeddingClient implements EmbeddingAIProvider using the OpenAI embeddings API.
 //
@@ -48,8 +52,13 @@ func NewOpenAIEmbeddingClient(apiKey, model string, dimensions int) *OpenAIEmbed
 		apiKey:     apiKey,
 		model:      model,
 		dimensions: dimensions,
-		baseURL:    defaultOpenAIEmbeddingsURL,
-		httpClient: &http.Client{},
+		baseURL:    defaultOpenAIBaseURL,
+		// Embeddings now ride the guarded transport (memql#5088). The LLM guard
+		// fingerprints /chat/completions only, so an embedding call is OBSERVED
+		// by the transport and deliberately NOT counted as an LLM call against
+		// the loop caps -- which is what the cost-control doc always said the
+		// intent was, and what a bare http.Client could not deliver.
+		httpClient: guardedHTTPClient(nil),
 	}
 }
 
@@ -83,67 +92,64 @@ func (c *OpenAIEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) 
 		return nil, nil
 	}
 
-	reqBody := map[string]any{
-		"input":      texts,
-		"model":      c.model,
-		"dimensions": c.dimensions,
+	baseURL := c.baseURL
+	if baseURL == "" {
+		baseURL = defaultOpenAIBaseURL
 	}
-	body, err := json.Marshal(reqBody)
+	httpClient := c.httpClient
+	if httpClient == nil {
+		httpClient = guardedHTTPClient(nil)
+	}
+
+	// The SDK client is built per call rather than held on the struct because
+	// baseURL and httpClient are a TEST SEAM that is written after construction
+	// (openai_embedding_error_test.go), and a memoised client would capture
+	// whichever values happened to exist at construction time. One option-slice
+	// allocation against a network round trip is not a cost worth that trap.
+	client := openai.NewClient(
+		option.WithAPIKey(c.apiKey),
+		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(httpClient),
+	)
+
+	// THE SDK BUILDS AND SENDS THE REQUEST; THIS FILE STILL READS THE BODY.
+	//
+	// WithResponseBodyInto a *[]byte hands back the raw contents and skips the
+	// SDK's own deserialization entirely. That is what keeps the whole error
+	// taxonomy below -- the allow-listed non-200 rendering and the structural
+	// parse-stage error -- working exactly as it did, rather than being
+	// replaced by whatever text the SDK's decoder happens to produce. The
+	// decoder's error text is not a stability contract, and memql#3186's
+	// invariant is only checkable by inspection if the set of error strings
+	// that can escape this file is closed.
+	//
+	// What the SDK is used FOR is the part worth having: the credential, the
+	// base URL, the retry policy, the guarded transport, and a request body
+	// serialised by the vendor's own types.
+	var respBody []byte
+	_, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
+		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
+		Model:      openai.EmbeddingModel(c.model),
+		Dimensions: openai.Int(int64(c.dimensions)),
+	}, option.WithResponseBodyInto(&respBody))
 	if err != nil {
-		return nil, fmt.Errorf("marshal embedding request: %w", err)
-	}
-
-	url := c.baseURL
-	if url == "" {
-		url = defaultOpenAIEmbeddingsURL
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create embedding request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("embedding API call: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		// SIBLING PATH DECISION (memql#3186): left as %w, deliberately.
-		// io.ReadAll surfaces the *reader's* error -- transport-level failures
-		// ("unexpected EOF", "http2: stream error ...", "context deadline
-		// exceeded"). The bytes it managed to read are returned in the first
-		// return value, never folded into the error value. There is no path by
-		// which a response-body byte reaches this string, so wrapping is safe
-		// and the underlying error is worth keeping for errors.Is/As.
-		return nil, fmt.Errorf("read embedding response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		// TRUNCATE-vs-DROP: neither. We drop the body wholesale and replace it
-		// with an allow-list of the vendor's own classification tokens.
+		// THE ERROR-CONTENT INVARIANT SURVIVES THE SDK, and it takes work.
 		//
-		// A fixed-budget truncation was rejected: it bounds the *volume* of
-		// leaked bytes, not their *class*. A 256-byte prefix of a body that has
-		// begun echoing the submitted input -- or of a WAF/proxy interstitial
-		// that quotes request headers -- is still a verbatim leak, and the
-		// issue's own rationale is precisely that the vendor's echo behaviour
-		// can change without MemQL being told. A prefix bound does not survive
-		// that change; an allow-list does.
+		// openai.Error.Error() renders the UNMODIFIED response body
+		// (apierror.go: it formats r.JSON.raw into the message). Returning the
+		// SDK's error unwrapped -- or %w-ing it -- would put the vendor's error
+		// body, which may echo the submitted input, straight into every log
+		// sink that logs these errors verbatim. That is precisely the leak
+		// memql#3186 exists to prevent, reintroduced by an SDK swap that looks
+		// like a refactor.
 		//
-		// A blanket drop was rejected too: `error.type` / `error.code` are the
-		// actual debuggability payload (invalid_api_key, rate_limit_exceeded,
-		// insufficient_quota, context_length_exceeded) and are vendor-defined
-		// enumerations, not free text -- unlike `error.message`, which is prose
-		// the vendor composes and is the one field that could ever quote input.
-		// `message` is therefore never surfaced. The tokens are additionally
-		// shape-checked (see openAIErrorDetail) so that a misbehaving upstream
-		// cannot smuggle content through a field we expected to be an enum.
-		return nil, fmt.Errorf("embedding API error %d%s", resp.StatusCode, openAIErrorDetail(respBody))
+		// So no error from the SDK is ever returned as it stands: it goes
+		// through sanitizeEmbeddingCallError, which keeps the status code and
+		// the vendor's own allow-listed classification tokens and drops
+		// everything else. TestEmbedBatchNon200DoesNotLeakResponseBody is the
+		// negative control, and its canary is a response body that echoes the
+		// submitted text.
+		return nil, sanitizeEmbeddingCallError(err)
 	}
 
 	var result struct {
@@ -177,38 +183,86 @@ func (c *OpenAIEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) 
 	return vectors, nil
 }
 
+// sanitizeEmbeddingCallError converts an error from the OpenAI SDK into one
+// that carries no byte of the upstream response body (memql#3186).
+//
+// It classifies rather than wraps, and the default arm is the important one:
+// an SDK error this function does not RECOGNISE has its message dropped
+// entirely and is reported by Go type alone. That is deliberate and is the
+// opposite of the usual instinct to preserve the message. The invariant this
+// client declares -- "no response byte ever appears in an error from here" --
+// is only checkable by inspection if the set of error texts that can escape is
+// closed. An unrecognised error from a dependency whose error rendering is not
+// a stability contract is exactly the case where preserving the message would
+// make the invariant unverifiable.
+//
+// The two arms that DO keep information:
+//
+//   - *openai.Error is the vendor's own HTTP error. Its RawJSON() is the
+//     response body, which is fed to the SAME allow-list the hand-rolled path
+//     used: error.type and error.code only, shape-checked as enum tokens,
+//     with error.message (the one field that could quote the input) never read.
+//   - a context error is the caller's own cancellation or deadline. It carries
+//     no body by construction and callers test for it with errors.Is, so it is
+//     wrapped rather than flattened.
+func sanitizeEmbeddingCallError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) {
+		// TRUNCATE-vs-DROP: neither. The body is dropped wholesale and replaced
+		// with an allow-list of the vendor's own classification tokens.
+		//
+		// A fixed-budget truncation was rejected: it bounds the VOLUME of
+		// leaked bytes, not their CLASS. A 256-byte prefix of a body that has
+		// begun echoing the submitted input -- or of a WAF/proxy interstitial
+		// that quotes request headers -- is still a verbatim leak, and the
+		// issue's own rationale is precisely that the vendor's echo behaviour
+		// can change without MemQL being told. A prefix bound does not survive
+		// that change; an allow-list does.
+		//
+		// A blanket drop was rejected too: type and code are the actual
+		// debuggability payload (invalid_api_key, rate_limit_exceeded,
+		// insufficient_quota, context_length_exceeded) and are vendor-defined
+		// enumerations, not free text -- unlike message, which is prose the
+		// vendor composes and is the one field that could ever quote input.
+		//
+		// The SDK has already parsed the envelope into typed fields, so the
+		// allow-list is applied to THOSE rather than re-parsing the raw body:
+		// apiErr.Message is simply never read. They are still shape-checked by
+		// errorClassificationToken, because a parsed field is only as much of
+		// an enum as the upstream chose to make it -- a misbehaving vendor
+		// could put prose in `type`, and that is what the shape check is for.
+		return fmt.Errorf("embedding API error %d%s",
+			apiErr.StatusCode, openAIErrorDetailFromFields(apiErr.Type, apiErr.Code))
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("embedding API call: %w", err)
+	}
+
+	// Everything else: structure only. %T names the Go type, which is a fact
+	// about our dependency rather than about the response.
+	return fmt.Errorf("embedding API call failed (%T)", err)
+}
+
 // maxErrorTokenLen bounds an accepted classification token. OpenAI's longest
 // documented error code is well under this; anything longer is not an enum
 // value and is discarded rather than trusted.
 const maxErrorTokenLen = 48
 
-// openAIErrorDetail renders the vendor's error classification from a non-200
-// embeddings response, and nothing else. It returns either "" or a short
-// parenthesised suffix such as ` (type=invalid_request_error code=invalid_api_key)`.
-//
-// It reads ONLY `error.type` and `error.code`. `error.message` is prose the
-// vendor composes and is the one field of the envelope that could ever quote the
-// submitted input, so it is never read. See the call site for the full
-// drop-vs-truncate rationale (memql#3186).
-func openAIErrorDetail(body []byte) string {
-	// Both fields are decoded into `any` rather than `string` so that a null or
-	// numeric value (OpenAI does send `"code": null`) is a miss on that field
-	// instead of a decode error that would discard the sibling field too.
-	var env struct {
-		Error struct {
-			Type any `json:"type"`
-			Code any `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return ""
-	}
-
+// openAIErrorDetailFromFields renders the vendor's error classification from
+// the SDK's already-parsed envelope fields. Same allow-list, same shape check,
+// same output shape as openAIErrorDetail -- the only difference is that the
+// bytes were parsed by the SDK rather than here.
+func openAIErrorDetailFromFields(errType, errCode string) string {
 	parts := make([]string, 0, 2)
-	if tok, ok := errorClassificationToken(env.Error.Type); ok {
+	if tok, ok := errorClassificationToken(errType); ok {
 		parts = append(parts, "type="+tok)
 	}
-	if tok, ok := errorClassificationToken(env.Error.Code); ok {
+	if tok, ok := errorClassificationToken(errCode); ok {
 		parts = append(parts, "code="+tok)
 	}
 	if len(parts) == 0 {

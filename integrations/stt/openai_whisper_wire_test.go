@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 // The recorded wire shape of the one transcription call (epic memql#5088,
@@ -77,6 +78,17 @@ func TestWhisperWireTranscription(t *testing.T) {
 	if captured.fields["response_format"] != "json" {
 		t.Errorf("response_format field is %q, want %q", captured.fields["response_format"], "json")
 	}
+	// OpenAI rejects a file part with no Content-Type, and the official SDK
+	// refuses an empty one outright rather than substituting a default -- so an
+	// absent value here is a transcription that fails on every call, not a
+	// cosmetic difference. The exact value is left to the machine's MIME table
+	// (audio/wav or audio/x-wav, or the octet-stream fallback), because that
+	// table is read from system files and differs between a laptop and a
+	// distroless container; what must hold on every one of them is that the
+	// part carries a media type at all.
+	if strings.TrimSpace(captured.fileContentType) == "" {
+		t.Error("the multipart file part carries no Content-Type; OpenAI rejects the part without one")
+	}
 	if len(captured.fileBytes) == 0 {
 		t.Error("the multipart file part carried no bytes")
 	}
@@ -120,8 +132,9 @@ func TestWhisperWireOmitsAnAbsentLanguage(t *testing.T) {
 type capturedMultipart struct {
 	path      string
 	fields    map[string]string
-	fileName  string
-	fileBytes []byte
+	fileName        string
+	fileContentType string
+	fileBytes       []byte
 	header    http.Header
 }
 
@@ -151,6 +164,7 @@ func newRecordingWhisperServer(t *testing.T) (*httptest.Server, *capturedMultipa
 			if part.FormName() == "file" {
 				captured.fileName = part.FileName()
 				captured.fileBytes = body
+				captured.fileContentType = part.Header.Get("Content-Type")
 				continue
 			}
 			captured.fields[part.FormName()] = string(body)
@@ -174,7 +188,9 @@ func newRecordingWhisperServer(t *testing.T) (*httptest.Server, *capturedMultipa
 // of a key -- the wire shape asserted here is the same either way, which is
 // the point.
 func newWireTestWhisperClient(baseURL string) *openai.Client {
-	config := openai.DefaultConfig("sk-wire-test")
-	config.BaseURL = baseURL + "/v1"
-	return openai.NewClientWithConfig(config)
+	client := openai.NewClient(
+		option.WithAPIKey("sk-wire-test"),
+		option.WithBaseURL(baseURL+"/v1"),
+	)
+	return &client
 }
