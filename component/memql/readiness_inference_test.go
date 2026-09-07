@@ -3,10 +3,13 @@ package memql
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/znasllc-io/memql/component/auth"
+	memoryNodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/component/envregistry"
 	"github.com/znasllc-io/memql/component/memql/readiness"
 )
@@ -174,5 +177,43 @@ func TestTheWriteContextStaysAReader(t *testing.T) {
 		t.Errorf("the write context carries role %q, want %q -- it writes a public concept with no "+
 			"owner field behind @serverOnly plus internal origin, and any more authority than that "+
 			"is authority nothing here uses", ac.Role, auth.RoleReader)
+	}
+}
+
+// THE QUERY THE `ai` ARM RUNS MUST LOAD ON EVERY NODE THAT RUNS IT.
+//
+// `readInferenceRegistrations` executes `allWorkersWithStatus`, and the arm
+// leaves every door SHUT when that read fails. So a node type whose embedded
+// tree did not carry the query would report `ai` unconfigured while its
+// siblings reported configured -- and the fold reads that disagreement as
+// `partial`, permanently, which is the exact defect this task exists to end.
+//
+// The tree is embedded WITHOUT a build tag (dsl/embed.go), so every node type
+// carries the same one. This asserts that rather than assuming it, because the
+// failure it prevents is silent on every surface.
+func TestTheRegistrationQueryLoadsFromTheEmbeddedTree(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	if _, err := LoadUnifiedConcepts(logger); err != nil {
+		t.Fatalf("LoadUnifiedConcepts: %v", err)
+	}
+	concepts := memoryNodes.DefaultRegistry()
+	registry, err := loadEmbeddedFunctions(logger, concepts)
+	if err != nil {
+		t.Fatalf("loadEmbeddedFunctions: %v", err)
+	}
+	if _, _, lerr := LoadUnifiedFunctions(logger, registry, concepts); lerr != nil {
+		t.Fatalf("LoadUnifiedFunctions: %v", lerr)
+	}
+	// A REACHABLE POSITIVE: without it an empty registry passes the assertion
+	// below over nothing, which is the failure a registry lookup is most prone
+	// to.
+	if !registry.Has("moduleReadinessAll") {
+		t.Fatal("the readiness feed's own query is missing from this registry, so it is not the " +
+			"one the engine loads and the check below would prove nothing")
+	}
+	if !registry.Has(readinessRegistrationQuery) {
+		t.Fatalf("%q does not load from the embedded DSL tree. The ai readiness arm runs it and "+
+			"leaves every door shut when the read fails, so this node type would report `ai` "+
+			"unconfigured while its siblings reported configured.", readinessRegistrationQuery)
 	}
 }

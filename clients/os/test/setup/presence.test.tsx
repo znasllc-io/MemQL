@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ connection: null as unknown }));
@@ -50,6 +50,20 @@ function Roster() {
     .filter((i) => i.kind === "widget")
     .map((i) => (i as { widgetId: string }).widgetId);
   return <p data-testid="roster">{ids.join(",")}</p>;
+}
+
+/** Takes the setup widget off the active desk, the way its `...` menu does. */
+function Remover() {
+  const { actions, state } = useOs();
+  const surface = state.surfaces[state.shell.activeDeskId];
+  const item = Object.values(surface?.items ?? {}).find(
+    (i) => i.kind === "widget" && (i as { widgetId: string }).widgetId === "setup",
+  );
+  return (
+    <button type="button" onClick={() => item && actions.removeWidget(item.id)}>
+      remove setup
+    </button>
+  );
 }
 
 function mounted(role: string, feed: Readiness) {
@@ -132,6 +146,39 @@ describe("the widget's presence follows the feed and the ladder", () => {
     render(mounted("owner", coreAt("unconfigured", "configured", "configured")));
     expect(roster()).not.toContain("setup");
     await waitFor(() => expect(roster()).toContain("setup"));
+  });
+
+  it("does NOT put it straight back when somebody takes it off by hand", async () => {
+    // THE EFFECT'S DEPS ARE THE FEED, THE LADDER, THE ROLE AND THE ACTIVE
+    // DESK -- deliberately not the desk's CONTENTS. A card that reappeared the
+    // instant it was removed could not be moved out of the way even for a
+    // moment, which is a widget somebody would come to resent.
+    //
+    // It still comes back on the next change of the feed or the ladder, which
+    // the case below asserts: the widget IS the state, and this is only about
+    // when it is re-read.
+    h.connection = fakeConnection({ passkeysForSelf: [passkeyRow({ id: "v1:identity:identity:pk-1" })] });
+    render(
+      withSession(
+        <SetupFactsScope>
+          {withOs(
+            <>
+              <SetupPresence />
+              <Roster />
+              <Remover />
+            </>,
+            "owner",
+          )}
+        </SetupFactsScope>,
+        { clusterRole: "owner", readiness: coreAt("unconfigured", "configured", "configured") },
+      ),
+    );
+    await waitFor(() => expect(roster()).toContain("setup"));
+
+    fireEvent.click(screen.getByRole("button", { name: "remove setup" }));
+    expect(roster()).not.toContain("setup");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(roster()).not.toContain("setup");
   });
 
   it("adds it once, however many times the feed changes", async () => {

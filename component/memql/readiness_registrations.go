@@ -38,8 +38,13 @@ import (
 // direction that cannot let somebody into a console whose features refuse.
 // Paging would cost every node a full walk of the fleet on every recompute to
 // change an answer that is already correct in every case anybody has.
+
+// readinessRegistrationQuery is the DSL query the `ai` arm runs, named so the
+// caller and the gate that asserts it LOADS cannot drift apart.
+const readinessRegistrationQuery = "allWorkersWithStatus"
+
 func (e *MemQLEngine) readInferenceRegistrations(ctx context.Context) ([]readiness.RegistrationFacts, error) {
-	result, err := e.Execute(ctx, "query allWorkersWithStatus()")
+	result, err := e.Execute(ctx, "query "+readinessRegistrationQuery+"()")
 	if err != nil {
 		return nil, fmt.Errorf("module readiness: registrations: %w", err)
 	}
