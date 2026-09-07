@@ -55,10 +55,6 @@ Options:
     --goos=OS      Target OS for the bundled binary (default: host -- $DEFAULT_GOOS)
     --goarch=ARCH  Target arch (default: host -- $DEFAULT_GOARCH)
     --out=FILE     VSIX output path (default: editors/vscode/<name>-<version>.vsix)
-    --target=T     Mark the VSIX as PLATFORM-SPECIFIC for vsce target T
-                   (linux-x64 | linux-arm64 | darwin-x64 | darwin-arm64 | ...).
-                   Required to publish more than one platform under one version;
-                   omit it for a local build. See the note on package_vsix.
     --skip-deps    Skip rebuilding the file: workspace dependencies (inner-loop
                    reruns where sdk/ts and sdk/ts-viewkit have not changed)
     --help         Show this help
@@ -72,14 +68,12 @@ function parse_arguments() {
     GOOS_TARGET="$DEFAULT_GOOS"
     GOARCH_TARGET="$DEFAULT_GOARCH"
     OUT=""
-    VSCE_TARGET=""
     SKIP_DEPS=false
     while [[ $# -gt 0 ]]; do
         case $1 in
             --goos=*) GOOS_TARGET="${1#*=}"; shift ;;
             --goarch=*) GOARCH_TARGET="${1#*=}"; shift ;;
             --out=*) OUT="${1#*=}"; shift ;;
-            --target=*) VSCE_TARGET="${1#*=}"; shift ;;
             --skip-deps) SKIP_DEPS=true; shift ;;
             --help) show_help; exit 0 ;;
             *) echo "ERROR: unknown option: $1"; show_help; exit 1 ;;
@@ -353,20 +347,7 @@ function package_vsix() {
     # actually fails packaging outright ("invalid relative path:
     # extension/../../sdk/ts/node_modules/..."), because vsce cannot express
     # a path that walks above the extension root inside the VSIX archive.
-    #
-    # --target MARKS THE PACKAGE AS PLATFORM-SPECIFIC, and without it every
-    # platform's archive is an identical "universal" package carrying a
-    # DIFFERENT binary (memql#5075). Publishing four of those under one version
-    # is not four platforms -- it is the same version published four times, and
-    # whichever lands last is what every user gets, with a binary three quarters
-    # of them cannot execute. The registries key on this field; nothing else
-    # distinguishes the archives.
-    #
-    # Omitted for a local build, which is the ordinary case: `make
-    # vscode-install` produces a package for THIS machine and nothing is asked
-    # to tell it apart from another.
     local args=(package --no-dependencies)
-    [[ -n "$VSCE_TARGET" ]] && args+=(--target "$VSCE_TARGET")
     [[ -n "$OUT" ]] && args+=(--out "$OUT")
     ( cd "$EXT_DIR" && npx --yes "$VSCE_VERSION" "${args[@]}" )
 }
