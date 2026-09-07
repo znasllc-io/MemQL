@@ -4590,12 +4590,17 @@ func OidcIdentityBySubjectBuild(args OidcIdentityBySubjectArgs) string {
 	return b.String()
 }
 
-// OpenModelPulls -- Every model pull that is still open, for the sweep that fails abandoned ones.
+// OpenModelPulls -- Every model pull nobody is driving, for the sweep that closes them.
+// =========================================================================== TWO CUTOFFS, BECAUSE THERE ARE TWO SHAPES OF ABANDONMENT =========================================================================== A row still at `requested` was never picked up -- the replica named on it is not there -- and is judged against when it was ASKED FOR. A row at `running` was claimed and then lost, and is judged against when it last REPORTED.
+// Applying one cutoff to both is the bug this shape exists to prevent, and it is not hypothetical: it was written that way first. A single `requestedAt < now - claimGrace` returns every ACTIVE download older than the claim grace, so the sweep fails a 40GB pull ninety seconds in -- and then flaps, because the next progress write stamps `running` back on the row and the following tick fails it again while the download continues invisibly. The stall grace must also exceed the worker handle's own idle ceiling, or the row watcher gives up on a pull the runtime watcher has not.
 // It reads under `actor.isClusterOwner==true` for the reason expiredWorkerInvocations states at length: its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL, and an identity is only as powerful as the queries it is used for, where a read-path bypass would be available to everything that could reach it. Writing the conjunct is also what makes the failure loud -- strip the principal and this returns zero rows, and the filter says why.
 //
 // Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["openModelPulls"] in generated_concepts.go).
 type OpenModelPullsArgs struct {
+	// A `requested` row older than this was never claimed.
 	RequestedBefore string
+	// A `running` row that has not reported since this has stopped moving.
+	UpdatedBefore string
 }
 
 // OpenModelPulls calls the engine query openModelPulls.
@@ -4607,10 +4612,13 @@ func (qc *QueryClient) OpenModelPulls(ctx context.Context, args OpenModelPullsAr
 func OpenModelPullsBuild(args OpenModelPullsArgs) string {
 	var b strings.Builder
 	b.WriteString("query openModelPulls(")
-	if args.RequestedBefore != "" {
-		b.WriteString("requestedBefore: ")
-		b.WriteString(quoteMemQL(args.RequestedBefore))
+	b.WriteString("requestedBefore: ")
+	b.WriteString(quoteMemQL(args.RequestedBefore))
+	if b.Len() > 21 {
+		b.WriteString(", ")
 	}
+	b.WriteString("updatedBefore: ")
+	b.WriteString(quoteMemQL(args.UpdatedBefore))
 	b.WriteString(")")
 	return b.String()
 }

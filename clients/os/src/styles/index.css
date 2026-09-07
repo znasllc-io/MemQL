@@ -2698,10 +2698,19 @@ button:not(:disabled):active {
   transition: width var(--os-duration-fast) var(--os-ease);
 }
 
-/* The models group is a card like the local-apps group above it: the two
+/* THE `machinemodel` PREFIX IS NOT DECORATION. Fleet -> Models (epic
+ * memql#5096) already owns `.os-fleet-models`, `.os-fleet-model` and
+ * `.os-fleet-model-id` for its fleet-wide catalog, higher up this file.
+ * Reusing them here would win by source order and silently restyle that
+ * section -- a card where there was none, tighter padding, a muted text
+ * colour, a smaller model id -- on a surface this epic never opened. No
+ * test can see it: jsdom performs no layout and resolves no custom
+ * properties.
+ *
+ * The models group is a card like the local-apps group above it: the two
  * answer the same shape of question about a machine -- what it can be asked
  * to do -- and one of them sitting unframed reads as an afterthought. */
-.os-fleet-models {
+.os-fleet-machinemodels {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2711,7 +2720,7 @@ button:not(:disabled):active {
   background: var(--os-raised);
 }
 
-.os-fleet-modellist {
+.os-fleet-machinemodel-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -2731,7 +2740,7 @@ button:not(:disabled):active {
  * Stacked left, they read as one item at every width, and the id keeps its
  * own line -- which it needs, being the one string on this card a person may
  * have to copy and the one an ellipsis would ruin. */
-.os-fleet-model {
+.os-fleet-machinemodel {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2740,20 +2749,20 @@ button:not(:disabled):active {
   border-radius: var(--os-radius-xs);
   color: var(--os-muted);
 }
-.os-fleet-model-id {
+.os-fleet-machinemodel-id {
   font-weight: 600;
   font-size: var(--os-text-base);
   color: var(--os-ink);
   overflow-wrap: anywhere;
 }
-.os-fleet-model-readings {
+.os-fleet-machinemodel-readings {
   display: flex;
   align-items: baseline;
   gap: 12px;
   flex-wrap: wrap;
   font-size: var(--os-text-xs);
 }
-.os-fleet-model-facts {
+.os-fleet-machinemodel-facts {
   font-variant-numeric: tabular-nums;
 }
 

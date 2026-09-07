@@ -249,6 +249,25 @@ func (h *ModelPullHandle) Cancel(reason string) error {
 // Every giving-up path cancels on the machine first, so a caller who closes
 // the page never leaves a multi-gigabyte download running on somebody's
 // laptop.
+//
+// ===========================================================================
+// EVERY EXIT FINISHES THE HANDLE, AND THAT IS NOT TIDINESS
+// ===========================================================================
+// `finish` is the only thing that closes `h.progress`, and the ordinary
+// consumer of that channel is a `for range` in a goroutine the caller then
+// `wg.Wait()`s on. So a Wait that returned WITHOUT finishing -- as the three
+// giving-up paths below originally did, cancelling on the machine and hoping a
+// ModelPullEnd would follow -- leaves that goroutine ranging forever and the
+// caller blocked on it forever.
+//
+// The idle path is where that bites: it is reached precisely BECAUSE the
+// machine has gone quiet, so the End it was hoping for is the message least
+// likely to arrive. The result was a wedged forward handler that never answers
+// its peer, and a runner goroutine that never releases its pull id.
+//
+// finish is idempotent (`closeOne`), so a real End arriving afterwards is a
+// no-op rather than a race: the first verdict wins, which is the right one --
+// it is this node's own account of why it stopped waiting.
 func (h *ModelPullHandle) Wait(ctx context.Context) (ModelPullOutcome, error) {
 	if h == nil {
 		return ModelPullOutcome{}, ErrModelPullNotFound
@@ -265,17 +284,22 @@ func (h *ModelPullHandle) Wait(ctx context.Context) (ModelPullOutcome, error) {
 			return h.outcome, h.endErr
 		case <-ctx.Done():
 			_ = h.Cancel("caller_cancelled")
-			return ModelPullOutcome{}, ctx.Err()
+			err := ctx.Err()
+			h.finish(ModelPullOutcome{Error: "caller_cancelled"}, err)
+			return ModelPullOutcome{}, err
 		case now := <-tick.C:
 			if now.After(deadline) {
 				_ = h.Cancel("pull_timeout")
-				return ModelPullOutcome{}, fmt.Errorf("worker: model pull exceeded its %s ceiling", h.limits.Timeout)
+				err := fmt.Errorf("worker: model pull exceeded its %s ceiling", h.limits.Timeout)
+				h.finish(ModelPullOutcome{Error: "pull_timeout"}, err)
+				return ModelPullOutcome{}, err
 			}
 			h.mu.Lock()
 			idleFor := now.Sub(h.lastActivity)
 			h.mu.Unlock()
 			if idleFor > h.limits.IdleTimeout {
 				_ = h.Cancel("idle_timeout")
+				h.finish(ModelPullOutcome{Error: "idle_timeout"}, ErrModelPullIdle)
 				return ModelPullOutcome{}, ErrModelPullIdle
 			}
 		}
@@ -302,19 +326,28 @@ func (h *ModelPullHandle) idlePoll() time.Duration {
 // the channel itself imposes when a consumer has stopped reading, and a
 // dropped observation there is a stale counter rather than a corrupted
 // record, which is why the send does not block the machine's recv goroutine.
+// THE SEND HAPPENS UNDER THE LOCK, and that is load-bearing rather than lazy.
+// `finish` closes `h.progress`, and a send on a closed channel PANICS even
+// inside a select -- so checking `ended` and then releasing the lock before
+// sending leaves a window in which finish can close underneath. It is a real
+// pairing here rather than a theoretical one: `openModelPull` registers the
+// handle BEFORE it sends ModelPullStart, so its `start_send_failed` path
+// finishes on the caller's goroutine while the stream's recv goroutine may be
+// delivering for the same request id.
+//
+// Holding the lock across the send costs nothing because the send is
+// NON-BLOCKING: it has a default arm, so it cannot wait on a consumer.
 func (h *ModelPullHandle) deliverProgress(p ModelPullProgress) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.ended {
-		h.mu.Unlock()
 		return
 	}
 	h.lastActivity = h.clock()
 	h.latest = p
-	h.mu.Unlock()
 
 	select {
 	case h.progress <- p:
-	case <-h.done:
 	default:
 		// A consumer that has fallen behind gets the NEXT observation rather
 		// than this one. Blocking here would stall the stream's recv loop --
@@ -324,6 +357,10 @@ func (h *ModelPullHandle) deliverProgress(p ModelPullProgress) {
 }
 
 // finish records the terminal state and releases every waiter.
+//
+// `close(h.progress)` happens UNDER h.mu, paired with deliverProgress's send:
+// the two are the closing and the sending halves of one channel, and a send
+// racing a close panics.
 func (h *ModelPullHandle) finish(outcome ModelPullOutcome, err error) {
 	h.closeOne.Do(func() {
 		h.mu.Lock()
@@ -333,9 +370,9 @@ func (h *ModelPullHandle) finish(outcome ModelPullOutcome, err error) {
 		}
 		h.outcome = outcome
 		h.endErr = err
+		close(h.progress)
 		h.mu.Unlock()
 		close(h.done)
-		close(h.progress)
 		if h.detach != nil {
 			h.detach()
 		}

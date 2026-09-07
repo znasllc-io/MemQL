@@ -104,9 +104,16 @@ func (r *ForwardRouter) ForwardModelPull(
 		r.modelPullMu.Unlock()
 	}()
 
+	// A NON-POSITIVE TIMEOUT CROSSES AS ZERO, so the receiver applies its own
+	// default. Clamping to 1 here would be the opposite of what a caller
+	// passing 0 means: `ModelPullLimits.withDefaults` establishes 0 as "use the
+	// default" everywhere else on this surface, and the receiver's own
+	// `timeout <= 0 || timeout > ModelPullTimeoutDefault` accepts 1 verbatim --
+	// so a caller following that convention would get a pull killed one second
+	// in, with nothing anywhere saying why.
 	timeoutSec := int32(timeout / time.Second)
-	if timeoutSec <= 0 {
-		timeoutSec = 1
+	if timeoutSec < 0 {
+		timeoutSec = 0
 	}
 	env := &nodev1.ModelPullForwardRequest{
 		RequestId:      requestId,

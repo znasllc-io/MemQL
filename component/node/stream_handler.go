@@ -754,7 +754,22 @@ func (s *nodeService) handleModelPullForwardRequest(peerId string, req *nodev1.M
 		})
 		return
 	}
-	s.workerForwardHandler.HandleForwardedModelPull(stream.Context(), req, stream.Send)
+	// ON ITS OWN GOROUTINE, and for a pull this is not optional. The handler
+	// does not return until the download ends -- up to ModelPullTimeoutDefault,
+	// four hours -- and this function runs on the peer stream's RECEIVE loop.
+	// Called inline, one pull would stop this node reading heartbeats, event
+	// forwards, and every other forward from that peer for the duration, until
+	// the liveness checker marked a healthy peer offline.
+	//
+	// It would also make the cancel unreachable: ModelPullForwardCancel arrives
+	// on the SAME stream, so the only message that could end the block is the
+	// one the block prevents us reading.
+	//
+	// This is the invariant handleAiForwardRequest states for itself ("The AI
+	// handlers spawn their own worker goroutines for long-running work, so this
+	// does not block the receive path"); a pull is the longest-running thing on
+	// this surface and needs it most.
+	go s.workerForwardHandler.HandleForwardedModelPull(context.WithoutCancel(stream.Context()), req, stream.Send)
 }
 
 // handleModelPullForwardCancel stops an in-flight forwarded pull.

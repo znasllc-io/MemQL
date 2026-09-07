@@ -75,6 +75,12 @@ const ModelPullTopic = "graph.node.created.v1:worker:modelPull"
 // reads as stuck, and three orders of magnitude cheaper.
 const PullProgressInterval = 2 * time.Second
 
+// modelPullWriteBuffer bounds the queue between the observation callback and
+// the goroutine that writes rows. Small, because its only job is to decouple
+// the two: what is worth keeping is the LATEST observation, and a deep buffer
+// would just hold stale ones while the writer caught up.
+const modelPullWriteBuffer = 8
+
 // modelPullRow is the slice of a v1:worker:modelPull row this runner acts on.
 // A struct, so every decision below is a function of values and is testable
 // without an engine, a cluster or a machine.
@@ -272,16 +278,50 @@ func (r *ModelPullRunner) end(pullId string) {
 }
 
 // drive runs one pull to its end, writing progress on a throttle.
+//
+// ===========================================================================
+// THE ROW WRITE NEVER HAPPENS ON THE CALLER'S GOROUTINE
+// ===========================================================================
+// `onProgress` is invoked from two places, and one of them must not block. On
+// the forwarded path it is reached through ForwardRouter.DispatchModelPullProgress,
+// which the WorkerDialer and ParentConnector call INLINE from their peer
+// connection's receive callback -- so a synchronous `engine.Execute` there
+// stalls every inbound message from that peer for the length of a graph
+// mutation, and a burst of layer transitions is a burst of those.
+//
+// So observations are handed to a writer goroutine over a small buffered
+// channel and `onProgress` never waits. Dropping under pressure is correct
+// here and nowhere else on this surface: a progress row's whole value is being
+// current, so the NEXT observation carries the same question a moment later.
+// The terminal write is not on this path and is never dropped.
 func (r *ModelPullRunner) drive(ctx context.Context, row modelPullRow) {
 	throttle := &progressThrottle{}
+	writes := make(chan workerservice.ModelPullProgress, modelPullWriteBuffer)
+	var writer sync.WaitGroup
+	writer.Add(1)
+	go func() {
+		defer writer.Done()
+		for p := range writes {
+			r.recordProgress(ctx, row, p)
+		}
+	}()
+
 	onProgress := func(p workerservice.ModelPullProgress) {
 		if !throttle.admit(p, r.clock()) {
 			return
 		}
-		r.recordProgress(ctx, row, p)
+		select {
+		case writes <- p:
+		default:
+			// The writer is behind. See above: a dropped observation is a stale
+			// bar for a moment, and blocking here would put a database write on
+			// the mesh's read path.
+		}
 	}
 
 	outcome, err := r.pull(ctx, row, onProgress)
+	close(writes)
+	writer.Wait()
 	switch {
 	case err != nil:
 		r.finish(ctx, row, "failed", err.Error(), false)

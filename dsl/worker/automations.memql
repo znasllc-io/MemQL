@@ -114,8 +114,13 @@ automation workerInvocationRetentionSweep {
 // work cannot know whose work was abandoned before it looks. Without the
 // principal the read returns zero rows and no error, and a cluster full of
 // stuck pulls sweeps nothing every two minutes, forever, in silence.
-/// Every two minutes: fail model pulls no replica is driving, naming which of the two ways they
-/// were abandoned. decide (pure) returns the candidates; the forEach closes each one.
+/// Every two minutes: fail the model pulls no replica is driving. decide (pure) returns the
+/// candidates, judged against two separate cutoffs; the forEach closes each one.
+///
+/// ONE SENTENCE FOR BOTH SHAPES OF ABANDONMENT, deliberately. The decide step distinguishes them
+/// -- a `requested` row nobody claimed from a `running` row that stopped reporting -- but a
+/// forEach writes one literal, so a message naming a single cause would be wrong half the time.
+/// The remedy is identical either way, which is what the sentence says instead.
 @trigger(schedule="0 */2 * * * *")
 automation workerModelPullStaleSweep {
   step decide {
@@ -127,7 +132,7 @@ automation workerModelPullStaleSweep {
         pullId:       item.id,
         status:       "failed",
         statusLine:   "",
-        errorMessage: "No agent replica is driving this pull. The node holding the machine's connection is no longer running, so the download stopped; whatever was already fetched stays on the machine, and starting the pull again resumes rather than restarts.",
+        errorMessage: "No agent replica is driving this pull -- either the node holding the machine's connection stopped before it began, or it went away mid-download. Whatever was already fetched stays on the machine, so starting the pull again resumes rather than restarts.",
         readvertised: false,
         endedAt:      now
       }

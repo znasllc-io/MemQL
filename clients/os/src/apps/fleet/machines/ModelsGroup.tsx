@@ -60,13 +60,13 @@ export function ModelsGroup({ machine }: { machine: MachineRow }) {
     access !== null && access.userId !== "" && sameSubject(access.userId, machine.ownerUserId);
 
   return (
-    <div className="os-fleet-models">
+    <div className="os-fleet-machinemodels">
       <Subhead>Models</Subhead>
 
       <RuntimeLine runtimes={runtimes} modelCount={models.length} />
 
       {models.length > 0 ? (
-        <ul className="os-fleet-modellist">
+        <ul className="os-fleet-machinemodel-list">
           {models.map((model) => (
             <ModelRow key={model.modelId} model={model} />
           ))}
@@ -156,10 +156,10 @@ function ModelRow({ model }: { model: MachineModel }) {
   ].filter((c) => c !== "");
 
   return (
-    <li className="os-fleet-model">
-      <span className="os-fleet-model-id os-mono">{model.modelId}</span>
-      <span className="os-fleet-model-readings">
-        <span className="os-fleet-model-facts">
+    <li className="os-fleet-machinemodel">
+      <span className="os-fleet-machinemodel-id os-mono">{model.modelId}</span>
+      <span className="os-fleet-machinemodel-readings">
+        <span className="os-fleet-machinemodel-facts">
           {facts.length > 0 ? facts.join(" · ") : "size not reported"}
         </span>
         <span>{can.length > 0 ? can.join(" · ") : "no capabilities advertised"}</span>
@@ -233,7 +233,7 @@ function PullHistory({
     <ul className="os-fleet-pullhistory">
       {past.map((pull) => (
         <li key={pull.pullId} className="os-fleet-pastpull" data-status={pull.status}>
-          <span className="os-fleet-model-id os-mono">{pull.model}</span>
+          <span className="os-fleet-machinemodel-id os-mono">{pull.model}</span>
           <span className="os-fleet-pastpull-when">
             {formatMoment(pull.endedAt || pull.requestedAt)}
           </span>

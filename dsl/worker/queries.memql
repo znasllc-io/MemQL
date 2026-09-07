@@ -429,7 +429,23 @@ query modelPull modelPullsForWorker {
   shape   workerModelPullFull
 }
 
-/// Every model pull that is still open, for the sweep that fails abandoned ones.
+/// Every model pull nobody is driving, for the sweep that closes them.
+///
+/// ===========================================================================
+/// TWO CUTOFFS, BECAUSE THERE ARE TWO SHAPES OF ABANDONMENT
+/// ===========================================================================
+/// A row still at `requested` was never picked up -- the replica named on it is
+/// not there -- and is judged against when it was ASKED FOR. A row at `running`
+/// was claimed and then lost, and is judged against when it last REPORTED.
+///
+/// Applying one cutoff to both is the bug this shape exists to prevent, and it
+/// is not hypothetical: it was written that way first. A single
+/// `requestedAt < now - claimGrace` returns every ACTIVE download older than
+/// the claim grace, so the sweep fails a 40GB pull ninety seconds in -- and
+/// then flaps, because the next progress write stamps `running` back on the row
+/// and the following tick fails it again while the download continues
+/// invisibly. The stall grace must also exceed the worker handle's own idle
+/// ceiling, or the row watcher gives up on a pull the runtime watcher has not.
 ///
 /// It reads under `actor.isClusterOwner==true` for the reason expiredWorkerInvocations states at
 /// length: its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL, and an
@@ -440,8 +456,11 @@ query modelPull modelPullsForWorker {
 @unbounded("stale model-pull sweep -- an internal sweep that must see every open pull")
 query modelPull openModelPulls {
   args {
-    requestedBefore  string
+    /// A `requested` row older than this was never claimed.
+    requestedBefore  string!
+    /// A `running` row that has not reported since this has stopped moving.
+    updatedBefore    string!
   }
-  filter  actor.isClusterOwner==true && (status=="requested" || statusIsRunning) && isNotDeleted && when(args.requestedBefore) { requestedAt<args.requestedBefore }
+  filter  actor.isClusterOwner==true && isNotDeleted && ((status=="requested" && requestedAt<args.requestedBefore) || (statusIsRunning && updatedAt<args.updatedBefore))
   shape   workerModelPullFull
 }

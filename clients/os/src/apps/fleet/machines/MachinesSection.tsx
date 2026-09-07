@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import { MonitorSmartphone } from "lucide-react";
 
@@ -38,6 +38,17 @@ export function MachinesSection({
   // remounted by the Add/Close control, and an intent consumed once must not
   // re-arm on the next open.
   const [addInference, setAddInference] = useState(false);
+
+  // CLOSING ALWAYS DISARMS, through one function, because there are TWO ways to
+  // close the panel and only one of them used to reset this. The Head's control
+  // toggles `adding` directly, so after arriving from the wizard's inference
+  // door a person who closed and re-opened got "will run local models" ticked
+  // again -- a multi-gigabyte download pre-selected by an intent that was
+  // consumed once, which is exactly what the state below says must not happen.
+  const closeAddMachine = useCallback(() => {
+    setAdding(false);
+    setAddInference(false);
+  }, []);
 
   // ARRIVING BY INTENT OPENS ADD MACHINE (epic memql#5106). The first-run
   // wizard's fleet door sends somebody here to pair a machine that will serve
@@ -82,7 +93,11 @@ export function MachinesSection({
       <Head title="Machines">
         <Button
           tone={adding ? "quiet" : "primary"}
-          onClick={() => setAdding((v) => !v)}
+          // NOT a bare toggle: closing has to go through closeAddMachine, or
+          // this path leaves the pre-tick armed for the next open. It is the
+          // close a person actually reaches for while reading -- the panel's
+          // own Done sits behind the token acknowledgement.
+          onClick={() => (adding ? closeAddMachine() : setAdding(true))}
           ariaLabel="Add a machine"
         >
           {adding ? "Close" : "Add machine"}
@@ -93,10 +108,7 @@ export function MachinesSection({
         <AddMachine
           machineCount={count}
           presetInference={addInference}
-          onClose={() => {
-            setAdding(false);
-            setAddInference(false);
-          }}
+          onClose={closeAddMachine}
         />
       ) : null}
 

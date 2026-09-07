@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -225,5 +226,126 @@ func TestStartModelPullAcceptsAModelTheMachineDoesNotYetOffer(t *testing.T) {
 	}
 	if got.Model != "llama3.1:8b" {
 		t.Fatalf("request reached the hook as %+v", got)
+	}
+}
+
+// ===========================================================================
+// EVERY GIVING-UP PATH CLOSES THE PROGRESS CHANNEL
+// ===========================================================================
+// The ordinary consumer of Progress() is a `for range` in a goroutine the
+// caller then wg.Wait()s on, and `finish` is the only thing that closes it. So
+// a Wait that returned without finishing leaves that goroutine ranging forever
+// and its caller blocked forever -- which wedges the forward handler (it never
+// answers its peer) and leaks the runner's pull id.
+//
+// The idle path is where this bites, because it is reached precisely BECAUSE
+// the machine went quiet: the ModelPullEnd it would have been waiting for is
+// the message least likely to arrive.
+//
+// Each case below reproduces the real shape: range the channel in a goroutine,
+// Wait, then join. Before the fix these hung rather than failed, which is why
+// each carries its own deadline.
+func TestModelPullWaitAlwaysClosesTheProgressChannel(t *testing.T) {
+	cases := map[string]func(*ModelPullHandle) (context.Context, context.CancelFunc){
+		"caller walks away": func(*ModelPullHandle) (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return ctx, func() {}
+		},
+		"machine goes silent": func(*ModelPullHandle) (context.Context, context.CancelFunc) {
+			return context.Background(), func() {}
+		},
+	}
+	limits := map[string]ModelPullLimits{
+		"caller walks away":   {Timeout: time.Hour, IdleTimeout: time.Hour},
+		"machine goes silent": {Timeout: time.Hour, IdleTimeout: 20 * time.Millisecond},
+	}
+
+	for name, mkctx := range cases {
+		t.Run(name, func(t *testing.T) {
+			h, _ := newTestModelPull(t, limits[name])
+			ctx, done := mkctx(h)
+			defer done()
+
+			drained := make(chan struct{})
+			go func() {
+				defer close(drained)
+				for range h.Progress() {
+				}
+			}()
+
+			if _, err := h.Wait(ctx); err == nil {
+				t.Fatal("Wait returned no error on a giving-up path")
+			}
+			select {
+			case <-drained:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the progress channel was never closed -- a consumer ranging over it would block forever")
+			}
+		})
+	}
+}
+
+// The whole-pull ceiling is the third giving-up path and closes it too.
+func TestModelPullWaitClosesTheChannelOnTheWholePullCeiling(t *testing.T) {
+	h, _ := newTestModelPull(t, ModelPullLimits{Timeout: 10 * time.Millisecond, IdleTimeout: time.Hour})
+
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for range h.Progress() {
+		}
+	}()
+
+	if _, err := h.Wait(context.Background()); err == nil {
+		t.Fatal("Wait returned no error past its ceiling")
+	}
+	select {
+	case <-drained:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the progress channel was never closed after the whole-pull ceiling")
+	}
+}
+
+// A real End arriving after this node gave up is a NO-OP, not a race: the
+// first verdict wins, and it is the honest one -- this node's own account of
+// why it stopped waiting.
+func TestModelPullAGivenUpPullIgnoresALateEnd(t *testing.T) {
+	h, _ := newTestModelPull(t, ModelPullLimits{Timeout: time.Hour, IdleTimeout: 20 * time.Millisecond})
+
+	if _, err := h.Wait(context.Background()); !errors.Is(err, ErrModelPullIdle) {
+		t.Fatalf("Wait = %v, want ErrModelPullIdle", err)
+	}
+	// The machine answers the cancel a moment later, as it legitimately may.
+	h.finish(ModelPullOutcome{Ok: true}, nil)
+
+	out, err := h.Wait(context.Background())
+	if !errors.Is(err, ErrModelPullIdle) {
+		t.Fatalf("a late End overwrote the verdict: %v", err)
+	}
+	if out.Ok {
+		t.Fatalf("a late End overwrote the outcome: %+v", out)
+	}
+}
+
+// Delivering while another goroutine finishes must not panic. `finish` closes
+// the progress channel, and a send on a closed channel panics even inside a
+// select -- so the check and the send have to be under one lock with the close.
+func TestModelPullDeliveringWhileFinishingDoesNotPanic(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		h, _ := newTestModelPull(t, ModelPullLimits{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				h.deliverProgress(ModelPullProgress{Layer: "a", CompletedBytes: uint64(j)})
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			h.finish(ModelPullOutcome{Ok: true}, nil)
+		}()
+		wg.Wait()
 	}
 }

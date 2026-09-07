@@ -95,6 +95,40 @@ describe("Fleet, opened to add a machine", () => {
     expect((box as HTMLInputElement).checked).toBe(false);
   });
 
+  // ===========================================================================
+  // AN INTENT CONSUMED ONCE MUST NOT RE-ARM
+  // ===========================================================================
+  // There are TWO ways to close this panel -- the Head's control and the
+  // panel's own Done -- and the pre-tick was reset by only one of them. So a
+  // person who arrived from the wizard's inference door, closed the panel from
+  // the Head and re-opened it got "will run local models" ticked again: a
+  // several-gigabyte download pre-selected by an intent that was spent minutes
+  // earlier, with nothing on screen explaining why.
+  it("does not re-tick the box when the panel is closed and re-opened", async () => {
+    await open({ addMachine: { inference: true } });
+    expect(
+      (screen.getByRole("checkbox", { name: /will run local models/i }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+
+    // The Head's control, which is the close a person actually reaches for
+    // while reading -- the panel's own Done is gated behind the token
+    // acknowledgement and is not available until a token has been minted.
+    const head = screen.getByRole("button", { name: "Add a machine" });
+    await act(async () => {
+      head.click();
+    });
+    expect(screen.queryByRole("region", { name: "Add a machine" })).toBeNull();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Add a machine" }).click();
+    });
+    expect(
+      (screen.getByRole("checkbox", { name: /will run local models/i }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+  });
+
   it("leaves the panel closed when the shell hands it no intent", async () => {
     const { consume } = await open(null);
     expect(screen.queryByRole("region", { name: "Add a machine" })).toBeNull();
