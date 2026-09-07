@@ -229,6 +229,32 @@ describe("a pull in flight", () => {
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("25");
   });
 
+  // ===========================================================================
+  // THE ROW'S workerId IS CANONICAL AND THE MACHINE'S id IS BARE
+  // ===========================================================================
+  // `workerId` is a relationship field, so it is stored canonicalized
+  // (`v1:worker:registration:studio`) while the machine row's own id reaches
+  // the shell bare (`studio`) -- the engine bare-ifies ids on egress. A `===`
+  // comparison would therefore match NOTHING in production while matching
+  // everything in a fixture that happens to use the bare form, which is the
+  // shape of bug a test can create rather than catch.
+  it("matches a pull whose workerId is the canonical id", async () => {
+    await mount(
+      { "runtime:ollama": "1" },
+      {
+        pulls: [
+          modelPullRow({
+            id: "pull-1",
+            workerId: "v1:worker:registration:laptop",
+            status: "running",
+            statusLine: "pulling manifest",
+          }),
+        ],
+      },
+    );
+    expect(screen.getByText("pulling manifest")).toBeTruthy();
+  });
+
   // A pull for a DIFFERENT machine arrives on this feed too -- the
   // subscription is by concept, not by machine -- and must not appear under
   // the machine being looked at.
