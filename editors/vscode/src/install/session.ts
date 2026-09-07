@@ -48,6 +48,7 @@ import {
 import { normalizeNodeList } from "./nodeList.js";
 import { entryFor, readReceipt, removalParams, type Receipt } from "./receipt.js";
 import { refuseUnsupportedPlatform } from "./platform.js";
+import { resolveScriptRoot } from "./root.js";
 import { capabilityScriptPath, withInstalledTools, type RunScript } from "./runner.js";
 import {
   DEFAULT_CAROOT_DIR,
@@ -972,6 +973,61 @@ export async function runUninstall(
   return execute(graph, uninstallPlan(receipt, opts.skip), opts, hooks, undefined);
 }
 
+/**
+ * The capabilities whose script must come from the tree they operate on.
+ *
+ * KEYED ON THE CAPABILITY, NOT ON STEP IDS (memql#5064). `k3d.dev` is THE
+ * build-node-images-from-a-checkout capability, and `session.ts` already states
+ * that as an invariant where `buildImages` is planned: it is "the same `k3d.dev`
+ * invocation 'Rebuild from checkout' runs -- deliberately, so there is one way
+ * to build node images from a checkout and not two." Two step ids reach it
+ * today (`buildImages` on the from-source install, `rebuildFromCheckout` on the
+ * two rebuild graphs) and a list of ids would have to be remembered by whoever
+ * adds a third. memql#5056 fixed one of the two by naming flows, and the miss
+ * was exactly that.
+ *
+ * `k3d.up` IS DELIBERATELY ABSENT even though `clusterUp` also takes a
+ * `--repo-root` and has the same shape. It is reachable from the RELEASE lane,
+ * where the checkout is an arbitrary older tag, and `scripts/lib/capability.sh`
+ * refuses an undeclared flag outright:
+ *
+ *     cap_fail 2 "unknown flag: --${name} (declared params: ...)"
+ *
+ * so handing a current graph's params to an old release's `up.sh` can refuse the
+ * install. That is a compatibility question with its own answer to design, not a
+ * line to sweep in here. Tracked on memql#5064.
+ */
+const CHECKOUT_SCRIPT_CAPABILITIES = new Set(["k3d.dev"]);
+
+/**
+ * Where one step's capability script is read from.
+ *
+ * PER STEP, AND AT THE MOMENT THE STEP RUNS. That is the whole correction over
+ * memql#5056, which resolved this once when the session was built. A rebuild's
+ * checkout is a PRECONDITION, so a session-time answer was right for it; an
+ * install's checkout is a PRODUCT of the run -- `stackCheckout` creates it
+ * several waves before `buildImages` -- so at session-construction time the
+ * probe answers "no usable checkout" and the whole install, `buildImages`
+ * included, keeps the staged scripts. That is the bug.
+ *
+ * The tree comes from the step's OWN `--repo-root`, which is the step saying
+ * which checkout it operates on, with `resolveStackDir` as the fallback for a
+ * caller that passed none. `resolveScriptRoot` falls back to `opts.root` when
+ * the checkout does not carry the capability contract, so this can only ever
+ * improve on the previous answer, never remove one.
+ */
+function scriptRootFor(
+  step: Step,
+  params: Record<string, string>,
+  opts: SessionOptions,
+): string {
+  if (!CHECKOUT_SCRIPT_CAPABILITIES.has(step.script)) {
+    return opts.root;
+  }
+  const declared = (params["repo-root"] ?? "").trim();
+  return resolveScriptRoot(opts.root, declared !== "" ? declared : resolveStackDir(opts));
+}
+
 function execute(
   graph: Graph,
   plan: (step: Step) => StepPlan,
@@ -982,7 +1038,10 @@ function execute(
   return executeGraph({
     graph,
     plan,
-    scriptPath: (step) => capabilityScriptPath(step.script, opts.root),
+    // The GRAPH came from opts.root (the extension); a SCRIPT that operates on
+    // a checkout comes from that checkout (memql#5056, corrected by memql#5064).
+    // Steps must match the editor; scripts must match the tree they operate on.
+    scriptPath: (step, params) => capabilityScriptPath(step.script, scriptRootFor(step, params, opts)),
     receiptFile,
     timeoutMs: opts.timeoutMs,
     env: childEnv(opts),

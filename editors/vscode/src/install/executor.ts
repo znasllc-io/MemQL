@@ -58,6 +58,19 @@ export interface StepOutcome {
   params: Record<string, string>;
   /** Human sentence for a non-ok status. */
   reason?: string;
+  /**
+   * The step's own output, carried ONLY for an outcome that is not ok
+   * (memql#5059).
+   *
+   * The capability contract puts human logs on stderr and one JSON envelope on
+   * stdout, which is right -- and nothing downstream kept the stderr, so a
+   * failure whose reason POINTED at it ("the docker build output above is the
+   * account of it") resolved to nothing by the time anyone read the record.
+   *
+   * Not carried for a successful step: that output is noise, and every run
+   * would pay for it.
+   */
+  log?: string;
   /** On a skip: whether the condition dependents were waiting for already holds. */
   satisfied?: boolean;
   startedAt: string;
@@ -138,7 +151,17 @@ export type ExecEvent =
 export interface ExecuteOptions {
   graph: Graph;
   /** Resolves a step to the capability script that runs it. */
-  scriptPath: (step: Step) => string;
+  /**
+   * Where the step's capability script is read from.
+   *
+   * TAKES THE RESOLVED PARAMS, not just the step (memql#5064). A step that
+   * builds FROM a checkout says so in its own `--repo-root`, and the script
+   * that operates on a tree has to come from that tree. Resolving per STEP
+   * rather than per SESSION is what makes it work for an install, whose
+   * checkout does not exist when the session is built -- it is produced by
+   * `stackCheckout`, several waves in.
+   */
+  scriptPath: (step: Step, params: Record<string, string>) => string;
   /** Run-time params, or a decision to skip. Defaults to running with none. */
   plan?: (step: Step) => StepPlan;
   /** Injectable for tests; defaults to the real spawn-based runner. */
@@ -249,7 +272,7 @@ async function runStep(
   await emit(options, { type: "stepStarted", step, params });
 
   const outcome = await run({
-    scriptPath: options.scriptPath(step),
+    scriptPath: options.scriptPath(step, params),
     params,
     capability: step.script,
     cwd: options.cwd,
@@ -283,7 +306,11 @@ async function runStep(
   if (!envelope) {
     // No envelope means we know nothing about the machine, which is not the
     // same as knowing nothing went wrong.
-    return { ...base, reason: outcome.parseError ?? "the script produced no result envelope" };
+    return {
+      ...base,
+      reason: outcome.parseError ?? "the script produced no result envelope",
+      ...(outcome.stderr !== "" ? { log: outcome.stderr } : {}),
+    };
   }
 
   base.preExisting = resolvePreExisting(step, envelope);
@@ -311,6 +338,7 @@ async function runStep(
         outcome.exitCode === 0
           ? `the script exited 0 but its verify did not hold: ${detail}`
           : `exit ${outcome.exitCode}: ${detail}`,
+      ...(outcome.stderr !== "" ? { log: outcome.stderr } : {}),
     };
     await record(options, step, withStatus);
     return withStatus;
