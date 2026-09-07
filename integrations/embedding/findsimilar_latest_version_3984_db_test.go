@@ -107,7 +107,7 @@ func TestFindSimilarReturnsEachIdOnceAtItsLatestVersion(t *testing.T) {
 
 	integration := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	integration.SetDBGetter(func() *sql.DB { return db })
-	integration.SetEmbeddingProvider(func(string) (memql.EmbeddingAIProvider, error) {
+	integration.SetEmbeddingProvider(func(context.Context, string) (memql.EmbeddingAIProvider, error) {
 		return stubEmbeddingProvider{vec: basisVector(0)}, nil
 	})
 	// Nothing is staged, stated explicitly rather than left to a default.
