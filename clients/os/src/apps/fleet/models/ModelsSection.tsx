@@ -210,18 +210,14 @@ function DoorsPanel({
               detail={
                 doors.federationConfigured
                   ? "workload-identity federation"
-                  : "not configured"
-              }
-            />
-            <DoorState
-              name="Provider key"
-              open={doors.cloudConfigured && !doors.federationConfigured}
-              detail={
-                doors.federationConfigured
-                  ? "superseded by federation"
                   : doors.cloudConfigured
-                    ? "a paid key is configured"
-                    : "no key configured"
+                    ? // A callable cloud provider that is not federated cannot
+                      // happen since epic memql#5088 -- a provider is Available
+                      // only if it federated -- but cloudConfigured is still
+                      // read, and this is the one line that would notice if
+                      // that stopped being true.
+                      "a cloud provider is callable but not through federation"
+                    : "not configured"
               }
             />
           </div>
@@ -376,8 +372,10 @@ function doorWord(door: string): string {
       return "a signed-in app on one of your machines";
     case "federation":
       return "workload-identity federation";
-    case "apiKey":
-      return "a configured provider key";
+    // `apiKey` has no case, because it has no producer: the door went with the
+    // vendor keys (epic memql#5088). An older node still reporting it falls
+    // through to the pass-through below and is printed as it came, which is
+    // the right treatment for a value from a build this one does not know.
     default:
       return door;
   }
