@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -225,6 +226,17 @@ func Run(cfg RunConfig) {
 	// A failure keeps the PREVIOUS boot's rows and says so; it never stops the
 	// node. A cluster that will not start because it could not describe its own
 	// configuration is a worse outcome than a stale verdict.
+	//
+	// AND ONE RE-WRITE THIRTY SECONDS LATER (epic memql#5118, D5). Not a poll,
+	// and it does not repeat: it covers a node whose integration materialized
+	// LAZILY, after the write above ran, and there is no event for "an
+	// integration finished resolving". The email plug-in's own resolution
+	// logged twenty seconds late on the owner's cluster, which is what sized
+	// the delay. One extra evaluation per process lifetime; a repeating timer
+	// would cost a cluster-wide registration read forever to cover a case that
+	// can only happen once.
+	bootRewrite, cancelBootRewrite := context.WithCancel(context.Background())
+	defer cancelBootRewrite()
 	if eng := application.Engine(); eng != nil {
 		eng.SetReadinessIdentity(application.startupNodeID(), application.startupNodeType())
 		if n, err := eng.WriteModuleReadiness(context.Background()); err != nil {
@@ -232,6 +244,20 @@ func Run(cfg RunConfig) {
 		} else {
 			cfg.Logger.Info("module readiness: rows written", "modules", n)
 		}
+		go func() {
+			timer := time.NewTimer(memql.ReadinessBootRewriteDelay)
+			defer timer.Stop()
+			select {
+			case <-bootRewrite.Done():
+				return
+			case <-timer.C:
+			}
+			if n, err := eng.WriteModuleReadiness(bootRewrite); err != nil {
+				cfg.Logger.Warn("module readiness: delayed boot re-write failed; the first write's rows stand", "error", err)
+			} else {
+				cfg.Logger.Info("module readiness: rows re-written after boot", "modules", n)
+			}
+		}()
 	}
 
 	// Emit system.startup AFTER every dependency has started so the
@@ -248,6 +274,11 @@ func Run(cfg RunConfig) {
 	trigger := waitForShutdownTrigger(wait, application.OperatorDrainSignal())
 	cfg.Logger.Info("shutdown triggered", "trigger", trigger,
 		"reason", application.OperatorDrainReason())
+
+	// The delayed readiness re-write above has no business running through a
+	// drain: it would write rows describing a node that is going away, and it
+	// would do so against a database the Stop sweep is about to close.
+	cancelBootRewrite()
 
 	// Flip this node's lifecycle Ready -> Draining (memql#1268) on the
 	// shutdown signal so the next gossip heartbeat advertises Draining and
