@@ -128,6 +128,99 @@ export function canConfigure(clusterRole: string): boolean {
   return clusterRole === "owner" || clusterRole === "developer";
 }
 
+/**
+ * WHAT A MODULE OFFERS, as four answers over one set of facts.
+ *
+ * The decision was inline in `SetupGroup`'s row until the first-run wizard
+ * needed the same one (epic memql#5106). The two surfaces draw it
+ * differently -- the group as a cell in a three-column row, the wizard as
+ * the body of a rail stop -- so what is shared is the DECISION and not the
+ * chrome. A second copy of "providers is owner-only, so a developer gets
+ * words" is a copy that drifts, and the drift is silent: a button that
+ * navigates to a section `sectionsForRole` does not return goes nowhere and
+ * says nothing.
+ */
+export type ModuleAct =
+  | { kind: "none" }
+  | { kind: "deployment"; variables: string[] }
+  | { kind: "open"; section: string; name: string }
+  | { kind: "words"; name: string };
+
+export function moduleActFor(args: {
+  id: ModuleId;
+  verdict: Verdict | null;
+  /** The Settings sections THIS actor may reach. */
+  sections: readonly string[];
+  /** Whether there is a window to open into at all. */
+  canOpenWindows: boolean;
+}): ModuleAct {
+  const { id, verdict, sections, canOpenWindows } = args;
+  // A module that is SET UP needs no act. Saying where it would be
+  // configured, to somebody looking at a row that says "Set up", is an
+  // instruction with nothing behind it -- and a column of them beside every
+  // finished row is the furniture rule 10 exists to keep out.
+  if (verdict?.state === "configured") return { kind: "none" };
+  const target = MODULE_SETTINGS_SECTION[id];
+  if (target === null) {
+    // The lane that still needs something, else the first: what a person has
+    // to set is the incomplete one. Only the ABSENT slots are named -- the
+    // ones already set are not work.
+    const lane = verdict?.lanes.find((l) => !l.complete) ?? verdict?.lanes[0];
+    return {
+      kind: "deployment",
+      variables: (lane?.slots ?? []).filter((slot) => !slot.present).map((slot) => slot.name),
+    };
+  }
+  // THREE things have to hold before a button is offered, and the third is
+  // the one that is easy to miss.
+  //
+  //  - There is somewhere to send them (`target`).
+  //  - There is a window to open. `canOpenWindows` is `!== "phone"` rather
+  //    than `=== "desktop"`: the iPad chrome carries windows too.
+  //  - THIS ACTOR MAY REACH THAT SECTION. Settings' own `providers` section
+  //    is OWNER-ONLY, so a developer offered "Open AI providers" would
+  //    navigate a window to a section `sectionsForRole` does not return.
+  //
+  // Asked of the REGISTRY rather than restated here: a literal copy of
+  // "providers is owner-only" would be a second place for that rule to live,
+  // and the section's own manifest is the first.
+  const reachable = sections.includes(target.section);
+  if (reachable && canOpenWindows) return { kind: "open", section: target.section, name: target.name };
+  // No window to open into, or a section this actor cannot reach, so the
+  // destination is named in words. A button that could not go anywhere would
+  // be worse than a sentence that says where to look.
+  return { kind: "words", name: target.name };
+}
+
+/**
+ * The sections of one app this actor may reach, whether there is a window to
+ * open into, and how to open one.
+ *
+ * `useOsIfPresent` rather than `useOs`: a Set up group rendered in a test
+ * with no shell around it is not a bug, and "there is nowhere to hand off
+ * to" is exactly what null means. Every caller must therefore be able to say
+ * its destination in WORDS as well as in a button, which is the discipline
+ * this hook exists to force.
+ */
+export function useAppReach(
+  appId: string,
+  role: string,
+): {
+  sections: string[];
+  canOpenWindows: boolean;
+  open: (section: string, payload?: Record<string, unknown>) => void;
+} {
+  const os = useOsIfPresent();
+  const app = os?.registry.apps.find((a) => a.id === appId) ?? null;
+  return {
+    sections: app === null ? [] : sectionsForRole(app, role).map((sec) => sec.id),
+    canOpenWindows: os !== null && os.layout !== "phone",
+    open: (section, payload) => {
+      os?.actions.openApp(appId, section, payload);
+    },
+  };
+}
+
 export function SetupGroup({
   app,
   requires,
@@ -141,8 +234,8 @@ export function SetupGroup({
   readiness: Readiness | undefined;
 }) {
   const { access } = useSession();
-  const os = useOsIfPresent();
   const role = access?.clusterRole ?? "";
+  const reach = useAppReach("settings", role);
   if (!canConfigure(role)) return null;
   const ids = Array.from(new Set([...requires, ...wants]));
   if (ids.length === 0) return null;
@@ -161,40 +254,12 @@ export function SetupGroup({
                 : v.state === "partial"
                   ? "partlySetUp"
                   : "needsSetup";
-            const target = MODULE_SETTINGS_SECTION[id];
-            // The lane that still needs something, else the first: what a
-            // person has to set is the incomplete one.
-            const lane = v?.lanes.find((l) => !l.complete) ?? v?.lanes[0];
-            // THREE things have to hold before an act is offered, and the
-            // third is the one that is easy to miss.
-            //
-            //  - There is somewhere to send them (`target`).
-            //  - There is a window to open. `!== "phone"` rather than
-            //    `=== "desktop"`: the iPad chrome carries windows too.
-            //  - THIS ACTOR MAY REACH THAT SECTION. The group is
-            //    owner-or-developer, and Settings' own `providers` section is
-            //    OWNER-ONLY -- so a developer offered "Open AI providers"
-            //    would navigate a window to a section sectionsForRole does not
-            //    return, which goes nowhere and says nothing. That is the
-            //    silent failure settingsSectionProblem exists to catch for
-            //    gears, arriving by a different door.
-            //
-            // Asked of the REGISTRY rather than restated here: a literal copy
-            // of "providers is owner-only" would be a second place for that
-            // rule to live, and the section's own manifest is the first.
-            const settingsApp = os?.registry.apps.find((a) => a.id === "settings") ?? null;
-            const reachable =
-              target !== null &&
-              settingsApp !== null &&
-              sectionsForRole(settingsApp, role).some((sec) => sec.id === target.section);
-            const canOpen = reachable && os !== null && os.layout !== "phone";
-            // A module that is SET UP needs no act. Saying where it would be
-            // configured, to somebody looking at a row that says "Set up", is
-            // an instruction with nothing behind it -- and a column of them
-            // beside every finished row is the furniture rule 10 exists to
-            // keep out. The row reads "Campaign sending -- Set up", which is
-            // the whole answer.
-            const done = v?.state === "configured";
+            const act = moduleActFor({
+              id,
+              verdict: v,
+              sections: reach.sections,
+              canOpenWindows: reach.canOpenWindows,
+            });
             return (
               <div key={id} className="os-setup-row">
                 <span className="os-setup-name">{MODULE_NAMES[id]}</span>
@@ -205,35 +270,21 @@ export function SetupGroup({
                   {stateWords(v)}
                   {v && v.disagreement.length > 0 ? ` (${v.disagreement.join(", ")})` : ""}
                 </span>
-                {done ? (
+                {act.kind === "none" ? (
                   <span className="os-setup-act" />
-                ) : target === null ? (
+                ) : act.kind === "deployment" ? (
                   <span className="os-setup-act">
                     <span className="os-caption">Set in the deployment</span>
-                    {lane && lane.slots.length > 0 ? (
-                      <p className="os-setup-vars">
-                        {lane.slots
-                          .filter((s) => !s.present)
-                          .map((s) => s.name)
-                          .join(" ")}
-                      </p>
+                    {act.variables.length > 0 ? (
+                      <p className="os-setup-vars">{act.variables.join(" ")}</p>
                     ) : null}
                   </span>
-                ) : canOpen ? (
+                ) : act.kind === "open" ? (
                   <span className="os-setup-act">
-                    <Button
-                      onClick={() => {
-                        os.actions.openApp("settings", target.section);
-                      }}
-                    >
-                      Open {target.name}
-                    </Button>
+                    <Button onClick={() => reach.open(act.section)}>Open {act.name}</Button>
                   </span>
                 ) : (
-                  // No window to open into, so the destination is named in
-                  // words. A button that could not go anywhere would be worse
-                  // than a sentence that says where to look.
-                  <span className="os-setup-act os-caption">Settings, under {target.name}</span>
+                  <span className="os-setup-act os-caption">Settings, under {act.name}</span>
                 )}
               </div>
             );

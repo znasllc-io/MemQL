@@ -965,3 +965,65 @@ describe("the role gate", () => {
     expect(section.roles).toEqual(INTEGRATIONS_SECTION_ROLE);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Arriving from the first-run wizard (epic memql#5106)
+// ---------------------------------------------------------------------------
+
+describe("opened at one integration", () => {
+  async function open(payload: Record<string, unknown> | null) {
+    const consume = vi.fn();
+    render(
+      wrap(
+        <SettingsApp
+          sectionId="integrations"
+          navigate={vi.fn()}
+          askContext={vi.fn()}
+          intent={payload === null ? undefined : { id: "intent-9", payload }}
+          consumeIntent={consume}
+        />,
+        "owner",
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    return { consume };
+  }
+
+  it("puts the cursor inside the named card and consumes the intent by id", async () => {
+    const { consume } = await open({ integration: "email" });
+    const card = document.querySelector('[data-os-integration="email"]');
+    expect(card).not.toBeNull();
+    expect(card?.contains(document.activeElement)).toBe(true);
+    expect(consume).toHaveBeenCalledExactlyOnceWith("intent-9");
+  });
+
+  it("waits for the report before it acts", async () => {
+    // The cards do not exist until the read lands. An effect that fired on
+    // mount would query for an element that is not there yet and consume the
+    // intent having revealed nothing -- a handoff that silently loses the
+    // last step of the act it was carrying.
+    h.state.report = [];
+    const { consume } = await open({ integration: "email" });
+    expect(document.querySelector('[data-os-integration="email"]')).toBeNull();
+    // The report DID land (it is simply empty), so the intent is spent rather
+    // than left to fire against a later render of a different section.
+    expect(consume).toHaveBeenCalledExactlyOnceWith("intent-9");
+  });
+
+  it("does nothing for an intent that names no integration", async () => {
+    const { consume } = await open({ vendor: "anthropic" });
+    expect(consume).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-os-integration="email"]')?.contains(document.activeElement)).toBe(
+      false,
+    );
+  });
+
+  it("renders the section unchanged with no intent at all", async () => {
+    const { consume } = await open(null);
+    expect(consume).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Integrations" })).toBeTruthy();
+  });
+});

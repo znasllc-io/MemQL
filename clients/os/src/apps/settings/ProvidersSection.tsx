@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Button,
@@ -12,7 +12,9 @@ import {
   Panel,
   Subhead,
 } from "../../kit";
+import { findRegion, revealRegion } from "../../kit";
 import { useSession } from "../../chrome/access";
+import type { OsAppProps } from "../../system/registry";
 import type { RoleRequirement } from "../../system/roles";
 import {
   sourceCopy,
@@ -80,11 +82,32 @@ const FEDERATION_FIELDS = [
   },
 ] as const;
 
-export function ProvidersSection() {
+export function ProvidersSection({
+  intent,
+  consumeIntent,
+}: {
+  intent?: OsAppProps["intent"];
+  consumeIntent?: OsAppProps["consumeIntent"];
+} = {}) {
   const { access } = useSession();
   const registry = useProviderRegistry(true);
   const actions = useProviderActions(registry.reload);
   const summary = summarize(registry.rows);
+
+  // ARRIVING AT A VENDOR (epic memql#5106). The first-run wizard's Anthropic
+  // and OpenAI doors send somebody here to set that vendor up, and this page
+  // carries three panels -- so landing at the top of it leaves the last step
+  // of the act to them. The intent names the vendor; this brings its panel
+  // into view and puts the cursor in its first field.
+  //
+  // CONSUMED BY ID, so a stale render cannot scroll the page out from under
+  // somebody who has since scrolled somewhere else.
+  const vendor = typeof intent?.payload["vendor"] === "string" ? intent.payload["vendor"] : "";
+  useEffect(() => {
+    if (!intent || vendor === "") return;
+    revealRegion(findRegion("os-vendor", vendor));
+    consumeIntent?.(intent.id);
+  }, [intent, vendor, consumeIntent]);
 
   return (
     <div className="os-settings">
@@ -129,13 +152,17 @@ export function ProvidersSection() {
         />
       ) : null}
 
-      <AnthropicPanel
-        busy={actions.state.busy}
-        onSaveKey={(key) => void actions.saveKey("anthropic", key)}
-        onSaveFederation={(fields) => void actions.saveFederation(fields)}
-      />
+      <div data-os-vendor="anthropic">
+        <AnthropicPanel
+          busy={actions.state.busy}
+          onSaveKey={(key) => void actions.saveKey("anthropic", key)}
+          onSaveFederation={(fields) => void actions.saveFederation(fields)}
+        />
+      </div>
 
-      <OpenAiPanel busy={actions.state.busy} onSaveKey={(key) => void actions.saveKey("openai", key)} />
+      <div data-os-vendor="openai">
+        <OpenAiPanel busy={actions.state.busy} onSaveKey={(key) => void actions.saveKey("openai", key)} />
+      </div>
 
       <Panel label="What this node can call">
         <Subhead>What this node can call</Subhead>

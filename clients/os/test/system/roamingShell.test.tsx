@@ -199,8 +199,18 @@ describe("ids minted against the document", () => {
       />,
     );
     const seeded = store.load();
-    const widgetIds = Object.keys(seeded?.surfaces[seeded.activeDeskId]?.items ?? {});
-    expect(widgetIds).toHaveLength(1);
+    const surface = seeded?.surfaces[seeded.activeDeskId];
+    const widgetIds = Object.keys(surface?.items ?? {});
+    // An owner's seed places TWO widgets (epic memql#5106): Ask, and the
+    // first-run Set up wizard beneath it. Pinned by NAME rather than by
+    // count, because what this case then asserts is that every seeded id
+    // survives the collision -- and a bare number says nothing about which
+    // one went missing when it does not.
+    expect(
+      widgetIds
+        .map((id) => (surface?.items[id] as { widgetId?: string } | undefined)?.widgetId ?? "")
+        .sort(),
+    ).toEqual(["ask", "setup"]);
     first.unmount();
 
     resetIdsForTest(); // the reload

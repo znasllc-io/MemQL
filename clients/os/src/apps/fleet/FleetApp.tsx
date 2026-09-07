@@ -107,7 +107,7 @@ export function FleetApp({
   if (sectionId === "routing") return <RoutingSection />;
   if (sectionId === "workbenches") return <WorkbenchesSection />;
   if (sectionId === "apps") return <AppsSection />;
-  return <MachinesSection showRevoked={settings.showRevoked} />;
+  return <MachinesSection showRevoked={settings.showRevoked} intent={intent} consumeIntent={consumeIntent} />;
 }
 
 function FleetSettingsSection({

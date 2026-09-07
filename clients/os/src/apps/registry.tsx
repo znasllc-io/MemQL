@@ -42,6 +42,7 @@ import { LOGS_SECTIONS, LOGS_REQUIRES, LOGS_WANTS } from "./logs/settings";
 import { MaterializerApp } from "./materializer/MaterializerApp";
 import { MATERIALIZER_SECTIONS, MATERIALIZER_REQUIRES, MATERIALIZER_WANTS } from "./materializer/settings";
 import { SettingsApp } from "./settings/SettingsApp";
+import { setupWidget } from "./setup/manifest";
 import { StoresApp } from "./stores/StoresApp";
 import { STORES_SECTIONS } from "./stores/settings";
 import { TrainingApp } from "./training/TrainingApp";
@@ -699,5 +700,5 @@ export const OS_REGISTRY: OsRegistry = {
     stores,
     bin,
   ],
-  widgets: [askWidget],
+  widgets: [askWidget, setupWidget],
 };

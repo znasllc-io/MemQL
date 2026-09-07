@@ -5054,6 +5054,19 @@ a.os-button {
   color: var(--os-warn);
 }
 
+/* A STOP THAT IS REACHABLE AND NOT DONE draws the base mark at full strength
+ * and takes NO rule of its own -- which is the point, and why it is written
+ * down. `waiting` is the setup rail's ordinary state: three of a first-run
+ * reader's four stops are in it, every one of them theirs to open whenever
+ * they like. Dimming it (the `ahead` treatment one line down) would say the
+ * opposite -- that the stop belongs to something else and their turn has not
+ * come -- which is exactly the stepper this rail exists instead of.
+ *
+ * `unknown` DOES dim, with `ahead` and `pending`: a state nobody has read yet
+ * is not a state a person can act on, and drawing it as ready to open would
+ * invite a click into a stop that cannot answer. It is drawn at all only for
+ * a caller that renders before its reading settles; the setup widget does
+ * not, and shows nothing instead. */
 /* AN UNREACHED STAGE DIMS ITS CONTENT, NOT ITSELF. Dimming the whole <li>
  * took the connector with it, and the rail then stopped dead after the running
  * stage -- which reads as a picture that failed to draw rather than as steps
@@ -5061,6 +5074,8 @@ a.os-button {
  * it is what says these are one sequence. */
 .os-rail-stage[data-state="ahead"] .os-rail-mark,
 .os-rail-stage[data-state="ahead"] .os-rail-body,
+.os-rail-stage[data-state="unknown"] .os-rail-mark,
+.os-rail-stage[data-state="unknown"] .os-rail-body,
 .os-rail-stage[data-state="pending"] .os-rail-mark,
 .os-rail-stage[data-state="pending"] .os-rail-body {
   opacity: 0.45;
@@ -7752,6 +7767,12 @@ a.os-button {
 }
 .os-rail-line:hover .os-rail-answer {
   color: var(--os-ink);
+}
+/* A stop that does not open keeps the line's COLUMNS and none of its
+ * affordances: no chevron, no pointer, nothing that says a click would do
+ * something. */
+.os-rail-line[data-static="true"] {
+  cursor: default;
 }
 .os-rail-line:focus-visible {
   outline: 2px solid var(--os-accent);
@@ -11224,4 +11245,89 @@ a.os-button {
 .os-ask-unconfigured {
   margin: 0;
   padding: 12px 14px;
+}
+
+/* ===========================================================================
+ * THE FIRST-RUN WIZARD (epic memql#5106)
+ * ===========================================================================
+ * A rail of the core modules, inside a desk widget. Everything it draws
+ * comes from somewhere else -- the rail from `.os-rail-*`, the buttons and
+ * captions from the kit -- so what is here is the widget's own measure, its
+ * one sentence, and how it leaves.
+ *
+ * THE EXIT IS THE ONLY MOMENT THIS SURFACE SPENDS ON ITSELF, and it is the
+ * one place a first-run wizard can afford to. A person who has just set up
+ * the last of the four gets a beat with every mark lit -- the interface's
+ * answer to "did that work" -- and then the card folds away, which is a
+ * better reward than a screen that says "All set!" and has to be dismissed.
+ * The hold lives in the transition DELAY rather than in a second timer, so
+ * there is one duration in the CSS and one in the component and they cannot
+ * drift into a card that is invisible for a second before it goes.
+ *
+ * A cluster that was already configured never renders this at all (see
+ * SetupGate), so nothing here is ever played to somebody who did not ask. */
+.os-setup-gate {
+  height: 100%;
+}
+
+.os-setup-gate[data-exiting="true"] {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  transition:
+    opacity 260ms var(--os-ease) 900ms,
+    transform 260ms var(--os-ease) 900ms;
+  pointer-events: none;
+}
+
+/* Reduced motion keeps the HOLD and drops the movement. "No animation" would
+   take the beat away with it, and the beat is the information -- it is the
+   only confirmation this surface gives that the last stop landed. */
+@media (prefers-reduced-motion: reduce) {
+  .os-setup-gate[data-exiting="true"] {
+    transform: none;
+    transition: opacity 1ms linear 1100ms;
+  }
+}
+
+.os-setup-widget {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ONE SENTENCE, and it carries the two things a person cannot see anywhere
+   else: how much is left, and that this card leaves when it is done. Muted
+   and small, because the rail beneath it is what they are here to read. */
+.os-setup-widget-lead {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  text-wrap: pretty;
+}
+
+/* Tighter than a page rail: a widget three cells tall has room for four
+   stops and one open body, and the page's 10px top margin spends a line of
+   it on nothing. */
+.os-setup-widget .os-rail {
+  margin: 8px 0 0;
+}
+
+.os-setup-stop {
+  display: grid;
+  gap: 6px;
+  padding: 6px 0 2px;
+}
+
+.os-setup-stop-act {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* The choice cards inside a stop sit inside a rail body that is already
+   indented, so they take the remaining width rather than the widget's. */
+.os-setup-widget .os-choice-stack {
+  gap: 4px;
 }

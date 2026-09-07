@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { Button, Caption, Chip, Chips, Fact, Facts, Field, Input, Notice } from "../../kit";
+import { Button, Caption, Chip, Chips, Fact, Facts, Field, Input, Notice, findRegion, revealRegion } from "../../kit";
 import { useSession } from "../../chrome/access";
+import type { OsAppProps } from "../../system/registry";
 import type { RoleRequirement } from "../../system/roles";
 import {
   configurableCards,
@@ -72,11 +73,40 @@ import { useIntegrations, type IntegrationsFacts } from "./useIntegrations";
 /** The section's role floor. Presentation only; every gate is server-side. */
 export const INTEGRATIONS_SECTION_ROLE: RoleRequirement = { any: ["owner", "developer"] };
 
-export function IntegrationsSection() {
+export function IntegrationsSection({
+  intent,
+  consumeIntent,
+}: {
+  intent?: OsAppProps["intent"];
+  consumeIntent?: OsAppProps["consumeIntent"];
+} = {}) {
   const { access } = useSession();
   const facts = useIntegrations();
   const cards = configurableCards(facts.report);
   const silent = silentCards(facts.report);
+
+  // ARRIVING AT ONE INTEGRATION (epic memql#5106). The first-run wizard's
+  // email stop sends somebody here to set the sending mailbox up, and this
+  // page lists every integration the node registered -- so the intent names
+  // which card, and this brings it into view with the cursor in its first
+  // field.
+  //
+  // WAITS FOR THE READ TO SETTLE. The cards do not exist until it lands, so
+  // an effect that ran on mount would query for an element that is not there
+  // yet and consume the intent having revealed nothing.
+  //
+  // SETTLED, NOT "a report arrived". `loading` is false both before the read
+  // starts and after it ends, so it cannot be the signal; a read that was
+  // REFUSED, or that answered with no card of this name, has still settled --
+  // and the intent is spent there too, because an intent left unconsumed
+  // outlives the section and travels to the next one this window opens.
+  const wanted = typeof intent?.payload["integration"] === "string" ? intent.payload["integration"] : "";
+  const settled = facts.fetchedAt !== null || facts.error !== "";
+  useEffect(() => {
+    if (!intent || wanted === "" || !settled) return;
+    revealRegion(findRegion("os-integration", wanted));
+    consumeIntent?.(intent.id);
+  }, [intent, wanted, settled, consumeIntent]);
 
   return (
     <div className="os-settings">
@@ -126,7 +156,7 @@ function IntegrationPanel({
   const label = integrationLabel(card.name);
   const blurb = integrationBlurb(card.name);
   return (
-    <section className="os-field-group" aria-label={label}>
+    <section className="os-field-group" aria-label={label} data-os-integration={card.name}>
       <h4 className="os-subhead">{label}</h4>
       <Chips label={`${label} state`}>
         <Chip tone={card.state === "configured" ? "accent" : "neutral"}>
