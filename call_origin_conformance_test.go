@@ -421,7 +421,16 @@ func TestOnlyAllowlistedPackagesStampInternalOrigin(t *testing.T) {
 		// the caller's actor -- which is the strongest form of the third
 		// property its sibling asserts.
 		"component/server/fileversion": "library file-version supersede store -- REQUEST-DERIVED; preconditions (stamp is required by @serverOnly, dies inside one call, no write names an owner, and the package holds no reads) asserted by component/server/fileversion/store_internal_origin_test.go, memql#4806",
-		"component/memql":              "seed materialiser and authoring capability store, both boot-time",
+		// The first two are boot-time and server-initiated. The third,
+		// readiness_write.go, is REQUEST-DERIVED on one path -- readinessRecompute
+		// is reachable by a cluster owner -- and is earned by two preconditions
+		// asserted in component/memql/readiness_internal_origin_test.go: the
+		// stamped context REPLACES the caller's actor with a synthetic unranked
+		// one, so no caller authority flows on; and every argument of the single
+		// mutation it reaches is computed from the env manifest and the node's own
+		// environment, so no caller-supplied value can reach a readiness row. A
+		// caller may ask for a recompute and cannot influence what is recorded.
+		"component/memql": "seed materialiser, authoring capability store (both boot-time), and the module-readiness writer (epic memql#5077)",
 		// SERVER-INITIATED, not request-derived -- the same class as
 		// integrations/agent/worker below rather than the three exceptions
 		// above, and the distinction is worth stating because this package

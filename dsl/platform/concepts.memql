@@ -633,3 +633,12 @@ concept moduleVerdict {
   disagreement  []string @description("nodeId=state for every live reporter when they disagree, worst first; empty otherwise.")
   nodes         []object @description("Per live reporting node: { nodeId, nodeType, state, reportedAt }.")
 }
+
+/// Virtual, never persisted: what readinessRecompute answers -- how many modules this node just
+/// rewrote, and which node it was. One row, id "current", because it answers one question about one
+/// node rather than describing a set.
+@displayCard(primary="nodeId", secondary="written")
+concept readinessRecomputeResult {
+  nodeId   string!  @description("The node that re-evaluated.")
+  written  int!     @description("How many moduleReadiness rows were written.")
+}

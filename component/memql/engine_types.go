@@ -490,6 +490,11 @@ const ModuleReadinessConcept = "v1:platform:moduleReadiness"
 // (section 4.5). See readiness_read.go.
 const ModuleVerdictConcept = "v1:platform:moduleVerdict"
 
+// ReadinessRecomputeResultConcept is the canonical id of the virtual,
+// never-persisted single row readinessRecompute answers with: which node
+// re-evaluated and how many rows it wrote.
+const ReadinessRecomputeResultConcept = "v1:platform:readinessRecomputeResult"
+
 // FilterNode aliases ComparisonExpression for backwards compatibility with earlier plan designs.
 type FilterNode = ComparisonExpression
 

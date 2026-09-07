@@ -87,9 +87,15 @@ type MemQLEngine struct {
 	// the returned nodes. See IntegrationCapability.PreserveOrder.
 	builtinPreserveOrder map[string]bool
 	integrations         *IntegrationRegistry
-	wiring               *bus.Wiring
-	partition            string // active partition for data isolation
-	metadataCollector    metadataCollectorInterface
+	// readinessNodeId / readinessNodeType name this node in the readiness
+	// rows it writes. Set once by app/run.go from the same values the
+	// startup event carries; empty until then, in which case the writer
+	// falls back to MEMQL_NODE_ID and the resolved node type.
+	readinessNodeId   string
+	readinessNodeType string
+	wiring            *bus.Wiring
+	partition         string // active partition for data isolation
+	metadataCollector metadataCollectorInterface
 	// logicRunner wires multi-step Logic dispatch through the
 	// automation step runner. Set via SetLogicRunner from app bootstrap;
 	// when nil, multi-step Logic invocations fall back to the
