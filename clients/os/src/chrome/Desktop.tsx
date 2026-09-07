@@ -624,10 +624,14 @@ function DeskPlate({
   // answer "there is something here" about a cell nobody can see -- and the
   // hint is the one line that answers exactly that question. Same predicate,
   // asked once.
-  const onDesk = items.filter(
-    ([, item]) =>
-      item.kind !== "widget" || roleAdmits(actorRole, widgetById(registry, item.widgetId)?.roles),
-  );
+  const onDesk = items.filter(([, item]) => {
+    if (item.kind !== "widget") return true;
+    const manifest = widgetById(registry, item.widgetId);
+    // BOTH REASONS THE RENDERER BELOW DRAWS NOTHING, so the two answers
+    // cannot disagree: a widget id this build no longer has, and one this
+    // role is not admitted to.
+    return manifest !== undefined && roleAdmits(actorRole, manifest.roles);
+  });
   const empty = windows.length === 0 && onDesk.length === 0;
 
   return (
