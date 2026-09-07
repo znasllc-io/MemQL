@@ -49,11 +49,14 @@ VSIX_PREFIX="extension"
 
 function show_help() {
     cat <<EOF
-Usage: $0 [--goos=OS] [--goarch=ARCH] [--out=FILE] [--skip-deps]
+Usage: $0 [--goos=OS] [--goarch=ARCH] [--target=T] [--out=FILE] [--skip-deps]
 
 Options:
     --goos=OS      Target OS for the bundled binary (default: host -- $DEFAULT_GOOS)
     --goarch=ARCH  Target arch (default: host -- $DEFAULT_GOARCH)
+    --target=T     Mark the VSIX as PLATFORM-SPECIFIC for T (e.g. linux-x64,
+                   darwin-arm64). Default empty: a universal archive, which is
+                   what every local build wants. See the note above parse_arguments.
     --out=FILE     VSIX output path (default: editors/vscode/<name>-<version>.vsix)
     --skip-deps    Skip rebuilding the file: workspace dependencies (inner-loop
                    reruns where sdk/ts and sdk/ts-viewkit have not changed)
@@ -64,15 +67,26 @@ Produces a .vsix bundling the memql-lsp binary under the Node-named directory
 EOF
 }
 
+# --target MARKS the archive; --goos/--goarch BUILD what goes in it, and the two
+# are separate on purpose (memql#5075).
+#
+# `vsce package --target linux-x64` tells the registry which platform this
+# archive is FOR. It does not build anything, and it does not check that the
+# bundled binary matches -- so the publish workflow sets all three together and
+# `scripts/ci/publish_vscode_workflow_test.go` asserts they agree. A local build
+# passes none of them and gets the host binary in a universal archive, which is
+# what `make vscode-install` has always produced.
 function parse_arguments() {
     GOOS_TARGET="$DEFAULT_GOOS"
     GOARCH_TARGET="$DEFAULT_GOARCH"
+    TARGET=""
     OUT=""
     SKIP_DEPS=false
     while [[ $# -gt 0 ]]; do
         case $1 in
             --goos=*) GOOS_TARGET="${1#*=}"; shift ;;
             --goarch=*) GOARCH_TARGET="${1#*=}"; shift ;;
+            --target=*) TARGET="${1#*=}"; shift ;;
             --out=*) OUT="${1#*=}"; shift ;;
             --skip-deps) SKIP_DEPS=true; shift ;;
             --help) show_help; exit 0 ;;
@@ -348,6 +362,10 @@ function package_vsix() {
     # extension/../../sdk/ts/node_modules/..."), because vsce cannot express
     # a path that walks above the extension root inside the VSIX archive.
     local args=(package --no-dependencies)
+    # EMPTY MEANS UNIVERSAL, and stays the default so every existing caller --
+    # `make vscode-install`, the CI packaging step -- produces exactly the
+    # archive it produced before this flag existed.
+    [[ -n "$TARGET" ]] && args+=(--target "$TARGET")
     [[ -n "$OUT" ]] && args+=(--out "$OUT")
     ( cd "$EXT_DIR" && npx --yes "$VSCE_VERSION" "${args[@]}" )
 }

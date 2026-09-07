@@ -3,6 +3,7 @@ package work
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/core/common"
@@ -288,12 +289,14 @@ func mergedVariables(source map[string]any, overrides map[string]any) map[string
 	if len(overrides) == 0 {
 		return base
 	}
-	out := make(map[string]any, len(base)+len(overrides))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range overrides {
-		out[k] = v
-	}
+	// Sized for the base alone. An override mostly RESTATES a key the base
+	// already carries, so the sum of the two lengths was never the answer's
+	// size -- and a sum inside an allocation is the arithmetic CodeQL's
+	// allocation-size-overflow query flags; round three in
+	// docs/internal/ops/codeql-alert-triage.md. A hint short by a few keys
+	// costs a rehash, never a wrong answer.
+	out := make(map[string]any, len(base))
+	maps.Copy(out, base)
+	maps.Copy(out, overrides)
 	return out
 }
