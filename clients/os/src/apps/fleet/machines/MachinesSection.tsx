@@ -33,6 +33,11 @@ export function MachinesSection({
   const writes = useMachineWrites();
   const [openId, setOpenId] = useState("");
   const [adding, setAdding] = useState(false);
+  // Whether the panel opens with "will run local models" already ticked. It
+  // is held HERE rather than read inside the panel because the panel is
+  // remounted by the Add/Close control, and an intent consumed once must not
+  // re-arm on the next open.
+  const [addInference, setAddInference] = useState(false);
 
   // ARRIVING BY INTENT OPENS ADD MACHINE (epic memql#5106). The first-run
   // wizard's fleet door sends somebody here to pair a machine that will serve
@@ -41,12 +46,21 @@ export function MachinesSection({
   //
   // CONSUMED BY ID, so acting on a stale render can never re-open the panel
   // somebody has since closed -- the rule every intent in this shell follows.
-  const wants = intent?.payload["addMachine"] === true;
+  // PRESENCE OF THE OBJECT means "open the panel"; `inference` inside it is a
+  // separate question, so `{ addMachine: {} }` is a valid request that opens
+  // the panel with nothing pre-ticked. The shape is an OBJECT and not a
+  // boolean specifically so a merely-truthy value cannot pre-select a
+  // several-gigabyte download: `true`, `"yes"` and `1` are all malformed here
+  // and open nothing.
+  const request = intent?.payload["addMachine"];
+  const wants = typeof request === "object" && request !== null && !Array.isArray(request);
+  const presetInference = wants && (request as { inference?: unknown }).inference === true;
   useEffect(() => {
     if (!intent || !wants) return;
     setAdding(true);
+    setAddInference(presetInference);
     consumeIntent?.(intent.id);
-  }, [intent, wants, consumeIntent]);
+  }, [intent, wants, presetInference, consumeIntent]);
   // ONE clock for the section, ticking at the heartbeat cadence. Every
   // freshness reading and every online dot resolves against the same instant,
   // so two rows cannot disagree about what "now" is -- and a machine going
@@ -75,7 +89,16 @@ export function MachinesSection({
         </Button>
       </Head>
 
-      {adding ? <AddMachine machineCount={count} onClose={() => setAdding(false)} /> : null}
+      {adding ? (
+        <AddMachine
+          machineCount={count}
+          presetInference={addInference}
+          onClose={() => {
+            setAdding(false);
+            setAddInference(false);
+          }}
+        />
+      ) : null}
 
       {/* Keyed on the filter so flipping the toggle RE-BASELINES the arrival
           cues. Without it, revealing revoked rows makes them flash "new" on

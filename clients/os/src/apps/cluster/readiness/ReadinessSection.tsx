@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { Button, Caption, Head, Notice, Panel, Subhead, boolOr, stringsOf } from "../../../kit";
+import { Button, Caption, Head, Notice, Panel, Subhead, boolOr, stringsOf, useAppReach } from "../../../kit";
 import { useSession } from "../../../chrome/access";
 import { useOsConnection } from "../../../live/connection";
 import { useReading } from "../../../cluster/reading";
@@ -102,6 +102,8 @@ function InferenceLine({
   reading: ReturnType<typeof useReading<Row | null>>;
 }) {
   const row = reading.value;
+  const { access } = useSession();
+  const fleet = useAppReach("fleet", access?.clusterRole ?? "");
 
   const facts = useMemo(() => {
     if (row === null) return null;
@@ -169,6 +171,19 @@ function InferenceLine({
                   facts.localModelCount === 1 ? "model" : "models"
                 }, and none of them meets the ${facts.minimumContextWindow.toLocaleString()}-token floor with structured output.`}
           </Caption>
+          {/* The route above says it in WORDS, which is the discipline
+              useAppReach exists to force -- a Set up group rendered with no
+              shell around it has nowhere to hand off to, and a button is the
+              only half that can go missing. This carries the same intent the
+              first-run wizard's fleet door sends, so a person arriving from
+              either lands on the same panel with the same box already ticked. */}
+          {facts.fleetInferenceInstalled && fleet.canOpenWindows ? (
+            <Button
+              onClick={() => fleet.open("machines", { addMachine: { inference: true } })}
+            >
+              Add a machine for local models
+            </Button>
+          ) : null}
         </Notice>
       )}
     </div>
@@ -198,7 +213,12 @@ function notReadyNext(facts: {
 }): string {
   const routes: string[] = [];
   if (facts.fleetInferenceInstalled) {
-    routes.push("pair a machine that runs a local model (Fleet -> Machines)");
+    // NAMES THE CHECKBOX, not just the section (epic memql#5103, design D5).
+    // "Pair a machine that runs a local model" left the last step to be
+    // guessed: pairing a machine gets you a machine, and the thing that makes
+    // it serve a model is a box on that panel. Naming it is what turns a
+    // signpost into instructions.
+    routes.push('pair a machine with "will run local models" ticked (Fleet -> Machines -> Add a machine)');
   } else {
     routes.push("this node cannot place fleet model calls at all, so a local model is not a route from here");
   }

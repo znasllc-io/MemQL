@@ -17,12 +17,23 @@ const { DEFAULT_FLEET_SETTINGS } = await import("../../src/apps/fleet/settings")
 const { fakeConnection, withSession } = await import("./harness");
 
 // ARRIVING FROM THE WIZARD (epic memql#5106). The first-run wizard's fleet
-// door opens Fleet at Machines with `{ addMachine: true }`, and this is the
-// receiving half: the Add machine panel is already open when they land.
+// door opens Fleet at Machines with `{ addMachine: { inference: true } }`, and
+// this is the receiving half: the Add machine panel is already open when they
+// land, with "will run local models" already ticked.
 //
 // LANDING ON THE LIST WITH THE BUTTON STILL TO FIND is what this prevents.
 // The act a person took was "pair a machine that serves a model" -- delivering
-// them to a directory of machines completes about half of it.
+// them to a directory of machines completes about half of it, and delivering
+// them to the panel with the model box unticked completes most of the rest and
+// then hands the last step back.
+//
+// THE PAYLOAD IS AN OBJECT, AND THAT IS THE SAFETY PROPERTY (epic memql#5103).
+// Presence of the object opens the panel; `inference` inside it is a separate
+// question. A boolean payload could be satisfied by any truthy value, and the
+// thing it would be pre-selecting is a several-gigabyte download onto somebody
+// else's machine. `{ addMachine: true }` was the old shape and is now one of
+// the malformed ones -- there is no compatibility branch, per the repo's
+// no-shims rule, and the producer changed in the same commit.
 
 afterEach(cleanup);
 
@@ -57,11 +68,31 @@ async function open(payload: Record<string, unknown> | null) {
 
 describe("Fleet, opened to add a machine", () => {
   it("opens the Add machine panel and consumes the intent by id", async () => {
-    const { consume } = await open({ addMachine: true });
+    const { consume } = await open({ addMachine: {} });
     expect(screen.getByRole("region", { name: "Add a machine" })).toBeTruthy();
     // The Head's control says Close, because the panel is already open.
     expect(screen.getByRole("button", { name: "Add a machine" }).textContent).toBe("Close");
     expect(consume).toHaveBeenCalledExactlyOnceWith("intent-3");
+  });
+
+  // ===========================================================================
+  // THE FLAG HAS TO SURVIVE THE SEAM, NOT JUST THE PANEL HAVE OPENED
+  // ===========================================================================
+  // The panel opening and the box being ticked are two different things, and
+  // between them sits a prop. Asserting only the first would stay green while
+  // the flag was dropped -- a person arriving from the wizard's "serve a model"
+  // door would get a pairing panel that pairs a machine which runs no models,
+  // and nothing anywhere would say so.
+  it("pre-selects the local-models box when the intent asks for it", async () => {
+    await open({ addMachine: { inference: true } });
+    const box = screen.getByRole("checkbox", { name: /will run local models/i });
+    expect((box as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("leaves the box unticked for a bare open request", async () => {
+    await open({ addMachine: {} });
+    const box = screen.getByRole("checkbox", { name: /will run local models/i });
+    expect((box as HTMLInputElement).checked).toBe(false);
   });
 
   it("leaves the panel closed when the shell hands it no intent", async () => {
@@ -78,8 +109,17 @@ describe("Fleet, opened to add a machine", () => {
     expect(consume).not.toHaveBeenCalled();
   });
 
-  it("is not fooled by a value that is merely truthy", async () => {
-    const { consume } = await open({ addMachine: "yes" });
+  // Every one of these is a value that would have passed a truthiness test.
+  // `true` is here because it was the SUPPORTED shape until this epic: after
+  // the change it is malformed like the rest, and pinning it stops the old
+  // form from being quietly re-accepted by a future "be lenient" edit.
+  it.each([
+    ["a string", "yes"],
+    ["a number", 1],
+    ["the old boolean", true],
+    ["an array", []],
+  ])("is not fooled by %s", async (_name, value) => {
+    const { consume } = await open({ addMachine: value });
     expect(screen.queryByRole("region", { name: "Add a machine" })).toBeNull();
     expect(consume).not.toHaveBeenCalled();
   });

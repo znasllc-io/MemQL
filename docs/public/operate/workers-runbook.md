@@ -44,6 +44,15 @@ after it then runs as a command of its own (`--token ...: command not found`).
 The pairing panel on `/fleet/machines` (section 5.5) emits exactly this shape,
 with the token and cluster URL filled in.
 
+Two flags are optional and independent. `--computeruse` installs the build that
+can drive the mouse and keyboard; `--inference` carries on into
+`memql worker setup --inference` in the same terminal, which checks the
+hardware floor, sets up a model runtime and pulls a starting model. Either,
+both or neither is a legitimate machine, and the pairing panel has a checkbox
+for each. `--inference` downloads several gigabytes, which is why it is off
+unless asked for -- see
+[Local models on the fleet](local-models.md#door-1--run-a-local-model-the-default).
+
 ### macOS
 
 ```bash

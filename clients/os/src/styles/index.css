@@ -2665,6 +2665,185 @@ button:not(:disabled):active {
   font-size: var(--os-text-xs);
 }
 
+/* ===========================================================================
+ * A PROGRESS TRACK, PROMOTED (epic memql#5103)
+ * ===========================================================================
+ * This look is the Files uploader's: a 2px hairline track with an accent fill
+ * and no percentage theatre, sitting under an honest byte counter in
+ * monospace tabular figures. The model pull is its third site, which is where
+ * DESIGN.md's rule says a piece is promoted rather than respelled.
+ *
+ * It is promoted here as a NAME rather than as a refactor: the declarations
+ * are written once and the Files uploader's own class names are aliases onto
+ * them, so nothing about that surface changes and the next person to touch it
+ * can drop the alias. `.os-train-progress` joins them for a reason worth
+ * stating -- the Training uploader renders `role="progressbar"` with an inline
+ * width and had NO rule behind either class, so its bar has been drawing
+ * nothing at all. Naming it here is the whole of that fix. */
+.os-progress-track,
+.os-files-up-track,
+.os-train-progress {
+  display: block;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--os-line);
+  overflow: hidden;
+}
+.os-progress-bar,
+.os-files-up-bar,
+.os-train-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--os-accent);
+  transition: width var(--os-duration-fast) var(--os-ease);
+}
+
+/* The models group is a card like the local-apps group above it: the two
+ * answer the same shape of question about a machine -- what it can be asked
+ * to do -- and one of them sitting unframed reads as an afterthought. */
+.os-fleet-models {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  background: var(--os-raised);
+}
+
+.os-fleet-modellist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+/* A model is a NAME AND ITS READINGS, stacked -- not three things spread
+ * across the window.
+ *
+ * The first shape here put the capabilities on `margin-left: auto`, copying
+ * the local-apps row above. The browser refuted it: that row's children are
+ * short, and a model's are a 38-character id, a size and three capability
+ * words, so at a maximized window the auto margin threw them onto three
+ * lines with a hand's width of nothing between. Three readings about one
+ * model read as three unrelated lines.
+ *
+ * Stacked left, they read as one item at every width, and the id keeps its
+ * own line -- which it needs, being the one string on this card a person may
+ * have to copy and the one an ellipsis would ruin. */
+.os-fleet-model {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 9px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  color: var(--os-muted);
+}
+.os-fleet-model-id {
+  font-weight: 600;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  overflow-wrap: anywhere;
+}
+.os-fleet-model-readings {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: var(--os-text-xs);
+}
+.os-fleet-model-facts {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A pull in flight is the one thing on this card that MOVES, so it is the one
+ * thing given an accent edge. Everything else here is a fact at rest. */
+.os-fleet-pull {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 11px;
+  border: 1px solid var(--os-accent);
+  border-radius: var(--os-radius-xs);
+  background: var(--os-plate);
+}
+.os-fleet-pull-line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.os-fleet-pull-model {
+  font-weight: 600;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  overflow-wrap: anywhere;
+}
+/* The runtime's own line, verbatim, BESIDE the model name rather than pushed
+ * to the far edge. It is half of one sentence -- "llama3.1:70b, pulling
+ * 8eeb52dfb3bb" -- and an auto margin put thirteen hundred pixels between the
+ * halves at a maximized window.
+ *
+ * Muted rather than emphasised: it changes every few seconds, and a bold
+ * string that rewrites itself is a flicker. */
+.os-fleet-pull-status {
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+.os-fleet-pull-bytes {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--os-muted);
+}
+.os-fleet-pull .os-caption {
+  margin: 0;
+}
+
+/* The act's own block: the control line, then whatever it has to say
+ * underneath. */
+.os-fleet-pullform {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.os-fleet-pullform .os-caption {
+  margin: 0;
+}
+
+.os-fleet-pullhistory {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--os-line);
+  display: grid;
+  gap: 3px;
+}
+.os-fleet-pastpull {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+.os-fleet-pastpull-when {
+  font-variant-numeric: tabular-nums;
+}
+/* No auto margin here either, for the reason the model row records: at a
+ * maximized window it spread one line into three separated fragments. */
+.os-fleet-pastpull-what {
+  overflow-wrap: anywhere;
+}
+/* A failed pull is the reason this list exists -- a succeeded one is already
+ * visible as a model above, and a failed one leaves nothing behind at all. It
+ * carries the error tone in its text and NOT as a filled banner: it is
+ * history, and something that already stopped happening should not shout. */
+.os-fleet-pastpull[data-status="failed"] .os-fleet-pastpull-what {
+  color: var(--os-error);
+}
+
 /* An already-revoked machine states the fact quietly. It is history rather
  * than a warning -- the credential stopped working when it was revoked, and
  * an alarm-toned banner would say something is wrong now. */
@@ -4238,17 +4417,8 @@ a.os-button {
   font-variant-numeric: tabular-nums;
   color: var(--os-muted);
 }
-.os-files-up-track {
-  height: 2px;
-  border-radius: 1px;
-  background: var(--os-line);
-  overflow: hidden;
-}
-.os-files-up-bar {
-  height: 100%;
-  background: var(--os-accent);
-  transition: width var(--os-duration-fast) var(--os-ease);
-}
+/* .os-files-up-track / .os-files-up-bar are declared with the promoted
+ * progress track further down (epic memql#5103) -- one rule, three names. */
 .os-files-up-note {
   margin: 0;
   font-size: var(--os-text-xs);

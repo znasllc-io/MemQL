@@ -69,17 +69,25 @@ import {
 export function AddMachine({
   machineCount,
   onClose,
+  presetInference = false,
 }: {
   /** The number of machines currently listed. Captured at mint time; the
    *  panel reports a registration when this grows past it. */
   machineCount: number;
   onClose: () => void;
+  /** Pre-tick "will run local models", for somebody who arrived here from the
+   *  first-run wizard's inference door (epic memql#5106, D4). It is the ONLY
+   *  seam through which the flag can arrive pre-set: the panel is otherwise
+   *  the person's own choice, and a pre-ticked download of several gigabytes
+   *  needs an act behind it that said so. */
+  presetInference?: boolean;
 }) {
   const connection = useOsConnection();
   const { config } = useSession();
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState<InstallPlatform>("mac");
   const [computerUse, setComputerUse] = useState(false);
+  const [inference, setInference] = useState(presetInference);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [token, setToken] = useState("");
@@ -89,7 +97,7 @@ export function AddMachine({
 
   const clusterUrl = workerClusterUrl(config.domain);
   const registered = awaitingFrom !== null && machineCount > awaitingFrom;
-  const command = installCommand({ platform, clusterUrl, token, computerUse });
+  const command = installCommand({ platform, clusterUrl, token, computerUse, inference });
 
   function submit(event: FormEvent): void {
     event.preventDefault();
@@ -184,9 +192,13 @@ export function AddMachine({
           </Button>
         </div>
 
-        {/* The build choice is an INPUT to the mint -- it decides which
-            install command the panel then shows -- so it stays with the
-            controls that produce it. */}
+        {/* Both choices are INPUTS to the mint -- they decide which install
+            command the panel then shows -- so they stay with the controls that
+            produce it.
+
+            They are CHECKBOXES IN A FORM, which is what rule 10 of the
+            interface language reserves them for: a choice being stated, not
+            in-surface state sitting in front of content forever. */}
         <label className="os-check">
           <input
             type="checkbox"
@@ -196,6 +208,19 @@ export function AddMachine({
           <span>
             Install the computer-use build (mouse, keyboard, screenshots). It asks for
             Accessibility and Screen Recording the first time it runs.
+          </span>
+        </label>
+
+        <label className="os-check">
+          <input
+            type="checkbox"
+            checked={inference}
+            onChange={(e) => setInference(e.target.checked)}
+          />
+          <span>
+            This machine will run local models. The installer checks the hardware, sets up a
+            runtime and pulls a starting model in the same terminal -- several gigabytes, so it
+            takes a while.
           </span>
         </label>
 
