@@ -141,6 +141,27 @@ test("the from-source lane still asks for no registry image", () => {
   }
 });
 
+// The build step has to be told WHICH checkout to build, and the CI lane
+// reaches it by `--from-source` rather than by `--tag=main` -- so the assertion
+// that already covers the wizard's path does not cover this one.
+//
+// It also builds ALL app nodes, and that is forced rather than chosen: session.ts
+// records it as "a fresh install has no such thing as a node it can leave
+// behind", because a partial build leaves the rest pulling an image nobody
+// published.
+test("the from-source lane tells the build which checkout to build", () => {
+  const opts = parseCliArgs(["install", "--commit=deadbeefcafe", "--from-source"]);
+  const decision = installPlan(opts)(STEP("buildImages", "k3d.dev"));
+  assert.equal(decision.action, "run");
+  if (decision.action === "run") {
+    assert.ok(decision.params["repo-root"], "buildImages was not told which checkout to build");
+    assert.equal(decision.params.node, undefined, "a fresh install must build every app node");
+    // The lane is the GRAPH's to pin, not a caller's -- a plan that passed it
+    // would make "build, but keep running released images" reachable.
+    assert.equal(decision.params["image-source"], undefined);
+  }
+});
+
 test("a repair is refused the flag, for the reason it is refused a version", () => {
   // The receipt records which lane the install ran on. A flag here could only
   // contradict that record or repeat it, and contradicting it would rebuild a
