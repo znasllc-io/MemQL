@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import { MonitorSmartphone } from "lucide-react";
 
+import type { OsAppProps } from "../../../system/registry";
 import { LiveList } from "../../../live/LiveList";
 import { useMachines } from "../../../live/machines";
 import { ProvenanceDot } from "../../../kit";
@@ -19,11 +20,33 @@ import { useMachineWrites } from "./useMachineWrites";
 // things an owner does to one -- name it, label it, revoke it, and look at
 // what it is.
 
-export function MachinesSection({ showRevoked }: { showRevoked: boolean }) {
+export function MachinesSection({
+  showRevoked,
+  intent,
+  consumeIntent,
+}: {
+  showRevoked: boolean;
+  intent?: OsAppProps["intent"];
+  consumeIntent?: OsAppProps["consumeIntent"];
+}) {
   const { collection, count } = useMachines();
   const writes = useMachineWrites();
   const [openId, setOpenId] = useState("");
   const [adding, setAdding] = useState(false);
+
+  // ARRIVING BY INTENT OPENS ADD MACHINE (epic memql#5106). The first-run
+  // wizard's fleet door sends somebody here to pair a machine that will serve
+  // a model, and landing them on a list with an "Add machine" button still to
+  // find is one step of the act left undone.
+  //
+  // CONSUMED BY ID, so acting on a stale render can never re-open the panel
+  // somebody has since closed -- the rule every intent in this shell follows.
+  const wants = intent?.payload["addMachine"] === true;
+  useEffect(() => {
+    if (!intent || !wants) return;
+    setAdding(true);
+    consumeIntent?.(intent.id);
+  }, [intent, wants, consumeIntent]);
   // ONE clock for the section, ticking at the heartbeat cadence. Every
   // freshness reading and every online dot resolves against the same instant,
   // so two rows cannot disagree about what "now" is -- and a machine going

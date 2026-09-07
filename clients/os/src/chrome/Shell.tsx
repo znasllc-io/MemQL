@@ -12,6 +12,7 @@ import { type AskTransport } from "../ask/askController";
 import { OS_REGISTRY } from "../apps/registry";
 import { ConceptOpenDispatcher } from "../apps/concepts/ConceptOpenDispatcher";
 import { ConnectReturnDispatcher } from "../apps/deployables/sources/ConnectReturnDispatcher";
+import { SetupReturnDispatcher } from "../apps/setup/SetupReturnDispatcher";
 import { AuthSourceProvider } from "../auth/context";
 import type { OsAuthSource } from "../auth/source";
 import type { OsRuntimeConfig } from "../cluster/config";
@@ -229,6 +230,7 @@ function ShellRoster({
           that did not arrive from a callback -- which is every other one. It
           sits INSIDE OsProvider because opening an app is a shell act. */}
       <ConnectReturnDispatcher />
+      <SetupReturnDispatcher />
       {/* A concept named in the address opens the Concepts app on it (epic
           memql#5009) -- the VS Code extension's handoff, and the shell's
           answer to a portal route that no longer exists. Renders nothing,

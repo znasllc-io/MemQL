@@ -51,8 +51,13 @@ function sectionFor(sectionId: string, intent: OsAppProps["intent"], consumeInte
   if (sectionId === "cluster") return <ClusterSection />;
   if (sectionId === "diagnostics") return <DiagnosticsSection />;
   if (sectionId === "benchmarks") return <BenchmarksSection />;
-  if (sectionId === "integrations") return <IntegrationsSection />;
-  if (sectionId === "providers") return <ProvidersSection />;
+  // The two sections the first-run wizard opens AT something (epic
+  // memql#5106): a named vendor's panel, or the email card. Both consume the
+  // intent by id once they have acted on it.
+  if (sectionId === "integrations")
+    return <IntegrationsSection intent={intent} consumeIntent={consumeIntent} />;
+  if (sectionId === "providers")
+    return <ProvidersSection intent={intent} consumeIntent={consumeIntent} />;
   if (sectionId === "tokens") return <TokensSection />;
   if (sectionId === "keys") return <KeysSection />;
   // No owned concepts: the shell's own lines are tagged with no app, and
