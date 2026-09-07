@@ -69,6 +69,17 @@ export interface Stop {
   answer?: string;
   /** What the stop holds when it is open. */
   body?: ReactNode;
+  /**
+   * Whether this stop is a disclosure at all. Defaults to "it is reachable",
+   * which is right for a rail over a RECORD: every reached stage of a deploy
+   * has an answer to show.
+   *
+   * A rail over a SET OF DOORS is different -- a finished one has nothing
+   * behind it -- and the header's rule applies just as much to a stop that is
+   * DONE as to one that is not reachable yet: a chevron promises something
+   * behind it, and one that opens an empty body is worse than no chevron.
+   */
+  openable?: boolean;
 }
 
 /** Whether a stop can be opened at all: there is something behind it. */
@@ -85,7 +96,12 @@ export function stopIsReachable(state: StopState): boolean {
  */
 export function stopIsOpen(stop: Stop, openStop: string | undefined): boolean {
   if (openStop === undefined) return true;
-  return openStop === stop.id && stopIsReachable(stop.state);
+  return openStop === stop.id && stopOpens(stop);
+}
+
+/** Whether a stop discloses: reachable, unless the caller says otherwise. */
+export function stopOpens(stop: Stop): boolean {
+  return stop.openable ?? stopIsReachable(stop.state);
 }
 
 /**
@@ -150,9 +166,10 @@ export function Rail({
   return (
     <ol className="os-rail" data-reversed={reversed ? "true" : "false"} aria-label={label}>
       {ordered.map((stop) => {
-        // A stop nobody can reach yet is never a disclosure: there is nothing
-        // behind it, and a chevron would promise otherwise.
-        const reachable = stopIsReachable(stop.state);
+        // A stop with nothing behind it is never a disclosure -- not one that
+        // cannot be reached yet, and not one that is finished. A chevron
+        // promises something there.
+        const reachable = stopOpens(stop);
         const open = stopIsOpen(stop, collapsible ? openStop : undefined);
         const answer = stop.answer ?? "";
         const note = stop.sentence ?? "";
@@ -176,6 +193,21 @@ export function Rail({
                     &#9656;
                   </span>
                 </button>
+              ) : collapsible && stop.openable === false ? (
+                // A stop the CALLER declared closed, on a rail whose others
+                // open. The same line without the button and the chevron, so
+                // its answer reads in the same column as every other stop's
+                // -- dropping to the plain label-and-note form would replace
+                // "Set up" with the module's whole description and lose the
+                // one word the row exists to carry.
+                //
+                // Gated on the EXPLICIT `false` so a rail that never sets
+                // `openable` cannot reach this branch: an unreached deploy
+                // stage keeps the form it has always had.
+                <span className="os-rail-line" data-static="true">
+                  <span className="os-rail-label">{stop.name}</span>
+                  <span className="os-rail-answer">{answer === "" ? note : answer}</span>
+                </span>
               ) : (
                 <>
                   <span className="os-rail-label">{stop.name}</span>

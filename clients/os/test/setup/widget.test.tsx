@@ -124,6 +124,29 @@ describe("the rail a fresh cluster shows", () => {
     expect(screen.getByRole("radio", { name: /A machine on your fleet/ })).toBeTruthy();
   });
 
+  it("makes a SETTLED stop no disclosure at all -- no chevron, nothing to open", async () => {
+    // Three of the four have nothing behind them once they are done, so a
+    // chevron there opens an empty body. The rail's own rule, applied to the
+    // finished end as well as the unreached one.
+    h.connection = ONE_PASSKEY;
+    mount();
+    const rail = await screen.findByRole("list", { name: "Set up this cluster" });
+    await waitFor(() =>
+      expect(rail.querySelector('li[data-state="done"]')).not.toBeNull(),
+    );
+    const done = rail.querySelector('li[data-state="done"]') as HTMLElement;
+    expect(done.querySelector("button")).toBeNull();
+    // ...and it still reads as a row: the name and the state word in the same
+    // columns as every other stop's. Falling back to the plain label-and-note
+    // form would have replaced "Set up" with the stop's whole sentence.
+    expect(done.querySelector(".os-rail-label")?.textContent).toBe("Your passkey");
+    expect(done.querySelector(".os-rail-answer")?.textContent).toBe("Set up");
+    expect(done.querySelector(".os-rail-chev")).toBeNull();
+    // ...while the one with something to do still is one.
+    const waiting = rail.querySelector('li[data-state="open"]') as HTMLElement;
+    expect(waiting.querySelector("button")).not.toBeNull();
+  });
+
   it("names the deployment variables on the storage stop rather than offering a button", async () => {
     h.connection = ONE_PASSKEY;
     render(

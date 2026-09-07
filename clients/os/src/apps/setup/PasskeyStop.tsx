@@ -10,33 +10,19 @@ import { devicesUrl, leaveForPasskey } from "./returns";
 // cannot sign in at all, and everybody reading this widget is signed in.
 
 export function PasskeyStop({
-  done,
   identityUrl,
   win = globalThis.window,
 }: {
-  done: boolean;
   identityUrl: string;
   /** Injected so the leave can be asserted without navigating the test. */
   win?: Window;
 }) {
   const url = devicesUrl(identityUrl);
 
-  if (done) {
-    return (
-      <div className="os-setup-stop">
-        <Caption>
-          {url === "" ? (
-            "Manage your passkeys on the identity service, under Devices."
-          ) : (
-            <a href={url} target="_blank" rel="noreferrer noopener">
-              Manage your passkeys under Devices
-            </a>
-          )}
-        </Caption>
-      </div>
-    );
-  }
-
+  // NO "you already have one" READING HERE. A finished stop is not a
+  // disclosure on this rail, so a body for it would be unreachable -- and
+  // managing passkeys is the identity service's surface, which the Cluster
+  // app's Readiness section already links.
   return (
     <div className="os-setup-stop">
       {url === "" ? (

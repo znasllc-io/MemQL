@@ -73,7 +73,6 @@ describe("the passkey stop's own act", () => {
     const assign = vi.fn();
     render(
       <PasskeyStop
-        done={false}
         identityUrl="https://identity.example.test"
         win={{ location: { assign } } as unknown as Window}
       />,
@@ -83,16 +82,9 @@ describe("the passkey stop's own act", () => {
   });
 
   it("says where to look, with no control at all, when the origin is unknown", () => {
-    render(<PasskeyStop done={false} identityUrl="" />);
+    render(<PasskeyStop identityUrl="" />);
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText("Register one on the identity service, under Devices.")).toBeTruthy();
-  });
-
-  it("offers a way to manage them once one is held, and no act", () => {
-    render(<PasskeyStop done identityUrl="https://identity.example.test" />);
-    expect(screen.queryByRole("button")).toBeNull();
-    const link = screen.getByRole("link", { name: "Manage your passkeys under Devices" });
-    expect(link.getAttribute("href")).toBe("https://identity.example.test/me/devices");
   });
 });
 

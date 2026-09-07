@@ -64,7 +64,24 @@ The alternative -- shrinking the choice pill's padding inside this one widget
 and a widget that quietly runs a smaller one is the drift the rules exist to
 stop.
 
-A second, smaller finding fell out of the same capture: with the doors in
+**A finished stop was still a disclosure.** Every settled stop drew a chevron,
+and three of the four have nothing at all behind them once they are done -- a
+configured module's act is deliberately absent, because telling somebody where
+to configure a thing that is configured is an instruction with nothing behind
+it. So the chevron opened an empty body. That is the rail's own header rule
+("a stop nobody can reach yet is never a disclosure ... a chevron would promise
+otherwise") applied to the wrong end: it was written about stops not reached
+YET and is just as true of stops that are finished.
+
+The kit rail gained `Stop.openable`, defaulting to "it is reachable" so the
+Deployables reading is untouched, and a stop the caller declares closed keeps
+the line's COLUMNS without its affordances -- no chevron, no pointer. That
+last part is the half a careless fix would have got wrong: dropping such a
+stop to the rail's plain label-and-note form replaces "Set up" with the
+module's whole description, which is a worse row than the one with the useless
+chevron. The second capture is what said so.
+
+A third, smaller finding fell out of the same capture: with the doors in
 place, the stop was ALSO carrying the module's own sentence ("Inference needs
 a provider: a machine on your fleet serving a model, or a federated cloud
 vendor") directly above a list reading exactly that. Rule 7 -- the sentence is
@@ -80,6 +97,7 @@ now the doors, and only the doors.
 | Half set up, developer | Identical, which is the point of D4: Fleet's Machines section has no role floor, so the fleet door is offered in full. The federation doors' words are unit-tested, not capturable without a click |
 | Storage open, owner | "Set in the deployment, not from here." and the two variables that are still missing, in mono. The one already set is not named, because it is not work |
 | Configured cluster, owner | **Nothing.** No card, no frame, no flash -- and the Ask widget beside it has its input rather than its setup sentence, which is the same feed answering two surfaces |
+| Settled rows, both modes | A ticked stop reads as a FACT and the open one reads as a control: same two columns, chevron on the one you can act on and nowhere else |
 | Both modes | Every state resolves in the light set; the accent ring, the ticked marks and the chosen pill all keep their contrast, and no hardcoded dark value leaked |
 
 ## What was NOT changed

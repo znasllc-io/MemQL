@@ -23,6 +23,7 @@ export {
   nextOpen,
   stopIsOpen,
   stopIsReachable,
+  stopOpens,
   stopStateSentence,
   type Stop,
   type StopState,

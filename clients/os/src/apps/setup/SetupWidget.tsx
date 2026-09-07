@@ -55,6 +55,14 @@ export function SetupWidget() {
     sentence: stop.id === "ai" ? undefined : stop.sentence,
     answer: stop.answer,
     body: bodyFor(stop),
+    // A SETTLED STOP IS NOT A DISCLOSURE. Three of the four have nothing at
+    // all behind them once they are done -- a configured module's act is
+    // absent, because telling somebody where to configure a thing that is
+    // configured is an instruction with nothing behind it -- so a chevron
+    // there opens an empty body. The one thing a finished passkey stop could
+    // offer, a link to manage them, is the identity service's surface and the
+    // Cluster app's Readiness section already carries it.
+    openable: stop.state === "waiting",
   }));
 
   return (
@@ -84,13 +92,11 @@ export function SetupWidget() {
   }
 
   function bodyFor(stop: SetupStop) {
-    if (stop.id === PASSKEY_STOP) {
-      // A skipped passkey stop (authentication off) has no act at all -- its
-      // sentence on the rail line is the whole answer.
-      if (stop.state === "skipped") return undefined;
-      return <PasskeyStop done={stop.state === "done"} identityUrl={identityUrl} />;
-    }
-    if (stop.state === "done" || stop.state === "skipped") return undefined;
+    // Only an outstanding stop has a body, which is the same rule `openable`
+    // above states -- written once as a guard so a stop that stops being
+    // openable cannot keep a body nothing can reach.
+    if (stop.state !== "waiting") return undefined;
+    if (stop.id === PASSKEY_STOP) return <PasskeyStop identityUrl={identityUrl} />;
     const id = stop.id as ModuleId;
     if (id === "ai") return <InferenceStop role={role} />;
     return <ModuleStop id={id} verdict={readiness?.of(id) ?? null} role={role} />;

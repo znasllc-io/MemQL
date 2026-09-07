@@ -7768,6 +7768,12 @@ a.os-button {
 .os-rail-line:hover .os-rail-answer {
   color: var(--os-ink);
 }
+/* A stop that does not open keeps the line's COLUMNS and none of its
+ * affordances: no chevron, no pointer, nothing that says a click would do
+ * something. */
+.os-rail-line[data-static="true"] {
+  cursor: default;
+}
 .os-rail-line:focus-visible {
   outline: 2px solid var(--os-accent);
   outline-offset: 2px;
