@@ -247,8 +247,10 @@ export function logsSectionProblem(app: OsAppManifest): string | null {
 }
 
 /**
- * The readiness contract, as a function for the same reason the settings and
- * logs ones are: the apps index can report the defect it gates on.
+ * The readiness contract, as a function for the same reason `logsSectionProblem`
+ * is one: so a test can run it over the SHIPPED registry rather than restating
+ * the rule per app. (`settingsSectionProblem` goes further and is rendered by
+ * the apps index; this one and the logs one are not, yet.)
  *
  * A requirement on the settings or logs section is REFUSED. Those two are the
  * exemptions the window frame keeps reachable while an app is unconfigured, so
