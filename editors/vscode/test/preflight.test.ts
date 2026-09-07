@@ -16,8 +16,6 @@ const EMPTY_INPUTS: Inputs = {
   ownerFirstName: "",
   ownerLastName: "",
   ownerEmail: "",
-  provider: "",
-  providerKeyFile: "",
   version: "",
 };
 
@@ -28,7 +26,6 @@ test("a loadable graph reads quiet; an unreadable one is the first attention ite
     action: "install",
     graph: GRAPH_OK,
     sudoFree: true,
-    recordedKeyPath: "",
   });
   assert.equal(ok[0]?.state, "ok");
   assert.match(ok[0]?.detail ?? "", /12 steps/);
@@ -37,7 +34,6 @@ test("a loadable graph reads quiet; an unreadable one is the first attention ite
     action: "install",
     graph: { ok: false, error: "ENOENT: ~/scripts/install/graph/install.json" },
     sudoFree: true,
-    recordedKeyPath: "",
   });
   assert.equal(bad[0]?.state, "attention");
   assert.match(bad[0]?.detail ?? "", /refuse before its first step/);
@@ -48,7 +44,6 @@ test("elevation is attention exactly when sudo would ask", () => {
     action: "install",
     graph: GRAPH_OK,
     sudoFree: false,
-    recordedKeyPath: "",
   });
   const privileges = asks.find((i) => i.label === "Privileges");
   assert.equal(privileges?.state, "attention");
@@ -59,7 +54,6 @@ test("elevation is attention exactly when sudo would ask", () => {
     action: "install",
     graph: GRAPH_OK,
     sudoFree: true,
-    recordedKeyPath: "",
   });
   assert.equal(free.find((i) => i.label === "Privileges")?.state, "ok");
 
@@ -67,29 +61,30 @@ test("elevation is attention exactly when sudo would ask", () => {
     action: "install",
     graph: { ok: true, steps: 3, needsElevation: false },
     sudoFree: false,
-    recordedKeyPath: "",
   });
   assert.equal(none.find((i) => i.label === "Privileges")?.state, "ok");
 });
 
-test("a repair states whether the recorded key path is usable", () => {
-  const recorded = preflightItems({
-    action: "repair",
-    graph: GRAPH_OK,
-    sudoFree: true,
-    recordedKeyPath: "~/keys/anthropic.txt",
-  });
-  const key = recorded.find((i) => i.label === "Provider key file");
-  assert.equal(key?.state, "ok");
-  assert.match(key?.detail ?? "", /~\/keys\/anthropic\.txt/);
+// `a repair states whether the recorded key path is usable` IS DELETED (epic
+// memql#5088). Its whole subject was the "Provider key file" checklist item,
+// which said whether the path a previous install recorded could be re-used.
+// There is no key path: both cloud vendors are reached by workload identity
+// federation. What replaces it is the assertion below -- that the checklist
+// names no AI credential at all, on any action.
 
-  const missing = preflightItems({
-    action: "repair",
-    graph: GRAPH_OK,
-    sudoFree: true,
-    recordedKeyPath: "",
-  });
-  assert.equal(missing.find((i) => i.label === "Provider key file")?.state, "attention");
+test("no action's checklist mentions an AI credential", () => {
+  // A REPLACEMENT, NOT A DELETION. Removing the item above without this would
+  // leave the wording free to come back, and a "Provider key file" line on a
+  // wizard that collects no key is exactly the sentence an operator would act
+  // on -- looking for a field that is not there.
+  for (const action of ["install", "installGuided", "repair"] as const) {
+    const items = preflightItems({ action, graph: GRAPH_OK, sudoFree: true });
+    assert.equal(
+      items.some((i) => /key|credential|provider|vendor/i.test(`${i.label} ${i.detail}`)),
+      false,
+      `the ${action} checklist names an AI credential: ${JSON.stringify(items)}`,
+    );
+  }
 });
 
 test("a run over a checkout-mode cluster says it returns to released images", () => {
@@ -102,7 +97,6 @@ test("a run over a checkout-mode cluster says it returns to released images", ()
     action: "repair",
     graph: GRAPH_OK,
     sudoFree: true,
-    recordedKeyPath: "~/keys/anthropic.txt",
     imageSource: "checkout",
     releasedTag: "v0.17.0",
   });
@@ -119,7 +113,6 @@ test("a run over a checkout-mode cluster says it returns to released images", ()
       action: "repair",
       graph: GRAPH_OK,
       sudoFree: true,
-      recordedKeyPath: "",
       imageSource: "released",
       releasedTag: "v0.17.0",
     }).some((i) => i.label === "Image source"),
@@ -132,7 +125,6 @@ test("a run over a checkout-mode cluster says it returns to released images", ()
       action: "install",
       graph: GRAPH_OK,
       sudoFree: true,
-      recordedKeyPath: "",
     }).some((i) => i.label === "Image source"),
     false,
   );
@@ -147,7 +139,6 @@ test("the collect screen renders the checklist above the form it warns about", (
       action: "install",
       graph: GRAPH_OK,
       sudoFree: false,
-      recordedKeyPath: "",
     }),
   });
   assert.match(html, /Before it runs/);

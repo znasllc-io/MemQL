@@ -79,8 +79,13 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "memql-addcluster-panel-"));
 // before it starts a run (memql#3544). "/tmp/key" was fine while nothing
 // looked; a fixture that names a file which does not exist is no longer a
 // fixture for the happy path.
-const KEY_FILE = path.join(HOME, "provider-key");
-fs.writeFileSync(KEY_FILE, "sk-ant-not-a-real-key\n", { mode: 0o600 });
+// A PATH AND NOTHING ELSE (epic memql#5088). It used to be a real file holding
+// an `sk-ant-` fixture, because the panel STATTED the key path before starting
+// a run (`keyFileProblem`). That check is gone with the field, so nothing reads
+// this and no file is written -- a credential-shaped literal on disk is what
+// secret scanners judge like production. What is left is the value a
+// pre-memql#5088 receipt recorded, which the case below asserts is never used.
+const STALE_KEY_PATH = path.join(HOME, "provider-key");
 
 // -----------------------------------------------------------------------------
 // the fake runner
@@ -313,8 +318,6 @@ function beginInstall(h: Harness): void {
   h.post({ type: "input", value: { field: "ownerFirstName", text: "Ada" } });
   h.post({ type: "input", value: { field: "ownerLastName", text: "Lovelace" } });
   h.post({ type: "input", value: { field: "ownerEmail", text: "ada@example.com" } });
-  h.post({ type: "input", value: { field: "provider", text: "anthropic" } });
-  h.post({ type: "input", value: { field: "providerKeyFile", text: KEY_FILE } });
   h.post({ type: "begin" });
 }
 
@@ -387,15 +390,36 @@ test("a repair with no recorded provider key runs, and contacts no vendor", asyn
   }
 });
 
-test("a repair reads the key path back off the receipt and does reach wave 2", async () => {
+// `a repair reads the key path back off the receipt and does reach wave 2` IS
+// REPLACED (epic memql#5088), by the case below asserting the inverse.
+//
+// It drove a repair over a receipt whose `providerKey` entry recorded a key
+// path and an OpenAI vendor, and asserted that both were pre-filled onto the
+// form and both reached `install.verifyProviderKey`. That mattered because
+// memql#3473's gate put the check in front of every mutating step, and
+// `session.ts` drops empty params -- so a repair that did not recover the path
+// died at exit 2 on every invocation (memql#3512).
+//
+// No receipt records either param now, and `verify-provider-key.sh` declares
+// neither flag. What has to be true instead is that an OLD receipt -- one
+// written by a version of the installer that did record them -- does not
+// resurrect either value.
+
+test("an old receipt's recorded key does not come back", async () => {
+  // THE UPGRADE CASE, and the reason this is a test rather than an assumption:
+  // an operator's `~/.memql/install-receipt.json` outlives the extension that
+  // wrote it. A receipt written before this epic still has a `providerKey`
+  // entry with `key-file` and `provider` in its params, sitting on disk.
+  //
+  // Nothing may read it: not onto the form, and not onto the wire. Passing
+  // either to a capability script that no longer declares it is an exit 2 --
+  // "a fault in MemQL rather than in your machine" -- on a repair that would
+  // otherwise have worked.
   const runner = await fakeRunner();
   const h = open({
     action: "repair",
     runner,
     verdict: "installed-unreachable",
-    // What the install's own `providerKey` step recorded. It leaves no
-    // artifact, but the executor records every step that returns an envelope,
-    // which is why the path is on disk to be read back (memql#3512).
     receipt: {
       version: 1,
       graph: "install",
@@ -403,24 +427,23 @@ test("a repair reads the key path back off the receipt and does reach wave 2", a
       updatedAt: "2026-08-01T00:00:00Z",
       entries: [
         {
+          // Exactly what a pre-memql#5088 install wrote, under the step's old
+          // id. Left verbatim: the point is that a receipt in the wild is not
+          // rewritten, so the reader has to be the thing that stops.
           stepId: "providerKey",
           script: "install.verifyProviderKey",
           receipt: "",
           preExisting: false,
-          // A path that EXISTS, because the panel now refuses to start a run
-          // on one that does not (memql#3544). The value under test is still
-          // "whatever the receipt recorded", which is what this case is about.
-          params: { provider: "openai", "key-file": KEY_FILE },
+          params: { provider: "openai", "key-file": STALE_KEY_PATH },
           result: { valid: true },
           changed: false,
           recordedAt: "2026-08-01T00:00:00Z",
         },
         {
           // The bootstrap answers, which a real install records and a repair
-          // has to recover (znasllc-io#3888). Without them the repair now stops
-          // on the form asking for the owner -- correctly, since reaching
-          // `seedBootstrap` without them is an `exit 2` nine minutes in -- and
-          // this case would stop testing what it is about.
+          // has to recover (znasllc-io#3888). Without them the repair stops on
+          // the form asking for the owner -- correctly -- and this case would
+          // never reach a run.
           stepId: "seedBootstrap",
           script: "install.seedBootstrap",
           receipt: "",
@@ -440,30 +463,32 @@ test("a repair reads the key path back off the receipt and does reach wave 2", a
     },
   });
   try {
-    // The repair form is PRE-FILLED from the receipt (memql#3544) rather than
-    // reading it behind the operator's back, so the recorded answers are on
-    // screen and can be corrected. Waiting for that is waiting for the read.
-    await until(() => h.html().includes(KEY_FILE), "the recorded key path to reach the form");
-    assert.match(h.html(), /value="openai" selected/, "and the recorded vendor with it");
+    // Waiting on the OWNER pre-fill, not on the absence of the key: an
+    // assertion that a value never appears passes instantly against a form
+    // that has not been rendered yet. This is the reachable positive that
+    // proves the receipt was actually read.
+    await until(() => h.html().includes("owner@example.com"), "the receipt to be read");
+    assert.ok(!h.html().includes(STALE_KEY_PATH), "the recorded key path was pre-filled onto the form");
 
     h.post({ type: "begin" });
+    await until(() => runner.calls.length > 0, "the graph to be entered");
     await until(
-      () => runner.calls.some((c) => c.capability === "install.verifyProviderKey"),
-      "the provider-key step to run",
+      () => runner.calls.some((c) => c.capability === "install.seedBootstrap"),
+      "the bootstrap step",
     );
 
-    const key = runner.calls.find((c) => c.capability === "install.verifyProviderKey")!;
-    assert.equal(
-      key.params["key-file"],
-      KEY_FILE,
-      "the recorded key path must reach the step -- an absent flag is exit 2",
+    assert.ok(
+      !runner.calls.some((c) => c.capability === "install.verifyProviderKey"),
+      "a repair over an old receipt made an authenticated call to an AI vendor",
     );
-    assert.equal(
-      key.params.provider,
-      "openai",
-      "and the recorded VENDOR with it: re-asserting the wizard's default would " +
-        "check an OpenAI key against Anthropic and report the key as refused",
-    );
+    for (const call of runner.calls) {
+      for (const flag of Object.keys(call.params)) {
+        assert.ok(
+          !/provider|key-file|vendor|secret|token/i.test(flag),
+          `${call.capability} was handed --${flag} off an old receipt`,
+        );
+      }
+    }
   } finally {
     h.close();
   }
@@ -474,7 +499,21 @@ test("a repair reads the key path back off the receipt and does reach wave 2", a
 // -----------------------------------------------------------------------------
 
 test("Retry runs the graph again rather than repainting a pending step", async () => {
-  const runner = await fakeRunner({ "install.verifyProviderKey": 3 });
+  // FAILS A STEP THAT ACTUALLY RUNS (epic memql#5088). It used to fail
+  // `install.verifyProviderKey`, which the plan now skips on this lane -- so
+  // nothing would have failed and the wait for the failed-step screen would
+  // have timed out.
+  //
+  // `install.dockerAccess` RATHER THAN THE FIRST MUTATING STEP, and the
+  // difference is not cosmetic: it occupies the graph position the provider
+  // check used to, sharing wave 2 with it and with nothing else. Retry is
+  // swallowed while a run is still in flight (`startRun` returns early on
+  // `runAbort`), so a failure with concurrent siblings still running renders
+  // the retry screen and then ignores the click -- which is what
+  // `install.binary` did here, three steps at once alongside two sudo steps
+  // and a clone. A wave that settles the moment its one step fails is what
+  // makes this test about Retry rather than about timing.
+  const runner = await fakeRunner({ "install.dockerAccess": 3 });
   const h = open({ runner });
   try {
     beginInstall(h);
@@ -498,7 +537,9 @@ test("Retry runs the graph again rather than repainting a pending step", async (
 });
 
 test("Switch-to-guided re-invokes for the same reason Retry does", async () => {
-  const runner = await fakeRunner({ "install.verifyProviderKey": 5 });
+  // See the Retry case above for why this is `install.dockerAccess` and not
+  // the provider step (epic memql#5088).
+  const runner = await fakeRunner({ "install.dockerAccess": 5 });
   const h = open({ runner });
   try {
     beginInstall(h);
@@ -518,7 +559,9 @@ test("Switch-to-guided re-invokes for the same reason Retry does", async () => {
 // -----------------------------------------------------------------------------
 
 test("a settled run with a failed step still offers Retry, and does not claim it finished", async () => {
-  const runner = await fakeRunner({ "install.verifyProviderKey": 3 });
+  // See the Retry case above for why this is `install.dockerAccess` and not
+  // the provider step (epic memql#5088).
+  const runner = await fakeRunner({ "install.dockerAccess": 3 });
   const h = open({ runner });
   try {
     beginInstall(h);
@@ -576,52 +619,48 @@ test("every step is invoked with a non-zero timeout", async () => {
 // The provider is COLLECTED, and what is collected is what runs (memql#3473)
 // -----------------------------------------------------------------------------
 
-test("the collect screen offers a provider, as a choice rather than a box", async () => {
-  const h = open({});
-  try {
-    h.post({ type: "choose", value: "install" });
-    const html = h.html();
-    assert.match(html, /<select[^>]*data-field="provider"/, "a free-text box could hold anything");
-    assert.match(html, /value="anthropic" selected/, "and one answer is already given");
-    assert.match(html, /value="openai"/, "the other vendor the script supports is reachable");
-  } finally {
-    h.close();
-  }
-});
+// TWO PROVIDER CASES ARE REPLACED HERE (epic memql#5088) by the one below.
+//
+//   - `the collect screen offers a provider, as a choice rather than a box`
+//     asserted the vendor was a `<select>` with both supported values, because
+//     a free-text box could hold anything and the script exits 2 on a value
+//     outside its set.
+//   - `the provider the operator chose is the provider the step verifies`
+//     asserted the chosen vendor reached BOTH `install.verifyProviderKey` and
+//     `install.seedBootstrap` -- the defect being that `provider` was hardcoded
+//     here AND pinned in install.json, where graph params win.
+//
+// Neither field is collected and neither script declares the flag. What must
+// hold now is that the panel, driven end to end, hands no vendor credential to
+// anything.
 
-test("the provider the operator chose is the provider the step verifies", async () => {
-  // The whole of the defect: `provider` was hardcoded in this panel AND pinned
-  // in install.json, where GRAPH PARAMS WIN -- so even a caller-supplied value
-  // could not have overridden it. An operator with an OpenAI key had no route
-  // through the wizard at all.
+test("the panel hands no AI credential to any step, and calls no vendor", async () => {
+  // DRIVEN THROUGH THE WHOLE RUN rather than asserted on the plan, because the
+  // plan is already covered in zeroKeyInstall.test.ts and this lane's value is
+  // that it is the REAL panel over the REAL graph and executor, with only
+  // script execution faked (memql#3514).
   const runner = await fakeRunner();
   const h = open({ runner });
   try {
-    h.post({ type: "choose", value: "install" });
-    h.post({ type: "input", value: { field: "domain", text: "memql.localhost" } });
-    h.post({ type: "input", value: { field: "ownerFirstName", text: "Ada" } });
-    h.post({ type: "input", value: { field: "ownerLastName", text: "Lovelace" } });
-    h.post({ type: "input", value: { field: "ownerEmail", text: "ada@example.com" } });
-    h.post({ type: "input", value: { field: "provider", text: "openai" } });
-    h.post({ type: "input", value: { field: "providerKeyFile", text: KEY_FILE } });
-    h.post({ type: "begin" });
+    beginInstall(h);
+    await until(() => /Your cluster is ready|Finished/.test(h.html()), "the run to settle");
 
-    await until(
-      () => runner.calls.some((c) => c.capability === "install.verifyProviderKey"),
-      "the provider-key step",
+    // The reachable positive first: a scan over an empty call list passes
+    // identically to a scan over a full one.
+    assert.ok(runner.calls.length > 1, "the whole graph should have run");
+    assert.ok(
+      !runner.calls.some((c) => c.capability === "install.verifyProviderKey"),
+      "the install made an authenticated call to an AI vendor",
     );
-    const key = runner.calls.find((c) => c.capability === "install.verifyProviderKey")!;
-    assert.equal(key.params.provider, "openai");
-
-    // And it reaches the step that seeds the cluster, not only the one that
-    // checks the key -- a cluster seeded for the wrong vendor is a working
-    // install that cannot answer.
-    await until(
-      () => runner.calls.some((c) => c.capability === "install.seedBootstrap"),
-      "the bootstrap step",
-    );
-    const seed = runner.calls.find((c) => c.capability === "install.seedBootstrap")!;
-    assert.equal(seed.params.provider, "openai");
+    for (const call of runner.calls) {
+      for (const [flag, value] of Object.entries(call.params)) {
+        assert.ok(
+          !/provider|key-file|vendor|secret|token|credential/i.test(flag),
+          `${call.capability} was handed --${flag}`,
+        );
+        assert.doesNotMatch(String(value), /^sk-/, `${call.capability} --${flag} carries a key`);
+      }
+    }
   } finally {
     h.close();
   }
@@ -671,17 +710,16 @@ test("what was typed without a repaint is still there when one comes", async () 
   try {
     h.post({ type: "choose", value: "install" });
     h.post({ type: "input", value: { field: "ownerFirstName", text: "Ada" } });
-    h.post({ type: "input", value: { field: "provider", text: "openai" } });
+    h.post({ type: "input", value: { field: "ownerLastName", text: "Lovelace" } });
 
     // An action repaints -- here the incomplete form's refusal to start.
-    // `begin` is async now (it stats the key path before starting anything),
-    // so the repaint it causes is one tick away.
+    // `begin` is still async, so the repaint it causes is one tick away.
     h.post({ type: "begin" });
     await until(() => /is required/.test(h.html()), "the refusal to repaint");
 
     const html = h.html();
     assert.match(html, /value="Ada"/, "the name typed before the repaint survived it");
-    assert.match(html, /value="openai" selected/, "and so did the vendor chosen");
+    assert.match(html, /value="Lovelace"/, "and so did the one typed after it");
   } finally {
     h.close();
   }
@@ -871,79 +909,40 @@ test("a cancelled run hands nothing off, and leaves a receipt that describes wha
 // The key file can be PICKED, not only typed (memql#3547)
 // -----------------------------------------------------------------------------
 
-test("the key-file field offers a Browse button; the other fields do not", () => {
-  // Only the field that names a FILE gets a picker. A Browse button beside the
-  // owner's email would be noise, and beside the domain it would be wrong.
+// THE FOUR FILE-PICKER CASES ARE DELETED (epic memql#5088). All four were
+// about `providerKeyFile`, the one field that named a file: that it alone
+// offered a Browse button, that choosing a file filled the box (and that the
+// dialog asked for exactly one FILE, since a `--key-file` flag takes one path
+// and a directory is not a key), that cancelling left the form untouched
+// rather than clearing it, and that a picked path was validated by the same
+// rule a typed one was.
+//
+// No field names a file now, so `browseForKeyFile`, `keyDialogStartDir` and
+// `keyFileProblem` are gone from the panel with the picker they served.
+//
+// WHAT IS LOST WITH THEM, said rather than implied: this was the only coverage
+// of `vscode.window.showOpenDialog` in the extension, and of the panel's
+// handling of a cancelled dialog. If a picker is ever added for another field,
+// those two properties need testing again -- an empty dialog result read as
+// "the operator chose nothing, so clear it" is the mistake, and it is
+// invisible when it happens.
+
+test("no field offers a file picker, and the panel answers no browse message", () => {
+  // A REPLACEMENT WITH A REACHABLE POSITIVE. Asserting only that the button is
+  // absent would pass against a screen that failed to render at all, so the
+  // form is checked to be present first.
   const h = open({});
   try {
     h.post({ type: "choose", value: "install" });
     const html = h.html();
-    assert.match(html, /data-act="browseKeyFile"/, "the key path is chosen from disk");
-    assert.equal(
-      (html.match(/data-act="browseKeyFile"/g) ?? []).length,
-      1,
-      "exactly one field names a file",
-    );
-  } finally {
-    h.close();
-  }
-});
+    assert.match(html, /data-field="ownerEmail"/, "the collect screen did not render");
+    assert.doesNotMatch(html, /data-act="browseKeyFile"/, "a key-file picker is back");
+    assert.doesNotMatch(html, /class="secondary browse"/, "a browse control is back");
 
-test("choosing a file in the dialog fills the field with its path", async () => {
-  const h = open({});
-  try {
-    h.post({ type: "choose", value: "install" });
-    setNextOpenDialogResult([Uri.file(KEY_FILE)]);
+    // And the message it answered is unhandled: posting it must be inert
+    // rather than opening a dialog.
     h.post({ type: "browseKeyFile" });
-
-    await until(() => h.html().includes(KEY_FILE), "the chosen path to reach the form");
-
-    // THE DIALOG'S SHAPE IS PART OF THE CONTRACT. One file, not many; a file,
-    // not a directory -- a `--key-file` flag can be handed exactly one path,
-    // and a directory is not a key.
-    const options = recorded.openDialogs[0]!;
-    assert.equal(options.canSelectMany, false);
-    assert.equal(options.canSelectFiles, true);
-    assert.equal(options.canSelectFolders, false);
-  } finally {
-    h.close();
-  }
-});
-
-test("cancelling the dialog leaves the form exactly as it was", async () => {
-  // The case that is easy to get wrong and invisible when it is: an empty
-  // result must not be read as "the operator chose nothing, so clear it".
-  const h = open({});
-  try {
-    h.post({ type: "choose", value: "install" });
-    h.post({ type: "input", value: { field: "providerKeyFile", text: KEY_FILE } });
-    h.post({ type: "input", value: { field: "ownerFirstName", text: "Ada" } });
-
-    setNextOpenDialogResult(undefined);
-    h.post({ type: "browseKeyFile" });
-    await until(() => recorded.openDialogs.length === 1, "the dialog to be asked for");
-
-    // Force a repaint through an ordinary action, then read what the form holds.
-    h.post({ type: "begin" });
-    await until(() => /is required/.test(h.html()), "the incomplete form's refusal");
-    assert.match(h.html(), new RegExp(`value="${KEY_FILE}"`), "the typed path survived");
-    assert.match(h.html(), /value="Ada"/, "and so did everything else");
-  } finally {
-    h.close();
-  }
-});
-
-test("a picked file is validated too, so a directory chosen by other means is caught", async () => {
-  // The picker is asked for files only, so this is defence rather than the
-  // common case -- but the validation lives on the VALUE, not on how it
-  // arrived, which is what keeps the typed and picked routes honest against
-  // each other.
-  const h = open({});
-  try {
-    h.post({ type: "choose", value: "install" });
-    setNextOpenDialogResult([Uri.file(HOME)]);
-    h.post({ type: "browseKeyFile" });
-    await until(() => /directory/i.test(h.html()), "the refusal");
+    assert.equal(recorded.openDialogs.length, 0, "the panel still opens a file dialog");
   } finally {
     h.close();
   }

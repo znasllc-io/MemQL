@@ -1,36 +1,43 @@
-// Installing a MemQL cluster does not require an AI provider key
-// (epic memql#4440, task memql#4441).
+// Installing a MemQL cluster involves no AI provider key, because there is no
+// such thing (epic memql#4440, task memql#4441; widened by epic memql#5088).
+//
+// WHAT THE CLAIM USED TO BE, AND WHAT IT IS NOW. memql#4440's sentence was "no
+// lifecycle verb REQUIRES a vendor credential" -- the fields stayed, demoted to
+// a collapsed disclosure, for the operator who happened to have a key.
+// memql#5088's sentence is stronger and shorter: no lifecycle verb COLLECTS,
+// CARRIES OR PASSES one, because both cloud vendors are now reached by workload
+// identity federation and no vendor API key exists anywhere in the product.
+//
+// AND THIS WIZARD CANNOT OFFER FEDERATION EITHER, which is why the end state is
+// "no AI credential at all" rather than "a different AI credential". Federation
+// works by having the vendor verify a token against the cluster's OIDC issuer.
+// A k3d cluster's issuer is not publicly reachable, so nothing a local cluster
+// mints can be verified by anyone. An ids form here would collect answers that
+// could never work (design D6).
 //
 // WHY THIS FILE EXISTS RATHER THAN A FEW LINES IN THE NEIGHBOURING SUITES.
-// The claim being defended is a single sentence -- "no lifecycle verb needs a
-// vendor credential" -- and it is spread across four modules that otherwise
-// have nothing to do with each other: the required-field tables, the
-// validator, the install plan, and the graph executor's skip semantics. Split
-// across four suites it reads as four unrelated assertions, and the one that
-// actually protects an operator (the graph-level one, below) reads as a test
-// about dependency edges.
+// The claim is a single sentence spread across four modules that otherwise have
+// nothing to do with each other: the required-field tables, the validator, the
+// install plan, and the graph executor's skip semantics. Split across four
+// suites it reads as four unrelated assertions, and the one that actually
+// protects an operator reads as a test about dependency edges.
 //
 // THE LOAD-BEARING TEST IS `a keyless install still runs every mutating step`.
 // The others would all pass against a change that silently removes the entire
-// install: every mutating step declares `dependsOn: [..., providerKey]`, and
-// `runStep` blocks a step whose dependency was "skipped without satisfying
-// what it was there to establish". A `providerKey` skip that forgot
+// install: every mutating step declares `dependsOn: [..., providerFederation]`,
+// and `runStep` blocks a step whose dependency was "skipped without satisfying
+// what it was there to establish". A `providerFederation` skip that forgot
 // `satisfied: true` would cascade through the whole graph, and the run would
-// report a tidy list of skips having touched nothing. That is not
-// hypothetical -- install-e2e.yml's header records the gate doing exactly this
-// when it was introduced.
+// report a tidy list of skips having touched nothing. That is not hypothetical
+// -- install-e2e.yml's header records the gate doing exactly this when it was
+// introduced.
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import {
-  AddClusterState,
-  DEFAULT_INPUTS,
-  optionalFields,
-  requiredFields,
-} from "../src/state/addCluster.js";
+import { AddClusterState, DEFAULT_INPUTS, requiredFields } from "../src/state/addCluster.js";
 import { renderCollectScreen } from "../src/webview/installScreens.js";
 import type { CollectScreenInput } from "../src/webview/installScreens.js";
 import { installPlan } from "../src/install/session.js";
@@ -42,16 +49,15 @@ import type { Graph, Step } from "../src/install/graph.js";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 
+/** Anything that reads as an AI credential, whatever it is called. */
+const CREDENTIAL_SHAPED = /provider|vendor|apikey|api_key|secret|token|credential|key/i;
+
 function opts(over: Partial<SessionOptions> = {}): SessionOptions {
   return {
     root: "/nonexistent",
     receiptFile: "/nonexistent/receipt.json",
     skip: new Set<string>(),
     stepParams: {},
-    // Pre-answered by the wizard exactly as it is today: `provider` has a
-    // house default and is offered in the disclosure. What decides whether a
-    // vendor is contacted is the KEY FILE, never this.
-    provider: "anthropic",
     domain: "memql.localhost",
     ownerEmail: "ada@example.com",
     ownerFirstName: "Ada",
@@ -64,16 +70,21 @@ function opts(over: Partial<SessionOptions> = {}): SessionOptions {
 // the field tables
 // ---------------------------------------------------------------------------
 
-test("no action requires an AI provider key", () => {
+test("no action collects an AI credential, under any name", () => {
+  // WIDENED FROM AN ABSENCE CHECK TO A SHAPE CHECK (epic memql#5088). It used
+  // to name the two fields it wanted gone (`provider`, `providerKeyFile`),
+  // which is a test that passes the moment somebody re-adds one under a third
+  // name. `DEFAULT_INPUTS` has a key for every field the wizard collects, so
+  // asserting over its keys catches a credential whatever it is called.
+  const fields = Object.keys(DEFAULT_INPUTS);
+  assert.ok(
+    !fields.some((f) => CREDENTIAL_SHAPED.test(f)),
+    `a collected field reads as an AI credential: ${fields.join(", ")}`,
+  );
   for (const action of ["install", "installGuided", "repair"] as const) {
-    const required = requiredFields(action);
     assert.ok(
-      !required.includes("provider"),
-      `${action} still requires a provider -- installing spends no inference`,
-    );
-    assert.ok(
-      !required.includes("providerKeyFile"),
-      `${action} still requires a key file -- installing spends no inference`,
+      !requiredFields(action).some((f) => CREDENTIAL_SHAPED.test(f)),
+      `${action} requires a field that reads as an AI credential`,
     );
   }
 });
@@ -102,27 +113,28 @@ test("the required tables are otherwise exactly what they were", () => {
   assert.deepEqual(requiredFields("reconnect"), []);
 });
 
-test("the key fields are still COLLECTED, just never waited for", () => {
-  // Demoted, not deleted. An operator who has a key must still have somewhere
-  // to put it, or this epic would have removed a capability rather than a
-  // requirement.
-  for (const action of ["install", "installGuided", "repair"] as const) {
-    assert.deepEqual(optionalFields(action), ["provider", "providerKeyFile"]);
-  }
-  for (const action of ["uninstall", "connect", "reconnect"] as const) {
-    assert.deepEqual(optionalFields(action), []);
-  }
-});
-
-test("no field is both required and optional", () => {
-  // The two lists answer different questions ("may this run start" versus
-  // "what else is worth offering"), and a field in both would make the answer
-  // depend on which loop ran last.
-  for (const action of ["install", "installGuided", "repair", "uninstall", "connect", "reconnect"] as const) {
-    const required = new Set(requiredFields(action));
-    for (const field of optionalFields(action)) {
-      assert.ok(!required.has(field), `${field} is in both tables for ${action}`);
-    }
+test("nothing is collected but never waited for", () => {
+  // THE REPLACEMENT FOR `optionalFields` (epic memql#5088). That list existed
+  // to hold exactly the two AI-provider fields -- "what else is worth offering
+  // while we are here" -- and went with them, along with `validate()`'s second
+  // pass and the disclosure that rendered it.
+  //
+  // What must stay true is the reason it was safe to delete: every field the
+  // wizard holds is now required by SOME action, so there is no field being
+  // collected that nothing waits for. A field re-added as optional would leave
+  // a key in `DEFAULT_INPUTS` that appears in no required table, and that is
+  // what this catches.
+  const everRequired = new Set(
+    (["install", "installGuided", "repair", "uninstall", "connect", "reconnect"] as const).flatMap(
+      (action) => requiredFields(action) as string[],
+    ),
+  );
+  for (const field of Object.keys(DEFAULT_INPUTS)) {
+    assert.ok(
+      everRequired.has(field),
+      `${field} is collected but no action requires it -- either it is dead, or the ` +
+        "optional tier is back and its validation is not running",
+    );
   }
 });
 
@@ -152,58 +164,21 @@ test("a keyless repair validates", () => {
   assert.deepEqual(s.validate(), []);
 });
 
-test("a supplied key still validates exactly as before", () => {
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  s.setInput("domain", "memql.localhost");
-  s.setInput("ownerFirstName", "Ada");
-  s.setInput("ownerLastName", "Lovelace");
-  s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("version", "v1.2.3");
-  s.setInput("provider", "anthropic");
-  s.setInput("providerKeyFile", "/home/ada/.anthropic-key");
-  assert.deepEqual(s.validate(), []);
-});
-
-test("the paste-the-key refusal survives the demotion to optional", () => {
-  // THE TRAP IN MAKING A REQUIRED FIELD OPTIONAL. memql#3545's refusal ran
-  // inside `validate()`'s loop over requiredFields, so demoting the field
-  // would have silently stopped running it -- and the value it catches goes
-  // on to a command line every process on the machine can read, and is then
-  // written verbatim into the install receipt.
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  s.setInput("domain", "memql.localhost");
-  s.setInput("ownerFirstName", "Ada");
-  s.setInput("ownerLastName", "Lovelace");
-  s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("version", "v1.2.3");
-  s.setInput("providerKeyFile", "sk-ant-api03-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  const errors = s.validate();
-  const problem = errors.find((e) => e.field === "providerKeyFile");
-  assert.ok(problem !== undefined, "a pasted key is accepted now that the field is optional");
-  assert.match(problem!.message, /PATH/);
-  assert.ok(
-    !problem!.message.includes("sk-ant-api03"),
-    "the message quotes the secret back, and validation messages end up in screenshots",
-  );
-  assert.equal(s.beginRun(), false, "the run started with a key on the command line");
-});
-
-test("an unverifiable vendor is still refused, optional or not", () => {
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  s.setInput("domain", "memql.localhost");
-  s.setInput("ownerFirstName", "Ada");
-  s.setInput("ownerLastName", "Lovelace");
-  s.setInput("ownerEmail", "ada@example.com");
-  s.setInput("version", "v1.2.3");
-  s.setInput("provider", "gemini");
-  assert.match(
-    s.validate().find((e) => e.field === "provider")?.message ?? "",
-    /anthropic or openai/,
-  );
-});
+// THREE VALIDATOR CASES ARE DELETED HERE (epic memql#5088), all three about a
+// field that no longer exists:
+//
+//   - `a supplied key still validates exactly as before`
+//   - `the paste-the-key refusal survives the demotion to optional`
+//   - `an unverifiable vendor is still refused, optional or not`
+//
+// The middle one is worth an extra sentence, because it guarded a real trap.
+// memql#3545's refusal ran inside `validate()`'s loop over `requiredFields`, so
+// memql#4440's demotion would have stopped it running silently -- and the value
+// it caught goes on to a command line every process on the machine can read.
+// That trap needed a field to have; the wall BEHIND it did not. `redactSecrets`
+// still runs on the receipt write and the run-log write, covering every other
+// way a param can reach a file, and `receiptSecrets.test.ts` and
+// `runLogSecrets.test.ts` still hold it.
 
 // ---------------------------------------------------------------------------
 // the install plan
@@ -241,16 +216,16 @@ function satisfyingResult(graph: Graph): Record<string, unknown> {
   return result;
 }
 
-test("with no key, providerKey is skipped -- with a stated reason", () => {
-  const decision = installPlan(opts())(step("providerKey"));
+test("providerFederation is skipped -- with a stated reason", () => {
+  const decision = installPlan(opts())(step("providerFederation"));
   assert.equal(decision.action, "skip");
   if (decision.action !== "skip") return;
-  assert.equal(decision.reason, "no key supplied -- configure AI providers in the portal");
+  assert.equal(decision.reason, "no federation ids supplied -- installing spends no AI credit");
 });
 
-test("with no key, the providerKey skip is SATISFIED", () => {
+test("the providerFederation skip is SATISFIED", () => {
   // The single most consequential boolean in this epic. See the file header.
-  const decision = installPlan(opts())(step("providerKey"));
+  const decision = installPlan(opts())(step("providerFederation"));
   assert.equal(decision.action, "skip");
   if (decision.action !== "skip") return;
   assert.equal(
@@ -260,32 +235,51 @@ test("with no key, the providerKey skip is SATISFIED", () => {
   );
 });
 
-test("a whitespace-only key file is treated as no key, not as a key", () => {
-  const decision = installPlan(opts({ providerKeyFile: "   " }))(step("providerKey"));
-  assert.equal(decision.action, "skip");
+test("the skip is UNCONDITIONAL -- no caller can make this lane call a vendor", () => {
+  // THE REPLACEMENT FOR `with a key, providerKey runs and carries both params`
+  // (epic memql#5088), and it asserts the opposite thing on purpose.
+  //
+  // Under memql#4440 the skip was CONDITIONAL: supplying a key file made the
+  // step run, so the plan had two branches and the old case pinned the second.
+  // There is no key to supply, and the reason this lane never verifies is not
+  // "nothing was supplied" -- it is that a local cluster cannot federate at all
+  // (design D6). A conditional skip would be a way to send a k3d cluster's
+  // unverifiable token to a vendor and fail the install on the answer.
+  //
+  // So: every route a caller has into the plan is tried, and none of them
+  // reaches `run`. `stepParams` is the escape hatch the CLI exposes as
+  // `--param=<step>.<flag>=<value>`, which is the one that could plausibly
+  // resurrect the call.
+  const routes: Partial<SessionOptions>[] = [
+    {},
+    { stepParams: { providerFederation: { provider: "anthropic" } } },
+    { stepParams: { providerFederation: { "federation-deploy": "agent" } } },
+    { domain: "lab.example.com" },
+  ];
+  for (const over of routes) {
+    const decision = installPlan(opts(over))(step("providerFederation"));
+    assert.equal(
+      decision.action,
+      "skip",
+      `installPlan ran the vendor check for ${JSON.stringify(over)}`,
+    );
+  }
 });
 
-test("with a key, providerKey runs and carries both params", () => {
-  const decision = installPlan(
-    opts({ provider: "anthropic", providerKeyFile: "/tmp/key" }),
-  )(step("providerKey"));
-  assert.equal(decision.action, "run");
-  if (decision.action !== "run") return;
-  assert.equal(decision.params["key-file"], "/tmp/key");
-  assert.equal(decision.params["provider"], "anthropic");
-});
-
-test("with no key, seedBootstrap is handed no provider arguments at all", () => {
-  // `stage_provider_key` returns cleanly when given neither, so what must be
-  // true is that neither ARRIVES -- a `--provider=anthropic` with no key file
-  // is the half-supplied shape nothing downstream expects.
-  const decision = installPlan(opts({ provider: "anthropic" }))(
-    step("seedBootstrap", "install.seedBootstrap"),
-  );
+test("seedBootstrap is handed no provider arguments at all", () => {
+  // seed-bootstrap.sh no longer DECLARES `--provider` or `--provider-key-file`,
+  // and a capability script exits 2 on an undeclared flag -- so what must be
+  // true is that neither ARRIVES. Under memql#4440 this was a correctness
+  // point about a half-supplied shape; it is now a hard failure if it regresses.
+  const decision = installPlan(opts())(step("seedBootstrap", "install.seedBootstrap"));
   assert.equal(decision.action, "run");
   if (decision.action !== "run") return;
   assert.equal(decision.params["provider"], undefined);
   assert.equal(decision.params["provider-key-file"], undefined);
+  assert.ok(
+    !Object.keys(decision.params).some((p) => CREDENTIAL_SHAPED.test(p)),
+    `seedBootstrap was handed a credential-shaped param: ${Object.keys(decision.params).join(", ")}`,
+  );
   assert.equal(decision.params["owner-email"], "ada@example.com", "the bootstrap set still arrives");
 });
 
@@ -324,9 +318,9 @@ test("a keyless install still runs every mutating step", async () => {
     },
   });
 
-  const providerKey = report.outcomes.find((o) => o.id === "providerKey");
-  assert.equal(providerKey?.status, "skipped");
-  assert.equal(providerKey?.satisfied, true);
+  const federation = report.outcomes.find((o) => o.id === "providerFederation");
+  assert.equal(federation?.status, "skipped");
+  assert.equal(federation?.satisfied, true);
 
   // Every OTHER step must have been invoked. Named individually rather than
   // as a count, so a step deleted from the graph cannot make this pass.
@@ -352,77 +346,47 @@ test("a keyless install still runs every mutating step", async () => {
       outcome?.status,
       "ok",
       `${id} did not run on a keyless install (status ${outcome?.status ?? "absent"}) -- ` +
-        "the providerKey skip cascaded, and the install would have touched nothing",
+        "the providerFederation skip cascaded, and the install would have touched nothing",
     );
   }
   assert.ok(
     !ran.includes("install.verifyProviderKey"),
-    "the vendor was called on an install that supplied no key",
+    "the vendor was called on an install of a cluster that cannot federate",
   );
 });
 
-test("every step that depends on providerKey is one the skip must not block", async () => {
+test("every step that depends on providerFederation is one the skip must not block", async () => {
   // Reads the shipped document rather than restating the list: the dependency
   // set has grown before (memql#3473 added it to every mutating step) and a
   // test carrying its own copy would go quietly stale.
   const graph = await loadGraphFile(graphDocumentPath("install", REPO_ROOT));
   const dependents = graph.steps
-    .filter((s) => (s.dependsOn ?? []).includes("providerKey"))
+    .filter((s) => (s.dependsOn ?? []).includes("providerFederation"))
     .map((s) => s.id);
   assert.ok(
     dependents.length > 0,
-    "nothing depends on providerKey any more -- the gate memql#3473 built is gone",
+    "nothing depends on providerFederation any more -- the gate memql#3473 built is gone",
   );
 });
 
-// ---------------------------------------------------------------------------
-// the done screen's hand-off (the DECISION, which the panel only renders)
-// ---------------------------------------------------------------------------
-
-function handedOff(state: AddClusterState, domain: string): void {
-  state.setHandoff({
-    ok: true,
-    cluster: { name: "memql", endpoint: `https://api.${domain}:443`, domain, local: true },
-    canSignIn: true,
-  });
-}
-
-test("a keyless install is handed the portal's provider page", () => {
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  handedOff(s, "memql.localhost");
-  assert.equal(s.providerSetupUrl, "https://portal.memql.localhost/settings/providers");
-});
-
-test("the address follows the domain the operator actually gave", () => {
-  // Composed rather than pinned: `portal.<domain>` is the front door's own
-  // single-label-under-the-domain rule, and a hardcoded memql.localhost would
-  // send every custom-domain operator to a host that does not exist.
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  handedOff(s, "lab.example.com");
-  assert.equal(s.providerSetupUrl, "https://portal.lab.example.com/settings/providers");
-});
-
-test("an install that DID seed a key is offered nothing", () => {
-  // Inviting an operator to go and configure the providers they just
-  // configured reads as though the key had not taken.
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  s.setInput("providerKeyFile", "/home/ada/.anthropic-key");
-  handedOff(s, "memql.localhost");
-  assert.equal(s.providerSetupUrl, "");
-});
-
-test("no hand-off, no link", () => {
-  // A run that registered no cluster has no domain worth linking into, and the
-  // failed-write screen is already saying something more urgent.
-  const s = new AddClusterState();
-  s.chooseAction("install");
-  assert.equal(s.providerSetupUrl, "");
-  s.setHandoff({ ok: false, reachableAt: "https://api.memql.localhost:443", message: "nope" });
-  assert.equal(s.providerSetupUrl, "");
-});
+// FOUR HAND-OFF CASES ARE DELETED HERE (epic memql#5088). They covered
+// `AddClusterState.providerSetupUrl`, the done screen's link to the portal's
+// AI-providers page: that a keyless install was offered it, that the address
+// followed the operator's own domain, that an install which HAD seeded a key
+// was offered nothing, and that a failed hand-off was offered nothing.
+//
+// The getter is gone, and each half of it was wrong by the time it went. The
+// gate read `providerKeyFile`, a field that no longer exists, so it was true
+// on every install there can now be; and the address was `portal.<domain>`,
+// which epic memql#4984 retired -- `clusters/consoleUrl.ts` records that host
+// as one nothing serves.
+//
+// NOTHING REPLACES THEM AT THIS LAYER, and that is a coverage loss worth
+// naming. What the done screen says now is a fixed sentence in
+// `addClusterPanel.ts` (`providerSettingsBlock`), and that module imports
+// `vscode`, which this lane excludes by design -- the decision it used to hold
+// was moved into the state machine for exactly that reason (memql#3884). There
+// is no decision left to hold: the sentence is unconditional.
 
 // ---------------------------------------------------------------------------
 // the collect screen
@@ -437,46 +401,36 @@ function collect(over: Partial<CollectScreenInput> = {}): string {
   });
 }
 
-test("the provider fields are inside a collapsed disclosure, not on the form", () => {
+test("the form offers no AI credential control at all", () => {
+  // THE INVERSE OF THE DISCLOSURE CASES memql#4440 WROTE. Those asserted the
+  // vendor fields were present but collapsed; this asserts they are absent.
+  //
+  // Both the CONTROL and the CONTAINER are named, because they would fail
+  // independently: a `<details class="optional-section">` left behind with
+  // nothing in it renders an empty expander, and a `data-field` left behind
+  // renders a box the state machine cannot store.
+  for (const action of ["install", "installGuided", "repair"] as const) {
+    const html = collect({ action });
+    assert.doesNotMatch(html, /<details class="optional-section"/, `${action} kept the disclosure`);
+    assert.doesNotMatch(html, /data-field="provider/, `${action} kept a vendor field`);
+    assert.doesNotMatch(html, /data-act="browseKeyFile"/, `${action} kept the key-file picker`);
+    assert.doesNotMatch(html, /AI provider key/i, `${action} still says "AI provider key"`);
+  }
+});
+
+test("the form says where a local cluster's models come from instead", () => {
+  // A DELETION THAT SAYS NOTHING IS ITS OWN DEFECT. An operator who installs a
+  // cluster and finds its agents cannot think is owed the reason, and the
+  // reason is not "you forgot to enter a key" -- it is that this cluster cannot
+  // hold one. The sentence replaces the disclosure's, in the same place.
   const html = collect();
-  assert.match(html, /<details class="optional-section">/);
-  assert.match(html, /AI provider \(optional -- configure later in the portal\)/);
-  // Still rendered -- demoted, not deleted.
-  assert.match(html, /data-field="provider"/);
-  assert.match(html, /data-field="providerKeyFile"/);
-});
-
-test("the disclosure is closed by default", () => {
-  // An operator with no key should be able to read the form top to bottom and
-  // never learn that LLM vendors exist.
-  assert.doesNotMatch(collect(), /<details class="optional-section" open>/);
-});
-
-test("the disclosure OPENS when one of its fields is in error", () => {
-  // The failure mode a disclosure introduces: a validation message inside a
-  // closed <details> is a form that refuses to start and will not say why.
-  const html = collect({
-    errors: [{ field: "providerKeyFile", message: "That is the key itself." }],
-  });
-  assert.match(html, /<details class="optional-section" open>/);
-  assert.match(html, /That is the key itself\./);
-});
-
-test("an error on a REQUIRED field leaves the disclosure closed", () => {
-  const html = collect({ errors: [{ field: "ownerEmail", message: "An email is required." }] });
-  assert.doesNotMatch(html, /<details class="optional-section" open>/);
-});
-
-test("the disclosure says installing needs none of it", () => {
-  const html = collect();
-  assert.match(html, /Nothing here is needed to install/);
+  assert.match(html, /No AI credential is collected/);
   assert.match(html, /makes no call to any AI vendor/);
-  assert.match(html, /federation is the recommended path/);
-});
-
-test("a repair gets the same disclosure; uninstall gets none", () => {
-  assert.match(collect({ action: "repair" }), /<details class="optional-section"/);
-  assert.doesNotMatch(collect({ action: "uninstall" }), /<details class="optional-section"/);
+  assert.match(html, /fleet machine/);
+  assert.match(html, /model running locally/);
+  // The reachable positive for the two doesNotMatch assertions above: this
+  // renderer does produce text in that slot, so their silence is evidence.
+  assert.match(html, /class="hint"/);
 });
 
 // ---------------------------------------------------------------------------
@@ -490,11 +444,16 @@ test("exactly ONE producer of a field's markup", async () => {
   // fix. That is invisible to every behavioural test, because both copies work
   // on the day they are written.
   //
-  // The extraction (renderField) exists precisely to prevent that, and this
-  // epic's own rebase is how it nearly came back: memql#4430 rewrote the same
-  // function from the other end, and a merge that took both sides verbatim
+  // The extraction (renderField) exists precisely to prevent that, and
+  // memql#4440's own rebase is how it nearly came back: memql#4430 rewrote the
+  // same function from the other end, and a merge that took both sides verbatim
   // would have produced two field renderers that compile, pass, and disagree
   // six months later.
+  //
+  // IT SURVIVES THE DISCLOSURE IT WAS WRITTEN FOR (epic memql#5088). The second
+  // caller `renderField` was extracted for is gone, so there is one caller
+  // again -- which is precisely when a future edit is most likely to inline it
+  // back and re-open the seam.
   //
   // `data-invalid=` is the marker because it opens a field's wrapper element
   // and appears nowhere else in the module -- so counting it counts producers.
@@ -510,8 +469,8 @@ test("exactly ONE producer of a field's markup", async () => {
     producers,
     1,
     `installScreens.ts has ${producers} places emitting a field wrapper; there must be exactly one ` +
-      "(renderField). A second one is how the required list and the optional disclosure start " +
-      "disagreeing about what a field looks like.",
+      "(renderField). A second one is how two callers start disagreeing about what a field " +
+      "looks like.",
   );
 
   // The reachable positive: the marker is actually present, so a rename that

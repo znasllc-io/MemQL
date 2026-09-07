@@ -735,7 +735,6 @@ test("the install plan supplies exactly what the graph does not pin", async () =
   const opts = parseCliArgs([
     "install",
     "--tag=v1.4.0",
-    "--provider-key-file=/run/secrets/key",
     "--domain=memql.localhost",
     "--owner-email=dev@example.com",
     "--owner-first-name=Dev",
@@ -750,43 +749,75 @@ test("the install plan supplies exactly what the graph does not pin", async () =
   };
 
   assert.equal(paramsFor("stackCheckout").tag, "v1.4.0");
-  assert.equal(paramsFor("providerKey")["key-file"], "/run/secrets/key");
+  // PINNED IN FULL, so a provider param that reappears fails here (epic
+  // memql#5088). seed-bootstrap.sh no longer declares `--provider` or
+  // `--provider-key-file`, and a capability script exits 2 on an undeclared
+  // flag -- so a reappearance is a failed seed, not a harmless extra.
   assert.deepEqual(paramsFor("seedBootstrap"), {
     domain: "memql.localhost",
     "owner-email": "dev@example.com",
     "owner-first-name": "Dev",
     "owner-last-name": "Eloper",
     "registration-mode": "invite_only",
-    provider: "anthropic",
-    "provider-key-file": "/run/secrets/key",
   });
   // Nothing else is invented for a step the graph already pins.
   assert.deepEqual(paramsFor("detect"), {});
 });
 
-test("the AI provider key is a FILE PATH and never a value on argv", async () => {
-  // argv is world-readable in `ps`, so the scripts declare --key-file and
-  // --provider-key-file and there is deliberately no flag that takes the key
-  // itself. A CLI that accepted one would put the operator's Anthropic key in
-  // every process listing on the machine for the length of the install.
-  assert.throws(() => parseCliArgs(["install", "--provider-key=sk-secret"]), /unknown flag/i);
+test("no CLI flag carries an AI credential, and no planned param looks like one", async () => {
+  // WIDENED FROM "THE KEY IS A PATH" TO "THERE IS NO KEY" (epic memql#5088).
+  //
+  // It used to assert the narrower rule that argv is world-readable in `ps`, so
+  // the scripts declared `--key-file` / `--provider-key-file` and there was
+  // deliberately no flag taking the key itself. Both cloud vendors are reached
+  // by workload identity federation now: the value-carrying flag is gone AND
+  // the path-carrying one is, so the honest assertion is that neither parses.
+  for (const flag of [
+    "--provider-key=sk-secret",
+    "--provider-key-file=/run/secrets/key",
+    "--provider=anthropic",
+  ]) {
+    assert.throws(
+      () => parseCliArgs(["install", flag]),
+      /unknown flag/i,
+      `${flag} is still accepted -- the CLI can carry an AI credential again`,
+    );
+  }
 
+  // THE VALUE SCAN SURVIVES THE FLAGS, and it is the half that keeps working
+  // against a credential arriving by a route nobody has thought of: whatever
+  // the plan hands a script, none of it may look like a vendor key.
   const g = await loadGraphFile(graphDocumentPath("install", REPO_ROOT));
-  const plan = installPlan(parseCliArgs(["install", "--tag=v1", "--provider-key-file=/run/secrets/key"]));
+  const plan = installPlan(parseCliArgs(["install", "--tag=v1"]));
+  let scanned = 0;
   for (const step of g.steps) {
     const p = plan(step);
     if (p.action !== "run") continue;
     for (const [flag, value] of Object.entries(p.params)) {
+      scanned += 1;
       assert.doesNotMatch(value, /^sk-/, `${step.id} --${flag} carries a key value`);
     }
   }
+  // The reachable positive: a scan of nothing passes identically to a scan of
+  // everything, and `providerFederation` now skips -- so prove the loop ran.
+  assert.ok(scanned > 0, "no planned param was scanned at all");
 });
 
 test("--skip removes a step, and the graph carries the removal downstream", async () => {
+  // NAMES A STEP THE PLAN WOULD OTHERWISE RUN (epic memql#5088). It used to
+  // name `providerKey`, which is now `providerFederation` and is skipped by the
+  // plan whatever `--skip` says -- so the assertion would have passed against a
+  // `--skip` flag that did nothing at all.
   const g = await loadGraphFile(graphDocumentPath("install", REPO_ROOT));
-  const opts = parseCliArgs(["install", "--tag=v1", "--skip=providerKey"]);
-  const plan = installPlan(opts);
-  assert.equal(plan(g.steps.find((s) => s.id === "providerKey")!).action, "skip");
+  const unskipped = installPlan(parseCliArgs(["install", "--tag=v1"]));
+  assert.equal(
+    unskipped(g.steps.find((s) => s.id === "localCA")!).action,
+    "run",
+    "localCA does not run unskipped, so skipping it proves nothing",
+  );
+
+  const plan = installPlan(parseCliArgs(["install", "--tag=v1", "--skip=localCA"]));
+  assert.equal(plan(g.steps.find((s) => s.id === "localCA")!).action, "skip");
   assert.equal(plan(g.steps.find((s) => s.id === "detect")!).action, "run");
 });
 

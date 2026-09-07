@@ -263,7 +263,6 @@ function options(over: Partial<SessionOptions> = {}): SessionOptions {
     root: "/repo",
     receiptFile: "/tmp/receipt.json",
     skip: new Set<string>(),
-    provider: "",
     stepParams: {},
     ...over,
   };

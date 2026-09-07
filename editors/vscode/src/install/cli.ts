@@ -2,21 +2,22 @@
 //
 // The graph, the runner and the executor between them describe an install
 // completely except for the handful of values that CANNOT be pinned in a
-// document -- a release tag, where the operator's API key file lives, who the
-// cluster owner is. This file is where those arrive, and it is deliberately
-// the only place they do: everything else is either policy the graph pins or a
-// fact the receipt records.
+// document -- a release tag, who the cluster owner is. This file is where those
+// arrive, and it is deliberately the only place they do: everything else is
+// either policy the graph pins or a fact the receipt records.
+//
+// NO VENDOR CREDENTIAL IS AMONG THEM ANY MORE (epic memql#5088).
+// `--provider-key-file` was here for as long as an install could seed one --
+// always a FILE PATH, never the key, because argv is world-readable in `ps`.
+// There is no vendor API key in the product now: both cloud vendors are reached
+// by workload identity federation, whose credential is a projected token inside
+// a pod, and `verify-provider-key.sh` no longer declares a flag for either the
+// key or the vendor.
 //
 // WHAT IT SUPPLIES, AND WHY EACH ONE IS NOT IN THE GRAPH
 //
 //   --tag                   a release tag is a run input; pinning one in the
 //                           document would freeze the installer to a version.
-//   --provider-key-file     the operator's key lives on their machine. It is
-//                           always a FILE PATH and there is deliberately no
-//                           flag that takes the key itself: argv is
-//                           world-readable in `ps`, so a --provider-key would
-//                           publish an Anthropic key to every process listing
-//                           on the machine for the length of the install.
 //   the owner fields        who owns this cluster is not a property of the
 //                           software. seed-bootstrap.sh exits 2 on an
 //                           INCOMPLETE set by design, so this CLI passes
@@ -82,11 +83,8 @@ import {
   recordedCheckout,
   recordedDomain,
   recordedOwner,
-  recordedProvider,
-  recordedProviderKeyFile,
   type Receipt,
 } from "./receipt.js";
-import { looksLikeProviderKey, REDACTED } from "./secrets.js";
 import { type ExecEvent, type ExecutionReport, type StepPlan } from "./executor.js";
 import {
   imagesFromSource,
@@ -130,8 +128,6 @@ const VALUE_FLAGS: Record<string, keyof CliOptions> = {
   commit: "commit",
   repo: "repo",
   "image-registry": "imageRegistry",
-  "provider-key-file": "providerKeyFile",
-  provider: "provider",
   domain: "domain",
   "owner-email": "ownerEmail",
   "owner-first-name": "ownerFirstName",
@@ -154,7 +150,6 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     root: DEFAULT_ROOT,
     receiptFile: defaultReceiptPath(env.HOME ?? undefined),
     skip: new Set<string>(),
-    provider: "anthropic",
     stepParams: {},
     json: false,
     dryRun: false,
@@ -278,26 +273,24 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
  *     half of a release: with no tag to derive from, the images fell back to
  *     this build's pin and the repair upgraded them alone, leaving the recorded
  *     commit's manifests running against another release's engine (memql#4068).
- *   - `recordedProvider` travels with `recordedProviderKeyFile`: re-asserting
- *     the default vendor over a recorded OpenAI key verifies it against
- *     Anthropic and reports exit 3, REFUSED -- "the key is bad", about a key
- *     that is fine (memql#3473).
  *   - `recordedOwner` + `recordedDomain` are what `seedBootstrap` refuses an
  *     incomplete set of (znasllc-io#3888, memql#3736). The refusal is right;
  *     a caller that reached it with three empty strings was wrong.
  *
- * REFUSES RATHER THAN GUESSES, twice, and both refusals name the remedy:
+ * REFUSES RATHER THAN GUESSES, and the refusal names the remedy:
  *
  *   NO RECORDED CHECKOUT -- `installPlan` would fall through to
  *   DEFAULT_STACK_TAG, so a repair would silently install whatever version this
  *   build pins. That is the failure this verb exists to make unreachable, so it
  *   is refused where it starts rather than where it lands.
  *
- *   NO USABLE KEY PATH -- the run cannot pass wave 2 (`providerKey` gates every
- *   mutating step), and the failure it would produce is exit 2, whose guidance
- *   reads "a fault in MemQL rather than in your machine". Say the true thing
- *   before anything runs. `--provider-key-file` still supplies it, because a
- *   path the receipt never carried is not a value the receipt is overriding.
+ * IT USED TO REFUSE A THIRD TIME, on NO USABLE KEY PATH, because `providerKey`
+ * gated every mutating step and the run could not pass wave 2 without one.
+ * That refusal is gone with the key (epic memql#5088): both AI vendors are
+ * reached by workload identity federation, the step is `providerFederation`
+ * and it skips satisfied on this lane, and no receipt records a key path any
+ * more -- so keeping the refusal would have made every repair impossible for
+ * the one reason that can no longer be true.
  */
 export function repairOptions(opts: CliOptions, receipt: Receipt | null): CliOptions {
   if (receipt === null) {
@@ -312,14 +305,6 @@ export function repairOptions(opts: CliOptions, receipt: Receipt | null): CliOpt
     throw new CliError(
       "the receipt records no checkout, so a repair has nothing to replay -- it would fall " +
         "back to this build's pinned release, which is an install, not a repair. Install instead.",
-    );
-  }
-
-  const keyFile = opts.providerKeyFile || usableKeyPath(recordedProviderKeyFile(receipt));
-  if (keyFile === "") {
-    throw new CliError(
-      "the receipt records no usable AI-provider key path. Install rather than repair, so the " +
-        "key can be collected and verified, or pass --provider-key-file.",
     );
   }
 
@@ -340,8 +325,6 @@ export function repairOptions(opts: CliOptions, receipt: Receipt | null): CliOpt
     // a cluster running `memql-<node>:local` a GHCR registry. That is memql#4068
     // exactly, by a route that opened when the main lane stopped pulling images.
     imagesFromSource: checkout.fromSource || undefined,
-    provider: recordedProvider(receipt) || opts.provider,
-    providerKeyFile: keyFile,
     domain: recordedDomain(receipt) || opts.domain,
     ownerEmail: owner.email || opts.ownerEmail,
     ownerFirstName: owner.firstName || opts.ownerFirstName,
@@ -349,23 +332,12 @@ export function repairOptions(opts: CliOptions, receipt: Receipt | null): CliOpt
   };
 }
 
-/**
- * A recorded `--key-file` value, or "" when it is not one.
- *
- * The receipt can hold something that is not a path: the redaction marker where
- * an operator pasted a key into the key-FILE box (memql#3545), or -- on a
- * receipt written before that guard existed -- the key itself. Handing either
- * to `--key-file` produces a confusing failure deep in the run; treating it as
- * "nothing recorded" produces the honest refusal above.
- *
- * The same two lines the wizard applies (`usablePath` in addClusterPanel.ts).
- * Duplicated rather than shared because that file imports `vscode`, which this
- * one must not; the shared half -- what a key looks like -- is imported.
- */
-function usableKeyPath(recorded: string): string {
-  if (recorded === REDACTED) return "";
-  return looksLikeProviderKey(recorded) ? "" : recorded;
-}
+// `usableKeyPath` IS GONE (epic memql#5088). It turned a recorded `--key-file`
+// value into one a run could use, answering "" for the two things a receipt
+// could hold that are not paths: the redaction marker where an operator pasted
+// a key into the key-FILE box (memql#3545), and -- on a receipt written before
+// that guard existed -- the key itself. No receipt records a key path any more,
+// so there is nothing left to sanitise on the way back out.
 
 // --------------------------------------------------------------------------
 // running

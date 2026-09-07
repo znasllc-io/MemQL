@@ -770,12 +770,32 @@ over OpenAI (chat, vision, TTS, STT) and Anthropic (chat, vision). Provider
 records live in `dsl/providers/providers.memql`; selection is the configured
 default, or per-request via the `provider` parameter.
 
-**The Anthropic credential is a static key locally and workload identity
-federation in the cloud** (epic memql#4333) -- the engine presents the pod's
-projected Kubernetes token and the SDK exchanges it for a one-hour bearer, so
-no long-lived vendor key is at rest. All four ids or none: a partial config
-REFUSES BOOT rather than falling back to a key the cutover deletes.
-[anthropic-federation.md](docs/public/operate/auth/anthropic-federation.md).
+**Both vendor credentials are workload identity federation, everywhere, and
+there is no manually entered API key left in the product** (epic memql#4333 for
+Anthropic, epic memql#5088 for OpenAI and the removal) -- the engine presents
+the pod's projected Kubernetes token and exchanges it for a short-lived bearer,
+so no long-lived vendor key is at rest and none is at rest LOCALLY either. A
+partial config REFUSES BOOT rather than falling back to a key that no longer
+exists: there is no key arm to fall back to.
+
+`TestNoVendorApiKeyEntryPoint` (`vendor_api_key_gate_test.go`) is what keeps
+that at zero: it fails the build if any of the four retired key env vars, or
+the retired key-setting builtin, reappears in a tracked source file. Every one
+of those was individually easy to re-add and none of them would have failed
+anything. **Read that file rather than restating its list here -- this section
+cannot spell the names out, because the gate walks it too**, and its comment is
+where the deliberate exclusions live (`vendor_api_key` as a globalSecret KIND
+stays legitimate: the router's BYOK path and the Shopify connector seal
+credentials under it for vendors MemQL does not federate with).
+[anthropic-federation.md](docs/public/operate/auth/anthropic-federation.md) ·
+[openai-federation.md](docs/public/operate/auth/openai-federation.md).
+
+**A LOCAL cluster reaches neither.** Federation works by having the vendor
+verify a token against the cluster's OIDC issuer, and a k3d cluster's issuer is
+not publicly reachable -- so nothing it mints can be verified. The install
+wizard therefore collects no AI credential at all, `providerFederation` skips
+satisfied, and a developer reaches models through a signed-in fleet machine or
+a local model.
 
 ### AI Endpoints (gRPC on `MemqlService.Stream`)
 
@@ -1642,7 +1662,11 @@ Base providers carry vendor-level auth + type.
 @base
 @type("OpenAI")
 provider openai {
-  auth { apiKey env("MEMQL_AI_OPENAI_API_KEY") }
+  auth {
+    identityProviderId  env("MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID")
+    serviceAccountId    env("MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID")
+    identityTokenFile   env("MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE")
+  }
 }
 
 @description("OpenAI GPT-5.4 Mini -- balanced cost/latency chat")

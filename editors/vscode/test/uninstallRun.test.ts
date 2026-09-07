@@ -152,7 +152,6 @@ function options(over: Partial<SessionOptions> = {}): SessionOptions {
     root: "/nonexistent",
     receiptFile: path.join(dir, "install-receipt.json"),
     skip: new Set<string>(),
-    provider: "",
     stepParams: {},
     ...over,
   };
