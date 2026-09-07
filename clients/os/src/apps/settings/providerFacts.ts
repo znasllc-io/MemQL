@@ -167,11 +167,23 @@ export interface FederationField {
   required: boolean;
 }
 
+// A HINT IS ONLY EVER A PREFIX THIS REPO CAN POINT AT. `svac_` and `fdrl_` are
+// Anthropic's, documented on its own ConfigMap
+// (deploy/k8s/base/anthropic-federation.yaml). OpenAI's two ids have NO hint
+// because nothing here knows their shape -- its ConfigMap deliberately names
+// none -- and a guessed prefix in an empty box is worse than an empty box: an
+// operator who pastes a correct id that does not match it will go looking for
+// the mistake in their own console.
+//
+// The two service-account hints were swapped when this section was written:
+// OpenAI's box showed `svac_...`, which is Anthropic's, while Anthropic's --
+// the one that really is `svac_` -- showed nothing. Invisible in jsdom, which
+// renders no placeholder, and found by looking at the screen.
 export const FEDERATION_FIELDS: Record<string, readonly FederationField[]> = {
   anthropic: [
     { key: "ruleId", label: "Federation rule id", hint: "fdrl_...", required: true },
     { key: "organizationId", label: "Organization id", hint: "UUID", required: true },
-    { key: "serviceAccountId", label: "Service account id", hint: "", required: true },
+    { key: "serviceAccountId", label: "Service account id", hint: "svac_...", required: true },
     {
       key: "workspaceId",
       label: "Workspace id",
@@ -181,7 +193,7 @@ export const FEDERATION_FIELDS: Record<string, readonly FederationField[]> = {
   ],
   openai: [
     { key: "identityProviderId", label: "Identity provider id", hint: "", required: true },
-    { key: "serviceAccountId", label: "Service account id", hint: "svac_...", required: true },
+    { key: "serviceAccountId", label: "Service account id", hint: "", required: true },
   ],
 };
 
