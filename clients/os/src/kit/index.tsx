@@ -17,6 +17,16 @@ import {
 } from "../system/roles";
 
 export { Caption } from "./Caption";
+export { findRegion, revealRegion } from "./reveal";
+export {
+  Rail,
+  nextOpen,
+  stopIsOpen,
+  stopIsReachable,
+  stopStateSentence,
+  type Stop,
+  type StopState,
+} from "./Rail";
 export { RankMark, RoleTag } from "./RankMark";
 export { PeerRowReadOnly, SurfaceRefused } from "./RankStates";
 export {
@@ -25,8 +35,11 @@ export {
   canConfigure,
   gateFor,
   markToneFor,
+  moduleActFor,
   stateWords,
+  useAppReach,
   type Gate,
+  type ModuleAct,
 } from "./ReadinessStates";
 export {
   Button,
