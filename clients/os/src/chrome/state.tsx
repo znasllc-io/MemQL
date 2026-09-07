@@ -58,6 +58,7 @@ import {
 } from "../system/store";
 import type { AppId, DeskId, WindowId } from "../system/windows";
 import { applyPackStyles, BUILT_IN_THEME_ID, type OsThemePack } from "../themes/registry";
+import type { ChromeLayout } from "../app/layout";
 
 export interface OsState {
   shell: ShellState;
@@ -184,6 +185,14 @@ export interface OsContextValue {
    */
   ladderLoaded: boolean;
   grid: GridSize;
+  /**
+   * Which chrome is drawn. Here because an act that OPENS A WINDOW is only
+   * offerable where windows exist: the phone shell has none, so a Set up
+   * group there names the destination in words instead of a button that
+   * could not go anywhere. Read it as `!== "phone"`, never `=== "desktop"` --
+   * the iPad chrome carries windows too.
+   */
+  layout: ChromeLayout;
   /** Null when there is nothing to report. Rendered by the dock. */
   notice: OsNotice | null;
 }
@@ -374,6 +383,7 @@ export function OsProvider({
   ladderLoaded = true,
   store,
   grid,
+  layout = "desktop",
 }: {
   children: ReactNode;
   registry: OsRegistry;
@@ -387,6 +397,11 @@ export function OsProvider({
   ladderLoaded?: boolean;
   store?: DesktopStore;
   grid: GridSize;
+  /**
+   * Defaults to "desktop" so every existing harness -- none of which renders
+   * phone chrome -- behaves exactly as before. The shell passes the real one.
+   */
+  layout?: ChromeLayout;
 }) {
   const storeRef = useRef<DesktopStore>(store ?? new LocalDesktopStore());
   // The store can be REPLACED, once, when the cluster connection arrives and
@@ -706,8 +721,8 @@ export function OsProvider({
   actorRoleRef.current = actorRole;
 
   const value = useMemo<OsContextValue>(
-    () => ({ state, actions: actionsRef.current!, registry, actorRole, ladderLoaded, grid, notice }),
-    [state, registry, actorRole, ladderLoaded, grid, notice],
+    () => ({ state, actions: actionsRef.current!, registry, actorRole, ladderLoaded, grid, layout, notice }),
+    [state, registry, actorRole, ladderLoaded, grid, layout, notice],
   );
 
   // Every installed pack's CSS, in one style element, kept in step with the

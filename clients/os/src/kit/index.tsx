@@ -20,6 +20,15 @@ export { Caption } from "./Caption";
 export { RankMark, RoleTag } from "./RankMark";
 export { PeerRowReadOnly, SurfaceRefused } from "./RankStates";
 export {
+  SetupGroup,
+  SurfaceUnconfigured,
+  canConfigure,
+  gateFor,
+  markToneFor,
+  stateWords,
+  type Gate,
+} from "./ReadinessStates";
+export {
   Button,
   Check,
   Chip,
@@ -59,11 +68,23 @@ export type { ClusterRole, MachinePresence, ProvenanceFacts, ProvenanceTone, Rol
  * unknown = NO dot. The same component renders dock "running", connection
  * state and fleet "online" so aliveness reads identically everywhere.
  */
+/**
+ * The dot's full vocabulary. The three provenance tones are ALIVENESS; the
+ * two setup tones are STATE, drawn only while a person is needed (design
+ * record 2026-09-06-configuration-readiness, section 5.4).
+ *
+ * Named by MEANING rather than colour, which is what keeps them from
+ * colliding: amber here means "partly set up", and amber in Fleet means
+ * "machine unreachable". A tone called `amber` would be reused across both
+ * and the two readings would silently merge.
+ */
+export type DotTone = ProvenanceTone | "needsSetup" | "partlySetUp";
+
 export function ProvenanceDot({
   tone,
   label,
 }: {
-  tone: ProvenanceTone;
+  tone: DotTone;
   /** Accessible name; the dot itself is not text. */
   label?: string;
 }) {

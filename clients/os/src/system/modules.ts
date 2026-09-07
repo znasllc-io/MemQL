@@ -49,3 +49,22 @@ export const MODULE_SETTINGS_SECTION: Record<ModuleId, { section: string; name: 
   workbench: null,
   localApps: null,
 };
+
+/**
+ * The manifest descriptions, VERBATIM. The setup surface renders one per unmet
+ * module, so this is the sentence a person reads when an app will not open --
+ * it says what the module is for, which is the reason they would want it.
+ *
+ * Pinned to the engine's manifest by the same Go gate that pins the ids. Keep
+ * each entry on ONE line with a double-quoted value: the gate parses it by
+ * regexp, not by executing TypeScript.
+ */
+export const MODULE_DESCRIPTIONS: Record<ModuleId, string> = {
+  ai: "Inference needs a provider: a machine on your fleet serving a model, or a federated cloud vendor.",
+  storage: "Files, materialized outputs, deploy bundles and log archives live in blob storage.",
+  email: "Sending mail needs a mailbox this cluster can send from.",
+  githubApp: "Connecting a source through the GitHub App needs the app registered on the identity node.",
+  campaigns: "Sending a campaign needs a one-click unsubscribe secret and a reachable unsubscribe address.",
+  workbench: "Workbenches need a workbench node this agent can reach.",
+  localApps: "Running a task in Claude Code or Codex on your machine needs the agent to mint a session credential.",
+};

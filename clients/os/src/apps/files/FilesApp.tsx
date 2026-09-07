@@ -4,7 +4,7 @@ import { Concepts, newShortId, type Row } from "@znasllc-io/memql-sdk-core/clien
 import { useAuthSource } from "../../auth/context";
 import { EdgeUploadProvider } from "../../items/edgeUpload";
 import type { UploadProvider } from "../../items/upload";
-import { Check, Head, Panel } from "../../kit";
+import { Check, Head, Panel, SetupGroup } from "../../kit";
 import { useOsConnection } from "../../live/connection";
 import { useLiveView } from "../../live/liveView";
 import { useOs } from "../../chrome/state";
@@ -38,10 +38,10 @@ import {
   DEFAULT_FILES_SETTINGS,
   LocalFilesSettingsStore,
   type FilesSettings,
-  type FilesSettingsStore,
-} from "./settings";
+  type FilesSettingsStore, FILES_REQUIRES, FILES_WANTS } from "./settings";
 import { useLibraryFeeds } from "./useLibrary";
 import { useUploadTasks } from "./useUploadTasks";
+import { useSession } from "../../chrome/access";
 
 // Files: the Library on the desktop (epic #4721). A live folder tree over the
 // caller's content-bearing rows, a list that announces changes once and
@@ -413,9 +413,20 @@ function FilesSettingsSection({
   settings: FilesSettings;
   update: (patch: Partial<FilesSettings>) => void;
 }) {
+  const { readiness } = useSession();
   return (
     <div className="os-settings">
       <Head title="Files settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Files"
+        requires={FILES_REQUIRES}
+        wants={FILES_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Files settings">
         <fieldset className="os-field-group">
           <legend>Open the list on</legend>

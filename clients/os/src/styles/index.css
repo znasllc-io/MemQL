@@ -105,6 +105,18 @@ button:not(:disabled):active {
   border: 1px solid var(--os-muted);
 }
 
+/* The two SETUP tones (design record 2026-09-06-configuration-readiness,
+   section 5.4): drawn on an app's Settings entry and gear only while a person
+   is needed. Red is --os-error because an unconfigured app is the one state
+   in this shell where somebody must act before anything else works; amber is
+   the partial state. Configured, unreported and unknown draw NOTHING. */
+.os-dot[data-os-dot="needsSetup"] {
+  background: var(--os-error);
+}
+.os-dot[data-os-dot="partlySetUp"] {
+  background: var(--os-warn);
+}
+
 /* ---- glass ---- */
 .os-window,
 .os-dock,
@@ -10887,4 +10899,140 @@ a.os-button {
  * about 200 characters a line. */
 .os-credentials-empty {
   max-width: 62ch;
+}
+
+/* ==========================================================================
+   Configuration readiness: the setup surface, the Set up group, the marks
+   (design record 2026-09-06-configuration-readiness, sections 5.3 to 5.5)
+   ========================================================================== */
+
+/* The surface mirrors .os-rank-refused deliberately -- same centring, same
+   measure, same type. Both answer "this window cannot show you its contents
+   yet", and two different shapes for one situation would read as two
+   different kinds of problem. */
+
+.os-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100%;
+  padding: 48px 32px;
+  text-align: center;
+}
+
+/* The `off` dot at display size. The border scales with it (1.5px, not the
+   dot's 1px) so the ring keeps its weight instead of thinning to a hairline
+   at three times the diameter. */
+.os-setup-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--os-muted);
+}
+
+.os-setup-head {
+  margin: 0;
+  font-size: var(--os-text-md);
+  font-weight: 600;
+  color: var(--os-ink);
+}
+
+.os-setup-body {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--os-text-base);
+  color: var(--os-muted);
+}
+
+.os-setup-next {
+  margin: 6px 0 0;
+}
+
+/* ---- the Set up group: one row per module, rule 8's container language ---- */
+
+.os-setup-group-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Three columns because there are three questions -- what, how it stands,
+   what to do -- not because a grid looks tidy. */
+.os-setup-row {
+  display: grid;
+  grid-template-columns: minmax(10ch, 1fr) minmax(8ch, auto) minmax(12ch, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid var(--os-line);
+}
+
+.os-setup-row:first-child {
+  border-top: 0;
+}
+
+.os-setup-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--os-text-sm);
+  color: var(--os-muted);
+}
+
+.os-setup-act {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  justify-self: end;
+}
+
+.os-setup-vars {
+  margin: 0;
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Narrow windows and the phone: three columns become one stack rather than
+   three crushed ones. Rule 9 -- real estate belongs to content, and a
+   12ch column of variable names is content. */
+@media (max-width: 560px) {
+  .os-setup-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .os-setup-act {
+    justify-self: start;
+  }
+}
+
+/* The mark on a rail entry and on the gear. The entry becomes a flex row so
+   the dot sits at the end without moving the label. */
+.os-window-nav-item[data-os-setup] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.os-icon-button[data-os-setup] {
+  position: relative;
+}
+
+.os-icon-button[data-os-setup] .os-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+}
+
+/* The Ask widget's own unconfigured line: it has no room for the surface, so
+   it carries the sentence and nothing else. Padded to the widget's own inset
+   rather than centred -- a centred paragraph in a 3x2 cell reads as an error. */
+.os-ask-unconfigured {
+  margin: 0;
+  padding: 12px 14px;
 }

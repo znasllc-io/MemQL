@@ -299,3 +299,30 @@ export function requirementsFor(
     wants: dedupe([...(app.wants ?? []), ...(section?.wants ?? [])]),
   };
 }
+
+/**
+ * Everything this app needs set up ANYWHERE in it: the app's own lists plus
+ * every section's, minus the settings and logs exemption.
+ *
+ * This is what the MARK is computed from, and it is deliberately not
+ * `requirementsFor`. That function answers "does this section render", so it
+ * must fold the app's list into each section and nothing else -- putting a
+ * section's own requirement on the manifest instead would gate every OTHER
+ * section on it, which is how Fleet briefly required a local-app credential
+ * to look at its machines. The mark asks a different question: is a person
+ * needed anywhere in this app. Both readings are wanted; one function cannot
+ * give both.
+ */
+export function allRequirementsFor(app: OsAppManifest): {
+  requires: ModuleId[];
+  wants: ModuleId[];
+} {
+  const requires = new Set<ModuleId>(app.requires ?? []);
+  const wants = new Set<ModuleId>(app.wants ?? []);
+  for (const section of app.sections ?? []) {
+    if (section.id === app.settingsSection || section.id === app.logsSection) continue;
+    for (const id of section.requires ?? []) requires.add(id);
+    for (const id of section.wants ?? []) wants.add(id);
+  }
+  return { requires: Array.from(requires), wants: Array.from(wants) };
+}

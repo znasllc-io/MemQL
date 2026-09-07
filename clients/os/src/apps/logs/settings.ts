@@ -6,6 +6,7 @@
 // mean somebody loses their desks because an app learned a checkbox.
 
 import { LEVEL_FLOORS, type LevelFloor } from "../../logs/filters";
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 /**
@@ -135,3 +136,18 @@ export class LocalLogsSettingsStore implements LogsSettingsStore {
     }
   }
 }
+
+/**
+ * The readiness modules this app needs (design record
+ * 2026-09-06-configuration-readiness, section 5.1).
+ *
+ * WANTS: the live stream and search read the log store. Storage is what the
+ * nightly archive needs, and without it retention deletes nothing -- worth a
+ * mark, never a gate.
+ *
+ * Exported so the manifest and the Set up group read ONE list: a second
+ * literal is one that can disagree, and the disagreement is an app that gates
+ * on a module its own Settings never offers to set up.
+ */
+export const LOGS_REQUIRES: readonly ModuleId[] = [];
+export const LOGS_WANTS: readonly ModuleId[] = ["storage"];

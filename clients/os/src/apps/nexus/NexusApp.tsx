@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
-import { Caption, Check, Head, Panel } from "../../kit";
+import { Caption, Check, Head, Panel, SetupGroup } from "../../kit";
 import { AppLogsSection } from "../../logs/AppLogsSection";
 import type { OsAppProps } from "../../system/registry";
 import { ApprovalsSection } from "./ApprovalsSection";
@@ -35,8 +35,7 @@ import {
   LocalNexusSettingsStore,
   NEXUS_SECTIONS,
   type NexusSettings,
-  type NexusSettingsStore,
-} from "./settings";
+  type NexusSettingsStore, NEXUS_REQUIRES, NEXUS_WANTS } from "./settings";
 import {
   useApprovals,
   useGoals,
@@ -45,6 +44,7 @@ import {
   useRunSteps,
   useRuns,
 } from "./useNexus";
+import { useSession } from "../../chrome/access";
 
 // WORK: what you asked the system to do, what it did about it, and the places
 // it had to stop and ask you.
@@ -401,9 +401,20 @@ function NexusSettingsSection({
   settings: NexusSettings;
   update: (patch: Partial<NexusSettings>) => void;
 }) {
+  const { readiness } = useSession();
   return (
     <div className="os-settings">
       <Head title="Nexus settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Nexus"
+        requires={NEXUS_REQUIRES}
+        wants={NEXUS_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Nexus settings">
         <fieldset className="os-field-group">
           <legend>Open Nexus on</legend>

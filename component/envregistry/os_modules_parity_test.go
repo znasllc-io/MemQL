@@ -13,6 +13,9 @@ const osModulesPath = "../../clients/os/src/system/modules.ts"
 var osModulesTuple = regexp.MustCompile(`(?m)^\s*export\s+const\s+READINESS_MODULES\s*=\s*\[([^\]]*)\]\s*as\s+const\s*;`)
 var quotedModuleId = regexp.MustCompile(`"([A-Za-z][A-Za-z0-9]*)"`)
 
+var osDescriptionsBlock = regexp.MustCompile(`(?s)export\s+const\s+MODULE_DESCRIPTIONS[^{]*\{(.*?)\n\};`)
+var osDescriptionEntry = regexp.MustCompile(`(?m)^\s*([A-Za-z][A-Za-z0-9]*):\s*"((?:[^"\\]|\\.)*)",\s*$`)
+
 // The shell's module ids are a copy of the manifest's, and this is the gate
 // that keeps them one list.
 //
@@ -55,5 +58,51 @@ func TestOSModuleIdsMatchTheManifest(t *testing.T) {
 	sort.Strings(engine)
 	if strings.Join(shell, ",") != strings.Join(engine, ",") {
 		t.Fatalf("module ids disagree\nshell:  %v\nengine: %v\nThe shell's list is %s; the engine's is the `modules:` block of scripts/secrets/manifest.yaml (then `make env-registry-sync`).", shell, engine, osModulesPath)
+	}
+}
+
+// The setup surface renders the module's description VERBATIM, so the shell
+// carries a copy of each one. A drifted copy is the failure this catches: the
+// surface would explain the module in words the operator's own manifest no
+// longer uses, and nothing would report a difference -- the sentence is
+// plausible either way, which is exactly what makes it survive review.
+func TestOSModuleDescriptionsMatchTheManifest(t *testing.T) {
+	raw, err := os.ReadFile(osModulesPath)
+	if err != nil {
+		t.Fatalf("the shell's module list is unreadable at %s: %v", osModulesPath, err)
+	}
+	block := osDescriptionsBlock.FindSubmatch(raw)
+	if block == nil {
+		t.Fatalf("%s does not export a MODULE_DESCRIPTIONS record", osModulesPath)
+	}
+	shell := map[string]string{}
+	for _, m := range osDescriptionEntry.FindAllSubmatch(block[1], -1) {
+		shell[string(m[1])] = string(m[2])
+	}
+	if len(shell) == 0 {
+		t.Fatalf("%s exports MODULE_DESCRIPTIONS with no one-line entries in it; the gate reads them by regexp, so the shape is load-bearing", osModulesPath)
+	}
+
+	manifest, err := LoadManifestFromBytes(embeddedManifest, "embedded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Modules) == 0 {
+		t.Fatal("the manifest declares no modules; this gate would compare against nothing")
+	}
+	for _, mod := range manifest.Modules {
+		got, ok := shell[mod.Name]
+		if !ok {
+			t.Errorf("module %q has no description in %s", mod.Name, osModulesPath)
+			continue
+		}
+		if got != mod.Description {
+			t.Errorf("module %q description differs\nshell:  %q\nengine: %q", mod.Name, got, mod.Description)
+		}
+	}
+	for name := range shell {
+		if _, ok := manifest.Module(name); !ok {
+			t.Errorf("%s describes module %q, which the manifest does not declare", osModulesPath, name)
+		}
 	}
 }

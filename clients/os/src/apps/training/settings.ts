@@ -5,6 +5,7 @@
 // a version it does not know, so folding per-app preferences into it would
 // mean somebody loses their desks because an app learned a checkbox.
 
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 /**
@@ -142,3 +143,17 @@ export class LocalTrainingSettingsStore implements TrainingSettingsStore {
     }
   }
 }
+
+/**
+ * The readiness modules this app needs (design record
+ * 2026-09-06-configuration-readiness, section 5.1).
+ *
+ * WANTS: reviewing and correcting what was already extracted needs no model.
+ * Teaching something new does, and that path says so.
+ *
+ * Exported so the manifest and the Set up group read ONE list: a second
+ * literal is one that can disagree, and the disagreement is an app that gates
+ * on a module its own Settings never offers to set up.
+ */
+export const TRAINING_REQUIRES: readonly ModuleId[] = [];
+export const TRAINING_WANTS: readonly ModuleId[] = ["ai"];

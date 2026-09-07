@@ -12,9 +12,9 @@ import {
   FLEET_SECTIONS,
   LocalFleetSettingsStore,
   type FleetSettings,
-  type FleetSettingsStore,
-} from "./settings";
-import { Panel, Head } from "../../kit";
+  type FleetSettingsStore, FLEET_REQUIRES, FLEET_WANTS } from "./settings";
+import { Panel, Head, SetupGroup } from "../../kit";
+import { useSession } from "../../chrome/access";
 
 // Fleet: the machines you own, how work is routed to them, and the
 // workbenches that run the work that does not need them (epic memql#4729).
@@ -115,9 +115,20 @@ function FleetSettingsSection({
   settings: FleetSettings;
   update: (patch: Partial<FleetSettings>) => void;
 }) {
+  const { readiness } = useSession();
   return (
     <div className="os-settings">
       <Head title="Fleet settings" />
+      {/* THE SET UP GROUP sits above the preferences on purpose: it is the
+          reason a person was sent here from an unconfigured surface, and the
+          first thing they need is what to configure and where. Rule 4 puts
+          micro-preferences in Settings; it never said they come first. */}
+      <SetupGroup
+        app="Fleet"
+        requires={FLEET_REQUIRES}
+        wants={FLEET_WANTS}
+        readiness={readiness}
+      />
       <Panel label="Fleet settings">
         <fieldset className="os-field-group">
           <legend>Open Fleet on</legend>

@@ -30,26 +30,29 @@ import { ClusterApp } from "./cluster/ClusterApp";
 import { CLUSTER_SECTIONS } from "./cluster/settings";
 import { ConceptsApp } from "./concepts/ConceptsApp";
 import { CONCEPTS_SECTIONS } from "./concepts/settings";
-import { CAMPAIGNS_SECTIONS } from "./campaigns/settings";
+import { CAMPAIGNS_SECTIONS, CAMPAIGNS_REQUIRES, CAMPAIGNS_WANTS } from "./campaigns/settings";
 import { DeployablesApp } from "./deployables/DeployablesApp";
-import { DEPLOYABLES_SECTIONS } from "./deployables/settings";
+import { DEPLOYABLES_SECTIONS, DEPLOYABLES_REQUIRES, DEPLOYABLES_WANTS } from "./deployables/settings";
 import { FilesApp } from "./files/FilesApp";
-import { FILES_SECTIONS } from "./files/settings";
+import { FILES_SECTIONS, FILES_REQUIRES, FILES_WANTS } from "./files/settings";
 import { FleetApp } from "./fleet/FleetApp";
 import { FLEET_SECTIONS } from "./fleet/settings";
 import { LogsApp } from "./logs/LogsApp";
-import { LOGS_SECTIONS } from "./logs/settings";
+import { LOGS_SECTIONS, LOGS_REQUIRES, LOGS_WANTS } from "./logs/settings";
 import { MaterializerApp } from "./materializer/MaterializerApp";
-import { MATERIALIZER_SECTIONS } from "./materializer/settings";
+import { MATERIALIZER_SECTIONS, MATERIALIZER_REQUIRES, MATERIALIZER_WANTS } from "./materializer/settings";
 import { SettingsApp } from "./settings/SettingsApp";
 import { StoresApp } from "./stores/StoresApp";
 import { STORES_SECTIONS } from "./stores/settings";
 import { TrainingApp } from "./training/TrainingApp";
-import { TRAINING_SECTIONS } from "./training/settings";
+import { TRAINING_SECTIONS, TRAINING_REQUIRES, TRAINING_WANTS } from "./training/settings";
 import { UsersApp } from "./users/UsersApp";
 import { USERS_SECTIONS } from "./users/settings";
 import { NexusApp } from "./nexus/NexusApp";
 import { NEXUS_SECTIONS } from "./nexus/settings";
+import { useSession } from "../chrome/access";
+import { gateFor } from "../kit/ReadinessStates";
+import { MODULE_DESCRIPTIONS } from "../system/modules";
 
 // The installed roster (spec D12). Every app is real now -- Files (epic
 // #4721) replaced the last stub, and the `stub` helper and StubApp went with
@@ -132,6 +135,8 @@ const files: OsAppManifest = {
   name: "Files",
   icon: FilesIcon,
   sections: FILES_SECTIONS,
+  requires: FILES_REQUIRES,
+  wants: FILES_WANTS,
   settingsSection: "settings",
   logsSection: "logs",
   component: FilesApp,
@@ -162,6 +167,8 @@ const deployables: OsAppManifest = {
   name: "Deployables",
   icon: Rocket,
   sections: DEPLOYABLES_SECTIONS,
+  requires: DEPLOYABLES_REQUIRES,
+  wants: DEPLOYABLES_WANTS,
   settingsSection: "settings",
   logsSection: "logs",
   component: DeployablesApp,
@@ -208,6 +215,8 @@ const logs: OsAppManifest = {
   icon: ScrollText,
   roles: { min: "admin" },
   sections: LOGS_SECTIONS,
+  requires: LOGS_REQUIRES,
+  wants: LOGS_WANTS,
   settingsSection: "settings",
   logsSection: "stream",
   component: LogsApp,
@@ -298,6 +307,8 @@ const training: OsAppManifest = {
   icon: GraduationCap,
   roles: { min: "writer" },
   sections: TRAINING_SECTIONS,
+  requires: TRAINING_REQUIRES,
+  wants: TRAINING_WANTS,
   settingsSection: "settings",
   logsSection: "logs",
   component: TrainingApp,
@@ -483,6 +494,8 @@ const campaigns: OsAppManifest = {
   name: "Campaigns",
   icon: Send,
   sections: CAMPAIGNS_SECTIONS,
+  requires: CAMPAIGNS_REQUIRES,
+  wants: CAMPAIGNS_WANTS,
   settingsSection: "settings",
   logsSection: "logs",
   component: CampaignsApp,
@@ -584,6 +597,8 @@ const materializer: OsAppManifest = {
   name: "Materializer",
   icon: Layers,
   sections: MATERIALIZER_SECTIONS,
+  requires: MATERIALIZER_REQUIRES,
+  wants: MATERIALIZER_WANTS,
   settingsSection: "settings",
   logsSection: "logs",
   component: MaterializerApp,
@@ -626,10 +641,23 @@ const stores: OsAppManifest = {
 
 function AskWidgetBody() {
   const { transport, voice, settings } = useAsk();
+  // Ask needs a provider, and a widget is too small for the setup surface --
+  // so it says the one sentence instead. Nothing while the feed is unknown:
+  // a widget that flashes "not set up" on every load would be worse than one
+  // that waits a moment.
+  const { readiness } = useSession();
+  const aiGate = gateFor(readiness, ["ai"], []);
   // The widget hands a prompt off exactly as the sheet does (epic memql#4785).
   // One Ask, three entry points, and an act that exists on one of them is an
   // act somebody learns and then cannot find.
   const makeGoal = useMakeGoal();
+  if (aiGate.state === "unconfigured") {
+    return (
+      <p className="os-caption os-ask-unconfigured">
+        {MODULE_DESCRIPTIONS.ai} An owner or developer can set it up in Settings.
+      </p>
+    );
+  }
   return (
     <AskSurface
       transport={transport}
@@ -644,6 +672,10 @@ function AskWidgetBody() {
 const askWidget: OsWidgetManifest = {
   id: "ask",
   name: "Ask",
+  // The widget has no sections and no settings of its own, so an unmet
+  // requirement renders the setup sentence in its own body rather than the
+  // whole surface -- a desktop widget is too small to carry a headline.
+  requires: ["ai"] as const,
   icon: Sparkles,
   size: { w: 3, h: 2 },
   component: AskWidgetBody,

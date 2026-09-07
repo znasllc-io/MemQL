@@ -21,6 +21,7 @@
 // it lands, this file becomes its first tenant; until then a hand-rolled
 // store is honest and a shared abstraction inferred from one caller is not.
 
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 /** The sections this app declares, in manifest order. Exported because the
@@ -29,7 +30,7 @@ import type { OsAppSection } from "../../system/registry";
 export const FLEET_SECTIONS: OsAppSection[] = [
   { id: "machines", name: "Machines" },
   { id: "routing", name: "Routing" },
-  { id: "workbenches", name: "Workbenches" },
+  { id: "workbenches", name: "Workbenches", requires: ["workbench"] },
   // When work is handed to a local app on one of the caller's own machines,
   // and what happened when it was (epic memql#5009). It follows Workbenches
   // because the three read as one progression -- the cluster's own sandbox,
@@ -41,7 +42,7 @@ export const FLEET_SECTIONS: OsAppSection[] = [
   // person has a policy and runs of their own and the engine decides how far
   // the read reaches -- exactly the reasoning that leaves Machines, Routing
   // and Workbenches ungated.
-  { id: "apps", name: "Apps" },
+  { id: "apps", name: "Apps", requires: ["localApps"] },
   // The app's slice of the cluster's logs (epic memql#4895): the lines it
   // tagged and the lines about the things it owns. Admin-floored because
   // every read on the log store is (spec L3), and this is the ONE section
@@ -145,3 +146,11 @@ export class LocalFleetSettingsStore implements FleetSettingsStore {
     }
   }
 }
+
+/** The union of the section requirements above, for the Set up group. */
+export const FLEET_REQUIRES: readonly ModuleId[] = Array.from(
+  new Set(FLEET_SECTIONS.flatMap((s) => s.requires ?? [])),
+);
+export const FLEET_WANTS: readonly ModuleId[] = Array.from(
+  new Set(FLEET_SECTIONS.flatMap((s) => s.wants ?? [])),
+);

@@ -122,7 +122,7 @@ export function Shell({
         <MachinesProvider>
           <ShellTransports source={source} ports={ports}>
             {(uploads, desktopStore) => (
-              <ShellRoster grid={grid} store={desktopStore}>
+              <ShellRoster grid={grid} store={desktopStore} layout={layout}>
                 {layout === "phone" ? (
                   <div
       className="os-root"
@@ -201,10 +201,12 @@ function SessionScope({
 function ShellRoster({
   grid,
   store,
+  layout,
   children,
 }: {
   grid: ReturnType<typeof gridForViewport>;
   store: DesktopStore;
+  layout: ChromeLayout;
   children: ReactNode;
 }) {
   const { access, ladderLoaded } = useSession();
@@ -219,6 +221,7 @@ function ShellRoster({
       ladderLoaded={ladderLoaded ?? false}
       grid={grid}
       store={store}
+      layout={layout}
     >
       {/* A GitHub connect that has come back lands here: it opens the app
           that asked and hands the answer over as a window intent (epic

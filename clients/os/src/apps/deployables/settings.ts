@@ -5,6 +5,7 @@
 // does not know, so folding per-app preferences into it would mean somebody
 // loses their desks because an app learned a checkbox.
 
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 import { TRAFFIC_WINDOWS, type TrafficWindow } from "./traffic";
 
@@ -205,3 +206,18 @@ export class LocalDeployablesSettingsStore implements DeployablesSettingsStore {
     }
   }
 }
+
+/**
+ * The readiness modules this app needs (design record
+ * 2026-09-06-configuration-readiness, section 5.1).
+ *
+ * WANTS, not requires (spec 5.1): composing and addressing a deployable work
+ * with no storage, and only publishing refuses -- with a message that already
+ * names what is missing. Gating the app would take away the half that works.
+ *
+ * Exported so the manifest and the Set up group read ONE list: a second
+ * literal is one that can disagree, and the disagreement is an app that gates
+ * on a module its own Settings never offers to set up.
+ */
+export const DEPLOYABLES_REQUIRES: readonly ModuleId[] = [];
+export const DEPLOYABLES_WANTS: readonly ModuleId[] = ["storage", "githubApp"];

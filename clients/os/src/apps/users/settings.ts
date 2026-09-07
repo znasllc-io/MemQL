@@ -5,6 +5,7 @@
 // not know, so folding per-app preferences into it would mean a person loses
 // their desks because an app learned a checkbox.
 
+import type { ModuleId } from "../../system/modules";
 import type { OsAppSection } from "../../system/registry";
 
 /**
@@ -18,7 +19,10 @@ import type { OsAppSection } from "../../system/registry";
  */
 export const USERS_SECTIONS: OsAppSection[] = [
   { id: "people", name: "People" },
-  { id: "invites", name: "Invites" },
+  // WANTS, not requires: the list of who has been invited is rows, and reads
+  // fine with no mailbox. Only SENDING one needs email, and that path refuses
+  // with its own message.
+  { id: "invites", name: "Invites", wants: ["email"] },
   // The app's slice of the cluster's logs (epic memql#4895): the lines it
   // tagged and the lines about the things it owns. Admin-floored because
   // every read on the log store is (spec L3), and this is the ONE section
@@ -124,3 +128,11 @@ export class LocalUsersSettingsStore implements UsersSettingsStore {
     }
   }
 }
+
+/** The union of the section requirements above, for the Set up group. */
+export const USERS_REQUIRES: readonly ModuleId[] = Array.from(
+  new Set(USERS_SECTIONS.flatMap((s) => s.requires ?? [])),
+);
+export const USERS_WANTS: readonly ModuleId[] = Array.from(
+  new Set(USERS_SECTIONS.flatMap((s) => s.wants ?? [])),
+);

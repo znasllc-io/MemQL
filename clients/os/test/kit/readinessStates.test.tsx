@@ -1,0 +1,255 @@
+import type { ReactNode } from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import { SessionProvider } from "../../src/chrome/access";
+import { UNKNOWN_RUNTIME_CONFIG } from "../../src/cluster/config";
+import {
+  gateFor,
+  markToneFor,
+  SetupGroup,
+  stateWords,
+  SurfaceUnconfigured,
+} from "../../src/kit/ReadinessStates";
+import type { Readiness } from "../../src/live/readiness";
+import type { Verdict } from "../../src/system/readinessFold";
+
+function verdict(module: string, state: Verdict["state"], lanes: Verdict["lanes"] = []): Verdict {
+  return { module, state, core: false, disagreement: [], nodes: [], lanes };
+}
+
+function readiness(loaded: boolean, verdicts: Verdict[]): Readiness {
+  const by = new Map(verdicts.map((v) => [v.module, v]));
+  return { loaded, state: "live", of: (id) => by.get(id) ?? null, reseed: () => {} };
+}
+
+function withSession(node: ReactNode, clusterRole: string) {
+  return (
+    <SessionProvider
+      value={{
+        access: { userId: "u", primaryEmail: "u@example.com", clusterRole },
+        config: UNKNOWN_RUNTIME_CONFIG,
+        ladderLoaded: true,
+      }}
+    >
+      {node}
+    </SessionProvider>
+  );
+}
+
+describe("gateFor", () => {
+  it("is unknown while the feed has not loaded, whatever is required", () => {
+    expect(gateFor(readiness(false, []), ["storage"], []).state).toBe("unknown");
+    expect(gateFor(undefined, ["storage"], []).state).toBe("unknown");
+  });
+
+  it("is unconfigured when a required module is unconfigured or unreported", () => {
+    expect(gateFor(readiness(true, [verdict("storage", "unconfigured")]), ["storage"], []).unmet).toEqual([
+      "storage",
+    ]);
+    expect(gateFor(readiness(true, []), ["storage"], []).state).toBe("unconfigured");
+  });
+
+  it("is partial when a required module is partial or a wanted one is not configured", () => {
+    expect(gateFor(readiness(true, [verdict("storage", "partial")]), ["storage"], []).state).toBe(
+      "partial",
+    );
+    expect(
+      gateFor(
+        readiness(true, [verdict("storage", "configured"), verdict("ai", "unconfigured")]),
+        ["storage"],
+        ["ai"],
+      ).state,
+    ).toBe("partial");
+  });
+
+  it("is ready when every required module is configured and nothing wanted is missing", () => {
+    expect(gateFor(readiness(true, [verdict("storage", "configured")]), ["storage"], []).state).toBe(
+      "ready",
+    );
+    expect(gateFor(readiness(true, []), [], []).state).toBe("ready");
+  });
+
+  // A wanted module NEVER gates, however badly it stands. This is the
+  // distinction the two verbs exist for.
+  it("never gates on a wanted module", () => {
+    const g = gateFor(readiness(true, [verdict("storage", "unconfigured")]), [], ["storage"]);
+    expect(g.state).toBe("partial");
+    expect(g.unmet).toEqual([]);
+    expect(g.wanted).toEqual(["storage"]);
+  });
+});
+
+describe("markToneFor", () => {
+  it("draws only while a person is needed", () => {
+    expect(markToneFor({ state: "unknown", unmet: [], wanted: [] })).toBeNull();
+    expect(markToneFor({ state: "ready", unmet: [], wanted: [] })).toBeNull();
+    expect(markToneFor({ state: "partial", unmet: [], wanted: ["ai"] })).toBe("partlySetUp");
+    expect(markToneFor({ state: "unconfigured", unmet: ["storage"], wanted: [] })).toBe("needsSetup");
+  });
+});
+
+describe("stateWords", () => {
+  it("tells not-reported apart from not-set-up", () => {
+    expect(stateWords(null)).toBe("Not reported");
+    expect(stateWords(verdict("ai", "unreported"))).toBe("Not reported");
+    expect(stateWords(verdict("ai", "unconfigured"))).toBe("Not set up");
+    expect(stateWords(verdict("ai", "partial"))).toBe("Partly set up");
+    expect(stateWords(verdict("ai", "configured"))).toBe("Set up");
+  });
+});
+
+describe("SurfaceUnconfigured", () => {
+  it("offers the act to an owner and the sentence to everyone else", () => {
+    const onSetUp = vi.fn();
+    const { rerender } = render(
+      <SurfaceUnconfigured
+        surface="Campaigns"
+        unmet={["email"]}
+        descriptions={{ email: "Sending mail needs a mailbox this cluster can send from." }}
+        canSetUp
+        onSetUp={onSetUp}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Campaigns is not set up yet" })).toBeTruthy();
+    expect(
+      screen.getByText("Sending mail needs a mailbox this cluster can send from."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Set up Campaigns" }));
+    expect(onSetUp).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <SurfaceUnconfigured
+        surface="Campaigns"
+        unmet={["email"]}
+        descriptions={{}}
+        canSetUp={false}
+        onSetUp={onSetUp}
+      />,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText("An owner or developer can set it up in Settings.")).toBeTruthy();
+  });
+
+  it("renders one sentence per unmet module", () => {
+    render(
+      <SurfaceUnconfigured
+        surface="Materializer"
+        unmet={["ai", "storage"]}
+        descriptions={{ ai: "Inference needs a provider.", storage: "Files live in blob storage." }}
+        canSetUp={false}
+        onSetUp={() => {}}
+      />,
+    );
+    expect(screen.getByText("Inference needs a provider.")).toBeTruthy();
+    expect(screen.getByText("Files live in blob storage.")).toBeTruthy();
+  });
+});
+
+describe("SetupGroup", () => {
+  it("lists each module with its state and points at the one place it is configured", () => {
+    const r = readiness(true, [
+      verdict("ai", "unconfigured"),
+      verdict("storage", "configured", [
+        { name: "azure-blob", configurableFrom: "deployment", complete: true, slots: [] },
+      ]),
+    ]);
+    render(
+      withSession(
+        <SetupGroup app="Materializer" requires={["ai", "storage"]} wants={[]} readiness={r} />,
+        "owner",
+      ),
+    );
+    expect(screen.getByRole("heading", { name: "Set up" })).toBeTruthy();
+    expect(screen.getByText("AI providers")).toBeTruthy();
+    expect(screen.getByText("Not set up")).toBeTruthy();
+    expect(screen.getByText("Storage")).toBeTruthy();
+    // "Set up" is both the group's heading and a row's state word, so this
+    // asserts the ROW carries it rather than matching the heading again.
+    const rowStates = Array.from(document.querySelectorAll(".os-setup-state")).map(
+      (el) => el.textContent,
+    );
+    expect(rowStates).toContain("Set up");
+    // No OsProvider in this test, so the act is the words, not a button --
+    // a button with no window to open into would go nowhere.
+    expect(screen.getByText("Settings, under AI providers")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open AI providers" })).toBeNull();
+  });
+
+  it("names the variables for a deployment-only lane", () => {
+    const r = readiness(true, [
+      verdict("storage", "unconfigured", [
+        {
+          name: "azure-blob",
+          configurableFrom: "deployment",
+          complete: false,
+          slots: [{ name: "MEMQL_AZURE_BLOB_CONTAINER", present: false, source: "unset" }],
+        },
+      ]),
+    ]);
+    render(
+      withSession(<SetupGroup app="Files" requires={[]} wants={["storage"]} readiness={r} />, "developer"),
+    );
+    expect(screen.getByText("Set in the deployment")).toBeTruthy();
+    expect(screen.getByText("MEMQL_AZURE_BLOB_CONTAINER")).toBeTruthy();
+  });
+
+  it("names only the slots that are still missing", () => {
+    const r = readiness(true, [
+      verdict("storage", "partial", [
+        {
+          name: "azure-blob",
+          configurableFrom: "deployment",
+          complete: false,
+          slots: [
+            { name: "MEMQL_AZURE_BLOB_CONTAINER", present: true, source: "env" },
+            { name: "MEMQL_AZURE_STORAGE_CONNECTION_STRING", present: false, source: "unset" },
+          ],
+        },
+      ]),
+    ]);
+    render(
+      withSession(<SetupGroup app="Files" requires={[]} wants={["storage"]} readiness={r} />, "owner"),
+    );
+    expect(screen.getByText("MEMQL_AZURE_STORAGE_CONNECTION_STRING")).toBeTruthy();
+    expect(screen.queryByText("MEMQL_AZURE_BLOB_CONTAINER")).toBeNull();
+  });
+
+  it("names the disagreeing nodes so a mid-rollout state reads as one", () => {
+    const v = verdict("storage", "partial");
+    v.disagreement = ["bff-b=unconfigured", "bff-a=configured"];
+    render(
+      withSession(<SetupGroup app="Files" requires={["storage"]} wants={[]} readiness={readiness(true, [v])} />, "owner"),
+    );
+    expect(screen.getByText(/bff-b=unconfigured, bff-a=configured/)).toBeTruthy();
+  });
+
+  it("says it is still reading rather than showing a set of wrong answers", () => {
+    render(
+      withSession(
+        <SetupGroup app="Files" requires={["storage"]} wants={[]} readiness={readiness(false, [])} />,
+        "owner",
+      ),
+    );
+    expect(screen.getByText("Reading this cluster's setup.")).toBeTruthy();
+    expect(screen.queryByText("Not set up")).toBeNull();
+  });
+
+  it("renders nothing for a viewer", () => {
+    const r = readiness(true, [verdict("ai", "unconfigured")]);
+    const { container } = render(
+      withSession(<SetupGroup app="Nexus" requires={["ai"]} wants={[]} readiness={r} />, "viewer"),
+    );
+    expect(container.textContent).toBe("");
+  });
+
+  it("renders nothing for an app that declares no modules", () => {
+    const { container } = render(
+      withSession(
+        <SetupGroup app="Bin" requires={[]} wants={[]} readiness={readiness(true, [])} />,
+        "owner",
+      ),
+    );
+    expect(container.textContent).toBe("");
+  });
+});
