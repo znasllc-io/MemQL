@@ -44,6 +44,7 @@ export function RoutingSection() {
             policy.fallback,
             chipsFromMap(policy.requireLabels).join(","),
             chipsFromMap(policy.preferLabels).join(","),
+            policy.modelPreference.join(","),
           ].join("|"),
     [policy],
   );
@@ -175,6 +176,40 @@ export function RoutingSection() {
           />
         </fieldset>
 
+        {/* THE MODEL ORDER, not a label. It answers a different question from
+            the two label editors above -- those pick a MACHINE, this picks a
+            MODEL -- so it is its own group rather than a third map. */}
+        <fieldset className="os-field-group">
+          <legend>Preferred models</legend>
+          <p className="os-caption">
+            An ordered list of model ids, consulted when a policy names{" "}
+            <span className="os-mono">fleet:*</span>. It ORDERS and does not filter: a model that
+            is not on this list is still eligible, tried after every model that is. Leave it empty
+            and the default applies -- strongest first, by parameters, then context window, then
+            model id, with a model that did not report its size sorting last.
+          </p>
+          {/* A raw textarea, as five other surfaces in this shell do. The kit
+              has no multiline control yet and promoting one here would be a
+              sixth caller's worth of change inside an epic about routing;
+              `os-input` is the same field styling the kit's Input uses, so the
+              control line (rule 5) is the same height and radius. */}
+          <label className="os-sr-only" htmlFor="fleet-model-preference">
+            Preferred model order, one model id per line
+          </label>
+          <textarea
+            id="fleet-model-preference"
+            className="os-input os-fleet-modelorder"
+            rows={4}
+            placeholder={"llama3.3:70b\nqwen2.5:7b"}
+            value={draft.modelPreference.join("\n")}
+            onChange={(e) => edit({ modelPreference: e.target.value.split("\n") })}
+          />
+          <p className="os-caption">
+            Fleet -&gt; Models shows the ranking this produces, and which model each kind of turn
+            would land on.
+          </p>
+        </fieldset>
+
         <fieldset className="os-field-group">
           <legend>Preferred labels</legend>
           <p className="os-caption">
@@ -245,7 +280,13 @@ export function RoutingSection() {
 }
 
 function fromPolicy(
-  policy: { strategy: string; fallback: string; requireLabels: LabelMap; preferLabels: LabelMap } | null,
+  policy: {
+    strategy: string;
+    fallback: string;
+    requireLabels: LabelMap;
+    preferLabels: LabelMap;
+    modelPreference: string[];
+  } | null,
 ): RoutingPolicyDraft {
   if (policy === null) {
     return {
@@ -253,6 +294,11 @@ function fromPolicy(
       fallback: DEFAULT_FALLBACK,
       requireLabels: {},
       preferLabels: {},
+      // Empty is the DEFAULT ORDER, not an absent setting: the router ranks
+      // by parameters, then context window, then id. Seeding a list here
+      // would turn "you have expressed no preference" into "you preferred
+      // exactly what the default already does".
+      modelPreference: [],
     };
   }
   return {
@@ -267,5 +313,6 @@ function fromPolicy(
       : DEFAULT_FALLBACK,
     requireLabels: { ...policy.requireLabels },
     preferLabels: { ...policy.preferLabels },
+    modelPreference: [...policy.modelPreference],
   };
 }

@@ -155,7 +155,7 @@ func (s mcpSession) available() bool { return s.registry != nil && s.owner != ""
 // are skipped: they cannot run server-side over MCP. The tier-gated `define`
 // (Tier 2) and `query` (Tier 3) tools are listed only when BOTH the deployment
 // tier (Gate A) and the acting role (Gate B) permit them.
-func listMCPTools(eng Engine, role string, tier Tier) []map[string]any {
+func listMCPTools(eng Engine, role string, tier Tier, appSessionId string) []map[string]any {
 	out := make([]map[string]any, 0)
 	if eng != nil {
 		if reg := eng.Tools(); reg != nil {
@@ -193,6 +193,15 @@ func listMCPTools(eng Engine, role string, tier Tier) []map[string]any {
 		}
 	}
 	out = append(out, metaToolDefs()...)
+	// THE APP-SESSION BACK-CHANNEL, listed only for the credential that can
+	// use it (epic memql#5096, design D7). tools/list is what a model reads
+	// to decide what it can do, so offering `submit` to a browser session
+	// offers an action that can only fail -- and a model shown a tool it
+	// cannot use spends turns discovering that. The handler refuses too; this
+	// is the half that keeps the refusal from ever being needed.
+	if appSessionId != "" {
+		out = append(out, appSessionToolDefs()...)
+	}
 	if tierAllows(tier, classAuthor) && roleCanAuthor(role) {
 		out = append(out, map[string]any{
 			"name":        toolDefine,
@@ -304,9 +313,20 @@ func metaToolDefs() []map[string]any {
 // or a meta-tool. It returns an MCP tools/call result object (content + isError)
 // -- tool failures are reported as isError results, not protocol errors, per the
 // MCP convention. The acting role is threaded onto the context for the gate.
-func callMCPTool(ctx context.Context, eng Engine, role string, tier Tier, name string, args map[string]any) map[string]any {
+func callMCPTool(ctx context.Context, eng Engine, role string, tier Tier, appSessionId, name string, args map[string]any) map[string]any {
 	if eng == nil {
 		return errorResult("mcp tool surface unavailable: engine not connected")
+	}
+	// The back-channel pair, dispatched before the role/tier machinery: their
+	// gate is the CREDENTIAL, not a role, and running them through the acting-
+	// role plumbing would invite a later edit to gate them on one.
+	if isAppSessionTool(name) {
+		switch name {
+		case toolSubmit:
+			return handleSubmit(ctx, eng, appSessionId, args)
+		default:
+			return handleNextTask(ctx, eng, appSessionId)
+		}
 	}
 	ctx = memql.WithActingAgentRole(ctx, role)
 	// Reject unknown mutation args at the MCP boundary instead of silently

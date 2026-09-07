@@ -15,7 +15,7 @@ import (
 func TestInlineQuery_ExecutesUnderSession(t *testing.T) {
 	eng := newFakeEngine()
 	ctx := withMCPSession(context.Background(), "owner-1", newAuthoredRegistry())
-	res := callMCPTool(ctx, eng, "developer", TierInline, toolQuery,
+	res := callMCPTool(ctx, eng, "developer", TierInline, "", toolQuery,
 		map[string]any{"query": "concept==v1:cognition:space"})
 	if isError(res) {
 		t.Fatalf("inline query should execute, got %v", res)
@@ -48,7 +48,7 @@ func TestInlineQuery_GateBypass(t *testing.T) {
 		t.Run(c.role+"/"+c.tier.String(), func(t *testing.T) {
 			eng := newFakeEngine()
 			ctx := withMCPSession(context.Background(), "owner-1", newAuthoredRegistry())
-			res := callMCPTool(ctx, eng, c.role, c.tier, toolQuery, map[string]any{"query": "concept==v1:x:y"})
+			res := callMCPTool(ctx, eng, c.role, c.tier, "", toolQuery, map[string]any{"query": "concept==v1:x:y"})
 			if !isError(res) || !strings.Contains(resultText(res), c.wantReason) {
 				t.Fatalf("expected refusal mentioning %q, got %v", c.wantReason, res)
 			}
@@ -63,7 +63,7 @@ func TestInlineQuery_GateBypass(t *testing.T) {
 func TestInlineQuery_RequiresText(t *testing.T) {
 	eng := newFakeEngine()
 	ctx := withMCPSession(context.Background(), "owner-1", newAuthoredRegistry())
-	res := callMCPTool(ctx, eng, "owner", TierInline, toolQuery, map[string]any{})
+	res := callMCPTool(ctx, eng, "owner", TierInline, "", toolQuery, map[string]any{})
 	if !isError(res) {
 		t.Fatalf("missing query text should error, got %v", res)
 	}
@@ -88,7 +88,7 @@ func TestInlineQuery_Listing(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.role+"/"+c.tier.String(), func(t *testing.T) {
-			names := toolNames(listMCPTools(eng, c.role, c.tier))
+			names := toolNames(listMCPTools(eng, c.role, c.tier, ""))
 			if names[toolQuery] != c.want {
 				t.Errorf("query listed=%v, want %v", names[toolQuery], c.want)
 			}

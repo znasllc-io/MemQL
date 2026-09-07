@@ -88,6 +88,13 @@ type Config struct {
 	ActingUser string
 	Tier       Tier
 
+	// AppSessionId names the delegated app session this connection IS, or ""
+	// for every other caller (epic memql#5096). Resolved once at session
+	// creation from the bearer's own claims -- the class and the credential's
+	// label -- so no handler re-derives it and none can be handed one by a
+	// caller.
+	AppSessionId string
+
 	// ToolTimeout bounds a single tools/call's engine execution. Zero -> the
 	// server applies DefaultToolTimeout. Set from MEMQL_MCP_TOOL_TIMEOUT.
 	ToolTimeout time.Duration

@@ -110,6 +110,7 @@ func (s *EngineStore) CreateRegistration(ctx context.Context, row RegistrationRo
 		"version":              row.Version,
 		"buildTag":             row.BuildTag,
 		"apps":                 appsAsMaps(row.Apps),
+		"appDescriptors":       descriptorsAsMaps(row.AppDescriptors),
 		"registeredAt":         row.RegisteredAt.UTC().Format(time.RFC3339Nano),
 		"lastSeenAt":           row.LastSeenAt.UTC().Format(time.RFC3339Nano),
 		"lastConnectedFromIP":  row.LastConnectedFromIP,
@@ -163,6 +164,7 @@ func (s *EngineStore) RefreshRegistration(ctx context.Context, row RegistrationR
 		"version":              row.Version,
 		"buildTag":             row.BuildTag,
 		"apps":                 appsAsMaps(row.Apps),
+		"appDescriptors":       descriptorsAsMaps(row.AppDescriptors),
 		"lastSeenAt":           row.LastSeenAt.UTC().Format(time.RFC3339Nano),
 		"lastConnectedFromIP":  row.LastConnectedFromIP,
 		"connectedNodeId":      row.ConnectedNodeId,
@@ -436,6 +438,7 @@ func decodeRegistration(node *memqlv1.MemoryNode) *RegistrationRow {
 		Version:              g.str("version"),
 		BuildTag:             g.str("buildTag"),
 		Apps:                 g.apps("apps"),
+		AppDescriptors:       g.appDescriptors("appDescriptors"),
 		RegisteredAt:         g.time("registeredAt"),
 		LastSeenAt:           g.time("lastSeenAt"),
 		LastConnectedFromIP:  g.str("lastConnectedFromIP"),
@@ -674,6 +677,24 @@ func appsAsMaps(apps []AppInfo) []map[string]any {
 	return out
 }
 
+// descriptorsAsMaps renders the harness descriptors for a DSL mutation
+// argument. Only VALID entries reach here (AppDescriptorsFromProto already
+// dropped the rest), so what lands on the row is exactly what the engine can
+// act on -- unlike `apps`, which is stored verbatim so an operator can see an
+// app the engine cannot drive.
+func descriptorsAsMaps(descriptors []AppDescriptor) []map[string]any {
+	out := make([]map[string]any, 0, len(descriptors))
+	for _, d := range descriptors {
+		out = append(out, map[string]any{
+			"id":               d.Id,
+			"harness":          d.Harness,
+			"structuredResult": d.StructuredResult,
+			"followUps":        d.FollowUps,
+		})
+	}
+	return out
+}
+
 // auditAppDetail renders the inventory for an audit event: the id and
 // whether the engine can actually drive it, which is the pair a security
 // reader needs and the whole struct is not.
@@ -733,6 +754,55 @@ func (g *workerFieldGetter) apps(key string) []AppInfo {
 			Subscription: NormalizeSubscription(subscription),
 			Allowed:      allowed,
 		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
+	return out
+}
+
+// appDescriptors decodes the harness descriptors. An entry whose app id or
+// harness word this build does not know is DROPPED on the way out of the row
+// exactly as it was on the way in, so a cluster mid-upgrade cannot read a
+// protocol name out of the graph that its own code has no client for.
+func (g *workerFieldGetter) appDescriptors(key string) []AppDescriptor {
+	if g == nil || g.node == nil || g.node.Payload == nil {
+		return nil
+	}
+	fields := g.node.Payload.GetFields()
+	if fields == nil {
+		return nil
+	}
+	v, ok := fields[key]
+	if !ok || v == nil {
+		return nil
+	}
+	list := v.GetListValue()
+	if list == nil {
+		return nil
+	}
+	out := make([]AppDescriptor, 0, len(list.GetValues()))
+	for _, item := range list.GetValues() {
+		stru := item.GetStructValue()
+		if stru == nil {
+			continue
+		}
+		m := stru.AsMap()
+		id, _ := m["id"].(string)
+		harness, _ := m["harness"].(string)
+		structured, _ := m["structuredResult"].(bool)
+		followUps, _ := m["followUps"].(bool)
+		d := AppDescriptor{
+			Id:               strings.TrimSpace(id),
+			Harness:          strings.TrimSpace(harness),
+			StructuredResult: structured,
+			FollowUps:        followUps,
+		}
+		if !d.Valid() {
+			continue
+		}
+		out = append(out, d)
 	}
 	if len(out) == 0 {
 		return nil

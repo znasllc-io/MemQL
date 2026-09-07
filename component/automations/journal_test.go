@@ -10,6 +10,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/auth"
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/work"
 )
 
 var errBoom = errors.New("boom")
@@ -390,3 +391,133 @@ func TestJournalArgs_RendersNamedArgsAndDropsNils(t *testing.T) {
 		t.Fatalf("empty-object arg = %q, %v; want x(outcome: {})", got, err)
 	}
 }
+
+// A run that failed because no door to a model is open PARKS rather than
+// failing (epic memql#5096, design D9).
+//
+// It is not a failure: nothing about the work was wrong, and the condition --
+// a lid shut, nobody signed in -- changes on a human timescale for reasons
+// that have nothing to do with the run. Failing it would throw away a compiled
+// template and a journal because somebody closed a laptop.
+func TestARunParksWhenNoDoorToAModelIsOpen(t *testing.T) {
+	exec := &recordingJournalExecutor{}
+	j := newWorkJournal(exec, nil)
+
+	run := &AutomationExecution{
+		ID:        "v1:work:run:r1",
+		StepOrder: []string{"step1", "step2"},
+	}
+	run.Fail(&stubDoorRefusal{
+		code: work.RefusalEveryDoorShut,
+		doors: []work.DoorReport{
+			{Door: "local", Name: "fleet:*", Reason: "nothing online",
+				Considered: map[string]string{"laptop": "offline"}},
+			{Door: "app", Name: "app:*", Reason: "nobody signed in"},
+		},
+	})
+	j.closeRun(context.Background(), run, "chain-head")
+
+	if len(exec.calls) != 2 {
+		t.Fatalf("want the approval then the wait, got %d calls: %v", len(exec.calls), exec.calls)
+	}
+
+	// THE ORDER IS LOAD-BEARING. A run parked on an approval id that does not
+	// exist is a run waiting on nothing: no person can decide it and no sweep
+	// can resolve it, so it sits until the abandoned sweep closes it with a
+	// sentence that has nothing true in it.
+	name, args := argsOf(t, exec.calls[0])
+	if name != "createWorkApproval" {
+		t.Fatalf("first call = %q, want the approval to exist before the run waits on it", name)
+	}
+	if args["kind"] != work.ApprovalKindInferenceUnavailable {
+		t.Errorf("kind = %v", args["kind"])
+	}
+	subject, _ := args["subject"].(map[string]any)
+	doors, _ := subject["doors"].([]any)
+	if len(doors) != 2 {
+		t.Fatalf("the subject must carry every door: %v", subject)
+	}
+	approvalId, _ := args["approvalId"].(string)
+	if approvalId == "" {
+		t.Fatal("the approval needs an id")
+	}
+
+	name, args = argsOf(t, exec.calls[1])
+	if name != "updateWorkRun" {
+		t.Fatalf("second call = %q", name)
+	}
+	if args["status"] != "waiting" {
+		t.Errorf("status = %v, want waiting -- a parked run has not finished and has not failed", args["status"])
+	}
+	if _, present := args["finishedAt"]; present {
+		t.Error("a parked run must NOT carry finishedAt: every terminal-run reader -- the sweep, " +
+			"Nexus, the goal rollup -- would treat it as done")
+	}
+	if _, present := args["errorCode"]; present {
+		t.Error("nor an errorCode: the run did not fail")
+	}
+	waiting, _ := args["waitingOn"].(map[string]any)
+	if waiting["subject"] != approvalId {
+		t.Errorf("the wait must name the approval just written: %v", waiting)
+	}
+	if waiting["approvalKind"] != work.ApprovalKindInferenceUnavailable {
+		t.Errorf("the wait must carry the kind so the sweep can tell a CONDITION from a PERSON: %v", waiting)
+	}
+	if waiting["resumeAt"] == nil {
+		t.Error("a shut-door park must carry resumeAt so the sweep re-checks it")
+	}
+}
+
+// A CEILING park carries NO resumeAt: only a person changes a ceiling, so
+// re-dispatching every five minutes would burn a dispatch to rediscover a
+// number nobody touched.
+func TestACeilingParkIsNotReCheckedOnATimer(t *testing.T) {
+	exec := &recordingJournalExecutor{}
+	j := newWorkJournal(exec, nil)
+	run := &AutomationExecution{ID: "v1:work:run:r2"}
+	run.Fail(&stubDoorRefusal{code: work.RefusalCeilingReached})
+	j.closeRun(context.Background(), run, "")
+
+	_, args := argsOf(t, exec.calls[1])
+	waiting, _ := args["waitingOn"].(map[string]any)
+	if _, present := waiting["resumeAt"]; present {
+		t.Errorf("a ceiling park must not carry resumeAt: %v", waiting)
+	}
+	if waiting["approvalKind"] != work.ApprovalKindInferenceUnavailable {
+		t.Errorf("it is still an inference park: %v", waiting)
+	}
+}
+
+// AN ORDINARY FAILURE STILL FAILS. Without this the park could satisfy its own
+// test by parking everything, and a run that genuinely broke would wait
+// forever for a door that was never the problem.
+func TestAnOrdinaryFailureStillFailsTheRun(t *testing.T) {
+	exec := &recordingJournalExecutor{}
+	j := newWorkJournal(exec, nil)
+	run := &AutomationExecution{ID: "v1:work:run:r3"}
+	run.Fail(errors.New("the step's postcondition did not hold"))
+	j.closeRun(context.Background(), run, "")
+
+	if len(exec.calls) != 1 {
+		t.Fatalf("want one close call, got %v", exec.calls)
+	}
+	name, args := argsOf(t, exec.calls[0])
+	if name != "updateWorkRun" || args["status"] != "failed" {
+		t.Fatalf("call = %q status = %v, want the run to fail", name, args["status"])
+	}
+	if args["finishedAt"] == nil {
+		t.Error("a failed run finishes")
+	}
+}
+
+// stubDoorRefusal stands in for component/router's InferenceUnavailable, which
+// this module cannot import -- which is exactly why work.DoorReporter is an
+// interface.
+type stubDoorRefusal struct {
+	code  string
+	doors []work.DoorReport
+}
+
+func (s *stubDoorRefusal) Error() string                    { return s.code + ": no door is open" }
+func (s *stubDoorRefusal) RefusalCode() string              { return s.code }
+func (s *stubDoorRefusal) ReportedDoors() []work.DoorReport { return s.doors }

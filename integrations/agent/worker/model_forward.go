@@ -445,7 +445,20 @@ func modelCallRequestFromProto(localId string, start *memqlv1.ModelCallStart, ti
 		Purpose:              start.GetPurpose(),
 	}
 	for _, m := range start.GetMessages() {
-		req.Messages = append(req.Messages, workerservice.ModelCallMessage{Role: m.GetRole(), Content: m.GetContent()})
+		req.Messages = append(req.Messages, workerservice.ModelCallMessage{
+			Role:       m.GetRole(),
+			Content:    m.GetContent(),
+			ToolCallId: m.GetToolCallId(),
+			Name:       m.GetName(),
+			ToolCalls:  wireToolCalls(m.GetToolCalls()),
+		})
+	}
+	for _, t := range start.GetTools() {
+		req.Tools = append(req.Tools, workerservice.ModelCallTool{
+			Name:           t.GetName(),
+			Description:    t.GetDescription(),
+			ParametersJSON: t.GetParametersJson(),
+		})
 	}
 	if p := start.GetParams(); p != nil {
 		req.Params = workerservice.ModelCallParams{
@@ -472,4 +485,26 @@ func modelCallRequestFromProto(localId string, start *memqlv1.ModelCallStart, ti
 		req.Limits.Timeout = timeout
 	}
 	return req
+}
+
+// wireToolCalls maps the proto tool calls onto the worker envelope's twin.
+// One mapping serves the local dispatch and the cross-replica forward, so the
+// two cannot come to disagree about a field.
+func wireToolCalls(in []*memqlv1.ModelCallToolCall) []workerservice.ModelCallToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]workerservice.ModelCallToolCall, 0, len(in))
+	for _, c := range in {
+		if c == nil {
+			continue
+		}
+		out = append(out, workerservice.ModelCallToolCall{
+			Id:            c.GetId(),
+			Name:          c.GetName(),
+			ArgumentsJSON: c.GetArgumentsJson(),
+			Index:         c.GetIndex(),
+		})
+	}
+	return out
 }

@@ -885,6 +885,7 @@ var BoundConcepts = map[string]string{
 	"storeByDomain":                                    "v1:shopify:store",
 	"storeById":                                        "v1:shopify:store",
 	"stores":                                           "v1:shopify:store",
+	"submitAppSessionResult":                           "v1:worker:appSession",
 	"supersededDeployments":                            "v1:cluster:deployment",
 	"suppressionByDigest":                              "v1:campaigns:suppression",
 	"surfacesForOwner":                                 "v1:actions:surface",

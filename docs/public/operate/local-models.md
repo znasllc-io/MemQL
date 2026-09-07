@@ -73,7 +73,7 @@ produces a parse failure three layers away, naming nothing.
 
 ---
 
-## The three inference doors
+## The four inference doors
 
 Using the console's AI surfaces requires configured inference. **Starting MemQL does not** —
 the engine boots, serves and migrates with no provider configured anywhere,
@@ -82,7 +82,7 @@ after sign-in the first-run gate runs in order:
 
 1. **Passkey**, when you have none enrolled. It is what gets you back in
    without a link in your inbox.
-2. **Inference**, when the cluster has no eligible source. Three doors,
+2. **Inference**, when the cluster has no eligible source. Four doors,
    local first.
 3. The console.
 
@@ -97,14 +97,32 @@ and **any OpenAI-compatible endpoint** declared in the machine's `policy.yaml`
 — which covers LM Studio, vLLM and llamafile. There are no other per-vendor
 integrations.
 
-### Door 2 — the Anthropic workload-identity federation
+### Door 2 — a signed-in Claude Code or Codex on one of your machines
+
+A subscription you already pay for, used as an inference door (epic
+memql#5096). A machine that has the app **allowed** in its own `policy.yaml`
+and **signed in** advertises it, and a policy naming `app:claude-code` — or
+`app:*` for any of them — reaches it. MemQL hands over a prompt and takes back
+an answer; nothing is billed to MemQL, and the ledger records the call as
+`subscription` rather than as free.
+
+**It does not serve MemQL's own tool-calling turns**, and that is the design
+rather than a gap. On a tool turn MemQL is driving, and an app is an agent
+that drives itself: it reaches MemQL's tools through MCP, in the other
+direction. A tool turn therefore walks past every app door and lands on the
+next entry in the chain.
+
+A machine whose stream a **sibling replica** holds leaves the door shut on
+this one — the app-session envelope has no cross-node forward yet.
+
+### Door 3 — the Anthropic workload-identity federation
 
 No key at rest anywhere: each pod exchanges its own projected Kubernetes token
 for a one-hour bearer. Configured outside the console; once it is complete this
 step passes silently. See
 [anthropic-federation.md](auth/anthropic-federation.md).
 
-### Door 3 — an API key
+### Door 4 — an API key
 
 An Anthropic or OpenAI key, stored the way this cluster stores every provider
 credential. Calls are billed to that account. Settings → AI providers.
@@ -123,45 +141,83 @@ credential. Calls are billed to that account. Settings → AI providers.
 
 ---
 
+## The chain: local, then an app, then anybody's money
+
+Every shipped policy tries the doors in **cost order** (epic memql#5096):
+
+```
+@primary("fleet:*")      a model on hardware you already own. Electricity.
+@fallback("app:*")       a signed-in Claude Code or Codex on one of your
+                         machines. A subscription you already pay for.
+@fallback("streamClaudeSonnet")   … and then the vendor entries, which cost
+@fallback("stream54Pro")          money and are gated by the cost ceiling.
+```
+
+`fleet:*` and `app:*` are **wildcards**, and that is what makes this shippable
+as a default. A policy naming one model id would park on every fleet running
+something else, and which weights you pulled is not knowable in advance. The
+wildcard resolves **per call**, among the models that can serve *that* call:
+
+- **strongest first** — parameters, then context window, then model id;
+- **your explicit preference wins**, if you set one (Fleet → Routing,
+  `modelPreference`);
+- **a model that does not say how big it is sorts LAST**, never first. It stays
+  eligible for everything it advertised; it simply does not win by silence.
+
+### The ceiling gates the federation hop
+
+Falling back to a **paid** provider consults the cost ceiling first
+(`MEMQL_LLM_MAX_TOTAL_COST_USD`, `MEMQL_LLM_MAX_TOTAL_CALLS`, and their
+per-scope siblings). When it is reached, the call is refused with
+`ceiling_reached` rather than spending past it.
+
+A chain an operator wrote that **starts** at a vendor is unaffected: the
+ceiling governs falling back to paid inference, not choosing it.
+
+---
+
 ## Park, never fall back
 
 This is the decision the whole feature rests on, so it is stated plainly:
 
-**An unavailable local model parks the work. It does not quietly run on a paid
-API.**
+**Work parks when EVERY door is shut. It does not quietly run on a paid API
+that no policy named.**
 
-A call whose policy primary is a fleet model, with no eligible machine online
-and no authored fallback, returns the typed refusal
-`no_local_model_available`, naming every machine considered and why each was
-ruled out — offline, revoked, does not offer the model, missing a capability,
-busy. A plan parks at `awaitingFeedback` with
-`feedbackReason=no_local_model_available` and offers two actions:
+The refusal is typed and names every door it tried and why each did not open —
+and, for the local doors, every machine considered: offline, revoked, does not
+offer the model, missing a capability, busy. That machine-level detail is the
+half you can act on.
 
-- **Wake a machine** — always offered.
-- **Run this plan on the cloud instead** — offered **only when a cloud
-  provider is actually configured.** A button that cannot work turns "your
-  machines are asleep" into "you clicked the fix and it did not fix it", which
-  is much harder to act on.
+The run **parks** rather than failing: it becomes a `v1:work:approval` of kind
+`inferenceUnavailable` on the run, and it resumes when
 
-Cloud runs in exactly two ways, and both are on the record:
+- **a door opens** — the sweep re-checks a parked run every five minutes, so a
+  laptop you open or an app you sign into releases it with nobody deciding
+  anything; or
+- **you decide the approval** — "use a paid provider for this run", or stop
+  the run.
 
-1. **An operator authored a fallback.** A policy naming
-   `@fallback("streamClaudeSonnet")` gets exactly that, with no park and no
-   prompt, because somebody wrote it down.
-2. **A person consented**, for this one plan or this one request. Interactive
-   surfaces surface the refusal with a one-shot "use cloud this once"
-   affordance; declining leaves the request refused.
+A **ceiling** park carries no re-check: only a person changes a ceiling, so
+polling would burn a dispatch every five minutes to rediscover a number nobody
+touched.
 
-There is no third way, and that is structural rather than a rule to remember:
-the only providers a policy chain can reach are the ones it names.
+Nothing about the work was wrong, which is why it parks: failing it would throw
+away a compiled template and a journal because somebody closed a lid.
 
-### The shipped defaults are local-first with no cloud fallback
+### A pinned policy still refuses
 
-`localPlanner`, `localSuggest` and `localEmbeddings` each name a fleet model
-as primary and author **no** cloud fallback. With an idle fleet they park.
-The cloud-quality policies (`balancedChat`, `strongReasoning`,
-`cheapestCapable`, …) are all still present and are wired per purpose when a
-purpose genuinely needs one.
+Park-not-fallback is unchanged for a policy that names ONE fleet model and
+authors no fallback: it refuses exactly as it did, and a person's one-shot
+consent is still the only way past it. What changed is the **default**, not the
+rule.
+
+### The four seeded local-only policies are gone
+
+`localPlanner`, `localConductor`, `localSuggest` and `localEmbeddings` were
+seeded local-first with no fallback and **named by nothing**. They are deleted:
+the purposes they stood for are retired (the planner loop, memql#5052; there is
+no conductor in the engine) or covered by the chain above. A policy nothing
+names is not a default; it is a decoration that reads like one.
 
 ---
 

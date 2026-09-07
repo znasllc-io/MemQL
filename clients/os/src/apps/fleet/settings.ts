@@ -29,6 +29,18 @@ import type { OsAppSection } from "../../system/registry";
  *  naming a section that no longer exists is what `sanitize` repairs. */
 export const FLEET_SECTIONS: OsAppSection[] = [
   { id: "machines", name: "Machines" },
+  // What the fleet can actually SERVE, in the order the router picks from
+  // (epic memql#5096). It follows Machines because the two read as one
+  // progression -- the hardware, then what runs on it -- and precedes Routing
+  // because the ranking this section shows is what Routing's model preference
+  // reorders.
+  //
+  // NO ROLE FLOOR. Both readings behind it are caller-scoped projections:
+  // `fleetModels` answers for the caller's own machines plus the
+  // shared-inference set, and `inferenceStatus` answers one question about
+  // this caller. There is nothing here a signed-in person may not see about
+  // their own fleet.
+  { id: "models", name: "Models" },
   { id: "routing", name: "Routing" },
   { id: "workbenches", name: "Workbenches", requires: ["workbench"] },
   // When work is handed to a local app on one of the caller's own machines,

@@ -193,6 +193,51 @@ where it would be invisible to the one control that stops runaway cost. That is
 the fail-safe direction, and it is why `ExecutorResult.EffectiveBilling()`
 defaults the empty string to `metered` rather than to `unknown`.
 
+## Layer 4b — the ceiling gates the FEDERATION HOP (memql#5096)
+
+The shipped policies changed shape in epic memql#5096: every one begins
+`fleet:*`, then `app:*`, then the vendor entries. That makes falling back to a
+**paid** provider a distinct, nameable moment in the chain walk — and it is the
+moment the cumulative ceiling is consulted.
+
+| | |
+|---|---|
+| **When** | the router is about to select a vendor entry AND a local door preceded it in the chain |
+| **What it asks** | `memql.CostCeilingReached` — the same caps `recordAndMaybeLatchCost` enforces, asked as a **read** |
+| **What it answers with** | the typed refusal `ceiling_reached`, carrying the guard's own sentence (which names the env var to change) |
+| **What it does NOT do** | charge anything, or gate a chain an operator wrote to reach a vendor **first** |
+
+Three properties are worth stating because each is a mistake somebody would
+otherwise make:
+
+- **It is a read.** Nothing has been spent at the moment it is asked, and a
+  probe that incremented a tally would make merely CONSIDERING the cloud count
+  against the ceiling — so a run that ended up on a local model anyway would
+  still have moved the process closer to its cap.
+- **It asks about the scopes the call would be charged to**, read off the same
+  context the charge would use. Asking only the process-wide budget would let a
+  per-scope latch be discovered one call too late.
+- **A chain that STARTS at a vendor is untouched.** The ceiling governs falling
+  back to paid inference, not choosing it; refusing there would break every
+  cloud-quality policy in the tree.
+
+### A ceiling refusal is not a park
+
+They look alike from a distance — both stop the work — and they are different
+answers with different resumes:
+
+| | `every_door_shut` | `ceiling_reached` |
+|---|---|---|
+| What changed | nothing is reachable | a paid provider IS reachable and the cap is hit |
+| Who fixes it | the world (a lid opens, somebody signs in) | a person, by raising a limit |
+| Re-checked | yes, every 5 minutes by the work sweep | **no** — polling would rediscover a number nobody touched |
+
+Both park the run as a `v1:work:approval` of kind `inferenceUnavailable`,
+naming every door tried and why each did not open. That approval is where a
+person says "use a paid provider for this run", and it replaces the retired
+per-plan `cloudApproved` metric — a field on a concept (`v1:planner:plan`) that
+went with memql#5000.
+
 ## Environment reference
 
 ### Layer 0 — kill-switch

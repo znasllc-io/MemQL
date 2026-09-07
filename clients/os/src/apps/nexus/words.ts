@@ -312,6 +312,8 @@ export function approvalKindWord(kind: string): string {
       return "Question";
     case "planReview":
       return "Plan change";
+    case "inferenceUnavailable":
+      return "No model";
     default:
       return kind === "" ? "--" : kind;
   }
@@ -332,6 +334,13 @@ export function approvalKindMeaning(kind: string): string {
       return "It cannot decide this one on its own.";
     case "planReview":
       return "A repair was proposed. Nothing is edited without you seeing it first.";
+    case "inferenceUnavailable":
+      // THE ONE KIND RAISED BY A CONDITION RATHER THAN A DECISION (epic
+      // memql#5096). Nobody has to act for it to clear -- a laptop opening or
+      // somebody signing into Claude Code changes the answer -- so the
+      // sentence says so, or a person reads it as a gate only they can lift
+      // and stops using their own machines.
+      return "No door to a model was open, so the run stopped where it was. It starts again on its own when one opens; approving uses a paid provider now instead.";
     default:
       return "";
   }

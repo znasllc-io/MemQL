@@ -84,7 +84,7 @@ var readerForgeTools = []string{
 // forge tools in the curated MCP surface.
 func TestForgeMCPRoleScoping_OwnerSeesAll(t *testing.T) {
 	eng := &fakeEngine{reg: forgeToolFixtures()}
-	names := toolNames(listMCPTools(eng, "owner", TierSealed))
+	names := toolNames(listMCPTools(eng, "owner", TierSealed, ""))
 
 	for _, name := range allForgeTools {
 		if !names[name] {
@@ -98,7 +98,7 @@ func TestForgeMCPRoleScoping_OwnerSeesAll(t *testing.T) {
 // role sees all 11 forge tools (same developer surface as owner/admin/writer).
 func TestForgeMCPRoleScoping_DeveloperSeesAll(t *testing.T) {
 	eng := &fakeEngine{reg: forgeToolFixtures()}
-	names := toolNames(listMCPTools(eng, "developer", TierSealed))
+	names := toolNames(listMCPTools(eng, "developer", TierSealed, ""))
 
 	for _, name := range allForgeTools {
 		if !names[name] {
@@ -112,7 +112,7 @@ func TestForgeMCPRoleScoping_DeveloperSeesAll(t *testing.T) {
 // tier in traits.memql) sees all 11 forge tools.
 func TestForgeMCPRoleScoping_WriterSeesAll(t *testing.T) {
 	eng := &fakeEngine{reg: forgeToolFixtures()}
-	names := toolNames(listMCPTools(eng, "writer", TierSealed))
+	names := toolNames(listMCPTools(eng, "writer", TierSealed, ""))
 
 	for _, name := range allForgeTools {
 		if !names[name] {
@@ -126,7 +126,7 @@ func TestForgeMCPRoleScoping_WriterSeesAll(t *testing.T) {
 // exactly the 4 all-team tools and NONE of the developer-only tools.
 func TestForgeMCPRoleScoping_ReaderSeesAllTeamOnly(t *testing.T) {
 	eng := &fakeEngine{reg: forgeToolFixtures()}
-	names := toolNames(listMCPTools(eng, "reader", TierSealed))
+	names := toolNames(listMCPTools(eng, "reader", TierSealed, ""))
 
 	// Must see the 4 all-team tools.
 	for _, name := range readerForgeTools {
@@ -156,7 +156,7 @@ func TestForgeMCPRoleScoping_NonTeamSeesNone(t *testing.T) {
 	eng := &fakeEngine{reg: forgeToolFixtures()}
 
 	for _, role := range []string{"", "specialist", "guest", "anon"} {
-		names := toolNames(listMCPTools(eng, role, TierSealed))
+		names := toolNames(listMCPTools(eng, role, TierSealed, ""))
 		n := countForge(names)
 		if n > 0 {
 			var visible []string
@@ -183,7 +183,7 @@ func TestForgeMCPRoleScoping_ReaderCallsDeveloperToolIsRejected(t *testing.T) {
 		"forgeApprovalQueue", "forgeApproveRequest", "forgeRequestChanges",
 	}
 	for _, toolName := range devOnlyTools {
-		res := callMCPTool(context.Background(), eng, "reader", TierSealed, toolName, nil)
+		res := callMCPTool(context.Background(), eng, "reader", TierSealed, "", toolName, nil)
 		// The fake engine's ExecuteToolByName checks IsAllowedForRole and
 		// returns errNotFound; callMCPTool surfaces this as an isError result.
 		if isErr, _ := res["isError"].(bool); !isErr {

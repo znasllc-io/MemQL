@@ -70,6 +70,11 @@ type Worker struct {
 	// apps is the reported local-app inventory. Guarded by mu because
 	// heartbeats rewrite it while selection reads it.
 	apps []AppInfo
+	// appDescriptors is HOW the cockpit drives each app it reported
+	// (design D8). Set from Register ONLY -- Register is accepted exactly
+	// once per stream, so unlike `apps` these cannot change mid-connection
+	// and a cockpit that gains a harness advertises it on reconnect.
+	appDescriptors []AppDescriptor
 }
 
 // DispatchFunc is the worker-side dispatch hook owned by the
@@ -240,6 +245,43 @@ func (w *Worker) SetApps(apps []AppInfo) {
 	defer w.mu.Unlock()
 	w.apps = apps
 	w.Labels = mergeAppLabels(w.Labels, apps)
+}
+
+// SetAppDescriptors replaces the worker's harness descriptors. Register-only:
+// nothing on the heartbeat path calls this, which is the wire's own
+// constraint rather than a policy this file invented.
+func (w *Worker) SetAppDescriptors(descriptors []AppDescriptor) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.appDescriptors = descriptors
+}
+
+// AppDescriptors returns a copy of the worker's harness descriptors.
+func (w *Worker) AppDescriptors() []AppDescriptor {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.appDescriptors) == 0 {
+		return nil
+	}
+	out := make([]AppDescriptor, len(w.appDescriptors))
+	copy(out, w.appDescriptors)
+	return out
+}
+
+// AppDescriptor returns how this machine drives appId, and whether it said.
+//
+// The second return is the difference between "this harness does neither" and
+// "this cockpit predates the field", which callers must not collapse: a
+// gate that reads silence as a declared no takes a capability away from every
+// machine that has not upgraded.
+func (w *Worker) AppDescriptor(appId string) (AppDescriptor, bool) {
+	return DescriptorFor(w.AppDescriptors(), appId)
 }
 
 // Apps returns a copy of the worker's app inventory.

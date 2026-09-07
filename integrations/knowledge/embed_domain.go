@@ -90,7 +90,7 @@ func (i *Integration) embedChunkHandler(ctx context.Context, args map[string]any
 		return embedChunkResult(chunkId, false, true), nil
 	}
 
-	provider, err := i.embeddingProvider(providerName)
+	provider, err := i.embeddingProvider(ctx, providerName)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge.embedChunk: resolve provider %q: %w", providerName, err)
 	}
@@ -149,7 +149,7 @@ func (i *Integration) embedDomainItemsHandler(ctx context.Context, args map[stri
 		return nil, fmt.Errorf("knowledge.embedDomainItems: list chunks for domain %q: %w", domainId, err)
 	}
 
-	provider, err := i.embeddingProvider(providerName)
+	provider, err := i.embeddingProvider(ctx, providerName)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge.embedDomainItems: resolve provider %q: %w", providerName, err)
 	}

@@ -53,6 +53,11 @@ import (
 // reads the merged map for it.
 const SharedInferenceLabel = "sharedInference"
 
+// maxQuantLen bounds the quantization string a machine may report. It is
+// operator-facing text from another process and nothing parses it, so the only
+// job here is to stop a malformed cockpit from growing the registration row.
+const maxQuantLen = 32
+
 // ModelNeeds is what a particular prompt requires of a model. A zero value
 // needs nothing beyond the model existing.
 type ModelNeeds struct {
@@ -61,6 +66,8 @@ type ModelNeeds struct {
 	StructuredOutput bool
 	// Embeddings is set for embedding calls.
 	Embeddings bool
+	// Tools is set for a turn that offers the model functions to call.
+	Tools bool
 	// MinContextWindow is the floor in tokens. Zero means no floor.
 	MinContextWindow int
 }
@@ -88,6 +95,25 @@ type ModelAttributes struct {
 	StructuredOutput bool
 	// Embeddings reports that the model produces vectors.
 	Embeddings bool
+	// Tools reports that the runtime can carry a tool-calling turn for this
+	// model -- pass tool schemas in and surface tool calls back out.
+	//
+	// It is a RUNTIME capability as much as a model one: the same weights
+	// behind an endpoint that does not implement the tools field cannot do
+	// this, which is why it is advertised per machine rather than inferred
+	// from the model id.
+	Tools bool
+	// Params is the parameter count the runtime reported, expanded to a
+	// number (Ollama's `details.parameter_size`: "8B" -> 8000000000).
+	//
+	// AN ORDERING SIGNAL, NOT A CAPABILITY GATE. Satisfies does not read it
+	// and must not start to: a model that never said how big it is stays
+	// eligible for everything it advertised, it simply does not WIN by
+	// silence (design D5).
+	Params int64
+	// Quant is the quantization level the runtime reported (Q4_K_M, F16).
+	// Carried for the operator; nothing selects on it.
+	Quant string
 	// MaxConcurrent is the per-model ceiling. Zero means the machine
 	// declared none, which the load ordering reads as unlimited -- the
 	// convention loadRatio already uses.
@@ -99,6 +125,9 @@ const (
 	attrContext    = "ctx"
 	attrStructured = "structured"
 	attrEmbeddings = "embeddings"
+	attrTools      = "tools"
+	attrParams     = "params"
+	attrQuant      = "quant"
 	attrMax        = "max"
 )
 
@@ -127,6 +156,20 @@ func ParseModelAttributes(value string) ModelAttributes {
 			a.StructuredOutput = parseAdvertisedBool(v)
 		case attrEmbeddings:
 			a.Embeddings = parseAdvertisedBool(v)
+		case attrTools:
+			a.Tools = parseAdvertisedBool(v)
+		case attrParams:
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				a.Params = n
+			}
+		case attrQuant:
+			// Carried verbatim, and bounded: it is an operator-facing
+			// string from another process, so it is never parsed and never
+			// unbounded.
+			if len(v) > maxQuantLen {
+				v = v[:maxQuantLen]
+			}
+			a.Quant = v
 		case attrMax:
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				a.MaxConcurrent = uint32(n)
@@ -150,7 +193,7 @@ func parseAdvertisedBool(v string) bool {
 // String renders attributes back to the label value, so the cockpit contract
 // and the engine's reading of it have exactly one definition.
 func (a ModelAttributes) String() string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 7)
 	if a.ContextWindow > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrContext, a.ContextWindow))
 	}
@@ -159,6 +202,15 @@ func (a ModelAttributes) String() string {
 	}
 	if a.Embeddings {
 		parts = append(parts, attrEmbeddings+"=1")
+	}
+	if a.Tools {
+		parts = append(parts, attrTools+"=1")
+	}
+	if a.Params > 0 {
+		parts = append(parts, fmt.Sprintf("%s=%d", attrParams, a.Params))
+	}
+	if a.Quant != "" {
+		parts = append(parts, attrQuant+"="+a.Quant)
 	}
 	if a.MaxConcurrent > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrMax, a.MaxConcurrent))
@@ -176,6 +228,9 @@ func (a ModelAttributes) Satisfies(n ModelNeeds) (bool, string) {
 	}
 	if n.Embeddings && !a.Embeddings {
 		return false, "model does not advertise embeddings"
+	}
+	if n.Tools && !a.Tools {
+		return false, "model does not advertise tool calling"
 	}
 	if n.MinContextWindow > 0 && a.ContextWindow < n.MinContextWindow {
 		if a.ContextWindow == 0 {

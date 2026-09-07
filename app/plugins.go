@@ -117,8 +117,8 @@ func (a *App) pluginContext() memql.PluginContext {
 			}
 			return a.engine.VisionProvider()
 		},
-		EmbeddingProviderByName: func(name string) (memql.EmbeddingAIProvider, error) {
-			return a.engine.Providers().EmbeddingProvider(name)
+		EmbeddingProviderByName: func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error) {
+			return a.engine.Providers().EmbeddingProvider(ctx, name)
 		},
 		ResolvePartitionFromContext: func(ctx context.Context) string {
 			return a.engine.ResolvePartitionFromContext(ctx)

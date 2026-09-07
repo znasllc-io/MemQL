@@ -1,0 +1,107 @@
+{
+  "_why": [
+    "The shared table for the fleet's model ordering (epic memql#5096, design D5).",
+    "",
+    "TWO IMPLEMENTATIONS, ONE RULE. component/memql's orderModels is what the router",
+    "applies when a policy names fleet:*; clients/os/src/apps/fleet/models/ordering.ts",
+    "is what the Models section renders, because a list the engine did not order is a",
+    "list the reader has to re-derive the ordering of -- which is the question they",
+    "came to the page with. Neither can be deleted in favour of the other.",
+    "",
+    "So the risk is DRIFT, and drift here is invisible in the worst way: both sides",
+    "keep working and the page names a different model from the one the router picks.",
+    "This file is asserted by BOTH -- component/memql/fleet_ordering_parity_test.go",
+    "and clients/os/test/fleet/ordering.test.ts -- so a change to either rule fails",
+    "on the other's side.",
+    "",
+    "A CASE ADDED HERE IS A CASE BOTH MUST PASS. That is the point: it is cheaper to",
+    "add a row to this table than to write the same assertion twice in two languages",
+    "and have them disagree about what they were asserting."
+  ],
+  "cases": [
+    {
+      "name": "parameters first, whatever the window says",
+      "preference": [],
+      "models": [
+        { "modelId": "qwen2.5:7b", "params": 7000000000, "contextWindow": 32768 },
+        { "modelId": "llama3.3:70b", "params": 70000000000, "contextWindow": 8192 },
+        { "modelId": "llama3.1:8b", "params": 8000000000, "contextWindow": 131072 }
+      ],
+      "want": ["llama3.3:70b", "llama3.1:8b", "qwen2.5:7b"]
+    },
+    {
+      "name": "the context window breaks a parameter tie",
+      "preference": [],
+      "models": [
+        { "modelId": "a:7b", "params": 7000000000, "contextWindow": 8192 },
+        { "modelId": "b:7b", "params": 7000000000, "contextWindow": 32768 }
+      ],
+      "want": ["b:7b", "a:7b"]
+    },
+    {
+      "name": "the model id breaks a full tie, so every replica and browser agrees",
+      "preference": [],
+      "models": [
+        { "modelId": "mistral:7b", "params": 7000000000, "contextWindow": 32768 },
+        { "modelId": "qwen2.5:7b", "params": 7000000000, "contextWindow": 32768 }
+      ],
+      "want": ["mistral:7b", "qwen2.5:7b"]
+    },
+    {
+      "name": "a model that did not say its size sorts LAST, however large its window",
+      "preference": [],
+      "models": [
+        { "modelId": "mystery:latest", "params": 0, "contextWindow": 999999 },
+        { "modelId": "llama3.1:8b", "params": 8000000000, "contextWindow": 8192 }
+      ],
+      "want": ["llama3.1:8b", "mystery:latest"]
+    },
+    {
+      "name": "an explicit preference outranks size",
+      "preference": ["qwen2.5:7b"],
+      "models": [
+        { "modelId": "llama3.3:70b", "params": 70000000000, "contextWindow": 8192 },
+        { "modelId": "qwen2.5:7b", "params": 7000000000, "contextWindow": 32768 },
+        { "modelId": "llama3.1:8b", "params": 8000000000, "contextWindow": 131072 }
+      ],
+      "want": ["qwen2.5:7b", "llama3.3:70b", "llama3.1:8b"]
+    },
+    {
+      "name": "a preference ORDERS and does not filter",
+      "preference": ["llama3.1:8b", "qwen2.5:7b"],
+      "models": [
+        { "modelId": "llama3.3:70b", "params": 70000000000, "contextWindow": 8192 },
+        { "modelId": "qwen2.5:7b", "params": 7000000000, "contextWindow": 32768 },
+        { "modelId": "llama3.1:8b", "params": 8000000000, "contextWindow": 131072 }
+      ],
+      "want": ["llama3.1:8b", "qwen2.5:7b", "llama3.3:70b"]
+    },
+    {
+      "name": "a preference naming a model the fleet does not run is inert",
+      "preference": ["not-installed:8b"],
+      "models": [
+        { "modelId": "llama3.3:70b", "params": 70000000000, "contextWindow": 8192 },
+        { "modelId": "llama3.1:8b", "params": 8000000000, "contextWindow": 131072 }
+      ],
+      "want": ["llama3.3:70b", "llama3.1:8b"]
+    },
+    {
+      "name": "a blank entry in the preference is skipped rather than matching a blank id",
+      "preference": ["", "qwen2.5:7b"],
+      "models": [
+        { "modelId": "llama3.3:70b", "params": 70000000000, "contextWindow": 8192 },
+        { "modelId": "qwen2.5:7b", "params": 7000000000, "contextWindow": 32768 }
+      ],
+      "want": ["qwen2.5:7b", "llama3.3:70b"]
+    },
+    {
+      "name": "a repeated preference entry takes its FIRST position",
+      "preference": ["a:1b", "b:1b", "a:1b"],
+      "models": [
+        { "modelId": "b:1b", "params": 1000000000, "contextWindow": 8192 },
+        { "modelId": "a:1b", "params": 1000000000, "contextWindow": 8192 }
+      ],
+      "want": ["a:1b", "b:1b"]
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	"github.com/znasllc-io/memql/component/work"
 	"github.com/znasllc-io/memql/core/num"
 )
 
@@ -158,6 +159,31 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		status := rowString(run, "status")
 
 		if status == runStatusWaiting {
+			// A RUN PARKED ON A SHUT INFERENCE DOOR IS RE-TRIED
+			// (epic memql#5096, design D9), and it is the ONE approval kind
+			// that is. Every other kind waits on a person, and handing one
+			// back to the cluster would run the work behind their back --
+			// which is the whole reason the kind is checked rather than the
+			// wait shape. Here nobody has to decide anything: a lid opens or
+			// somebody signs into Claude Code and the answer changes, so the
+			// run tries again and parks again if it is still shut.
+			if due, ok := inferenceRetryDue(run, now); ok {
+				if !due {
+					continue
+				}
+				if i.redispatchStale(writeCtx, run, runId, owner) {
+					i.log().Info("work: handed a run parked on a shut inference door back to the cluster",
+						"component", "work.sweep", "run", runId, "owner", owner)
+					res.Redispatched++
+					continue
+				}
+				// No dispatcher here (a bff replica running the sweep), or
+				// the claim lease is still held. Leaving it parked is right:
+				// the next pass tries again, and nothing about the run has
+				// changed.
+				continue
+			}
+
 			// A PARKED RUN IS NEVER ABANDONED. It is silent on purpose --
 			// no process is held open for a wait -- so judging it by its
 			// heartbeat would close every run waiting on a person.
@@ -890,3 +916,34 @@ func rowFloat(row map[string]any, key string) float64 {
 }
 
 var _ = sql.ErrNoRows
+
+// inferenceRetryDue answers (due, isInferencePark) for a waiting run.
+//
+// It keys on the APPROVAL KIND on the wait, not on the wait's own kind. The
+// wait is `approval` for every human gate, and a run parked on a side-effect
+// approval must never be re-dispatched -- somebody is deciding about it. The
+// kind is what distinguishes a gate that waits on a PERSON from one that waits
+// on a CONDITION.
+//
+// A park with NO resumeAt is not due, ever, and that is deliberate: a
+// ceiling refusal carries none, because only a person changes a ceiling and
+// re-dispatching every five minutes would burn a dispatch to rediscover a
+// number nobody touched. An UNPARSEABLE resumeAt is also not due, for the
+// reason timerDue gives about its own: a run resumed on a timestamp nobody
+// could read would run early with no way to tell that it had.
+func inferenceRetryDue(run map[string]any, now time.Time) (due bool, isInferencePark bool) {
+	waiting := rowMap(run, "waitingOn")
+	if waiting == nil {
+		return false, false
+	}
+	kind, _ := waiting["approvalKind"].(string)
+	if trim(kind) != work.ApprovalKindInferenceUnavailable {
+		return false, false
+	}
+	raw, _ := waiting["resumeAt"].(string)
+	at, ok := parseTime(trim(raw))
+	if !ok {
+		return false, true
+	}
+	return !at.After(now), true
+}

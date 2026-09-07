@@ -409,6 +409,12 @@ func (h *httpHead) configForRequest(r *http.Request) Config {
 			}
 		}
 	}
+	// The app-session back-channel is resolved from the VERIFIED claims, never
+	// from an env pin: unlike the acting user, there is no deployment-wide
+	// answer to "which session is this" -- it is a property of the bearer.
+	if claims, ok := auth.ClaimsFromContext(r.Context()); ok {
+		cfg.AppSessionId = AppSessionFromClaims(claims)
+	}
 	return cfg
 }
 

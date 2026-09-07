@@ -65,6 +65,11 @@ type RunSpec struct {
 	CredentialLifetime time.Duration
 	MaxTranscriptBytes int64
 	MaxDuration        time.Duration
+	// ResponseSchema is the JSON Schema the harness is asked to answer
+	// against. EMPTY MEANS NONE WAS ASKED FOR, which is not the same state
+	// as asking and getting nothing back -- only a run that asked can be
+	// disappointed by a session that ends with no structured answer.
+	ResponseSchema string
 }
 
 // RunResult is what a completed run reports back.
@@ -80,6 +85,11 @@ type RunResult struct {
 	Transcript          string
 	TranscriptTruncated bool
 	ErrorMessage        string
+	// Result is the harness's structured final answer as raw JSON, when it
+	// produced one. Carried whatever the exit code says: a harness can
+	// answer the schema and still fail, and dropping the answer because the
+	// run failed loses the only part of it that can be read.
+	Result []byte
 }
 
 // ProgressFunc receives each chunk as it arrives, so a caller can
@@ -169,6 +179,7 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 		CredentialRef:       cred.IdentityId,
 		CredentialExpiresAt: cred.ExpiresAt,
 		MCPEndpoint:         r.MCPEndpoint,
+		ResponseSchema:      spec.ResponseSchema,
 		StartedAt:           startedAt,
 	}
 	if r.Store != nil {
@@ -191,17 +202,18 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 	}
 
 	handle, err := w.StartAppSession(ctx, AppSessionRequest{
-		SessionId:     spec.SessionId,
-		App:           spec.App,
-		Kind:          spec.Kind,
-		Prompt:        spec.Prompt,
-		Inputs:        spec.Inputs,
-		Workspace:     spec.Workspace,
-		Credential:    cred.Token,
-		MCPEndpoint:   r.MCPEndpoint,
-		RunId:         spec.RunId,
-		StepId:        spec.StepId,
-		AppSessionRef: spec.AppSessionRef,
+		SessionId:      spec.SessionId,
+		App:            spec.App,
+		Kind:           spec.Kind,
+		Prompt:         spec.Prompt,
+		Inputs:         spec.Inputs,
+		Workspace:      spec.Workspace,
+		Credential:     cred.Token,
+		MCPEndpoint:    r.MCPEndpoint,
+		ResponseSchema: spec.ResponseSchema,
+		RunId:          spec.RunId,
+		StepId:         spec.StepId,
+		AppSessionRef:  spec.AppSessionRef,
 		Limits: AppSessionLimits{
 			CredentialLifetime: lifetime,
 			MaxDuration:        spec.MaxDuration,
@@ -300,6 +312,7 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 		Transcript:          transcript,
 		TranscriptTruncated: truncated,
 		ErrorMessage:        errMessage,
+		Result:              outcome.Result,
 	}
 	row.TranscriptBytes = bytesSeen
 	r.finishRow(ctx, row, result, spec, w)
@@ -307,6 +320,29 @@ func (r *SessionRunner) Run(ctx context.Context, w *Worker, spec RunSpec, progre
 		return result, waitErr
 	}
 	return result, nil
+}
+
+// Message sends a FOLLOW-UP into a running session (design D7).
+//
+// It is on the RUNNER rather than only on the handle because a caller that
+// holds a run holds a session id and a worker, not a handle: the handle lives
+// inside Run's stack for the life of the session. The runner keeps no session
+// table -- that would be a second registry disagreeing with the stream's --
+// so the caller supplies the worker it already selected.
+//
+// A machine whose descriptor says its harness cannot take a follow-up is
+// refused BEFORE the wire, because the far side answers by not answering: a
+// cockpit with no way to continue a session has nowhere to put the prompt and
+// no turn to end, so the caller would wait out its own deadline for a
+// capability the registration already reported absent.
+func (r *SessionRunner) Message(w *Worker, handle *AppSessionHandle, prompt string) error {
+	if r == nil {
+		return fmt.Errorf("worker: session runner not configured")
+	}
+	if w == nil || handle == nil {
+		return ErrAppSessionNotFound
+	}
+	return handle.Message(prompt)
 }
 
 // isCancellationReason reports whether a worker-reported error names a
@@ -356,6 +392,10 @@ func (r *SessionRunner) finishRow(ctx context.Context, row AppSessionRow, result
 	row.Transcript = result.Transcript
 	row.TranscriptTruncated = result.TranscriptTruncated
 	row.ProducedArtifactIds = result.ProducedArtifactIds
+	// Written only when the END carried one. A session that ended with
+	// nothing leaves the row's existing value alone, so a `submit` the app
+	// made over MCP mid-run survives the end that followed it.
+	row.Result = result.Result
 	row.AppSessionRef = result.AppSessionRef
 	row.ErrorMessage = result.ErrorMessage
 	row.EndedAt = r.now()

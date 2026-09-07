@@ -80,6 +80,7 @@ require (
 	github.com/znasllc-io/memql/component/language/ast v0.0.0 // indirect
 	github.com/znasllc-io/memql/component/language/dslclause v0.0.0 // indirect
 	github.com/znasllc-io/memql/component/safety v0.0.0 // indirect
+	github.com/znasllc-io/memql/component/work v0.0.0 // indirect
 	github.com/znasllc-io/memql/docs v0.0.0 // indirect
 	github.com/znasllc-io/memql/integrations/openai v0.0.0 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
@@ -164,3 +165,5 @@ replace github.com/znasllc-io/memql/component/deploycontrol => ../deploycontrol
 replace github.com/znasllc-io/memql/component/healing => ../healing
 
 replace github.com/znasllc-io/memql/component/frontdoor => ../frontdoor
+
+replace github.com/znasllc-io/memql/component/work => ../work

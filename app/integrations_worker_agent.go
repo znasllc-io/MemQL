@@ -183,4 +183,21 @@ func (a *App) setupCockpitAppExecutor(
 		"mcp_endpoint", mcpEndpoint,
 		"credential_minter", minter != nil,
 	)
+
+	// THE APP DOOR (epic memql#5096). Installed HERE rather than beside the
+	// fleet seam in cluster_worker.go because it needs the SessionRunner,
+	// which is built in this function: a door is the same session the
+	// delegated-task path opens, reached from a policy instead of from a
+	// task. A registered seam with no implementation behind it is green and
+	// inert, so the wiring is the feature -- without this line `app:` names
+	// resolve to a permanently unavailable provider and every chain simply
+	// walks past them.
+	if providers := a.engine.Providers(); providers != nil {
+		providers.SetAppInference(agentworker.NewAppInference(
+			dispatcher, runner, &agentworker.EngineStore{Engine: a.engine}, a.Logger,
+		))
+		a.Logger.Info("app door: this replica can serve inference through a signed-in local app",
+			"apps", strings.Join(worker.KnownAppIds(), ", "),
+		)
+	}
 }

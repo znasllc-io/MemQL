@@ -4,6 +4,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -259,6 +260,12 @@ func (e *CockpitAppExecutor) Run(ctx context.Context, req planner.ExecutorReques
 		RequireLabels:      mergeRequireLabels(req.RequireLabels, appId),
 		CredentialLifetime: policy.CredentialLifetime,
 		MaxDuration:        defaultAppSessionMaxDuration,
+		// The task's output contract, when it declared one (design D7). A
+		// harness that supports a structured answer is asked for one; the rest
+		// carry it and ignore it, which is why nothing here gates on the
+		// descriptor -- the answer is a bonus, not a requirement, on this
+		// path.
+		ResponseSchema: responseSchemaFromInput(req),
 	}
 
 	// Machine selection goes through the FLEET ROUTER (memql#4350), not
@@ -293,6 +300,12 @@ func (e *CockpitAppExecutor) Run(ctx context.Context, req planner.ExecutorReques
 			"exitCode":      result.ExitCode,
 			"appSessionRef": result.AppSessionRef,
 			"transcript":    result.Transcript,
+			// The structured answer, when the harness produced one -- from
+			// the session's end or from a `submit` the app made over MCP.
+			// ABSENT rather than empty when there is none: a caller that
+			// parses this can tell "no structured answer" from "an empty
+			// one", and those are different outcomes.
+			"result": resultOrNil(result.Result),
 		},
 		// TokensSpent is what the APP reported, never a MemQL
 		// estimate. An app that reports nothing contributes zero
@@ -441,4 +454,34 @@ func progressBridge(progress planner.ProgressCallback) workerservice.ProgressFun
 			},
 		})
 	}
+}
+
+// responseSchemaFromInput pulls the task's output contract off its input.
+//
+// Absent means no structured answer is asked for, which is not the same as
+// asking and getting nothing: only a run that asked can be disappointed by a
+// session that ends without one.
+func responseSchemaFromInput(req planner.ExecutorRequest) string {
+	for _, key := range []string{"responseSchema", "outputSchema", "schema"} {
+		if raw, ok := req.Input[key].(string); ok && strings.TrimSpace(raw) != "" {
+			return raw
+		}
+	}
+	return ""
+}
+
+// resultOrNil decodes the harness's structured answer for the executor output,
+// or returns nil so the key is absent.
+func resultOrNil(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		// Not JSON. Handed back as text rather than dropped: the harness
+		// answered something, and losing it because it did not parse hides
+		// the one piece of evidence that says the schema was not met.
+		return string(raw)
+	}
+	return decoded
 }

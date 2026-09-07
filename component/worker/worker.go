@@ -199,7 +199,16 @@ type RegistrationRow struct {
 	// rather than OperatorLabels: the engine derives them from what the
 	// machine reported, and the owner does not set them. MergeLabels
 	// then lets an operator label win, which is the right precedence.
-	Apps                []AppInfo
+	Apps []AppInfo
+	// AppDescriptors say HOW the cockpit drives each app it reported
+	// (design D8). Register-only: Register is accepted exactly once per
+	// stream, so unlike Apps these cannot change mid-connection.
+	//
+	// An entry is present only for an app id AND a harness word this
+	// engine knows -- an unrecognised one is dropped rather than refusing
+	// the registration, so a newer cockpit never makes the engine attempt
+	// a protocol it has no client for.
+	AppDescriptors      []AppDescriptor
 	Version             string
 	BuildTag            string
 	RegisteredAt        time.Time

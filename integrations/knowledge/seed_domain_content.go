@@ -331,7 +331,7 @@ func (i *Integration) writeTierABChunks(ctx context.Context, d StandardDomain, t
 	}
 
 	// Provider for embedding the chunk text.
-	provider, err := i.embeddingProvider(defaultProvider)
+	provider, err := i.embeddingProvider(ctx, defaultProvider)
 	if err != nil {
 		return 0, fmt.Errorf("resolve embedding provider %q: %w", defaultProvider, err)
 	}
@@ -379,7 +379,7 @@ func (i *Integration) writeTierABChunks(ctx context.Context, d StandardDomain, t
 // selectable in the UI without shipping LLM-generated content for
 // high-stakes specialist topics.
 func (i *Integration) writeTierCPlaceholder(ctx context.Context, d StandardDomain, recipeVersion string) (int, error) {
-	provider, err := i.embeddingProvider(defaultProvider)
+	provider, err := i.embeddingProvider(ctx, defaultProvider)
 	if err != nil {
 		return 0, fmt.Errorf("resolve embedding provider %q: %w", defaultProvider, err)
 	}

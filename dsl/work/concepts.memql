@@ -166,7 +166,7 @@ concept approval {
   ownerUserId   string  @serverSet  @description("Copied from the run's owner: the person whose decision this is.")
   runId         string!  @description("v1:work:run.id parked on this approval.")
   stepKey       string  @description("The step that raised it.")
-  kind          enum("sideEffect", "scopeElevation", "budget", "skillMint", "feedback", "planReview")!  @description("Which gate.")
+  kind          enum("sideEffect", "scopeElevation", "budget", "skillMint", "feedback", "planReview", "inferenceUnavailable")!  @description("Which gate. `inferenceUnavailable` (epic memql#5096) is the one raised by a CONDITION rather than by a decision: no door to a model is open, so the run parked. It is the only kind the sweep re-checks on its own -- a lid opening or somebody signing into Claude Code changes the answer with nobody deciding anything, where every other kind waits on a person and must not be re-dispatched behind their back.")
   subject       object  @description("What is being approved, structured.")
   artifactHash  string!  @description("Hash of the exact artifact approved: the command, the patch, the message, the draft template.")
   question      string  @description("The question put to the person, for kind feedback.")

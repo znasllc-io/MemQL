@@ -98,6 +98,15 @@ type Candidate struct {
 	// whenever the lid closed. Resolving it once, where the row is projected,
 	// leaves no merged map for a later reader to consult by mistake.
 	SharedInference bool
+	// Apps is the local-app inventory the cockpit reported, verbatim -- ids
+	// this engine cannot drive included, so an operator surface can show an
+	// app the engine will never select.
+	Apps []workerservice.AppInfo
+	// AppDescriptors say HOW each reported app is driven. Only entries whose
+	// app id AND harness word this engine knows are stored, so an entry here
+	// is one the engine can act on. An app with NO entry is not an app whose
+	// harness does neither -- see workerservice.DescriptorFor.
+	AppDescriptors  []workerservice.AppDescriptor
 	Concurrency     map[string]uint32
 	ActiveCount     int
 	ConnectedNodeId string
@@ -134,6 +143,16 @@ type Policy struct {
 	RequireLabels map[string]string
 	PreferLabels  map[string]string
 	Fallback      string
+	// ModelPreference is an explicit ordered list of model ids, consulted
+	// when a policy names `fleet:*` (epic memql#5096, design D5). Empty for
+	// most users, and that is why the default size ordering has to be good
+	// on its own rather than a fallback nobody exercises.
+	//
+	// It orders; it does not filter. A model absent from the list is still
+	// eligible, it is simply tried after every model the list names --
+	// because a preference that silently removed a model would take the
+	// fleet's only tool-capable one out of every tool turn.
+	ModelPreference []string
 }
 
 // DefaultPolicy is what a user who never opened the Fleet page gets: the

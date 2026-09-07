@@ -20,8 +20,7 @@ func TestTypedWrapperForwardsAllArgs(t *testing.T) {
 	eng := newFakeEngine()
 	eng.promotedFns = map[string]string{"libraryArtifactById": "query"}
 
-	res := callMCPTool(context.Background(), eng, "reader", TierAuthoring,
-		"libraryArtifactById", map[string]any{"artifactId": "abc"})
+	res := callMCPTool(context.Background(), eng, "reader", TierAuthoring, "", "libraryArtifactById", map[string]any{"artifactId": "abc"})
 	if isErr, _ := res["isError"].(bool); isErr {
 		t.Fatalf("typed wrapper returned an error result: %v", res)
 	}
@@ -42,10 +41,10 @@ func TestTypedWrapperAndRunQueryForwardIdentically(t *testing.T) {
 
 	typed := newFakeEngine()
 	typed.promotedFns = map[string]string{"libraryArtifactById": "query"}
-	callMCPTool(context.Background(), typed, "reader", TierAuthoring, "libraryArtifactById", args)
+	callMCPTool(context.Background(), typed, "reader", TierAuthoring, "", "libraryArtifactById", args)
 
 	dispatch := newFakeEngine()
-	callMCPTool(context.Background(), dispatch, "reader", TierAuthoring, toolRunQuery,
+	callMCPTool(context.Background(), dispatch, "reader", TierAuthoring, "", toolRunQuery,
 		map[string]any{"name": "libraryArtifactById", "args": args})
 
 	if typed.query == "" || typed.query != dispatch.query {

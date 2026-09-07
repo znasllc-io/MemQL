@@ -5866,6 +5866,8 @@ type CreateRoutingPolicyArgs struct {
 	Strategy      string
 	RequireLabels map[string]any
 	PreferLabels  map[string]any
+	// Ordered model ids for a policy naming fleet:*. Ordering only -- a model absent from the list stays eligible, tried after the ones named.
+	ModelPreference []any
 	// Enum: none | nextMatching
 	Fallback string
 }
@@ -5899,6 +5901,13 @@ func CreateRoutingPolicyBuild(args CreateRoutingPolicyArgs) string {
 		}
 		b.WriteString("preferLabels: ")
 		b.WriteString(renderMemQLValue(args.PreferLabels))
+	}
+	if args.ModelPreference != nil {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("modelPreference: ")
+		b.WriteString(renderMemQLValue(args.ModelPreference))
 	}
 	if b.Len() > 29 {
 		b.WriteString(", ")
@@ -7001,7 +7010,9 @@ type CreateWorkerRegistrationArgs struct {
 	Version              string
 	BuildTag             string
 	// Local-app inventory the cockpit reported (memql#4359): a list of {id, version, signedIn, subscription, allowed}. Stored verbatim, including apps this engine cannot drive.
-	Apps                []any
+	Apps []any
+	// How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for.
+	AppDescriptors      []any
 	RegisteredAt        string
 	LastSeenAt          string
 	LastConnectedFromIP string
@@ -7087,6 +7098,13 @@ func CreateWorkerRegistrationBuild(args CreateWorkerRegistrationArgs) string {
 		}
 		b.WriteString("apps: ")
 		b.WriteString(renderMemQLValue(args.Apps))
+	}
+	if args.AppDescriptors != nil {
+		if b.Len() > 34 {
+			b.WriteString(", ")
+		}
+		b.WriteString("appDescriptors: ")
+		b.WriteString(renderMemQLValue(args.AppDescriptors))
 	}
 	if b.Len() > 34 {
 		b.WriteString(", ")
@@ -9691,7 +9709,9 @@ type RefreshWorkerRegistrationArgs struct {
 	Version              string
 	BuildTag             string
 	// Local-app inventory from the latest Register (memql#4359). An omitted list CLEARS the persisted one, the same way the capability descriptor does: the worker no longer reports apps.
-	Apps                []any
+	Apps []any
+	// How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for.
+	AppDescriptors      []any
 	LastSeenAt          string
 	LastConnectedFromIP string
 	ConnectedNodeId     string
@@ -9771,6 +9791,13 @@ func RefreshWorkerRegistrationBuild(args RefreshWorkerRegistrationArgs) string {
 		}
 		b.WriteString("apps: ")
 		b.WriteString(renderMemQLValue(args.Apps))
+	}
+	if args.AppDescriptors != nil {
+		if b.Len() > 35 {
+			b.WriteString(", ")
+		}
+		b.WriteString("appDescriptors: ")
+		b.WriteString(renderMemQLValue(args.AppDescriptors))
 	}
 	if b.Len() > 35 {
 		b.WriteString(", ")
@@ -12365,6 +12392,40 @@ func StampNodeTokenBootstrapBuild(args StampNodeTokenBootstrapArgs) string {
 	return b.String()
 }
 
+// SubmitAppSessionResult wraps the mutation named "submitAppSessionResult".
+//
+// Bound concept: v1:worker:appSession (machine-readable: BoundConcepts["submitAppSessionResult"] in generated_concepts.go).
+type SubmitAppSessionResultArgs struct {
+	SessionId   string
+	Result      map[string]any
+	SubmittedAt string
+}
+
+// SubmitAppSessionResult calls the engine mutation submitAppSessionResult.
+func (qc *QueryClient) SubmitAppSessionResult(ctx context.Context, args SubmitAppSessionResultArgs) (*Result, error) {
+	call := SubmitAppSessionResultBuild(args)
+	return qc.executeNamed(ctx, "submitAppSessionResult", call)
+}
+
+func SubmitAppSessionResultBuild(args SubmitAppSessionResultArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation submitAppSessionResult(")
+	b.WriteString("sessionId: ")
+	b.WriteString(quoteMemQL(args.SessionId))
+	if b.Len() > 32 {
+		b.WriteString(", ")
+	}
+	b.WriteString("result: ")
+	b.WriteString(renderMemQLValue(args.Result))
+	if b.Len() > 32 {
+		b.WriteString(", ")
+	}
+	b.WriteString("submittedAt: ")
+	b.WriteString(quoteMemQL(args.SubmittedAt))
+	b.WriteString(")")
+	return b.String()
+}
+
 // TakeBooking -- Take a booking against the host's published hours. The host is the caller -- this is the portal operations path (memql#4142). Booker identity is payload.
 //
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["takeBooking"] in generated_concepts.go).
@@ -14237,6 +14298,8 @@ type UpdateRoutingPolicyArgs struct {
 	Strategy      string
 	RequireLabels map[string]any
 	PreferLabels  map[string]any
+	// Ordered model ids for a policy naming fleet:*. Ordering only -- a model absent from the list stays eligible, tried after the ones named.
+	ModelPreference []any
 	// Enum: none | nextMatching
 	Fallback string
 }
@@ -14270,6 +14333,13 @@ func UpdateRoutingPolicyBuild(args UpdateRoutingPolicyArgs) string {
 		}
 		b.WriteString("preferLabels: ")
 		b.WriteString(renderMemQLValue(args.PreferLabels))
+	}
+	if args.ModelPreference != nil {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("modelPreference: ")
+		b.WriteString(renderMemQLValue(args.ModelPreference))
 	}
 	if b.Len() > 29 {
 		b.WriteString(", ")

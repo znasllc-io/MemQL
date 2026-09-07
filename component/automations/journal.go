@@ -41,6 +41,7 @@ package automations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -53,6 +54,8 @@ import (
 	"github.com/znasllc-io/memql/component/auth"
 	"github.com/znasllc-io/memql/component/events"
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/id"
 )
 
 // workJournalActor names the synthetic principal the journal writes as.
@@ -417,6 +420,25 @@ func (j *workJournal) closeRun(ctx context.Context, exec *AutomationExecution, c
 	case "cancelled":
 		status = "cancelled"
 	}
+
+	// A RUN THAT FAILED BECAUSE NO DOOR TO A MODEL IS OPEN PARKS INSTEAD
+	// (epic memql#5096, design D9). It is not a failure: nothing about the
+	// work was wrong, and the condition -- a lid shut, nobody signed in, a
+	// ceiling reached -- changes on a human timescale for reasons that have
+	// nothing to do with the run. Failing it would throw away a compiled
+	// template and a journal because somebody closed a laptop.
+	if status == "failed" {
+		// DoorsFrom prefers the error VALUE, which carries the structured
+		// door report, and falls back to matching the message when the
+		// failure travelled as a string. An empty door list is the honest
+		// answer in the second case: it says the structure did not reach
+		// here, where a synthetic entry would claim a door nobody named.
+		if code, doors, ok := work.DoorsFrom(runFailure(exec)); ok {
+			j.parkOnInference(ctx, exec, chainHead, code, doors)
+			return
+		}
+	}
+
 	finished := exec.CompletedAt
 	if finished.IsZero() {
 		finished = time.Now()
@@ -433,4 +455,106 @@ func (j *workJournal) closeRun(ctx context.Context, exec *AutomationExecution, c
 		args["errorMessage"] = exec.Error
 	}
 	j.call(ctx, "updateWorkRun", args)
+}
+
+// parkOnInference writes the approval and puts the run at `waiting`.
+//
+// THE ORDER IS LOAD-BEARING: the approval first, the wait second. A run
+// parked on an approval id that does not exist is a run waiting on nothing,
+// which no person can decide and no sweep can resolve -- it would sit at
+// `waiting` until the abandoned sweep eventually closed it saying the node
+// stopped answering, a sentence with nothing true in it.
+//
+// THE SUBJECT IS WHAT THE ROUTER DECIDED, carried as a value rather than
+// re-derived. The router built the door report; parsing it back out of the
+// rendered message would be a second opinion about a decision already made,
+// and the two would drift the first time the wording changed.
+func (j *workJournal) parkOnInference(ctx context.Context, exec *AutomationExecution, chainHead, code string, doors []work.DoorReport) {
+	now := time.Now().UTC()
+	approvalId := "v1:work:approval:" + id.NewShortId()
+	stepKey := ""
+	if n := len(exec.StepOrder); n > 0 {
+		stepKey = exec.StepOrder[n-1]
+	}
+	req := work.InferenceUnavailableApproval(exec.ID, stepKey, code, doors, now, workApprovalTTL)
+
+	j.call(ctx, "createWorkApproval", map[string]any{
+		"approvalId":   approvalId,
+		"runId":        req.RunId,
+		"stepKey":      req.StepKey,
+		"kind":         req.Kind,
+		"subject":      req.Subject,
+		"artifactHash": req.ArtifactHash,
+		"question":     req.Question,
+		"options":      req.Options,
+		"evidence": map[string]any{
+			"tier":   req.Evidence.Tier,
+			"reason": req.Evidence.Reason,
+			"ruleId": req.Evidence.RuleId,
+			"source": req.Evidence.Source,
+		},
+		"requestedAt": rfc3339(req.RequestedAt),
+		"expiresAt":   rfc3339(req.ExpiresAt),
+	})
+
+	// `resumeAt` rides the wait so the sweep re-checks it. It is a POLL
+	// because the event that would replace it -- a module-readiness feed --
+	// is another epic's and this tree does not declare the concept; a
+	// subscription to something absent is a resume path that never fires.
+	//
+	// A CEILING REFUSAL GETS NO resumeAt. Only a person changes a ceiling, so
+	// re-dispatching against it would burn a dispatch every five minutes to
+	// rediscover a number nobody touched.
+	waiting := map[string]any{
+		"kind":         "approval",
+		"subject":      approvalId,
+		"approvalKind": work.ApprovalKindInferenceUnavailable,
+		"since":        rfc3339(now),
+	}
+	if code != work.RefusalCeilingReached {
+		waiting["resumeAt"] = rfc3339(now.Add(work.InferenceRetryInterval))
+	}
+	j.call(ctx, "updateWorkRun", map[string]any{
+		"runId":     exec.ID,
+		"status":    "waiting",
+		"chainHead": chainHead,
+		"stepOrder": exec.StepOrder,
+		"waitingOn": waiting,
+		// NOT finishedAt, and not an errorCode: the run has not finished and
+		// has not failed. Writing either would make every terminal-run reader
+		// -- the sweep, Nexus, the goal rollup -- treat a parked run as done.
+		"errorMessage": exec.Error,
+	})
+	if j.logger != nil {
+		j.logger.Info("work journal: no door to a model is open, so the run parked instead of failing",
+			"component", ComponentName, "run", exec.ID, "approval", approvalId, "code", code)
+	}
+}
+
+// workApprovalTTL is how long a pending inference park stands before it
+// lapses. It matches integrations/work's DefaultApprovalTTL: long enough that
+// somebody who opens their laptop the next morning finds the run still
+// waiting, short enough that a forgotten one does not outlast the awareness of
+// why it was raised.
+const workApprovalTTL = 24 * time.Hour
+
+// runFailure returns the execution's failure as a VALUE when one survived, and
+// as a plain error over the recorded text otherwise.
+//
+// The second case is not a fallback nobody hits: a run RESUMED from a
+// checkpoint has only the string, because ErrorValue is deliberately not
+// serialized. Answering with an error over that text lets the message matcher
+// still recognise the condition, with an empty door list rather than an
+// invented one.
+func runFailure(exec *AutomationExecution) error {
+	if exec == nil {
+		return nil
+	}
+	if exec.ErrorValue != nil {
+		return exec.ErrorValue
+	}
+	if strings.TrimSpace(exec.Error) == "" {
+		return nil
+	}
+	return errors.New(exec.Error)
 }

@@ -52,6 +52,7 @@ shape registration workerRegistrationFull {
   platformInfo
   permissions
   apps
+  appDescriptors
   version
   buildTag
   registeredAt
@@ -78,6 +79,9 @@ shape appSession workerAppSessionFull {
   workspace
   prompt
   inputArtifactIds
+  responseSchema
+  result
+  resultSubmittedAt
   transcript
   transcriptBytes
   transcriptTruncated
@@ -142,6 +146,7 @@ shape routingPolicy workerRoutingPolicyFull {
   strategy
   requireLabels
   preferLabels
+  modelPreference
   fallback
   active
   row.createdAt

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/auth"
+
+	"github.com/znasllc-io/memql/component/work"
 )
 
 // sweep_test.go -- the sweeps' DECISIONS, table-driven and with no database.
@@ -510,4 +512,82 @@ func TestSweepHandsASilentRunBackBeforeAbandoningIt(t *testing.T) {
 			t.Errorf("claimed %v; the claim must not be spent on a run that cannot execute", c.keys)
 		}
 	})
+}
+
+// A run parked on a SHUT INFERENCE DOOR is re-tried; every other approval kind
+// waits on a person and must not be handed back to the cluster behind their
+// back (epic memql#5096, design D9).
+//
+// The kind is what distinguishes the two, and that is the point of the table:
+// the WAIT shape is `approval` for both, so a check on the wait's own kind
+// would re-dispatch a run somebody is deciding about.
+func TestInferenceRetryDueReadsTheApprovalKindNotTheWaitShape(t *testing.T) {
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	inference := work.ApprovalKindInferenceUnavailable
+
+	cases := []struct {
+		name      string
+		waitingOn map[string]any
+		wantDue   bool
+		wantPark  bool
+	}{
+		{name: "no wait at all", waitingOn: nil},
+		{
+			name: "a side-effect approval is somebody's decision, never a retry",
+			waitingOn: map[string]any{
+				"kind": "approval", "subject": "v1:work:approval:a1",
+				"approvalKind": "sideEffect",
+				"resumeAt":     now.Add(-time.Hour).Format(time.RFC3339),
+			},
+		},
+		{
+			name: "a plain timer wait is the other sweep's business",
+			waitingOn: map[string]any{
+				"kind": "timer", "resumeAt": now.Add(-time.Hour).Format(time.RFC3339),
+			},
+		},
+		{
+			name: "an inference park whose retry is due",
+			waitingOn: map[string]any{
+				"kind": "approval", "subject": "v1:work:approval:a1",
+				"approvalKind": inference,
+				"resumeAt":     now.Add(-time.Minute).Format(time.RFC3339),
+			},
+			wantDue: true, wantPark: true,
+		},
+		{
+			name: "an inference park whose retry is not yet due",
+			waitingOn: map[string]any{
+				"kind": "approval", "approvalKind": inference,
+				"resumeAt": now.Add(time.Minute).Format(time.RFC3339),
+			},
+			wantPark: true,
+		},
+		{
+			name: "a CEILING park carries no resumeAt and is never due",
+			waitingOn: map[string]any{
+				"kind": "approval", "approvalKind": inference,
+			},
+			wantPark: true,
+		},
+		{
+			name: "an unparseable resumeAt is NOT due",
+			waitingOn: map[string]any{
+				"kind": "approval", "approvalKind": inference, "resumeAt": "in a bit",
+			},
+			wantPark: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run := map[string]any{"id": "r1"}
+			if tc.waitingOn != nil {
+				run["waitingOn"] = tc.waitingOn
+			}
+			due, park := inferenceRetryDue(run, now)
+			if due != tc.wantDue || park != tc.wantPark {
+				t.Errorf("inferenceRetryDue = (%v, %v), want (%v, %v)", due, park, tc.wantDue, tc.wantPark)
+			}
+		})
+	}
 }

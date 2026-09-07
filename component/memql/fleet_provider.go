@@ -49,6 +49,20 @@ const FleetProviderName = "fleet"
 // `@primary("fleet:llama3.1:8b")`.
 const FleetReferencePrefix = "fleet:"
 
+// FleetWildcard is the whole reference a policy writes to mean ANY eligible
+// local model, strongest first (epic memql#5096, design D5).
+//
+// It exists because the alternative is a policy that names one model id, and
+// a model id is the one thing an operator cannot know in advance: which
+// weights are pulled is a decision made on each machine, and a chain pinned
+// to `fleet:llama3.1:8b` parks on a fleet that is running qwen2.5:7b and
+// would have served the turn perfectly.
+//
+// The model is chosen at CALL time rather than at entry time, because
+// eligibility depends on what the call needs -- a structured turn and a tool
+// turn can legitimately resolve to different models on the same fleet.
+const FleetWildcard = FleetReferencePrefix + "*"
+
 // Model call kinds, mirroring the wire.
 const (
 	FleetKindChat      = "chat"
@@ -87,11 +101,30 @@ func (m FleetMachine) Busy() bool {
 // FleetModel is one entry in the live catalog: a model, its attributes, and
 // the machines behind it.
 type FleetModel struct {
-	ModelId          string
-	ContextWindow    int
+	ModelId       string
+	ContextWindow int
+	// Params is the model's parameter count, as the runtime reported it
+	// (Ollama's `details.parameter_size`, e.g. "8B" -> 8_000_000_000).
+	//
+	// It is an ORDERING signal, never a capability gate: `Satisfies` does
+	// not read it, so a model that never said how big it is stays eligible
+	// for every turn it advertised the capabilities for. It simply does not
+	// WIN by silence -- unknown size sorts last.
+	Params int64
+	// Quant is the quantization level the runtime reported (Q4_K_M, F16).
+	// Carried for the operator, not for selection: two quantizations of one
+	// model are the same model to a caller, and ordering by a string nobody
+	// agreed on would be an arbitrary preference wearing a technical name.
+	Quant            string
 	StructuredOutput bool
 	Embeddings       bool
-	Machines         []FleetMachine
+	// Tools reports that at least one machine behind this model can carry a
+	// tool-calling turn. FALSE IS THE DEFAULT and it is a gate, not a
+	// downgrade: a runtime handed tools it cannot honour answers prose,
+	// which surfaces three layers away as an agent that stopped using its
+	// tools for no reason a reader can see.
+	Tools    bool
+	Machines []FleetMachine
 }
 
 // Online reports whether at least one machine behind this model is reachable.
@@ -110,6 +143,7 @@ func (m FleetModel) Online() bool {
 type FleetNeeds struct {
 	StructuredOutput bool
 	Embeddings       bool
+	Tools            bool
 	MinContextWindow int
 }
 
@@ -125,10 +159,14 @@ type FleetCallRequest struct {
 	Messages     []common.ChatMessage
 	// Schema is set for a structured call; its presence is also what makes
 	// the call require a structured-output-capable model.
-	Schema         *common.StructuredSchema
+	Schema *common.StructuredSchema
+	// Tools are the functions this turn offers the model. Their presence is
+	// also what makes the call require a tool-capable model, the same way
+	// Schema's presence requires a structured-output one.
+	Tools          []common.ToolDefinition
 	EmbeddingInput []string
 	Purpose        string
-	RunId         string
+	RunId          string
 	StepId         string
 	// OnDelta, when set, receives streamed content as it arrives.
 	OnDelta func(string)
@@ -141,6 +179,7 @@ func (r FleetCallRequest) Needs() FleetNeeds {
 	return FleetNeeds{
 		StructuredOutput: r.Schema != nil,
 		Embeddings:       r.Kind == FleetKindEmbedding,
+		Tools:            len(r.Tools) > 0,
 	}
 }
 
@@ -157,7 +196,10 @@ type FleetUsage struct {
 type FleetCallResult struct {
 	Content    string
 	Embeddings [][]float32
-	Usage      FleetUsage
+	// ToolCalls are the calls the model made this turn, empty when it
+	// answered in prose.
+	ToolCalls []common.ToolCall
+	Usage     FleetUsage
 	// ExecutionSurface names the machine that served the call, in the
 	// `fleet:<registrationId>` form the ledger stores (memql#4681).
 	ExecutionSurface string
@@ -174,6 +216,14 @@ type FleetInference interface {
 	// Call runs one model call, streaming through req.OnDelta when set.
 	// ErrFleetUnavailable when no eligible machine could serve it.
 	Call(ctx context.Context, req FleetCallRequest) (FleetCallResult, error)
+	// ModelPreference returns the owner's explicit ordered model list from
+	// their routing policy, or nil when they have none -- which is most
+	// users, and is why the default ordering has to be good on its own.
+	//
+	// It is a SEAM METHOD rather than a field on FleetModel because it is a
+	// property of the CALLER, not of a model: two users looking at the same
+	// machine can legitimately want different models tried first.
+	ModelPreference(ctx context.Context, actingUserId string) ([]string, error)
 }
 
 // SetFleetInference installs the implementation. Called once during cluster
@@ -221,7 +271,8 @@ func (r *ProviderRegistry) FleetCatalog(ctx context.Context, actingUserId string
 }
 
 // IsFleetReference reports whether a policy's provider name refers to a fleet
-// model, and returns the model id.
+// model, and returns the model id. The wildcard returns "*", which is a model
+// id no runtime can serve -- callers that care ask IsFleetWildcard.
 func IsFleetReference(name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if !strings.HasPrefix(name, FleetReferencePrefix) {
@@ -229,6 +280,93 @@ func IsFleetReference(name string) (string, bool) {
 	}
 	modelId := strings.TrimSpace(strings.TrimPrefix(name, FleetReferencePrefix))
 	return modelId, modelId != ""
+}
+
+// IsFleetWildcard reports whether a reference names ANY eligible local model
+// rather than one in particular.
+func IsFleetWildcard(name string) bool {
+	return strings.TrimSpace(name) == FleetWildcard
+}
+
+// orderModels ranks a catalog strongest-first (design D5).
+//
+// The order is: the caller's explicit preference for the ids it names, then
+// PARAMETERS descending, then CONTEXT WINDOW descending, then model id.
+//
+// MISSING ATTRIBUTES SORT LAST, NEVER FIRST, and that direction is the whole
+// of the rule. A model that does not say how big it is must not win by
+// silence: a cockpit that predates the attribute, or a runtime that reports
+// nothing, would otherwise become the fleet's strongest model on every
+// machine it runs on. Sorting it last costs it a turn it might have served;
+// sorting it first would quietly route every planning turn to a 1B model.
+//
+// The sort is STABLE over the input order, so a fleet whose models tie on
+// every signal is ordered identically on every replica -- the property the
+// routing strategies already depend on.
+func orderModels(models []FleetModel, preference []string) []FleetModel {
+	out := make([]FleetModel, len(models))
+	copy(out, models)
+
+	rank := make(map[string]int, len(preference))
+	for i, id := range preference {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, seen := rank[id]; !seen {
+			rank[id] = i
+		}
+	}
+	// A model the preference does not name sorts after every one it does.
+	prefRank := func(m FleetModel) int {
+		if r, ok := rank[m.ModelId]; ok {
+			return r
+		}
+		return len(preference) + 1
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := prefRank(a), prefRank(b); ra != rb {
+			return ra < rb
+		}
+		// Unknown size last, in both directions: it is not "zero
+		// parameters", it is "the machine did not say".
+		if (a.Params > 0) != (b.Params > 0) {
+			return a.Params > 0
+		}
+		if a.Params != b.Params {
+			return a.Params > b.Params
+		}
+		if a.ContextWindow != b.ContextWindow {
+			return a.ContextWindow > b.ContextWindow
+		}
+		return a.ModelId < b.ModelId
+	})
+	return out
+}
+
+// eligibleFor reports whether a model can serve a call with these needs, and
+// names the miss when it cannot. It mirrors ModelAttributes.Satisfies on the
+// agent side -- the same questions asked of the CATALOG rather than of one
+// machine's label, which is what the wildcard resolver needs.
+func (m FleetModel) eligibleFor(n FleetNeeds) (bool, string) {
+	if !m.Online() {
+		return false, "no machine offering it is online"
+	}
+	if n.StructuredOutput && !m.StructuredOutput {
+		return false, "does not advertise structured output"
+	}
+	if n.Embeddings && !m.Embeddings {
+		return false, "does not advertise embeddings"
+	}
+	if n.Tools && !m.Tools {
+		return false, "does not advertise tool calling"
+	}
+	if n.MinContextWindow > 0 && m.ContextWindow < n.MinContextWindow {
+		return false, fmt.Sprintf("context window %d is under the floor %d", m.ContextWindow, n.MinContextWindow)
+	}
+	return true, ""
 }
 
 // fleetEntry synthesizes the registry entry for `fleet:<modelId>`.
@@ -250,12 +388,13 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 	f := r.fleet
 	r.mu.RUnlock()
 
+	wildcard := modelId == "*"
 	cfg := ProviderConfig{
 		Name:  FleetReferencePrefix + modelId,
 		Type:  FleetProviderType,
 		Model: modelId,
 	}
-	client := &fleetProvider{registry: r, modelId: modelId, actingUserId: actingUserId}
+	client := &fleetProvider{registry: r, modelId: modelId, actingUserId: actingUserId, wildcard: wildcard}
 	entry := &ProviderConfigEntry{Config: cfg, Client: client}
 	if f == nil {
 		// No worker service on this node. UNAVAILABLE, not an error: the
@@ -269,6 +408,28 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 		entry.err = err
 		return entry, true
 	}
+
+	// THE WILDCARD IS AVAILABLE WHEN ANY MODEL IS ONLINE, and the concrete
+	// model is chosen later, in call(), once the needs are known.
+	//
+	// Deciding it here would mean deciding it without them, and a fleet
+	// running one structured-capable model and one embeddings model would
+	// answer "unavailable" for whichever the entry happened to pick -- for a
+	// call the other one could have served. Availability here answers "is
+	// there any local model at all", which is exactly the question the chain
+	// walk is asking.
+	if wildcard {
+		for _, m := range models {
+			if m.Online() {
+				entry.Available = true
+				cfg.Model = "*"
+				return entry, true
+			}
+		}
+		entry.err = fmt.Errorf("no local model is online")
+		return entry, true
+	}
+
 	for _, m := range models {
 		if m.ModelId != modelId {
 			continue
@@ -311,7 +472,10 @@ type fleetProvider struct {
 	// machines are eligible -- a disagreement in that direction is a silent
 	// cloud call for a user whose laptop was awake.
 	actingUserId string
-	attributes   FleetModel
+	// wildcard marks the `fleet:*` provider, whose concrete model is chosen
+	// per call rather than at entry time.
+	wildcard   bool
+	attributes FleetModel
 	// lastMu guards the surface bookkeeping the ledger reads back after a
 	// call. It is per-entry rather than per-call because the provider
 	// interfaces return a string and have nowhere to carry it.
@@ -352,6 +516,14 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 		req.ActingUserId = actingUserFromContext(ctx)
 	}
 
+	if p.wildcard {
+		chosen, err := p.resolveWildcard(ctx, f, req)
+		if err != nil {
+			return FleetCallResult{}, err
+		}
+		req.ModelId = chosen
+	}
+
 	// THE GUARDS (memql#4680). This is the one seam every fleet call passes,
 	// and it is where the chokepoint moved to: a local call has no
 	// *http.Client, so guardedTransport -- which the whole defense-in-depth
@@ -370,6 +542,50 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 	p.lastUsage = res.Usage
 	p.lastMu.Unlock()
 	return res, nil
+}
+
+// resolveWildcard picks the concrete model a `fleet:*` call runs on.
+//
+// Strongest first, among the models that can actually serve THIS call: the
+// needs come off the request, so a structured turn and an embedding turn on
+// the same fleet legitimately land on different models. The owner's
+// modelPreference, when they have one, wins over the size ordering -- it is
+// an explicit statement about their own hardware, and the default ordering
+// exists precisely for the users who have not made one.
+//
+// A miss is the TYPED refusal naming every model considered and why each was
+// ruled out, in the same grammar the machine-level refusal uses. "Your fleet
+// has nothing that can do this" is the answer, and an operator reading it
+// needs to know whether the fix is waking a laptop, pulling a bigger model,
+// or using a runtime that supports tools.
+func (p *fleetProvider) resolveWildcard(ctx context.Context, f FleetInference, req FleetCallRequest) (string, error) {
+	models, err := f.Catalog(ctx, req.ActingUserId)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrFleetUnavailable, err)
+	}
+	preference, err := f.ModelPreference(ctx, req.ActingUserId)
+	if err != nil {
+		// A policy read that failed must not decide the model. Falling back
+		// to the default ordering is the honest degrade: the caller gets the
+		// strongest eligible model rather than a refusal over a row nobody
+		// asked about.
+		preference = nil
+	}
+
+	needs := req.Needs()
+	considered := map[string]string{}
+	for _, m := range orderModels(models, preference) {
+		if ok, why := m.eligibleFor(needs); ok {
+			return m.ModelId, nil
+		} else {
+			considered[m.ModelId] = why
+		}
+	}
+	return "", &FleetUnavailable{
+		ModelId:    "*",
+		Considered: considered,
+		Total:      len(models),
+	}
 }
 
 // Call implements AIProvider -- the bare prompt form.
@@ -406,6 +622,91 @@ func (p *fleetProvider) CallChatStructured(ctx context.Context, messages []commo
 		return "", err
 	}
 	return res.Content, nil
+}
+
+// CallChatWithTools implements common.ToolCallingChatAIProvider -- the
+// non-streaming tool-calling surface the background execution lane uses
+// (design D11).
+//
+// The tool schemas are sent to the RUNTIME rather than described in the
+// prompt. A machine reaches this method only because it advertised `tools=1`
+// for the model (the router's capability gate), so a runtime that quietly
+// answers prose here has broken its own advertisement -- and the caller is
+// about to look for tool calls, so failing to find them is the honest result
+// rather than something to paper over with a prose parser.
+//
+// InputSchema is marshalled ONCE here rather than at each hop: the wire
+// carries the schema as a string, and re-encoding it per machine would give
+// two candidates for the same call two different schema bytes.
+func (p *fleetProvider) CallChatWithTools(
+	ctx context.Context,
+	messages []common.ChatMessage,
+	tools []common.ToolDefinition,
+) (*common.ToolCallingChatResult, error) {
+	res, err := p.call(ctx, FleetCallRequest{
+		Kind:     FleetKindChat,
+		Messages: messages,
+		Tools:    tools,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &common.ToolCallingChatResult{
+		AssistantText: res.Content,
+		ToolCalls:     res.ToolCalls,
+	}, nil
+}
+
+// CallChatStreamWithTools implements common.ChatStreamWithToolsProvider.
+//
+// The stream carries TEXT incrementally and the tool calls at the END, which
+// is what the two runtimes actually do: an OpenAI-compatible endpoint streams
+// tool arguments in fragments the worker reassembles, and Ollama emits its
+// tool-call list complete on the final message. Rather than inventing a
+// synthetic per-fragment delta that only one runtime could ever produce
+// faithfully, the assembled calls are emitted once, on the closing chunk --
+// the same list CallChatWithTools would have returned.
+func (p *fleetProvider) CallChatStreamWithTools(
+	ctx context.Context,
+	messages []common.ChatMessage,
+	tools []common.ToolDefinition,
+) (<-chan common.StreamToolChunk, error) {
+	out := make(chan common.StreamToolChunk, 32)
+	go func() {
+		defer close(out)
+		res, err := p.call(ctx, FleetCallRequest{
+			Kind:     FleetKindChat,
+			Messages: messages,
+			Tools:    tools,
+			OnDelta: func(s string) {
+				select {
+				case out <- common.StreamToolChunk{Content: s}:
+				case <-ctx.Done():
+				}
+			},
+		})
+		if err != nil {
+			select {
+			case out <- common.StreamToolChunk{Error: err, Done: true}:
+			case <-ctx.Done():
+			}
+			return
+		}
+		final := common.StreamToolChunk{Done: true}
+		for i, c := range res.ToolCalls {
+			final.ToolCalls = append(final.ToolCalls, common.ToolCallDelta{
+				Index:     i,
+				ID:        c.ID,
+				Name:      c.Name,
+				Arguments: c.Arguments,
+			})
+		}
+		select {
+		case out <- final:
+		case <-ctx.Done():
+		}
+	}()
+	return out, nil
 }
 
 // CallChatStream implements common.ChatStreamProvider.
@@ -475,9 +776,11 @@ func (p *fleetProvider) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 func (p *fleetProvider) Dimensions() int { return 0 }
 
 var (
-	_ AIProvider                    = (*fleetProvider)(nil)
-	_ common.ChatAIProvider         = (*fleetProvider)(nil)
-	_ common.ChatStructuredProvider = (*fleetProvider)(nil)
-	_ common.ChatStreamProvider     = (*fleetProvider)(nil)
-	_ EmbeddingAIProvider           = (*fleetProvider)(nil)
+	_ AIProvider                         = (*fleetProvider)(nil)
+	_ common.ChatAIProvider              = (*fleetProvider)(nil)
+	_ common.ChatStructuredProvider      = (*fleetProvider)(nil)
+	_ common.ChatStreamProvider          = (*fleetProvider)(nil)
+	_ common.ToolCallingChatAIProvider   = (*fleetProvider)(nil)
+	_ common.ChatStreamWithToolsProvider = (*fleetProvider)(nil)
+	_ EmbeddingAIProvider                = (*fleetProvider)(nil)
 )

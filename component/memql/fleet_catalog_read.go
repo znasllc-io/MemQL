@@ -41,9 +41,15 @@ const FleetModelConcept = "v1:platform:fleetModel"
 // InferenceStatusConcept is the canonical id of the eligibility projection.
 const InferenceStatusConcept = "v1:platform:inferenceStatus"
 
-// The three doors from design G, as the status row names them.
+// The doors, as the status row names them.
+//
+// A FOURTH ONE ARRIVED WITH THE APP TYPE (epic memql#5096, design D3), and
+// the order below is the order the default chain tries them: a local model
+// first, then an app the person already pays for, then federation, then a key.
+// The list is what a client renders, so the order is part of the answer.
 const (
 	InferenceDoorLocal      = "local"
+	InferenceDoorApp        = "app"
 	InferenceDoorFederation = "federation"
 	InferenceDoorApiKey     = "apiKey"
 )
@@ -94,6 +100,9 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 			"contextWindow":    m.ContextWindow,
 			"structuredOutput": m.StructuredOutput,
 			"embeddings":       m.Embeddings,
+			"tools":            m.Tools,
+			"params":           m.Params,
+			"quant":            m.Quant,
 			"online":           m.Online(),
 			"machineCount":     len(m.Machines),
 			"onlineCount":      online,
@@ -122,9 +131,17 @@ type inferenceDoors struct {
 	LocalEligible    bool
 	LocalModels      int
 	EligibleModelIds []string
-	CloudConfigured  bool
-	Federation       bool
-	Doors            []string
+	// AppEligible and RunnableApps are the app door (epic memql#5096): a
+	// signed-in Claude Code or Codex on a machine whose stream THIS replica
+	// holds. They live here rather than beside the caller for the reason the
+	// type's own note gives -- the readiness verdict and the inferenceStatus
+	// row must not be able to disagree about whether inference is configured.
+	AppEligible          bool
+	RunnableApps         []string
+	AppSessionsInstalled bool
+	CloudConfigured      bool
+	Federation           bool
+	Doors                []string
 }
 
 func (e *MemQLEngine) inferenceDoors(ctx context.Context) inferenceDoors {
@@ -148,10 +165,33 @@ func (e *MemQLEngine) inferenceDoors(ctx context.Context) inferenceDoors {
 		}
 	}
 	sort.Strings(d.EligibleModelIds)
+
+	// The app door. A read that FAILS leaves it SHUT rather than unknown:
+	// this reading is what a gate branches on, and "we could not ask"
+	// reported as an open door sends somebody to a console whose features
+	// then refuse.
+	d.AppSessionsInstalled = e.providers.AppInferenceInstalled()
+	if doors, err := e.providers.AppDoors(ctx, actingUserFromContext(ctx)); err == nil {
+		for _, door := range doors {
+			if door.Runnable() {
+				d.AppEligible = true
+				d.RunnableApps = append(d.RunnableApps, door.AppId)
+			}
+		}
+	}
+	sort.Strings(d.RunnableApps)
+
 	d.CloudConfigured = e.providers.HasCloudProviderConfigured()
 	d.Federation = e.providers.federationConfigured()
+	// THE ORDER IS THE ORDER THE DEFAULT CHAIN TRIES THEM (design D4): a
+	// model on the person's own hardware, then a subscription they already
+	// pay for, then federation, then a key. Every client renders this list
+	// rather than re-deriving one, so the order is part of the answer.
 	if d.LocalEligible {
 		d.Doors = append(d.Doors, InferenceDoorLocal)
+	}
+	if d.AppEligible {
+		d.Doors = append(d.Doors, InferenceDoorApp)
 	}
 	if d.Federation {
 		d.Doors = append(d.Doors, InferenceDoorFederation)
@@ -179,9 +219,11 @@ func (e *MemQLEngine) evaluateInferenceStatusExpression(ctx context.Context) ([]
 	d := e.inferenceDoors(ctx)
 
 	raw, err := json.Marshal(map[string]any{
-		"eligible":             d.LocalEligible || d.CloudConfigured || d.Federation,
+		"eligible":             d.LocalEligible || d.AppEligible || d.CloudConfigured || d.Federation,
 		"doorsOpen":            toAnySlice(d.Doors),
 		"localEligible":        d.LocalEligible,
+		"appEligible":          d.AppEligible,
+		"runnableApps":         toAnySlice(d.RunnableApps),
 		"localModelCount":      d.LocalModels,
 		"eligibleModelIds":     toAnySlice(d.EligibleModelIds),
 		"cloudConfigured":      d.CloudConfigured,
@@ -191,7 +233,11 @@ func (e *MemQLEngine) evaluateInferenceStatusExpression(ctx context.Context) ([]
 		// all". They look identical from a page and have entirely different
 		// fixes.
 		"fleetInferenceInstalled": e.providers.FleetInferenceInstalled(),
-		"minimumContextWindow":    MinimumContextWindow,
+		// The app door's twin of the line above, and the same distinction:
+		// "you have signed into nothing" and "this node cannot open an app
+		// session at all" look identical on a page and have different fixes.
+		"appSessionsInstalled": d.AppSessionsInstalled,
+		"minimumContextWindow": MinimumContextWindow,
 	})
 	if err != nil {
 		return nil, err
@@ -231,6 +277,13 @@ func (e *MemQLEngine) fleetCatalogForCaller(ctx context.Context) ([]FleetModel, 
 			}
 			entry.StructuredOutput = entry.StructuredOutput || m.StructuredOutput
 			entry.Embeddings = entry.Embeddings || m.Embeddings
+			entry.Tools = entry.Tools || m.Tools
+			if m.Params > entry.Params {
+				entry.Params = m.Params
+			}
+			if entry.Quant == "" {
+				entry.Quant = m.Quant
+			}
 			for _, machine := range m.Machines {
 				key := m.ModelId + "\x00" + machine.RegistrationId
 				if seenMachine[key] {

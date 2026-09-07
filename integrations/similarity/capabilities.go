@@ -61,7 +61,7 @@ type Integration struct {
 	Logger *slog.Logger
 
 	dbGetter          func() *sql.DB
-	embeddingProvider func(name string) (memql.EmbeddingAIProvider, error)
+	embeddingProvider func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)
 	partitionFunc     func(ctx context.Context) string
 	stagedConcept     func(conceptId string) bool
 }
@@ -85,7 +85,7 @@ func (i *Integration) SetDBGetter(f func() *sql.DB) { i.dbGetter = f }
 func (i *Integration) SetStagedConceptPredicate(f func(conceptId string) bool) { i.stagedConcept = f }
 
 // SetEmbeddingProvider injects the provider registry lookup.
-func (i *Integration) SetEmbeddingProvider(f func(name string) (memql.EmbeddingAIProvider, error)) {
+func (i *Integration) SetEmbeddingProvider(f func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error)) {
 	i.embeddingProvider = f
 }
 
@@ -244,7 +244,7 @@ func (i *Integration) similarToHandler(ctx context.Context, args map[string]any,
 		"provider", providerName,
 	)
 
-	provider, err := i.embeddingProvider(providerName)
+	provider, err := i.embeddingProvider(ctx, providerName)
 	if err != nil {
 		return nil, fmt.Errorf("similarity.similarTo: resolve provider %q: %w", providerName, err)
 	}

@@ -89,7 +89,7 @@ func (e *MemQLEngine) WireSemanticCache(embeddingProviderName string, dbGetter f
 	if e.providers == nil {
 		return
 	}
-	provider, err := e.providers.EmbeddingProvider(embeddingProviderName)
+	provider, err := e.providers.EmbeddingProvider(context.Background(), embeddingProviderName)
 	if err != nil || provider == nil {
 		if e.Component != nil && e.Logger != nil {
 			e.Logger.Info("semantic AI cache not wired: embedding provider unavailable",
@@ -300,8 +300,28 @@ func (e *MemQLEngine) InvokeAIStructured(
 	// been @disabled (so it is absent from the registry) resolves to
 	// nil here and falls through to the default cleanly. Emit a single
 	// log line so the fallback is observable rather than silent.
+	// PARK, DO NOT FALL THROUGH, when the prompt named a LOCAL provider
+	// (epic memql#5096, task memql#5098, design D2/D6).
+	//
+	// The fallback below scans the whole registry for anything
+	// structured-capable, which is right for a cloud provider that is
+	// temporarily unregistered and catastrophic for a fleet one: a closed
+	// laptop would silently hand every structured turn to a paid API, and
+	// nothing about the answer that came back would say so. The plain chat
+	// path (aiRuntime.Invoke) has always refused here; this path did not,
+	// which is the asymmetry `TestStructuredCallWithAFleetDefaultMakesNo-
+	// CloudCall` was written to catch.
+	//
+	// The refusal is the TYPED one, naming every machine considered and why
+	// each was ruled out, because a caller that parks on it wants to resume
+	// when a machine wakes -- and because "your laptop is asleep" and "this
+	// cluster has no provider" are different problems with different fixes.
+	if err := e.refuseUnavailableLocalProvider(ctx, providerName); err != nil {
+		return "", err
+	}
+
 	var result string
-	structured := e.StructuredChatProviderByName(providerName)
+	structured := e.StructuredChatProviderByName(ctx, providerName)
 	if structured == nil && providerName != "" && e.Component != nil && e.Logger != nil {
 		e.Logger.Info("prompt @defaultProvider unavailable; falling back to default structured provider",
 			"template", templateId, "requestedProvider", providerName)
@@ -575,11 +595,11 @@ func (e *MemQLEngine) StructuredChatProvider() common.ChatStructuredProvider {
 // implements ChatStructuredProvider. Callers supply the same name
 // they'd pass to ChatProvider; returns nil when the named provider
 // doesn't support structured output (caller should fall back).
-func (e *MemQLEngine) StructuredChatProviderByName(name string) common.ChatStructuredProvider {
+func (e *MemQLEngine) StructuredChatProviderByName(ctx context.Context, name string) common.ChatStructuredProvider {
 	if e.providers == nil {
 		return nil
 	}
-	return e.providers.ChatStructuredProviderByName(name)
+	return e.providers.ChatStructuredProviderByName(ctx, name)
 }
 
 // SuggestChatProvider returns a fast, lightweight chat provider optimized for
@@ -694,3 +714,29 @@ func (e *MemQLEngine) Policies() *PolicyRegistry {
 // component/bus protobuf package (which would create an import
 // cycle with the bus consumers downstream). app bootstrap calls
 // this once with the config component's Snapshot().
+
+// refuseUnavailableLocalProvider returns the typed refusal when providerName
+// names a LOCAL provider -- a fleet model today, an app door once one exists --
+// that cannot currently serve a call. It returns nil for every other name,
+// including a cloud provider that is unavailable, whose established behaviour
+// is to fall through to the default.
+//
+// The asymmetry is the design (D2): a cloud provider's fallback spends money
+// the operator has already agreed to spend, while a local provider's fallback
+// spends money nobody agreed to at all. So an unavailable local primary
+// REFUSES and the work parks, and the only ways to reach a paid API are an
+// authored @fallback or a person's explicit consent.
+func (e *MemQLEngine) refuseUnavailableLocalProvider(ctx context.Context, providerName string) error {
+	if e == nil || e.providers == nil {
+		return nil
+	}
+	modelId, isFleet := IsFleetReference(providerName)
+	if !isFleet {
+		return nil
+	}
+	entry, ok := e.providers.EntryForContext(ctx, providerName)
+	if ok && entry != nil && entry.Available && entry.Client != nil {
+		return nil
+	}
+	return e.providers.FleetRefusal(ctx, actingUserFromContext(ctx), modelId)
+}

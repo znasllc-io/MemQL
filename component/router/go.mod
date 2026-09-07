@@ -10,6 +10,7 @@ require (
 	github.com/znasllc-io/memql/component/auth v0.0.0
 	github.com/znasllc-io/memql/component/language v0.0.0
 	github.com/znasllc-io/memql/component/memql v0.0.0
+	github.com/znasllc-io/memql/component/work v0.0.0
 	github.com/znasllc-io/memql/core v0.0.0
 )
 
@@ -123,3 +124,5 @@ replace github.com/znasllc-io/memql/dsl => ../../dsl
 replace github.com/znasllc-io/memql/component/frontdoor => ../frontdoor
 
 replace github.com/znasllc-io/memql/component/metrics => ../metrics
+
+replace github.com/znasllc-io/memql/component/work => ../work
