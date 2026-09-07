@@ -64,7 +64,7 @@ export function InferenceStop({ role }: { role: string }) {
   const settings = useAppReach("settings", role);
 
   const canPair = fleet.sections.includes("machines") && fleet.canOpenWindows;
-  const canFederate = settings.sections.includes("providers") && settings.canOpenWindows;
+  const canOpenProviders = settings.sections.includes("providers") && settings.canOpenWindows;
 
   return (
     <div className="os-setup-stop">
@@ -100,7 +100,7 @@ export function InferenceStop({ role }: { role: string }) {
       );
     }
     const vendor = door === "anthropic" ? "Anthropic" : "OpenAI";
-    return canFederate ? (
+    return canOpenProviders ? (
       <Button tone="primary" onClick={() => settings.open("providers", { vendor: door })}>
         Open AI providers
       </Button>
