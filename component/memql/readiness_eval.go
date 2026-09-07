@@ -29,8 +29,18 @@ type readinessResolvers struct {
 	IsSecret func(name string) bool
 	// Hosted reports whether this node hosts the module.
 	Hosted func(mod envregistry.Module) bool
-	// InferenceOpen reports whether any inference door is open here.
-	InferenceOpen func(ctx context.Context) bool
+	// Registrations reads EVERY v1:worker:registration row in the cluster.
+	//
+	// A door is CONFIGURED when a row says it exists (design record
+	// 2026-09-07-core-gate-and-honest-install, D3), so this is what the `ai`
+	// arm reads. It replaced InferenceOpen, which asked the fleet and app
+	// seams -- a different question ("is a door open here, for this caller"),
+	// answerable only on an agent node, which is why every other node type
+	// reported no door and the fold pinned `ai` at partial forever.
+	Registrations func(ctx context.Context) ([]readiness.RegistrationFacts, error)
+	// FederationConfigured reports structural presence of a federated
+	// provider, which every node type can answer from its own registry.
+	FederationConfigured func() bool
 	// IntegrationState asks integration.<name>.status in-process:
 	// state is the report's own word, touched is "any slot present",
 	// registered=false means the integration is not on this node.
@@ -97,7 +107,27 @@ func evaluateModule(ctx context.Context, r readinessResolvers, mod envregistry.M
 	}
 	switch {
 	case mod.Evaluator == envregistry.EvaluatorInferenceStatus:
-		if r.InferenceOpen != nil && r.InferenceOpen(ctx) {
+		// A READ THAT FAILS LEAVES EVERY DOOR SHUT. This verdict is what the
+		// core gate branches on, and "we could not ask" reported as an open
+		// door sends somebody into a console whose every feature then
+		// refuses -- which is strictly worse than the gate they were on.
+		var regs []readiness.RegistrationFacts
+		if r.Registrations != nil {
+			if got, err := r.Registrations(ctx); err == nil {
+				regs = got
+			}
+		}
+		out.Lanes = readiness.InferenceLanes(readiness.InferenceInput{
+			Registrations:        regs,
+			FederationConfigured: r.FederationConfigured != nil && r.FederationConfigured(),
+			Now:                  now,
+		})
+		// ONE COMPLETE LANE CONFIGURES THE MODULE, the same rule the default
+		// arm below applies to every lane-driven module. There is deliberately
+		// no `partial` here: a door is configured or it is not, and a lane
+		// that is complete but not live is a machine asleep -- which the
+		// `live` slot says, and which is not a half-finished setup.
+		if readiness.InferenceConfigured(out.Lanes) {
 			out.State = readiness.Configured
 		} else {
 			out.State = readiness.Unconfigured
@@ -201,7 +231,8 @@ func (e *MemQLEngine) readinessResolvers() readinessResolvers {
 			}
 			return false
 		},
-		InferenceOpen: func(ctx context.Context) bool { return len(e.inferenceDoors(ctx).Doors) > 0 },
+		Registrations:        e.readInferenceRegistrations,
+		FederationConfigured: func() bool { return e.providers != nil && e.providers.federationConfigured() },
 		IntegrationState: func(ctx context.Context, name string) (string, bool, bool, error) {
 			handler, ok := e.builtinExecutorHandlers["integration."+name+".status"]
 			if !ok {
