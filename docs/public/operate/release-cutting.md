@@ -218,6 +218,78 @@ the same code.
 
 ---
 
+## 8b. The extension publish
+
+A published release also ships the VS Code extension, through
+`.github/workflows/publish-vscode-extension.yml`. Nothing to press: the
+workflow fires on `release: published`, exactly as the engine-image dispatch
+does.
+
+**Why it exists** (memql#5075). Before it there was no way to ship the
+extension to a user at all. CI packaged it on every relevant pull request and
+threw the artifact away, so every fix in it reached the one machine that could
+run `make vscode-install`. That matters more here than for an ordinary editor
+extension: for a local install **the extension is the product** -- it carries
+the install graph, the capability scripts and the whole panel -- so "how does a
+user get a fixed extension" was the same question as "how does a user get a
+fixed installer".
+
+### Bump the manifest first, or the publish refuses
+
+The lane compares the version it is publishing against
+`editors/vscode/package.json` and **refuses when they differ**. That refusal is
+the point: deriving the version from the tag alone would let a release ship an
+archive whose manifest still claims an older version, which a user's editor
+would then read as a version they may already have.
+
+So the release checklist gains one line: bump `editors/vscode/package.json`
+before cutting, in the same pull request as whatever changed in the extension.
+
+Note this is only half the answer to "what is in this archive". The other half
+does not need anybody to remember anything: every package carries
+`staged/buildinfo.json` with the commit it was built from (memql#5076), so the
+Deployments page can say **built at `<sha>`, and the checkout is at `<sha>`**
+even when two builds share a version.
+
+### Three channels, and two of them need a token
+
+| Channel | Needs | Without it |
+|---|---|---|
+| GitHub Release asset (`.vsix`) | nothing | -- |
+| VS Code Marketplace | `VSCE_PAT` secret | step skips, with a warning |
+| Open VSX (Cursor, VSCodium) | `OVSX_PAT` secret | step skips, with a warning |
+
+The release asset works the day the workflow lands and needs no account. It
+does **not** solve the update problem: a user who installed a `.vsix` by hand
+is never told a newer one exists. The Marketplace is the channel that makes
+updates automatic, which is what shrinks the extension/checkout skew to "between
+the fix and the update" instead of forever.
+
+A missing token **skips its channel and says so** -- a `::warning::` in the run
+and a line in the summary. A silent skip is how a green run comes to mean
+"shipped" when nothing was.
+
+To add the Marketplace: create an Azure DevOps organisation, a publisher named
+`znasllc` (which `package.json` already declares), and a PAT with
+**Marketplace: Manage**; store it as the `VSCE_PAT` repository secret. Open VSX
+is the same shape with a token from open-vsx.org, stored as `OVSX_PAT`.
+
+### One package per platform
+
+The extension bundles the offline `memql-lsp` binary, so a `.vsix` runs on
+exactly one platform. The lane builds four -- `linux-x64`, `linux-arm64`,
+`darwin-x64`, `darwin-arm64` -- each marked with `vsce package --target`.
+Without that flag they would be four identical *universal* packages carrying
+different binaries, and publishing them under one version would mean whichever
+landed last is what everyone gets.
+
+**Windows is deliberately absent.** The language half would work; the install
+half cannot, because the installers are `scripts/install/install-{mac,linux}.sh`
+and every capability script is bash. Shipping it would put an install button in
+front of users it can only refuse. It is one matrix line the day that changes.
+
+---
+
 ## 9. What this deliberately does not do
 
 - **No scheduled cuts.** The construct exists for something to call; no
