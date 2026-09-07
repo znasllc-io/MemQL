@@ -587,6 +587,21 @@ test("a from-source INSTALL builds with the checkout's scripts (memql#5064)", as
   );
 });
 
+test("a RELEASE install is untouched -- every step still comes from the extension", async () => {
+  // The lane the e2e jobs actually run: they install with `--tag=e2e-<sha>`, so
+  // `isMainBranchChoice` is false and `install.json` is the graph -- which has no
+  // `buildImages` step at all. `k3d.up` is deliberately outside the rule, so
+  // `scriptRootFor` must return `opts.root` for EVERY step here and this change
+  // must be byte-identical to the previous behaviour on the release path.
+  const staged = stagedTree();
+  const { run, paths } = pathRecordingRunner();
+  await runInstall(options({ root: staged, stackDir: REPO_ROOT, tag: "v0.19.1" }), { run });
+
+  assert.ok(paths.length > 1, "the release graph ran no steps");
+  const strays = paths.filter((p) => !p.startsWith(staged + path.sep));
+  assert.deepEqual(strays, [], "a release-install step read its script from outside the extension");
+});
+
 test("the STEP's own --repo-root decides, not a guess made when the session was built", async () => {
   // THE MECHANISM, pinned on its own. memql#5056 resolved the script root ONCE
   // when the session was constructed. For an install that is too early: the
