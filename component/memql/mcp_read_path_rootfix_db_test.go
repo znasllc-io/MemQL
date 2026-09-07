@@ -20,7 +20,7 @@ import (
 //          returned nothing when tagged/array data existed.
 //   #1675  querySavedSpaces / queryArchivedSpaces gated on the active==true
 //          trait, so saved/archived rows (active=false) never came back.
-//   #1685  invocationsForPlan / expiredWorkerInvocations omitted the
+//   #1685  invocationsForRun / expiredWorkerInvocations omitted the
 //          not-deleted trait, so soft-deleted invocations leaked through.
 //   #1682  searchUsers ignored its active/limit filter args (returned all users).
 //
@@ -95,14 +95,14 @@ func TestWorkerInvocations_SoftDeletedExcluded(t *testing.T) {
 	ctx := clusterOwnerCtx("u-wi-1685")
 	sfx := uniqueSuffix("wi")
 
-	planID := fmt.Sprintf("v1:platform:missingCapability:p-%s", sfx)
+	runID := fmt.Sprintf("v1:work:run:r-%s", sfx)
 	liveID := fmt.Sprintf("v1:worker:invocation:live-%s", sfx)
 	deadID := fmt.Sprintf("v1:worker:invocation:dead-%s", sfx)
 
 	base := func(id string) map[string]any {
 		return map[string]any{
 			"invocationId": id, "ownerUserId": "u-wi-1685", "workerId": "w-1",
-			"agentId": "a-1", "planId": planID, "tool": "workerHost",
+			"agentId": "a-1", "runId": runID, "tool": "workerHost",
 			"action": "exec", "startedAt": "2026-01-01T00:00:00Z", "outcome": "success",
 		}
 	}
@@ -112,9 +112,9 @@ func TestWorkerInvocations_SoftDeletedExcluded(t *testing.T) {
 	// Soft-delete one of them.
 	runMutation(t, ctx, eng, "softDeleteWorkerInvocation", map[string]any{"invocationId": deadID})
 
-	forPlan := queryIds(t, ctx, eng, fmt.Sprintf(`invocationsForPlan(planId:%q)`, planID))
-	require.True(t, contains(forPlan, liveID), "live invocation must be returned, got %v", forPlan)
-	require.False(t, contains(forPlan, deadID), "soft-deleted invocation must be excluded from invocationsForPlan (#1685), got %v", forPlan)
+	forRun := queryIds(t, ctx, eng, fmt.Sprintf(`invocationsForRun(runId:%q)`, runID))
+	require.True(t, contains(forRun, liveID), "live invocation must be returned, got %v", forRun)
+	require.False(t, contains(forRun, deadID), "soft-deleted invocation must be excluded from invocationsForRun (#1685), got %v", forRun)
 
 	expired := queryIds(t, ctx, eng, "expiredWorkerInvocations()")
 	require.False(t, contains(expired, deadID), "soft-deleted invocation must be excluded from expiredWorkerInvocations (#1685), got %v", expired)
