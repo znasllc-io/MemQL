@@ -304,6 +304,7 @@ rounds, each with its reason on the alert, and two in round three:
 | #1083, #1084, #1085 | `component/emailrules/{fire,activate}.go`, `core/id/id.go` | `id.Combine` -- a content-addressed id from two ids |
 | #1129 | `component/memql/authoring_catalog.go` | `CatalogKey` -- a construct's canonicalized SOURCE, the name-independent dedup signature |
 | #1128 | `core/common/modelcall.go` | `ModelRequest.Hash` -- the journal's replay key over provider, model, settings, messages, tools and schema |
+| #1133 | `component/memql/app_provider.go` | `AppCallFingerprint` -- the app door's loop-breaker key over `(app, conversation)`, the twin of #1027-#1029 |
 
 What round three adds is the SOURCE the query traced, which no dismissal
 before it named. Every path into #1128 and #1129 starts at one of three
@@ -316,6 +317,14 @@ pasted vendor key that is sealed into a `globalSecret` row and never read
 back. That is a path any string in any row can take, and it says nothing
 about what the two functions digest: a construct's text and a model request's
 content, each into a lookup key.
+
+#1133 arrived with the app-door epic (memql#5096) and is the same function as
+`FleetCallFingerprint`, one door over: `GuardLocalModelCall` is the chokepoint
+for a call that has no `*http.Client`, and the fingerprint is what lets the
+loop breaker notice a runaway. The two must hash the same shape or a runaway
+through the app door would be invisible to a breaker that only recognises
+fleet calls -- which is why it is a copy of that function rather than a
+different one, and why it earns the same dismissal.
 
 One phrasing in the dismissal comments between rounds should not be repeated:
 "no password exists in this system to hash". An SMTP relay password does
