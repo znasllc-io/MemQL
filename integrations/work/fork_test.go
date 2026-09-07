@@ -1,6 +1,7 @@
 package work
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -232,6 +233,30 @@ func TestForkWithNoOverridesCarriesTheSourcesVariables(t *testing.T) {
 	vars, _ := createRunArgs(t, eng)["variables"].(map[string]any)
 	if vars["month"] != "2026-09" {
 		t.Errorf("an ordinary fork must run on the source's variables, got %+v", vars)
+	}
+}
+
+// TestMergedVariablesLayersOverridesPerKey pins the merge apart from the
+// handler: every base key survives, an override wins per key, a new key
+// joins, the source row's own map is never written into, and a fork with
+// nothing to override runs on that map as it is.
+func TestMergedVariablesLayersOverridesPerKey(t *testing.T) {
+	source := map[string]any{"variables": map[string]any{"month": "2026-09", "region": "emea"}}
+
+	got := mergedVariables(source, map[string]any{"month": "2026-10", "tier": "gold"})
+	want := map[string]any{"month": "2026-10", "region": "emea", "tier": "gold"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("merged = %+v, want %+v", got, want)
+	}
+	if base := rowMap(source, "variables"); len(base) != 2 || base["month"] != "2026-09" {
+		t.Errorf("the merge wrote into the source row's own map: %+v", base)
+	}
+
+	if got := mergedVariables(source, nil); !reflect.DeepEqual(got, rowMap(source, "variables")) {
+		t.Errorf("nil overrides must hand back the source's variables, got %+v", got)
+	}
+	if got := mergedVariables(map[string]any{}, map[string]any{"month": "2026-10"}); !reflect.DeepEqual(got, map[string]any{"month": "2026-10"}) {
+		t.Errorf("a source with no variables must still carry the override, got %+v", got)
 	}
 }
 

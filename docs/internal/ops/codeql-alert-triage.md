@@ -22,6 +22,13 @@ dismissal reason each.
 were real and all three are fixed in code; nothing was dismissed, so they
 appear under [Fixed in code](#fixed-in-code) only.
 
+**Round three (2026-09-06) -- forty-five alerts** (#1086-#1130, all raised
+that day). **Forty-three are fixed in code and two are dismissed**, false
+positives of the shape round one recorded. Forty-two of the forty-three are
+ONE defect: a test helper that built a regex from a shop hostname, reached
+from twenty-one sites and flagged by two rules at each -- so the count is a
+fact about how the queries report, not about how much was wrong.
+
 This file deliberately does NOT record a count of what is open now. That is a
 live fact with a one-line query (see [Re-triaging](#re-triaging)), and a
 sentence here saying `main` is clean goes quietly false the next time the suite
@@ -220,6 +227,40 @@ TypeScript accepts a signature with fewer parameters anywhere one with more is
 wanted. So `implements` gates the instance side only, and the comment in the
 file says so instead of claiming a guard that is not there.
 
+### `js/incomplete-hostname-regexp` x21 + `js/regex/missing-regexp-anchor` x21 (high)
+
+`clients/os/test/stores/stores.test.tsx`, round three. One helper found a
+store's list line with `new RegExp(domain)` over a shop hostname, and six call
+sites wrote the same regex inline (`/acme-widgets.myshopify.com/`). Both rules
+fire per CALL SITE, because the literal flows into the constructor at each one
+-- so a single helper accounted for forty-two alerts, and the count says
+nothing about how much code was wrong.
+
+The defect is precision, not security, and it is real: the dots were
+unescaped and nothing was anchored, so the matcher also took
+`acme-widgetsXmyshopify.com` and `not-acme-widgets.myshopify.com`, and a test
+that matches more than it means is one that passes on the wrong row. The row's
+accessible name is the domain FOLLOWED BY its subline and state chips (the kit
+`Row` names its button by content, not by `aria-label`), so an exact string
+cannot match it and an end anchor cannot either. The fix is a predicate rather
+than a better regex -- `name.startsWith(domain)`, in one `storeLine` helper
+every site now goes through. There is no regex left for either query to read,
+which is the honest way for a finding to close: not by escaping enough of it
+to satisfy the pattern the query looks for.
+
+### `go/allocation-size-overflow` x1 (high)
+
+`integrations/work/fork.go`, `mergedVariables`:
+`make(map[string]any, len(base)+len(overrides))`. The sum of two in-memory
+map lengths cannot overflow on any platform this repository builds for, which
+is the argument under every earlier dismissal of this rule here -- but the
+hint was also simply WRONG. An override mostly restates a key the base already
+carries, so the honest capacity is `len(base)`, and sizing for that takes the
+arithmetic out of the allocation as a side effect. Fixed rather than dismissed
+because the fix is the better code. `TestMergedVariablesLayersOverridesPerKey`
+pins the merge on its own, including the property the handler test could not
+see: the result is a NEW map, never a write into the source row's own.
+
 ---
 
 ## Dismissed as false positives
@@ -251,6 +292,36 @@ IDENTIFIER, not a stored secret. The digest is the lookup key, the row id, or
 the value being concatenated. A computationally expensive hash is not a
 hardening here, it is a different function: it would break determinism, break
 every existing row id, and make the DSL `hash()` builtin unusable.
+
+**Since round one, eight more of the same shape** -- six dismissed between
+rounds, each with its reason on the alert, and two in round three:
+
+| Alert | Site | What is hashed |
+|---|---|---|
+| #1041 | `component/campaigns/delivery_id.go` | `(campaign, recipient)` -- the delivery row id, derived the way the DSL derives it |
+| #1074 | `component/work/approval.go` | the artifact fingerprint an approval is a decision about |
+| #1076 | `component/compose/write.go` | the bytes of a composed document -- `v1:library:file.sha256`, a dedup hint |
+| #1083, #1084, #1085 | `component/emailrules/{fire,activate}.go`, `core/id/id.go` | `id.Combine` -- a content-addressed id from two ids |
+| #1129 | `component/memql/authoring_catalog.go` | `CatalogKey` -- a construct's canonicalized SOURCE, the name-independent dedup signature |
+| #1128 | `core/common/modelcall.go` | `ModelRequest.Hash` -- the journal's replay key over provider, model, settings, messages, tools and schema |
+
+What round three adds is the SOURCE the query traced, which no dismissal
+before it named. Every path into #1128 and #1129 starts at one of three
+values -- `envAnthropicAPIKey` and the `apiKey` argument of `providerKeySet`
+in `component/memql/provider_config_write.go`, and the SMTP password slot in
+`integrations/email/emailconfig.go` -- and reaches the digest 190 to 327
+taint steps later, through the engine's `map[string]any` row plumbing. Two of
+the three are the NAMES of environment variables, not secrets; the third is a
+pasted vendor key that is sealed into a `globalSecret` row and never read
+back. That is a path any string in any row can take, and it says nothing
+about what the two functions digest: a construct's text and a model request's
+content, each into a lookup key.
+
+One phrasing in the dismissal comments between rounds should not be repeated:
+"no password exists in this system to hash". An SMTP relay password does
+exist. The claim that holds is the one below -- neither site is ever handed a
+user-chosen secret to VERIFY, and a user-chosen secret reaching either hash
+would still be a real finding.
 
 Note the sites that are NOT in this list and would be a different answer:
 MemQL does store SHA-256 digests of bearer credentials (worker tokens, PATs,

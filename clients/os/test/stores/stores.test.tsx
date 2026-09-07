@@ -52,9 +52,24 @@ function mount(
   return { view, navigate };
 }
 
+/**
+ * The list line for one store, by the accessible name it BEGINS with.
+ *
+ * The kit `Row` names its button by content, so the name is the domain
+ * followed by the subline and the state chips -- an exact string cannot match
+ * it, and the natural reach is a substring regex over the domain. That regex
+ * is the one CodeQL flags twice: an unescaped `.` and no anchor, so
+ * `/acme-widgets.myshopify.com/` also takes `not-acme-widgets.myshopify.com`
+ * and `acme-widgetsXmyshopify.com`. A predicate says what is meant and
+ * nothing else: the line whose name starts with this domain.
+ */
+function storeLine(domain: string) {
+  return screen.findByRole("button", { name: (name) => name.startsWith(domain) });
+}
+
 /** Open one store's page from the list. */
 async function openStore(domain: string) {
-  await click(await screen.findByRole("button", { name: new RegExp(domain) }));
+  await click(await storeLine(domain));
   return screen.getByRole("group", { name: "What you can do with this" });
 }
 
@@ -205,7 +220,7 @@ describe("a store nothing has reported on", () => {
   it("renders an em dash for drift on the list, never a zero", async () => {
     mount(fakeConnection({ stores: [NEVER_RUN] }));
 
-    const line = await screen.findByRole("button", { name: /fresh-shop.myshopify.com/ });
+    const line = await storeLine("fresh-shop.myshopify.com");
     // The dash is there, carrying its reason...
     const dash = within(line).getByTitle("Nothing has reported this yet.");
     expect(dash.textContent).toBe("—");
@@ -235,7 +250,7 @@ describe("a store nothing has reported on", () => {
 
   it("measures what the report did measure", async () => {
     mount(fakeConnection({ stores: [LIVE] }));
-    const line = await screen.findByRole("button", { name: /acme-widgets.myshopify.com/ });
+    const line = await storeLine("acme-widgets.myshopify.com");
     // A measured figure is the number, not a dash -- the distinction runs
     // both ways or it is not a distinction.
     expect(line.textContent).toContain("2 mirrored domains");
@@ -314,7 +329,7 @@ describe("a store pinned to a version the mirror was not generated from", () => 
 
   it("warns on the list line", async () => {
     mount(fakeConnection({ stores: [STALE] }));
-    const line = await screen.findByRole("button", { name: /old-pin.myshopify.com/ });
+    const line = await storeLine("old-pin.myshopify.com");
     expect(within(line).getByText("pinned 2026-04, mirror 2026-07")).toBeTruthy();
   });
 
@@ -383,7 +398,7 @@ describe("the health read", () => {
   it("says when it looked, and looks again on demand", async () => {
     const connection = fakeConnection({ stores: [LIVE] });
     mount(connection);
-    await screen.findByRole("button", { name: /acme-widgets.myshopify.com/ });
+    await storeLine("acme-widgets.myshopify.com");
     expect(screen.getByText(/this is not a live feed/)).toBeTruthy();
     expect(connection.callsNamed("shopifyStoreHealth")).toHaveLength(1);
 
@@ -466,7 +481,7 @@ describe("the mirror sync table", () => {
 describe("the section's shape", () => {
   it("shows one Head at a time, and the detail REPLACES the list", async () => {
     mount(fakeConnection({ stores: [LIVE] }));
-    await screen.findByRole("button", { name: /acme-widgets.myshopify.com/ });
+    await storeLine("acme-widgets.myshopify.com");
     // TWO HEADS IN ONE SCROLLER IS THE TELL that a page was appended beneath
     // the list it was selected from, which is what rule 11 exists to stop.
     expect(document.querySelectorAll(".os-head")).toHaveLength(1);
@@ -480,7 +495,7 @@ describe("the section's shape", () => {
 
   it("carries one action bar, on the surfaces that have a lifecycle", async () => {
     mount(fakeConnection({ stores: [LIVE] }));
-    await screen.findByRole("button", { name: /acme-widgets.myshopify.com/ });
+    await storeLine("acme-widgets.myshopify.com");
     // The list has no lifecycle, so it has no bar.
     expect(document.querySelectorAll(".os-actbar")).toHaveLength(0);
 
