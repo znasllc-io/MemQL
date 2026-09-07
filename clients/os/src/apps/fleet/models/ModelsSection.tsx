@@ -93,24 +93,36 @@ export function ModelsSection() {
       ) : null}
 
       <Subhead>Ranked for your fleet</Subhead>
-      <Caption>
-        A policy that names <span className="os-mono">fleet:*</span> takes the first model here
-        that can serve the turn it is making. The order is your preference first, then parameters,
-        then context window, then model id — and a model that did not report its size sorts last,
-        never first.
-      </Caption>
 
-      {preference.length > 0 ? (
-        <Chips label="Your preferred order">
-          {preference.map((id, i) => (
-            <Chip key={`${id}:${i}`} tone="accent">
-              {id}
-            </Chip>
-          ))}
-        </Chips>
-      ) : null}
+      {/* NOTHING ABOUT THE ORDER IS SHOWN OVER AN EMPTY LIST. The ranking
+          rule, the preference chips and the four turn lines all describe an
+          ordering of models, and printing them above nothing describes an
+          order of nothing -- the same reason a section never shows filter
+          chrome over no content (rule 2). The empty notice carries the whole
+          message on its own. */}
+      {models.length === 0 ? null : (
+        <>
+          <Caption>
+            A policy that names <span className="os-mono">fleet:*</span> takes the first model
+            here that can serve the turn it is making. The order is your preference first, then
+            parameters, then context window, then model id — and a model that did not report its
+            size sorts last, never first.
+          </Caption>
 
-      <NextForEachTurn next={nextByTurn} known={models.length > 0} />
+          {preference.length > 0 ? (
+            <Chips label="Your preferred order">
+              {preference.map((id, i) => (
+                <Chip key={`${id}:${i}`} tone="accent">
+                  {id}
+                </Chip>
+              ))}
+            </Chips>
+          ) : null}
+
+          <Caption>What each kind of turn would land on right now:</Caption>
+          <NextForEachTurn next={nextByTurn} known />
+        </>
+      )}
 
       {catalog.state === "read" && ranked.length === 0 ? (
         <Notice

@@ -139,9 +139,17 @@ export function formatParams(params: number): string {
   return params.toString();
 }
 
-/** A context window in the operator's vocabulary: "131k", "8k". */
+/**
+ * A context window in the operator's vocabulary: "128k", "32k", "8k".
+ *
+ * DIVIDED BY 1024, NOT 1000, and that is not pedantry. Context windows are
+ * powers of two and every model card in the world names them that way: 32768
+ * is the model an operator knows as 32k, and rounding 32.768 up to "33k"
+ * prints a number they have never seen next to a model they recognise, which
+ * reads as this page having got something wrong.
+ */
 export function formatContext(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return "";
-  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`;
+  if (tokens >= 1024) return `${Math.round(tokens / 1024)}k`;
   return tokens.toString();
 }

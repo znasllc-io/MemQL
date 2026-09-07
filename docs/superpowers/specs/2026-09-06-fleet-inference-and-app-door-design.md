@@ -1,9 +1,11 @@
 # Fleet inference completion, and subscription apps as an inference door -- Design
 
 - **Date:** 2026-09-06
-- **Status:** approved in the 2026-09-06 brainstorm as epic 3 of the inference and setup
-  program (`2026-09-06-inference-and-setup-program.md`). The direction (D1-D4) was put to
-  the owner as selectable options and answered; D5-D8 follow from it.
+- **Status:** SHIPPED (engine half) on 2026-09-07 in one PR closing memql#5096-#5102.
+  Approved in the 2026-09-06 brainstorm as epic 3 of the inference and setup program
+  (`2026-09-06-inference-and-setup-program.md`). The direction (D1-D4) was put to the
+  owner as selectable options and answered; D5-D8 follow from it. Section 10 records
+  what execution decided that this record did not, and what was deliberately not built.
 - **Repositories:** the engine half in `memql` (this record, `component/memql`,
   `component/router`, `component/worker`, `integrations/agent/worker`, `component/mcp`,
   `dsl/providers`, `dsl/policies`, `component/grpc/worker.proto`); the cockpit half in
@@ -297,3 +299,107 @@ Codex app-server's method names and event shapes; Claude Code's stream-json even
 and `--json-schema` behaviour; Ollama `/api/show` detail fields; whether `codex
 mcp-server`'s `codex-reply` accepts a thread id from a previous process; the MCP node's
 current protocol revision. All were true on 2026-09-06.
+
+---
+
+## 10. What execution settled, and what was not built
+
+Written after the fact, because each of these is a decision a later reader
+would otherwise have to reconstruct from a diff.
+
+### 10.1 The fallthrough was worse than D6 guessed
+
+D6 called the structured fallthrough "unverified; the plan's first task is the
+test that proves or disproves it". It was real, and it was **not conditional on
+an idle fleet**: with an ONLINE machine, a structured call whose prompt named a
+fleet model came back `{"answered":"by the cloud"}`. So structured prompts never
+reached the fleet at all -- awake or asleep -- and nothing about the answer said
+which vendor produced it.
+
+Two causes, both fixed: `isNonStreamingType` did not know `Fleet`, and
+`InvokeAIStructured` had no equivalent of the plain chat path's refusal, so its
+registry-wide scan found a cloud provider the policy never named.
+
+### 10.2 The four local-first policies were DELETED, not wired
+
+D6 said "wired to their purposes or deleted; none is left seeded and unused".
+Execution deleted all four. `localPlanner`'s loop was retired (memql#5052),
+there is no conductor in the engine, and suggest and embeddings reach the fleet
+through D4's chain and through `fleet:` resolution on the embedding provider.
+Nothing named any of them. The conformance gate moved with the design: it now
+asserts the ORDER every shipped policy tries (local, then app, then anybody's
+money) rather than the absence of a fallback.
+
+### 10.3 The park re-check is a POLL, and the reason is another epic
+
+D9 says the park "resumes when a door opens (the readiness feed of epic 1 is
+the trigger)". `v1:platform:moduleReadiness` is epic 1's concept and was not in
+the tree when this shipped, and a subscription to a concept the tree does not
+declare is a resume path that never fires. So a parked run carries a `resumeAt`
+five minutes out and the work sweep hands it back; when that feed lands, this
+becomes its fallback rather than its mechanism.
+
+A **ceiling** park carries no `resumeAt`. Only a person changes a ceiling, and
+polling would burn a dispatch every five minutes to rediscover a number nobody
+touched.
+
+### 10.4 `nextTask` answers from the SESSION, not from a work queue
+
+D7 describes `nextTask` as handing out "a `v1:work:step` waiting on an app door
+and claimed by this session's owner". Nothing in the tree puts a step in that
+state, and a puller with nothing to pull is a seam that is built and empty --
+the memql#4120 failure this program keeps naming. So `nextTask` answers from
+the caller's OWN app-session row: the prompt, and the response schema when one
+was asked for, and `idle` for a session that has ended, already submitted, or
+carries no prompt. The work-queue form is a later decision, not a stub.
+
+### 10.5 The app door went INTO `inferenceDoors`, not beside it
+
+Epic 1 (memql#5077) extracted `inferenceDoors` in
+`component/memql/fleet_catalog_read.go` so the `inferenceStatus` row and the
+`ai` readiness module share one reading. This epic's door is computed there, so
+the readiness verdict picks it up without knowing the door exists. Adding it at
+the one caller instead would have let a person be told inference is configured
+on one surface and not the other, with both readings defensible.
+
+### 10.6 What the cockpit half proved about the harnesses
+
+Verified in memql-cockpit#392 against the vendors' own source rather than
+against this record, and it changes two claims here:
+
+- **Codex is two ERAS of one binary, not two coexisting modes.** `mcp-server`
+  exists at 0.50, both exist at 0.75 and 0.100, 0.153 prints a deprecation, and
+  current main has no `mcp-server` subcommand. So `AppDescriptor.harness`
+  genuinely has to be read from the machine (D8) rather than derived from the
+  app id.
+- **`codex-mcp` can neither report usage nor constrain output.** Its token
+  events are documented as "accumulated, estimated, or replayed", and its tool
+  schema is `additionalProperties:false`, so an invented output-schema argument
+  is REFUSED rather than ignored. Both are reported as absent rather than
+  guessed, which is what makes the descriptor's `structured_result: false` a
+  fact rather than a caution.
+
+`ModelCallToolCall.index` exists because an OpenAI-compatible stream sends tool
+calls by index with arguments in fragments; Ollama does not stream partial tool
+calls at all and emits its list complete on the end. The END's list is
+authoritative for both.
+
+### 10.7 What one import cost
+
+`component/automations` and `component/router` gained an import of
+`component/work`, and in a tree of 49 relative-path modules that is never one
+file: three consumer modules needed their own `require` + `replace`, because a
+relative-path replace does not travel. Neither `go build ./...` nor `make test`
+sees it -- both resolve through go.work, where every module is present -- so the
+`module-boundaries` lane is what catches it. Running that sweep locally is what
+found them, and it also found a test signature the workspace build had been
+hiding.
+
+### 10.8 Not built, deliberately
+
+- Cross-replica forwarding of app-session envelopes. A machine on a sibling
+  replica is reported as considered-and-skipped, as section 8 said.
+- The work-queue form of `nextTask` (10.4).
+- The readiness-feed trigger for the park (10.3).
+- A per-turn model override in MemQL OS. `modelPreference` is the one field
+  this epic adds, per section 8.

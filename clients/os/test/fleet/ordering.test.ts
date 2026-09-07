@@ -132,8 +132,12 @@ describe("the operator's vocabulary", () => {
     expect(formatParams(Number.NaN)).toBe("");
   });
 
-  it("renders a context window in thousands", () => {
-    expect(formatContext(131072)).toBe("131k");
+  it("renders a context window the way a model card does", () => {
+    // DIVIDED BY 1024. These are the numbers an operator recognises next to
+    // the model they pulled; 32768 rounded on 1000 prints "33k", which is a
+    // figure nobody has ever seen and reads as this page being wrong.
+    expect(formatContext(131072)).toBe("128k");
+    expect(formatContext(32768)).toBe("32k");
     expect(formatContext(8192)).toBe("8k");
     expect(formatContext(512)).toBe("512");
     expect(formatContext(0)).toBe("");

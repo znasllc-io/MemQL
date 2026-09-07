@@ -390,3 +390,55 @@ func TestInferenceStatusSeparatesNoAppFromNoWorkerService(t *testing.T) {
 		t.Errorf("doorsOpen = %v, want none", doors)
 	}
 }
+
+// THE READINESS VERDICT AND THE inferenceStatus ROW READ ONE IMPLEMENTATION.
+//
+// `inferenceDoors` was extracted for exactly this (epic memql#5077): a second
+// reading would let a person be told inference is configured on one surface
+// and not on the other, with both readings defensible. This epic added a door,
+// and it went INTO that function rather than beside its one caller -- so the
+// `ai` readiness module picks it up without knowing the door exists.
+func TestTheAppDoorReachesTheSharedInferenceReading(t *testing.T) {
+	r := newProviderRegistry("")
+	r.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
+	e := &MemQLEngine{providers: r}
+
+	d := e.inferenceDoors(userCtx("alice"))
+	if !d.AppEligible {
+		t.Fatal("a runnable app must make the shared reading eligible")
+	}
+	if len(d.Doors) != 1 || d.Doors[0] != InferenceDoorApp {
+		t.Fatalf("doors = %v, want exactly [app]", d.Doors)
+	}
+	// The readiness module branches on `len(Doors) > 0` (readiness_eval.go).
+	// With only an app signed in, that has to be true -- a cluster whose only
+	// route to a model is somebody's Claude Code IS able to do work, and
+	// reporting it as not ready would send them to add a key they do not need.
+	if len(d.Doors) == 0 {
+		t.Error("readiness would report this cluster unable to reach a model")
+	}
+	if !d.AppSessionsInstalled {
+		t.Error("appSessionsInstalled must come off the same reading, or the row and the " +
+			"readiness verdict can disagree about why the door is shut")
+	}
+
+	// THE ORDER IS PART OF THE ANSWER. Every client renders this list rather
+	// than re-deriving one, so a door inserted in the wrong place changes what
+	// four surfaces say the chain tries first.
+	full := newProviderRegistry("")
+	full.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
+	full.SetFleetInference(&stubFleet{models: []FleetModel{eligibleForGate()}})
+	e2 := &MemQLEngine{providers: full}
+	got := e2.inferenceDoors(userCtx("alice")).Doors
+	if len(got) != 2 || got[0] != InferenceDoorLocal || got[1] != InferenceDoorApp {
+		t.Fatalf("doors = %v, want [local app] -- own hardware, then a subscription already paid for", got)
+	}
+}
+
+// eligibleForGate is a model that meets the first-run gate's minimum profile:
+// online, structured output, and over the context floor.
+func eligibleForGate() FleetModel {
+	m := onlineModel("llama3.1:8b", true)
+	m.ContextWindow = MinimumContextWindow
+	return m
+}
