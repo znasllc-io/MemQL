@@ -208,10 +208,30 @@ export interface UninstallFollowUp {
    * extension could clear it.
    */
   deleteReceipt: () => Promise<void>;
+  /**
+   * Whether the run KEPT any artifact rather than removing it (memql#5118, D8).
+   *
+   * When it did, the registry entry and the receipt both STAY, and that is the
+   * whole point: they name a cluster that is still on this machine. Deleting
+   * them made `detectPresence` read `absent`, which offered Install, which
+   * adopted the very cluster the uninstall had just declined to remove -- so
+   * the operator was told everything had been taken back and then handed their
+   * own database back under a fresh receipt. Every step was individually
+   * correct.
+   */
+  keptArtifacts: boolean;
 }
 
 export async function completeLocalUninstall(follow: UninstallFollowUp): Promise<string> {
   const problems: string[] = [];
+  // NOTHING IS FORGOTTEN ABOUT A CLUSTER THAT IS STILL HERE. Both records
+  // describe artifacts the run declined to remove, and dropping them is what
+  // turned "we kept your cluster" into "install a fresh one over it".
+  if (follow.keptArtifacts) {
+    follow.invalidatePresence();
+    follow.refreshTree();
+    return "";
+  }
   const name = follow.clusterName;
   if (name !== undefined && name !== "") {
     try {

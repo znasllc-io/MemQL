@@ -441,6 +441,15 @@ export interface RunningScreenInput {
   /** Whether a run is actually in flight -- see the comment on the empty list. */
   running: boolean;
   /**
+   * Whether this run KEPT anything (memql#5118, D8).
+   *
+   * Only an uninstall can, and it changes what the finished run says about
+   * itself. Optional rather than required, unlike `logsOpen` below, because an
+   * absent value is CORRECT for every other mode -- there is nothing a caller
+   * could silently get wrong by leaving it out.
+   */
+  kept?: boolean;
+  /**
    * Whether the log disclosure is open, from the STATE module (memql#4455).
    *
    * REQUIRED RATHER THAN DEFAULTED, and the compile error is the point. Both
@@ -504,6 +513,24 @@ const RUN_DONE: Readonly<Record<RunMode, string>> = {
 };
 
 /**
+ * What a finished UNINSTALL says, which depends on whether anything was kept
+ * (memql#5118, D8).
+ *
+ * "Everything the install put on this machine has been taken back" is FALSE on
+ * a machine where the installer adopted a k3d cluster the operator already had
+ * and then correctly declined to delete it -- the ordinary case for a
+ * developer who ran `make up` before they ever opened the wizard. The refusal
+ * is the system working; the sentence printed over it was not.
+ */
+export function uninstallDoneSentence(kept: boolean): string {
+  if (!kept) return RUN_DONE.uninstall;
+  return (
+    "Removed, apart from what was already here. What the install created has been taken back; " +
+    "what it found is still on this machine."
+  );
+}
+
+/**
  * A step's description with its full stop taken off, for embedding in a phrase.
  *
  * The descriptions are SENTENCES -- the CLI prints them as sentences and the
@@ -565,7 +592,9 @@ export function renderRunBlock(input: RunningScreenInput): string {
   const message = failed !== undefined
     ? `${phrase(failed.description === "" ? failed.id : failed.description)} failed -- see the log below.`
     : settled
-      ? RUN_DONE[input.mode]
+      ? input.mode === "uninstall"
+        ? uninstallDoneSentence(input.kept === true)
+        : RUN_DONE[input.mode]
       : input.steps.length === 0
         ? input.running
           ? "Starting. The first step will appear here as it begins."

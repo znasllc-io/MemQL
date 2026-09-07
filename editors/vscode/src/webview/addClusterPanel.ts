@@ -141,6 +141,7 @@ const CHOICE_ACTIONS: readonly AddClusterAction[] = [
   "reconnect",
   "repair",
   "uninstall",
+  "adopt",
 ];
 
 /**
@@ -648,6 +649,13 @@ export class AddClusterPanel {
       // The other cards ask for confirmation or collect fields before they
       // change anything; this one does not, so the check is here.
       if (action === "reconnect" && !offersReconnect(this.verdict, this.localRegistered)) return;
+      // ADOPT IS RECONNECT'S GATE, on the verdict reconnect refuses. It writes
+      // the same registry row for the same reason, and it is offered on
+      // evidence from k3d rather than from a receipt -- so the check is the
+      // same shape, over the one verdict that produced this card
+      // (memql#5118, D8). Same reasoning as the line above: the postMessage
+      // channel is untrusted and this action WRITES.
+      if (action === "adopt" && (this.verdict !== "present-unreceipted" || this.localRegistered)) return;
       this.state.chooseAction(action);
       // The duplicate-name check needs a registry to check against, and this
       // is the moment it becomes worth reading one. Nothing waits on it: the
@@ -671,7 +679,7 @@ export class AddClusterPanel {
       // default), the entry is composed from it, and the hand-off screen the
       // action lands on is the same one a finished install reaches -- so the
       // operator's next click is "Sign in as owner" either way (memql#3741).
-      if (action === "reconnect") void this.reconnectLocal();
+      if (action === "reconnect" || action === "adopt") void this.reconnectLocal();
       this.render();
       return;
     }
@@ -1615,7 +1623,7 @@ export class AddClusterPanel {
       );
       this.uninstall.finish(report);
       if (report.ok && report.cancelled !== true) {
-        await this.completeUninstall();
+        await this.completeUninstall(report.kept === true);
       } else {
         // A partial removal still changed the machine, so the memo describing
         // it has to go. The registry entry does NOT: it still names a cluster
@@ -1646,9 +1654,16 @@ export class AddClusterPanel {
     }
   }
 
-  /** The three things that follow a clean removal. See completeLocalUninstall. */
-  private async completeUninstall(): Promise<void> {
+  /**
+   * The three things that follow a clean removal. See completeLocalUninstall.
+   *
+   * `kept` decides whether the records go with the artifacts: a run that
+   * preserved the operator's own cluster has left something on this machine,
+   * and the receipt and the registry row are what say so (memql#5118, D8).
+   */
+  private async completeUninstall(kept: boolean): Promise<void> {
     const problem = await completeLocalUninstall({
+      keptArtifacts: kept,
       clusterName: this.localClusterName,
       removeEntry: (name) => this.deps.removeRegistryEntry(name),
       invalidatePresence: () => this.presence.invalidate(),
@@ -2439,6 +2454,11 @@ ${rows}`;
       steps,
       mode: "uninstall" as const,
       running: !runIsSettled(steps),
+      // Read off the STEPS rather than off the report, so the finished
+      // sentence is right on the running screen too -- the report only exists
+      // once the whole graph has settled, and by then this screen has already
+      // said what it thinks happened.
+      kept: steps.some((step) => step.state === "preserved"),
       logsOpen: this.uninstall.logsOpen,
       logsFollow: this.uninstall.logsFollow,
     };
@@ -2469,11 +2489,17 @@ ${renderRunBlock(block)}`,
     const steps = this.uninstall.steps;
     const removed = steps.filter((step) => step.state === "done").length;
     const kept = steps.filter((step) => step.state === "preserved").length;
+    // KEPT IS ITS OWN WORD, not a footnote on a removal count (memql#5118,
+    // D8). Each kept row already carries the capability's own reason on its
+    // detail line, so this sentence says WHAT happened and the list below says
+    // to which artifact and why -- rather than this one paragraph having to
+    // carry both.
     const summary =
       kept === 0
         ? `${removed} artifact${removed === 1 ? "" : "s"} removed.`
-        : `${removed} artifact${removed === 1 ? "" : "s"} removed; ${kept} left in place because ` +
-          `${kept === 1 ? "it was" : "they were"} already on this machine before the install.`;
+        : `${removed} artifact${removed === 1 ? "" : "s"} removed. ` +
+          `Kept: ${kept === 1 ? "one artifact was" : `${kept} artifacts were`} here before the install, ` +
+          `so ${kept === 1 ? "it is" : "they are"} still on this machine.`;
     // The follow-up is reported as its own news. The cluster IS gone -- saying
     // the uninstall failed because a YAML write did would send the operator to
     // repeat a removal with nothing left to remove.
@@ -2483,7 +2509,13 @@ ${renderRunBlock(block)}`,
         : `<p class="error">${escapeHtml(this.uninstall.followUpProblem)}</p>`;
 
     return renderScreen({
-      title: "The local cluster is off this machine",
+      // The TITLE changes too, and not only the sentence beneath it: "off this
+      // machine" is the claim an operator reads first, and it is false when
+      // the cluster is still running (memql#5118, D8).
+      title:
+        kept === 0
+          ? "The local cluster is off this machine"
+          : "What the install created is off this machine",
       actions: `<button class="secondary" type="button" data-act="uninstallBack">Back</button>`,
       status: `<p class="lede">${escapeHtml(summary)}</p>
 ${followUp}`,
@@ -3194,6 +3226,11 @@ const VERDICT_LEDE: Record<PresenceVerdict, string> = {
   absent: "No local cluster was found on this machine.",
   "installed-healthy": "A local cluster is installed here and is answering.",
   "installed-unreachable": "A local cluster is installed here, but it is not answering.",
+  // It says WHOSE cluster it is not, because that is the whole difference:
+  // this machine has one and MemQL did not put it there, so nothing here
+  // knows what it holds.
+  "present-unreceipted":
+    "A cluster named memql is running on this machine, and this installer did not create it.",
 };
 
 // `usablePath` IS GONE (epic memql#5088). It turned a recorded key-file value

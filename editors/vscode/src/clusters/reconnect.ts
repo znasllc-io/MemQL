@@ -69,10 +69,26 @@ export function planLocalReconnect(receipt: Receipt | null): ReconnectPlan {
  * compose, the row is already there, and a second card that quietly rewrote an
  * entry the operator may have edited by hand would be a worse thing than no
  * card at all.
+ *
+ * `present-unreceipted` is NOT offered it either, and that is a real
+ * distinction rather than an omission (memql#5118, D8). Reconnect composes the
+ * entry from what the INSTALL RECORDED, and there is no receipt -- so it has
+ * nothing to compose from. The `adopt` card in its place asks the same
+ * question and says out loud which cluster it means.
  */
-export function offersReconnect(
-  verdict: "absent" | "installed-healthy" | "installed-unreachable",
-  registered: boolean,
-): boolean {
-  return !registered && verdict !== "absent";
+export function offersReconnect(verdict: PresenceVerdictName, registered: boolean): boolean {
+  return !registered && (verdict === "installed-healthy" || verdict === "installed-unreachable");
 }
+
+/**
+ * The verdict names this module reads, restated rather than imported.
+ *
+ * clusters/presence.ts imports THIS file, so importing its type back would be
+ * a cycle at the module level -- and `import type` erasing at compile time is
+ * not a reason to write one a reader has to hold in their head.
+ */
+export type PresenceVerdictName =
+  | "absent"
+  | "installed-healthy"
+  | "installed-unreachable"
+  | "present-unreceipted";

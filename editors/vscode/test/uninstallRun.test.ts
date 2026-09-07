@@ -36,6 +36,7 @@ import { removalPreviewItems } from "../src/install/removalPreview.js";
 import type { RunScript } from "../src/install/runner.js";
 import { previewUninstall, runUninstall, type SessionOptions } from "../src/install/session.js";
 import { failureGuidance } from "../src/state/installProgress.js";
+import { uninstallDoneSentence } from "../src/webview/installScreens.js";
 import { UninstallRunState } from "../src/state/uninstallRun.js";
 
 function graph(doc: unknown): Graph {
@@ -535,6 +536,7 @@ test("a preserved step is its own state, never a failure", () => {
 test("the completion trio all fire: the entry goes, the memo drops, the tree repaints", async () => {
   const order: string[] = [];
   const problem = await completeLocalUninstall({
+    keptArtifacts: false,
     clusterName: "local",
     removeEntry: async (name) => void order.push(`remove:${name}`),
     invalidatePresence: () => order.push("invalidate"),
@@ -557,6 +559,7 @@ test("a registry write that fails still drops the memo and repaints the tree", a
   // problem with a second, unrelated lie.
   const order: string[] = [];
   const problem = await completeLocalUninstall({
+    keptArtifacts: false,
     clusterName: "local",
     removeEntry: async () => {
       throw new Error("clusters.yaml is read-only");
@@ -574,12 +577,69 @@ test("a registry write that fails still drops the memo and repaints the tree", a
   assert.match(problem, /off this machine/, "the uninstall SUCCEEDED -- only the bookkeeping did not");
 });
 
+// -----------------------------------------------------------------------------
+// KEPT IS A RESULT, AND THE RECORDS GO WITH THE ARTIFACTS (memql#5118, D8)
+// -----------------------------------------------------------------------------
+
+test("a run that KEPT something leaves the receipt and the registry row alone", async () => {
+  // THE BUG THIS CLOSES, end to end. remove-artifact.sh refuses to delete a
+  // pre-existing k3d cluster; executor.ts classes that `preserved`; ok ignores
+  // preservations. So the wizard deleted the receipt that described a cluster
+  // still running, presence read `absent` because nothing asked k3d, Install
+  // was offered again, and it adopted the same database -- after telling the
+  // operator everything had been taken back.
+  const order: string[] = [];
+  const problem = await completeLocalUninstall({
+    keptArtifacts: true,
+    clusterName: "local",
+    removeEntry: async (name) => void order.push(`remove:${name}`),
+    invalidatePresence: () => order.push("invalidate"),
+    refreshTree: () => order.push("refresh"),
+    deleteReceipt: async () => void order.push("deleteReceipt"),
+  });
+
+  assert.equal(problem, "");
+  // NEITHER RECORD IS TOUCHED. Both name a cluster that is still here.
+  assert.ok(!order.includes("deleteReceipt"), `the receipt was deleted: ${order.join(", ")}`);
+  assert.ok(!order.includes("remove:local"), `the registry row was dropped: ${order.join(", ")}`);
+  // The memo and the tree still refresh: the machine HAS changed, and a
+  // thirty-second-old verdict about it is stale either way.
+  assert.deepEqual(order, ["invalidate", "refresh"]);
+});
+
+test("a run that kept NOTHING takes both records, exactly as before", async () => {
+  const order: string[] = [];
+  await completeLocalUninstall({
+    keptArtifacts: false,
+    clusterName: "local",
+    removeEntry: async (name) => void order.push(`remove:${name}`),
+    invalidatePresence: () => order.push("invalidate"),
+    refreshTree: () => order.push("refresh"),
+    deleteReceipt: async () => void order.push("deleteReceipt"),
+  });
+  assert.deepEqual(order, ["remove:local", "deleteReceipt", "invalidate", "refresh"]);
+});
+
+test("the done sentence changes when anything was kept", () => {
+  const clean = uninstallDoneSentence(false);
+  const kept = uninstallDoneSentence(true);
+  assert.notEqual(clean, kept);
+  // The claim that was FALSE on a machine where the cluster is still running.
+  assert.match(clean, /Everything the install put on this machine has been taken back/);
+  assert.ok(
+    !/Everything the install put on this machine has been taken back/.test(kept),
+    `the kept sentence still claims a complete removal: ${kept}`,
+  );
+  assert.match(kept, /still on this machine/);
+});
+
 test("no registered cluster is an ordinary case, not a problem", async () => {
   // An operator can install a cluster and never add it to clusters.yaml. There
   // is then no entry to remove, and nothing to report.
   for (const clusterName of [undefined, ""]) {
     const order: string[] = [];
     const problem = await completeLocalUninstall({
+      keptArtifacts: false,
       clusterName,
       removeEntry: async (name) => void order.push(`remove:${name}`),
       invalidatePresence: () => order.push("invalidate"),
@@ -599,6 +659,7 @@ test("a receipt that cannot be removed is reported, because the wizard will keep
   // no way to connect the two.
   const order: string[] = [];
   const problem = await completeLocalUninstall({
+    keptArtifacts: false,
     clusterName: "local",
     removeEntry: async (name) => void order.push(`remove:${name}`),
     invalidatePresence: () => order.push("invalidate"),

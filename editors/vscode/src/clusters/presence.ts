@@ -21,6 +21,17 @@
 //     on `k3d cluster list`. It asks the front door whether it answers, over
 //     the same WebSocket bridge the connection layer dials, with a short
 //     deadline this module enforces itself.
+//
+//     THE FOURTH SIGNAL IS THE ONE EXCEPTION, and it is bounded to the one
+//     path where being wrong destroys data (memql#5118, D8). When BOTH
+//     evidence sources say nothing the menu offers Install -- and an install
+//     over a k3d cluster somebody already had adopts its database. So before
+//     offering that, and only then, presence asks `k3d cluster list` through
+//     the detect capability. Every other verdict still opens the menu with no
+//     shell-out at all, and this one adds no round trip on top of another:
+//     `absent` is precisely the case that does not dial. A listing that fails
+//     or hangs answers the same as an empty one, which keeps Install offered
+//     on the machine that genuinely has nothing.
 //  3. A SLOW PROBE DEGRADES, IT DOES NOT HANG. The deadline is raced HERE
 //     rather than trusted to the probe, so an injected or future probe that
 //     never settles still yields `installed-unreachable` and the menu still
@@ -47,7 +58,21 @@ import type { ClusterConfig } from "./model.js";
  * mean "something is already here", and differ only in whether it answers --
  * which is the difference between offering a connection and offering a repair.
  */
-export type PresenceVerdict = "absent" | "installed-healthy" | "installed-unreachable";
+export type PresenceVerdict =
+  | "absent"
+  | "installed-healthy"
+  | "installed-unreachable"
+  /**
+   * A live k3d cluster named `memql` that THIS INSTALLER DID NOT CREATE
+   * (memql#5118, D8).
+   *
+   * It is not `absent`, because something is here and installing over it
+   * adopts its database. It is not `installed-*` either, because there is no
+   * receipt: nothing knows what is on this machine, so repair and uninstall
+   * have nothing to reverse. Its acts are adopt or delete, and the menu says
+   * which cluster it is talking about.
+   */
+  | "present-unreceipted";
 
 /** Which of the two independent sources said a local cluster exists. */
 export interface PresenceEvidence {
@@ -55,6 +80,15 @@ export interface PresenceEvidence {
   receipt: boolean;
   /** clusters.yaml carries an entry flagged `local: true`. */
   registry: boolean;
+  /**
+   * A k3d cluster named `memql` is running on this machine.
+   *
+   * ASKED ONLY WHEN THE OTHER TWO SAY NOTHING -- see property 2 above -- so it
+   * is `false` on every path that already had evidence, and that `false` means
+   * "not asked" rather than "not there". Nothing branches on it except
+   * `verdictFor`, which reaches it only in that one case.
+   */
+  liveCluster: boolean;
 }
 
 export interface PresenceResult {
@@ -213,11 +247,31 @@ export function probeEndpointFor(
   return DEFAULT_LOCAL_ENDPOINT;
 }
 
-/** The pure half: evidence plus reachability decide the verdict. */
+/**
+ * The pure half: evidence plus reachability decide the verdict.
+ *
+ * THE RECEIPT AND THE REGISTRY OUTRANK THE LISTING, and the order is the
+ * point. A cluster this installer DID create reads `installed-healthy` even
+ * though k3d would also list it -- the receipt is what makes repair, rebuild
+ * and uninstall mean anything, and demoting a receipted cluster to
+ * `present-unreceipted` would take those acts away from the operator who has
+ * them.
+ */
 export function verdictFor(evidence: PresenceEvidence, answered: boolean): PresenceVerdict {
-  if (!evidence.receipt && !evidence.registry) return "absent";
+  if (!evidence.receipt && !evidence.registry) {
+    return evidence.liveCluster ? "present-unreceipted" : "absent";
+  }
   return answered ? "installed-healthy" : "installed-unreachable";
 }
+
+/**
+ * The k3d cluster name the install graph creates, and the only one this signal
+ * recognises.
+ *
+ * A cluster by any other name is somebody else's project, and reading it as
+ * MemQL's would withdraw Install from a machine that has never had one.
+ */
+export const LOCAL_CLUSTER_NAME = "memql";
 
 // ---------------------------------------------------------------------------
 // detection
@@ -235,6 +289,16 @@ export interface PresenceOptions {
   now?: () => number;
   readReceiptFile?: (file: string) => Promise<Receipt | null>;
   readClusters?: (file: string) => ReturnType<typeof readClustersFileSafe>;
+  /**
+   * The k3d cluster names on this machine, for the fourth signal.
+   *
+   * Injected rather than reached for, so this module keeps its property of
+   * never requiring Docker in a test -- and so the ONE caller that supplies a
+   * real implementation is the one that also knows where the scripts are.
+   * Absent means the signal is not available, which reads exactly like an
+   * empty list: Install stays offered.
+   */
+  listClusters?: () => Promise<string[]>;
 }
 
 /**
@@ -260,9 +324,22 @@ export async function detectPresence(opts: PresenceOptions): Promise<PresenceRes
     registryEvidence(opts.clustersPath, readClusters).catch(() => undefined),
   ]);
 
-  const evidence: PresenceEvidence = { receipt: fromReceipt.present, registry: local !== undefined };
+  const evidence: PresenceEvidence = {
+    receipt: fromReceipt.present,
+    registry: local !== undefined,
+    liveCluster: false,
+  };
   if (!evidence.receipt && !evidence.registry) {
-    return { verdict: "absent", evidence, endpoint: "" };
+    // THE FOURTH SIGNAL, on the one path that would otherwise offer to install
+    // over whatever is here. Never dialed, because there is no endpoint to
+    // dial -- so this is the only round trip on this path, not a second one.
+    //
+    // A listing that throws answers the same as an empty one: k3d may not be
+    // installed and Docker may be down, and neither is evidence of a cluster.
+    // The direction that cannot destroy anything is the one to fail in.
+    const names = opts.listClusters ? await opts.listClusters().catch(() => []) : [];
+    evidence.liveCluster = names.some((n) => n.trim() === LOCAL_CLUSTER_NAME);
+    return { verdict: verdictFor(evidence, false), evidence, endpoint: "" };
   }
 
   const endpoint = probeEndpointFor(local, fromReceipt.receipt);
@@ -454,7 +531,9 @@ export type AddClusterAction =
   | "connect"
   | "reconnect"
   | "repair"
-  | "uninstall";
+  | "uninstall"
+  /** Register the cluster that is already here, without installing over it. */
+  | "adopt";
 
 export interface AddClusterChoice {
   action: AddClusterAction;
@@ -486,6 +565,38 @@ const UNINSTALL: AddClusterChoice = {
   action: "uninstall",
   label: "Uninstall the local cluster...",
   detail: "Remove it from this machine. You will see exactly what goes first.",
+};
+
+/**
+ * What a live cluster with NO RECEIPT is offered (memql#5118, D8).
+ *
+ * NO INSTALL AND NO REPAIR. Installing would adopt this cluster's database
+ * under a fresh receipt -- the exact failure the fourth signal exists to stop
+ * -- and repair has nothing to reverse, because nothing recorded what is on
+ * this machine. So there are two honest acts: use it as it is, or take it away
+ * deliberately.
+ */
+const ADOPT: AddClusterChoice = {
+  action: "adopt",
+  label: "Connect to the cluster that is already here",
+  detail:
+    `A cluster named ${LOCAL_CLUSTER_NAME} exists that this installer did not create. ` +
+    "Register it and use it as it is.",
+};
+
+/**
+ * The delete, which is the uninstall form with its data box.
+ *
+ * It is the one path in the wizard that removes a cluster MemQL did not
+ * create, and it asks for a typed phrase first -- which is why the label says
+ * so rather than reading like the ordinary uninstall beside it.
+ */
+const DELETE_UNRECEIPTED: AddClusterChoice = {
+  action: "uninstall",
+  label: "Delete the cluster and its data...",
+  detail:
+    "Take it off this machine. You will be asked to type a phrase first, " +
+    "because nothing here recorded what it holds.",
 };
 
 /**
@@ -547,5 +658,10 @@ export function addClusterMenu(
       // not in the list is a cluster the operator removed the row for, and
       // putting it back is the only reason they opened this menu.
       return [...reconnect, CONNECT, UNINSTALL];
+    case "present-unreceipted":
+      // ADOPT FIRST, because it is almost always what they want: a developer
+      // who ran `make up` before they ever opened this wizard has a working
+      // cluster and came here to point the editor at it.
+      return [ADOPT, CONNECT, DELETE_UNRECEIPTED];
   }
 }
