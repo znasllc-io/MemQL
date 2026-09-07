@@ -63,7 +63,6 @@ import (
 	"strings"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
-	langparser "github.com/znasllc-io/memql/component/language/parser"
 	work "github.com/znasllc-io/memql/component/work"
 )
 
@@ -189,7 +188,7 @@ func (i *Integration) startApprovedTraining(ctx context.Context, owner, runId, k
 // read under a synthetic actor would answer about nobody's.
 func (i *Integration) resolveSpecialistPrimaryDomain(ctx context.Context, owner, specialistId string) string {
 	as := ownerActor(ctx, owner)
-	agents, err := i.store().query(as, "query "+"agentById(agentId: "+langparser.QuoteString(specialistId)+")")
+	agents, err := i.store().query(as, "query "+call("agentById", map[string]any{"agentId": specialistId}))
 	if err != nil || len(agents) == 0 {
 		if err != nil {
 			i.log().Warn("work: could not read the specialist named by an approved training request",
