@@ -52,13 +52,26 @@ package work
 // under a mutex, which arbitrates beautifully within one pod and not at all
 // between two.
 //
-// It is TTL-leased rather than once-ever, and the lease is what makes a run
-// survive the death of the replica running it: a claimant that dies mid-run
-// leaves a claim row that no peer could ever retake, and the run would sit at
-// `running` until the abandoned sweep closed it. With a lease, the backstop
-// sweep re-emits and a live replica takes it over. The lease must exceed the
-// heartbeat window the abandoned sweep judges by, or a run would be retaken
-// while its first claimant is alive and merely slow.
+// It is TTL-leased rather than once-ever so that a claim cannot outlive the
+// cluster: an unleased row is one no peer could ever retake, so the run id it
+// names becomes permanently undispatchable.
+//
+// The lease is deliberately LONGER than the window the abandoned sweep judges
+// by, and that ordering decides which of two silent runs is recoverable:
+//
+//   - **Nobody ever claimed it** -- every agent replica was down when the run
+//     flipped to `running`, so the event reached nobody. The claim is FREE,
+//     and the sweep's backstop (redispatchStale) hands it to a live replica.
+//     This is the case that was being closed as a node loss.
+//   - **A replica claimed it and died.** The lease is still held when the run
+//     goes stale, so the backstop is refused and the run is abandoned, which
+//     is what it is. Shortening the lease to recover this case would hand a
+//     run to a second replica while the first was still -- by the sweep's own
+//     definition -- alive, and a run's steps have side effects.
+//
+// So the second case is closed rather than healed, on purpose. `run_abandoned`
+// on a run whose node died is an accurate answer; on a run nobody picked up it
+// was not.
 
 import (
 	"context"
@@ -199,14 +212,17 @@ func (i *Integration) HandleRunEvent(ev events.Event) {
 		// is noise that would drown the one case that matters.
 		return
 	}
-	go i.dispatchRun(context.WithoutCancel(context.Background()), req)
+	go func() { _ = i.dispatchRun(context.WithoutCancel(context.Background()), req) }()
 }
 
 // DispatchRun is the entry the sweep's backstop uses: it knows only a run id,
 // because it found the run by reading rows rather than by being told. The rest
 // of the request is filled in behind the seam's privileged read.
-func (i *Integration) DispatchRun(ctx context.Context, runId, ownerUserId string) {
-	i.dispatchRun(ctx, DispatchRequest{
+//
+// It reports whether it CLAIMED the run, which is the sweep's whole decision:
+// a claimed run has a live replica on it and must not be abandoned this pass.
+func (i *Integration) DispatchRun(ctx context.Context, runId, ownerUserId string) bool {
+	return i.dispatchRun(ctx, DispatchRequest{
 		RunId:       runId,
 		OwnerUserId: ownerUserId,
 		Status:      runStatusRunning,
@@ -237,10 +253,10 @@ func (i *Integration) DispatchRun(ctx context.Context, runId, ownerUserId string
 // The cost of that order is one wasted claim per stale event, held for the
 // lease. That is the right side to be wrong on: a wasted claim delays one run
 // by a lease, while a missed claim runs one run on every replica at once.
-func (i *Integration) dispatchRun(ctx context.Context, req DispatchRequest) {
+func (i *Integration) dispatchRun(ctx context.Context, req DispatchRequest) bool {
 	d := i.dispatcherRef()
 	if d == nil {
-		return
+		return false
 	}
 	claimer := i.runClaimerRef()
 	if claimer == nil {
@@ -252,14 +268,14 @@ func (i *Integration) dispatchRun(ctx context.Context, req DispatchRequest) {
 		// ran three times is not.
 		i.log().Error("work: a run is dispatchable but no cross-replica claim is installed; REFUSING to execute it rather than risk running it once per replica",
 			"component", "work.dispatch", "run", req.RunId)
-		return
+		return false
 	}
 
 	// The claim key is the RUN ID, which is the identity of the work. Keying
 	// on the automation name instead would let one run of a template block
 	// every other run of the same template.
 	if !claimer.ClaimWithTTL(ctx, runClaimName, req.RunId, runClaimTTL) {
-		return
+		return false
 	}
 
 	i.log().Info("work: claimed a run for execution",
@@ -271,6 +287,7 @@ func (i *Integration) dispatchRun(ctx context.Context, req DispatchRequest) {
 	// left blank on purpose -- a present-and-empty owner is the deployment's
 	// own run, and ownerActor says so.
 	d.Dispatch(ownerActor(ctx, req.OwnerUserId), req)
+	return true
 }
 
 // idOnly reports the shape runEventFields produces for an event that carried
