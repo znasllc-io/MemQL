@@ -309,3 +309,50 @@ func TestConsentOnAFullyLocalClusterStillRefusesAndExplains(t *testing.T) {
 		t.Fatalf("the refusal must say why the consent could not be used, got %v", refusal.Doors)
 	}
 }
+
+// TestConsentSurvivesWithNoPolicyCorpus is memql-2a's objection, made a test
+// (epic memql#5137, D3).
+//
+// CONSENT EXISTS FOR THE CASE WHERE THE CHAIN ALREADY REFUSED. Routing it
+// through the `federationStrongest` POLICY is the reviewable answer and is what
+// runs on a healthy cluster -- but it made the one-shot human escape depend on
+// the rule and policy corpus being loaded. On a cluster whose corpus failed to
+// load, the person says yes and nothing happens, which is worse than the
+// registry default it replaced.
+//
+// So the chain falls back to a direct strongest-federated pick. That is not a
+// default: nothing reaches it without an explicit yes on the call in front of
+// the person, which is the whole difference between it and what was deleted.
+func TestConsentSurvivesWithNoPolicyCorpus(t *testing.T) {
+	models := []memql.FleetModel{fleetModel("llama3.1:8b", false)}
+	cloud := &countingCloud{}
+	fleet := &stubFleetInference{models: models}
+
+	providers := memql.NewProviderRegistryForTest()
+	providers.SetFleetInference(fleet)
+	providers.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", cloud)
+
+	// The policy registry holds the caller's own policy and NOTHING ELSE -- no
+	// federationStrongest, which is the state of a cluster whose corpus did not
+	// load.
+	policies := memql.NewPolicyRegistryForTest(map[string][]string{"testPolicy": {"fleet:llama3.1:8b"}})
+	r := New(providers, policies, nil, nil)
+
+	// Without consent it still refuses: the fallback is reached by consent, not
+	// by the absence of a policy.
+	if _, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"}); err == nil {
+		t.Fatal("with no consent this must still refuse")
+	}
+	if cloud.calls != 0 {
+		t.Fatalf("a paid provider ran %d times with no consent", cloud.calls)
+	}
+
+	// With consent it resolves, corpus or no corpus.
+	_, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice", CloudConsent: true})
+	if err != nil {
+		t.Fatalf("an explicit consent must be honoured even with no policy corpus loaded: %v", err)
+	}
+	if resolved.ProviderName != "streamClaudeSonnet" {
+		t.Errorf("consent resolved to %q, want the only federated record available", resolved.ProviderName)
+	}
+}

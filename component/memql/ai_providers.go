@@ -537,6 +537,64 @@ func (r *ProviderRegistry) Names() []string {
 	return out
 }
 
+// FederatedByStrength lists the available federated providers, strongest first.
+//
+// IT IS NOT A DEFAULT, and the distinction is the whole reason it may exist at
+// all (epic memql#5137, D3). Nothing reaches it without an explicit human
+// consent on the call in front of them; there is no path where the platform
+// picks from this list on its own. What it exists for is the case the consent
+// path has to survive: a cluster whose rule and policy corpus failed to load has
+// no `federationStrongest` to resolve through, and consent is precisely the
+// escape for when the ordinary chain already refused -- so making the escape
+// depend on the corpus would leave a person saying yes and nothing happening.
+//
+// ORDERED BY DECLARED CONTEXT WINDOW, TIE-BROKEN BY NAME, and both halves are
+// deliberate. Context window is the one capability every chat record declares,
+// so it is the only ordering available without epic memql#5146's measurements;
+// the name tie-break is what makes two replicas choose identically and a person
+// able to predict the answer. Map order -- which is what the deleted default
+// actually was -- would fail both.
+func (r *ProviderRegistry) FederatedByStrength() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	type entry struct {
+		name   string
+		window int
+	}
+	var candidates []entry
+	for name, e := range r.byName {
+		if e == nil || !e.Available || e.Config.Base {
+			continue
+		}
+		// Fleet and app doors are not what a CLOUD consent is about: the fleet
+		// entry is the one that was unavailable when the consent was asked for,
+		// and a subscription app is a door the chain tries before federation.
+		switch strings.ToLower(e.Config.Type) {
+		case strings.ToLower(FleetProviderType), strings.ToLower(AppProviderType):
+			continue
+		}
+		if e.Config.ResolvedModality() != ModalityText {
+			continue
+		}
+		candidates = append(candidates, entry{name: name, window: e.Config.ContextWindow()})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].window != candidates[j].window {
+			return candidates[i].window > candidates[j].window
+		}
+		return candidates[i].name < candidates[j].name
+	})
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		out = append(out, c.name)
+	}
+	return out
+}
+
 // THE REGISTRY HAS NO Default() ANY MORE (epic memql#5137, D3).
 //
 // It returned the provider name an env var pinned, or a record's @default, or

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/znasllc-io/memql/core/baseparser"
 )
 
 // TestNoPaidDefault: paid inference is never what the platform reaches for
@@ -233,7 +235,7 @@ func findFederatedGoLiterals(t *testing.T, federated map[string]bool) []string {
 			// skipping whole comment lines, because the trailing form is the
 			// one this arm kept flagging, and "rewrite the doc example" is the
 			// wrong lesson for a gate about defaults to teach.
-			code := stripLineComment(line)
+			code := baseparser.StripLineComment(line)
 			for _, name := range names {
 				if !strings.Contains(code, `"`+name+`"`) {
 					continue
@@ -244,26 +246,6 @@ func findFederatedGoLiterals(t *testing.T, federated map[string]bool) []string {
 		}
 	}
 	return out
-}
-
-// stripLineComment returns the code half of a Go source line.
-//
-// It counts quotes rather than parsing, which is enough here and wrong in
-// exactly one direction that matters: a `//` inside a string literal (a URL)
-// leaves the line intact, so the scan sees MORE than it strictly should rather
-// than less. A gate that under-scans passes over the thing it exists to catch;
-// one that over-scans reports something a reader can dismiss.
-func stripLineComment(line string) string {
-	quotes := 0
-	for i := 0; i+1 < len(line); i++ {
-		switch {
-		case line[i] == '"' && (i == 0 || line[i-1] != '\\'):
-			quotes++
-		case line[i] == '/' && line[i+1] == '/' && quotes%2 == 0:
-			return line[:i]
-		}
-	}
-	return line
 }
 
 func trackedFiles(t *testing.T) []string {

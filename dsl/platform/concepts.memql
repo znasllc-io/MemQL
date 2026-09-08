@@ -342,9 +342,17 @@ concept providerAuthStatus {
 /// then every read follows the binding that is still active, so a switch interrupted half way leaves
 /// a cluster that still works rather than one whose vectors half mean one thing and half another.
 ///
-/// TIER: clusterOwner. The embedder is a property of the deployment, not of a person -- one binding,
-/// one search space, everybody's rows in it.
-@rowAuthz(clusterOwner)
+/// TIER: public, requiresIdentity, and the row-authz land gate is what settled it. The first cut said
+/// clusterOwner, on the reasoning that the embedder is a property of the DEPLOYMENT rather than of a
+/// person -- which is true, and is an argument about ownership, not about secrecy. There is nothing
+/// here to protect: a model id, a vector width, and when it changed. Meanwhile a person wondering why
+/// their search results changed shape has exactly one row that explains it, and hiding it from
+/// everyone but the owner would make that unanswerable for the people most likely to ask.
+///
+/// v1:platform:inferenceStatus and v1:models:modelProfile carry the same tier for the same reason.
+/// WRITING is a different question and is settled separately: both mutations are @serverOnly,
+/// because activating a binding is four ordered steps and not a write.
+@rowAuthz(public, requiresIdentity)
 @displayCard(primary="providerRef", secondary="dimensions", tertiary="activatedAt")
 concept embedderBinding {
   providerRef   string!  @description("A provider record name (embedding3Small) or a fleet reference (fleet:qwen3-embedding:0.6b). Resolved through the same registry path every other provider name takes, so a fleet embedder is resolved against the ACTING USER's machines exactly like any other fleet call.")

@@ -1888,8 +1888,12 @@ mutate moduleReadiness recordModuleReadiness {
 /// The embedder is a property of the DEPLOYMENT: one binding, one vector space, everybody's rows in
 /// it. A per-user binding is not a narrower version of this feature, it is a different and
 /// incoherent one -- two users embedding into two geometries and one `similarTo` comparing across
-/// them. The concept carries @rowAuthz(clusterOwner) for the same reason, and this write happens
-/// under the engine's own operator identity as one step of an activation the builtin performs.
+/// them. This write happens under the engine's own operator identity, as one step of an activation
+/// the builtin performs.
+///
+/// Note the concept is READABLE by any signed-in person (public, requiresIdentity): there is no
+/// secret in a model id and a width, and somebody asking why their search changed shape needs it.
+/// Readable and writable are separate questions and this is the answer to the second one.
 @serverOnly
 @createOnly("providerRef", "dimensions", "previousRef", "reembedRunId")
 mutate embedderBinding recordEmbedderBindingPlan {
