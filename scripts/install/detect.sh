@@ -104,6 +104,27 @@ function _run_bounded() {
 # ready to install.
 
 #=============================================================================
+# k3d CLUSTERS -- the installer's fourth presence signal (memql#5118, D8)
+#=============================================================================
+
+# The VS Code wizard decides whether to offer an Install from two sources: its
+# own receipt, and a `local: true` row in clusters.yaml. Neither sees a cluster
+# an operator built by hand and never registered -- so the wizard offered to
+# install over it, and the install ADOPTED its database.
+#
+# SILENT ON FAILURE BY DESIGN, and that is the whole contract. k3d may not be
+# installed and the docker daemon may be down, and neither is an error for a
+# detection pass; an empty list is the honest answer and the caller reads it as
+# "install is still safe to offer". Failing the whole inventory over one read
+# that did not work would take the platform check down with it.
+#
+# READ-ONLY like everything else here, so `changed` stays false.
+function k3d_clusters() {
+    command -v k3d &>/dev/null || return 0
+    k3d cluster list --no-headers 2>/dev/null | awk '{ if ($1 != "") print $1 }' || true
+}
+
+#=============================================================================
 # PORTS -- reported TRUE when FREE
 #=============================================================================
 
@@ -178,6 +199,17 @@ function main() {
     docker_state="$(docker_access_state)"
     cap_info "docker access: ${docker_state}"
 
+    # --- k3d clusters (the fourth presence signal) -----------------------
+    local clusters_json="" cluster_name
+    first=1
+    while IFS= read -r cluster_name; do
+        [[ -z "$cluster_name" ]] && continue
+        [[ "$first" == 1 ]] || clusters_json+=","
+        first=0
+        clusters_json+="\"$(cap_json_escape "$cluster_name")\""
+    done < <(k3d_clusters)
+    cap_info "k3d clusters: [${clusters_json}]"
+
     # --- ports ----------------------------------------------------------
     local ports_json="" port free
     first=1
@@ -204,6 +236,7 @@ function main() {
     cap_result_set_raw tools        "{${tools_json}}"
     cap_result_set     dockerAccess "$docker_state"
     cap_result_set_raw ports        "{${ports_json}}"
+    cap_result_set_raw clusters     "[${clusters_json}]"
     cap_result_set_raw disk         "{\"path\":\"$(cap_json_escape "$path")\",\"freeMb\":${mb}}"
     # No cap_changed: detection is read-only, so changed stays false. Always.
     cap_ok

@@ -7,7 +7,7 @@ vi.mock("../../src/live/connection", () => ({
   useOsConnection: () => h.connection,
 }));
 
-import { coreAt, readiness, withOs } from "./harness";
+import { coreAt, readiness, withOs, withSetupFacts } from "./harness";
 import { fakeConnection, passkeyRow, withSession } from "../cluster/harness";
 import { EXIT_HOLD_MS, SetupGate } from "../../src/apps/setup/SetupGate";
 import { SetupWidget } from "../../src/apps/setup/SetupWidget";
@@ -32,7 +32,7 @@ function mount(
 ) {
   const view = render(
     withSession(
-      withOs(<WidgetHost manifest={setupWidget} onRemove={retire} />, role),
+      withSetupFacts(withOs(<WidgetHost manifest={setupWidget} onRemove={retire} />, role)),
       { clusterRole: role, readiness: feed },
     ),
   );
@@ -165,7 +165,7 @@ describe("the rail a fresh cluster shows", () => {
     h.connection = ONE_PASSKEY;
     render(
       withSession(
-        withOs(<WidgetHost manifest={setupWidget} onRemove={vi.fn()} />, "owner"),
+        withSetupFacts(withOs(<WidgetHost manifest={setupWidget} onRemove={vi.fn()} />, "owner")),
         {
           clusterRole: "owner",
           readiness: readiness(true, [
@@ -267,7 +267,7 @@ describe("the retire rule", () => {
 
   function at(feed: ReturnType<typeof coreAt>, retire: () => void) {
     return withSession(
-      withOs(<WidgetHost manifest={setupWidget} onRemove={retire} />, "owner"),
+      withSetupFacts(withOs(<WidgetHost manifest={setupWidget} onRemove={retire} />, "owner")),
       { clusterRole: "owner", readiness: feed },
     );
   }

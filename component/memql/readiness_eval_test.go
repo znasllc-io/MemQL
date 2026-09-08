@@ -34,9 +34,12 @@ func fakeResolvers(env map[string]string, vars map[string]string, secrets map[st
 			}
 			return "", errSlotNotFound
 		},
-		IsSecret:      func(name string) bool { return strings.HasSuffix(name, "_SECRET") },
-		Hosted:        func(envregistry.Module) bool { return true },
-		InferenceOpen: func(context.Context) bool { return false },
+		IsSecret: func(name string) bool { return strings.HasSuffix(name, "_SECRET") },
+		Hosted:   func(envregistry.Module) bool { return true },
+		// No machines and no federation: the fresh-cluster answer, which is
+		// what every case here that is not about inference wants underneath it.
+		Registrations:        func(context.Context) ([]readiness.RegistrationFacts, error) { return nil, nil },
+		FederationConfigured: func() bool { return false },
 		IntegrationState: func(_ context.Context, name string) (string, bool, bool, error) {
 			return "", false, false, nil
 		},
@@ -149,9 +152,24 @@ func TestInferenceEvaluator(t *testing.T) {
 	if got := evalOne(t, r, mod); got.State != readiness.Unconfigured {
 		t.Fatalf("no door open must be unconfigured, got %s", got.State)
 	}
-	r.InferenceOpen = func(context.Context) bool { return true }
-	if got := evalOne(t, r, mod); got.State != readiness.Configured {
+	// A DOOR IS A ROW NOW, not a live seam. What opens it here is a machine
+	// whose label meets the capability floor -- and it opens on EVERY node
+	// type, which is the defect this replaced (see
+	// TestEveryNodeTypeProducesTheSameInferenceReport).
+	r.Registrations = func(context.Context) ([]readiness.RegistrationFacts, error) {
+		return []readiness.RegistrationFacts{{
+			Labels:     map[string]string{"model:llama3.1:8b": "ctx=8192,structured=true"},
+			LastSeenAt: time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC),
+		}}, nil
+	}
+	got := evalOne(t, r, mod)
+	if got.State != readiness.Configured {
 		t.Fatalf("a door open must be configured, got %s", got.State)
+	}
+	// The three lanes ride on the row, so the wizard and the Set up group can
+	// say WHICH door is open without a second read.
+	if len(got.Lanes) != 3 {
+		t.Fatalf("the ai report carries %d lanes, want the three doors: %+v", len(got.Lanes), got.Lanes)
 	}
 }
 

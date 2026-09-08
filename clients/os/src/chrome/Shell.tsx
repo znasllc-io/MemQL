@@ -12,6 +12,8 @@ import { type AskTransport } from "../ask/askController";
 import { OS_REGISTRY } from "../apps/registry";
 import { ConceptOpenDispatcher } from "../apps/concepts/ConceptOpenDispatcher";
 import { ConnectReturnDispatcher } from "../apps/deployables/sources/ConnectReturnDispatcher";
+import { SetupFactsScope } from "../apps/setup/SetupFactsScope";
+import { SetupPresence } from "../apps/setup/SetupPresence";
 import { SetupReturnDispatcher } from "../apps/setup/SetupReturnDispatcher";
 import { AuthSourceProvider } from "../auth/context";
 import type { OsAuthSource } from "../auth/source";
@@ -30,6 +32,7 @@ import { GraphDesktopStore } from "../system/graphStore";
 import { LocalDesktopStore, type DesktopStore } from "../system/store";
 import { SessionProvider, useSession } from "./access";
 import { CaptureContextInstaller } from "./CaptureContext";
+import { CoreGate } from "./CoreGate";
 import { Desktop } from "./Desktop";
 import { suppressBrowserMenu } from "./browserMenu";
 import { Dock } from "./Dock";
@@ -120,10 +123,34 @@ export function Shell({
           token. */}
       <OsConnectionProvider authSource={source} enabled={!ports.disableConnection}>
         <SessionScope access={access} config={config}>
+        {/* WHAT THIS CLUSTER STILL NEEDS SET UP, read once for the three
+            surfaces that ask (epic memql#5118). Above the desk, because the
+            gate below renders instead of it and the presence effect inside it
+            has to run when the setup widget is absent. */}
+        <SetupFactsScope>
         <MachinesProvider>
           <ShellTransports source={source} ports={ports}>
             {(uploads, desktopStore) => (
               <ShellRoster grid={grid} store={desktopStore} layout={layout}>
+                {/* THE CORE GATE, INSIDE the roster and around the layout (D1).
+                    While the `ai` verdict is `unconfigured` it renders in place
+                    of the desk, so nothing behind it -- no app, no dock, no
+                    launcher -- is mounted at all.
+
+                    INSIDE rather than around `ShellRoster`, and the difference
+                    is not cosmetic. The gate's stops offer their acts through
+                    `useAppReach`, which reads `useOsIfPresent()`: outside the
+                    roster that answers null, every section list is empty, and
+                    the inference stop degrades to "Pair a machine in Fleet,
+                    under Machines" -- prose pointing at an app the gate has
+                    not mounted. An owner on a local cluster would then have
+                    Sign out as the only working control on a screen demanding
+                    they set up inference.
+
+                    The roster's own siblings -- the return dispatchers, the
+                    capture installer and SetupPresence -- stay OUTSIDE the
+                    gate, because they must keep running while it draws. */}
+                <CoreGate onSignOut={onSignOut}>
                 {layout === "phone" ? (
                   <div
       className="os-root"
@@ -142,10 +169,12 @@ export function Shell({
                     onSignOut={onSignOut}
                   />
                 )}
+                </CoreGate>
               </ShellRoster>
             )}
           </ShellTransports>
         </MachinesProvider>
+        </SetupFactsScope>
         </SessionScope>
       </OsConnectionProvider>
     </AuthSourceProvider>
@@ -231,6 +260,12 @@ function ShellRoster({
           sits INSIDE OsProvider because opening an app is a shell act. */}
       <ConnectReturnDispatcher />
       <SetupReturnDispatcher />
+      {/* Whether the setup widget is on the active desk at all -- derived from
+          the feed and the ladder, never seeded (epic memql#5118, D4). Renders
+          nothing. It sits INSIDE OsProvider because putting a card on a desk
+          is a shell act, and it must be able to run while the widget's own
+          gate is unmounted, which is exactly when the widget is absent. */}
+      <SetupPresence />
       {/* A concept named in the address opens the Concepts app on it (epic
           memql#5009) -- the VS Code extension's handoff, and the shell's
           answer to a portal route that no longer exists. Renders nothing,

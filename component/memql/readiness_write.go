@@ -76,6 +76,74 @@ func renderRecordModuleReadiness(r readiness.NodeReport, rowId string) (string, 
 	), nil
 }
 
+// readinessEvaluateContext is the context the EVALUATION runs under, and it is
+// a cluster owner where readinessWriteContext below deliberately is not.
+//
+// ===========================================================================
+// WHY THE EVALUATION NEEDS MORE AUTHORITY THAN THE WRITE
+// ===========================================================================
+// The write is admitted by @serverOnly plus internal origin onto a public
+// concept with no owner field, so a reader is all it needs and all it gets.
+// The evaluation now READS v1:worker:registration, which declares the
+// composite owner tier -- and under any narrower actor that read does not
+// fail, it answers ZERO ROWS AND NO ERROR. A cluster full of machines would
+// report `ai` unconfigured on every node, forever, with nothing in any log.
+//
+// It is also what clears integrations/email's statusAuthorized, and that fixed
+// a second bug by the same line. app/run.go's boot write passes
+// context.Background(); the evaluation ran on it; statusAuthorized refuses a
+// context with no AccessContext; and evaluateModule maps an errored probe to
+// notApplicable. So `email` read "not applicable" on every node of every
+// cluster, permanently. The cause was recorded as a lazy-sender timing
+// problem and is not one -- integrations/email/status.go's describer is a
+// reproduction of the resolution algorithm that never materializes a sender,
+// so timing cannot reach it. See readiness_email_probe_test.go.
+//
+// ===========================================================================
+// WHY IT IS NOT auth.MaintenanceActor
+// ===========================================================================
+// That constructor is keyed on a compiled-in list of AUTOMATION names, and
+// TestMaintenanceAutomationsAreArgued requires every entry to resolve to an
+// automation that loads from this repo's dsl/ tree. Readiness is a Go boot
+// path, not an automation, so it cannot be listed -- and listing it would
+// break the property that makes the list checkable at all.
+//
+// This is the arrangement seed_materializer.go's systemActorContext already
+// uses, for the same reason and with the same shape: a named synthetic cluster
+// owner, built in the package that needs it, whose authority comes from being
+// compiled in here rather than from anything a caller supplies.
+//
+// ===========================================================================
+// IT REPLACES THE CALLER, WHICH IS THE POINT
+// ===========================================================================
+// readinessRecompute can be pulled by a cluster owner, and the shipped
+// evaluator resolved THEIR machines through the fleet seam and wrote them as a
+// node fact. Nothing a caller supplies survives this line, so the same rows
+// produce the same verdict however the evaluation was triggered. Asserted by
+// TestTheEvaluationContextIsTheClustersOwn.
+func readinessEvaluateContext(ctx context.Context) context.Context {
+	const actorId = "system:maintenance:moduleReadiness"
+	claims := map[string]any{"sub": actorId, "email": actorId, "role": "system"}
+	ctx = auth.ContextWithClaims(ctx, claims)
+	ctx = auth.ContextWithToken(ctx, auth.BuildTokenInfo(claims))
+	ctx = auth.ContextWithAccess(ctx, &auth.AccessContext{
+		UserId: actorId,
+		// RoleOwner is what buys the composite tier's cluster-owner escape:
+		// AccessContext.IsClusterOwner() reads Role == RoleOwner and nothing
+		// else, which is why auth.ContextWithUserActor is not a substitute
+		// (it hardcodes RoleWriter).
+		Role: auth.RoleOwner,
+		// Not a principal, so the rank rules do not govern it (D4, epic
+		// memql#4832). Without this a rank-strict concept would read this
+		// actor as an owner touching a PEER owner's row.
+		Unranked: true,
+		// And SYNTHETIC: this is the cluster describing itself, so it can
+		// never be a row's owner.
+		Synthetic: true,
+	})
+	return auth.ContextWithInternalOrigin(ctx)
+}
+
 // readinessWriteContext is the engine's own identity for these rows: internal
 // origin (what the @serverOnly gate requires) plus a synthetic, unranked
 // actor, so the row carries a createdBy and the rank rules do not govern it
@@ -121,6 +189,9 @@ func (e *MemQLEngine) WriteModuleReadiness(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("module readiness: manifest: %w", err)
 	}
 	nodeId, nodeType := e.readinessIdentity()
+	// THE CALLER'S CONTEXT, AND THAT IS DELIBERATE. `evaluateModule` applies
+	// the evaluation actor itself, at the one place a context reaches a
+	// resolver -- see the comment there for why this is not a line here.
 	reports := evaluateModules(ctx, e.readinessResolvers(), manifest.Modules, nodeId, nodeType, time.Now().UTC())
 	wctx := readinessWriteContext(ctx)
 	written := 0

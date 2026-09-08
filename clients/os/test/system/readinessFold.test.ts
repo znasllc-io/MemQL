@@ -31,7 +31,7 @@ describe("the fold mirrors component/memql/readiness", () => {
 
   // Without this, a mistyped path reads as a suite with no cases and passes.
   it("finds the shared fixtures", () => {
-    expect(files.length).toBeGreaterThanOrEqual(7);
+    expect(files.length).toBeGreaterThanOrEqual(9);
   });
 
   for (const file of files) {
@@ -43,6 +43,31 @@ describe("the fold mirrors component/memql/readiness", () => {
       ).toEqual(fx.expect);
     });
   }
+
+  // THE LANES ARE THE SHELL'S HALF ALONE, so this half of the parity is
+  // asserted here and nowhere else. The Go Verdict deliberately carries no
+  // lanes -- its consumer, the fold builtin, does not read them -- while the
+  // shell's Set up group and the core gate need the slot names to say what is
+  // still missing. So the shared fixture holds the two sides equal on module,
+  // state and disagreement, and this holds the shell to carrying the lanes
+  // through at all.
+  //
+  // Without it, `lanes: rs[0].lanes ?? []` could quietly become `[]` and every
+  // surface that reads a lane would render an empty list -- which looks
+  // exactly like a module with nothing configured.
+  it("carries the worst live reporter's inference lanes through the fold", () => {
+    const fx = JSON.parse(
+      readFileSync(resolve(FIXTURES, "08-inference-lanes.json"), "utf8"),
+    ) as Fixture;
+    const [ai] = foldReadiness(fx.reports, fx.nodes, new Date(fx.now));
+    expect(ai?.lanes.map((l) => l.name)).toEqual(["local", "app", "federation"]);
+    // Configured, and NOT live: the machine is asleep. Two facts on one lane,
+    // which is the whole of the design record's D3.
+    expect(ai?.lanes.find((l) => l.name === "local")?.complete).toBe(true);
+    expect(ai?.lanes.find((l) => l.name === "local")?.slots).toEqual([
+      { name: "live", present: false },
+    ]);
+  });
 
   it("nodeIsLive needs a live health word and a recent heartbeat", () => {
     const now = new Date("2026-09-06T12:00:00Z");
