@@ -142,6 +142,35 @@ var tierDecidesTheRead = map[string]string{
 		"personally own.",
 	"clientAccountById": "epic memql#5166, as clientAccountsAll -- the same filter, the same " +
 		"annotation, the same tier.",
+
+	// The five group reads (epic memql#5165), and the argument is STRONGER
+	// here than for the two above rather than merely analogous.
+	//
+	// v1:identity:group and v1:identity:groupMembership carry an ownerUserId
+	// that is ALWAYS EMPTY -- they are the deployment's rows, not a
+	// principal's (D2). So the tier's owner arm matches nobody at all, and
+	// `unowned="admin"` is the entire branch: it admits exactly admin and
+	// above, which is exactly the caller set `@requiresRank("admin")` already
+	// bounds. The tier does not merely decide the row set for these callers,
+	// it decides it identically for all of them.
+	//
+	// WHAT A CONJUNCT WOULD COST. `own || clusterOwner` is false for every
+	// admin these reads exist to serve, because nobody owns the rows -- so
+	// adding one is a REGRESSION, not a tightening, and it would empty the
+	// Users app's Groups section for every caller but a cluster owner. The
+	// slug specs that could have spelled a third arm are deleted by
+	// memql#5166, for reasons that apply here too.
+	//
+	// THIS IS THE THIRD ENTRY the note above calls a design decision, and the
+	// test it asks for is the one that would fail if the reasoning were wrong:
+	// TestGroupQueriesAnswerForTheSystemActorAndRefuseBelowTheFloor drives all
+	// five against a real database and asserts BOTH halves -- rows for the
+	// caller set the annotation admits, and none for a writer.
+	"groupsAll":        "epic memql#5165. ownerUserId is always empty on this concept, so the tier's owner arm matches nobody and unowned=\"admin\" admits exactly the caller set @requiresRank(\"admin\") already bounds. A conjunct would be false for every admin the read serves.",
+	"groupById":        "epic memql#5165, as groupsAll -- the same tier, the same annotation, the same always-empty owner.",
+	"groupsForAccount": "epic memql#5165, as groupsAll.",
+	"membersOfGroup":   "epic memql#5165, as groupsAll, over v1:identity:groupMembership -- whose ownerUserId is empty for the sharper reason that the natural owner field would be `userId`, and an owned row admits its owner's inserts.",
+	"groupsForUser":    "epic memql#5165, as membersOfGroup.",
 }
 
 func TestRowAuthzEnforcementLandGate(t *testing.T) {

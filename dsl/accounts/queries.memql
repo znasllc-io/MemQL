@@ -289,10 +289,11 @@ query campaign campaignsForAccount {
 /// actor at boot, where there is no requesting user for actor.userId to name
 /// and no role for a rank floor to clear. usersForSeedSweep is the same
 /// argument for the same reason one rung down.
+@actor
 @serverOnly
 @unbounded("the boot backfill must see EVERY active account -- a truncated page leaves an account with no group, which is a client whose people can reach none of their work, and nothing reports it")
 query account accountsForGroupSweep {
-  filter  requiresDeveloperOrAbove && statusIsActive
+  filter  actor.isClusterOwner==true && statusIsActive
   shape   accountIdRef
 }
 
@@ -309,10 +310,11 @@ query account accountsForGroupSweep {
 /// a scheduled automation under the engine's own actor, where actor.userId names
 /// nobody -- and scoping it to one person would leave every other client's
 /// domain unverified forever.
+@actor
 @serverOnly
 @unbounded("the domain walk must see EVERY account still waiting on its DNS record -- a truncated page leaves a client's domain unverified indefinitely, and the person watching the panel has no way to tell that from a record they typed wrong")
 query account accountsForDomainWalk {
-  filter  requiresDeveloperOrAbove && statusIsActive && domainStatus!="verified" && domain!=""
+  filter  actor.isClusterOwner==true && statusIsActive && domainStatus!="verified" && domain!=""
   shape   accountDomainWalk
 }
 
@@ -333,12 +335,13 @@ query account accountsForDomainWalk {
 /// actor.userId scoping is not the fix and would break the feature: this runs at
 /// ARRIVAL, from the invitation-acceptance and first-sign-in seams, where the
 /// caller is the person being provisioned and they own no account at all.
+@actor
 @serverOnly
 query account accountForDomainJoin {
   args {
     domain  string!
   }
-  filter  requiresDeveloperOrAbove && domain==args.domain && statusIsActive && domainStatus=="verified" && joinOnDomain==true
+  filter  actor.isClusterOwner==true && domain==args.domain && statusIsActive && domainStatus=="verified" && joinOnDomain==true
   shape   accountIdRef
   sort    "row.createdAt", "asc"
 }
