@@ -13,6 +13,8 @@ import {
   type Stop,
 } from "../../kit";
 import type { UpdateAccountState } from "./actions";
+import { AccountFrontDoorStop } from "./AccountFrontDoorStop";
+import type { FrontDoorRow } from "./frontDoor";
 import { accountIsSelf, accountName, domainIsVerified, type AccountRow } from "./rows";
 
 // THE DOMAIN RAIL: what a client's own domain buys them, in four stops.
@@ -33,9 +35,25 @@ import { accountIsSelf, accountName, domainIsVerified, type AccountRow } from ".
 export function AccountDomainRail({
   account,
   update,
+  clusterDomain,
+  doors,
+  canReadDoors,
 }: {
   account: AccountRow;
   update: UpdateAccountState;
+  /** This cluster's own domain, for the CNAME target the three names point at. */
+  clusterDomain: string;
+  /** Every front door this caller may read, live (epic memql#5168). */
+  doors: FrontDoorRow[];
+  /**
+   * Whether this viewer can read front doors at all.
+   *
+   * v1:platform:accountFrontDoor is clusterOwner tier, so a non-owner gets
+   * zero rows AND NO ERROR -- which the stop would otherwise render as "not
+   * held" about a door that is serving. That is a lie, and worse than showing
+   * nothing. The stop says which it is.
+   */
+  canReadDoors: boolean;
 }) {
   const [openStop, setOpenStop] = useState("");
   const self = accountIsSelf(account);
@@ -190,15 +208,14 @@ export function AccountDomainRail({
       state: account.memqlReservedAt === "" ? (verified ? "open" : "waiting") : "done",
       sentence: "The name this client is reserved under on this cluster.",
       answer: account.memqlDomain,
-      body: (
+      body: self ? (
+        // THE CLUSTER'S OWN ACCOUNT SERVES NO DOOR. Its reserved name IS the
+        // cluster domain -- the hosts beneath it are the front door itself,
+        // generated into the overlays, not provisioned per account (epic
+        // memql#5168, D1). Rendering the stop here would offer three CNAMEs
+        // for names this cluster already answers on.
         <>
-          <p className="os-caption">
-            {self
-              ? "This cluster's own."
-              : account.memqlReservedAt === ""
-                ? "Recorded once ownership is proven."
-                : `Reserved ${formatMoment(account.memqlReservedAt)}.`}
-          </p>
+          <p className="os-caption">{"This cluster's own."}</p>
           {account.memqlDomain === "" ? null : (
             <p className="os-account-hosts">
               {["app", "api", "id"].map((host) => (
@@ -206,10 +223,17 @@ export function AccountDomainRail({
               ))}
             </p>
           )}
-          <p className="os-caption">
-            Recorded now; served when the per-account front door lands.
-          </p>
         </>
+      ) : (
+        <AccountFrontDoorStop
+          accountId={account.id}
+          reservedName={account.memqlDomain}
+          reservationReason={account.memqlReservationReason}
+          held={account.memqlReservedAt !== ""}
+          clusterDomain={clusterDomain}
+          doors={doors}
+          canRead={canReadDoors}
+        />
       ),
     },
   ];

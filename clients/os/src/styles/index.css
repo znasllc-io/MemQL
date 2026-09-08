@@ -5312,12 +5312,13 @@ a.os-button {
 /* The name itself, and the one word that says whether it answers. Monospace
  * because it is a hostname somebody will type, at reading size because it is
  * the subject of the stop rather than a field in it. */
+/* The state word alone. The NAME is the rail's own answer for this stop and is
+ * not repeated here -- DESIGN.md rule 7, and a test caught the first version
+ * saying it twice. Right-aligned so it sits under the answer it qualifies. */
 .os-frontdoor-name {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: flex-end;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--os-line);
 }

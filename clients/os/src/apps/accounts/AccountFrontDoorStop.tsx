@@ -57,20 +57,58 @@ export function AccountFrontDoorStop({
   accountId,
   reservedName,
   reservationReason,
+  held,
   clusterDomain,
   doors,
+  canRead,
 }: {
   accountId: string;
   /** `account.memqlDomain` -- the name, whether or not it is held. */
   reservedName: string;
   /** `account.memqlReservationReason` -- why it is not held, when it is not. */
   reservationReason: string;
+  /**
+   * `account.memqlReservedAt !== ""` -- whether the cluster has agreed to
+   * serve this name.
+   *
+   * IT IS NOT DERIVABLE FROM THE DOOR, and the first version tried. With no
+   * door row the stop said "Not held", which is a lie about a name that IS
+   * held and whose door the sweep has simply not opened yet -- up to two
+   * minutes after an operator sets it. That is precisely the conflation the
+   * reservation reason exists to end, reintroduced one layer up.
+   */
+  held: boolean;
   /** This cluster's own domain, for the pointing target. */
   clusterDomain: string;
   doors: FrontDoorRow[];
+  /**
+   * Whether this viewer can read front doors at all.
+   *
+   * WITHOUT THIS THE STOP LIES. v1:platform:accountFrontDoor is clusterOwner
+   * tier, so an admin gets zero rows AND NO ERROR -- and `currentDoor` then
+   * returns null, which reads as "Not held" about a door that is serving. A
+   * review caught it: an empty feed because there is nothing and an empty feed
+   * because you may not look are different answers, and only one of them is
+   * the account's.
+   */
+  canRead: boolean;
 }) {
   const now = useNow(30_000);
   const door = currentDoor(doors, accountId);
+
+  // NOT READABLE. Said plainly rather than rendered as an absence: the floor
+  // here is a mirror of the server's own tier, and a person who cannot see
+  // this should learn that rather than a fact about the account.
+  if (!canRead) {
+    return (
+      <div className="os-frontdoor">
+        {reservedName ? <StateLine tone="muted" state="Reserved" /> : null}
+        <Caption>
+          Only a cluster owner can see whether this name is being served.
+        </Caption>
+      </div>
+    );
+  }
 
   // NOTHING RESERVED AT ALL. The name is what the stop is about, so with no
   // name there is nothing to say beyond where to set one -- and the control
@@ -84,13 +122,31 @@ export function AccountFrontDoorStop({
     );
   }
 
-  // RESERVED BUT NOT HELD. The typed reason says which of the two it is, so the
-  // stop no longer has to infer it from the ownership stop beside it.
+  // NO DOOR ROW YET, which is TWO states and not one.
+  //
+  // HELD: the cluster has agreed to serve the name and the sweep has not
+  // opened its door yet -- up to one pass, so up to two minutes after an
+  // operator sets it. Saying "not held" there is a lie, and it is the same
+  // conflation the reservation reason exists to end.
+  //
+  // NOT HELD: the typed reason says why, so the stop no longer has to infer it
+  // from the ownership stop beside it.
   if (!door) {
+    if (held) {
+      return (
+        <div className="os-frontdoor">
+          <StateLine tone="muted" state="Reserved" />
+          <Caption>
+            Held for this client. The three records to create appear here when the
+            cluster next looks, within two minutes.
+          </Caption>
+        </div>
+      );
+    }
     const why = reservationReasonSentence(reservationReason);
     return (
       <div className="os-frontdoor">
-        <NameLine name={reservedName} tone="muted" state="Not held" />
+        <StateLine tone="muted" state="Not held" />
         <Caption>
           {isKnownReservationReason(reservationReason)
             ? why
@@ -105,11 +161,7 @@ export function AccountFrontDoorStop({
 
   return (
     <div className="os-frontdoor">
-      <NameLine
-        name={reservedName}
-        tone={doorTone(door)}
-        state={serving ? "Serving" : "Not served"}
-      />
+      <StateLine tone={doorTone(door)} state={serving ? "Serving" : "Not served"} />
       <Caption>{doorSentence(door)}</Caption>
 
       {serving ? (
@@ -144,11 +196,18 @@ export function AccountFrontDoorStop({
   );
 }
 
-/** The reserved name itself, with the one word that says whether it answers. */
-function NameLine({ name, tone, state }: { name: string; tone: string; state: string }) {
+/**
+ * The one word that says whether the name answers.
+ *
+ * IT DOES NOT REPEAT THE NAME. The first version drew the reserved name here
+ * as well, and a test caught it: the rail already renders it as the stop's own
+ * answer, so the page said it twice -- DESIGN.md rule 7, which the rail's whole
+ * answer/body split exists to keep. The name is the stop's subject; this line
+ * is its state.
+ */
+function StateLine({ tone, state }: { tone: string; state: string }) {
   return (
     <div className="os-frontdoor-name" data-tone={tone}>
-      <code>{name}</code>
       <span className="os-frontdoor-state">{state}</span>
     </div>
   );
