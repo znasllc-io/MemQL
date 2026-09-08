@@ -65,6 +65,19 @@ export interface CatalogMachine {
   busy: boolean;
   activeCount: number;
   maxConcurrent: number;
+  /**
+   * What this machine has to give a model, in whole gigabytes, as the engine's
+   * UsableGigabytes computes it -- VRAM on a discrete card, 75 percent of the
+   * pool on unified memory.
+   *
+   * ZERO MEANS THE MACHINE HAS NOT SAID, never a machine with no memory. A
+   * cockpit that predates the hardware scanner sends no inventory at all, and a
+   * reader that took the zero as a measurement would tell somebody their machine
+   * is too small when nobody has asked it yet.
+   */
+  memoryGb: number;
+  /** macos | linux, in the catalog's vocabulary; "" when the machine has not said. */
+  platform: string;
 }
 
 function numberOf(row: Row | Record<string, unknown>, key: string): number {
@@ -110,6 +123,12 @@ export function catalogModelFromRow(row: Row): CatalogModel {
       busy: m.busy === true,
       activeCount: numberOf(m, "activeCount"),
       maxConcurrent: numberOf(m, "maxConcurrent"),
+      // Clamped at zero rather than passed through. A negative memory figure is
+      // not a small machine, it is a machine that said something impossible, and
+      // the readers downstream all treat "0" as "has not said" -- which is the
+      // one reading that blocks nothing and claims nothing.
+      memoryGb: Math.max(0, numberOf(m, "memoryGb")),
+      platform: stringOf(m, "platform"),
     })),
   };
 }

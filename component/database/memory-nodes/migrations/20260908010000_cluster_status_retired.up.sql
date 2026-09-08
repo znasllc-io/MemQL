@@ -1,0 +1,51 @@
+-- Retired concept field: v1:cluster:cluster.status (memql#5199).
+--
+-- WHY A DATA MIGRATION AND NOT JUST A CONCEPT EDIT.
+--
+-- Every concept in this engine builds its JSON schema with
+-- `additionalProperties: false` (concept_parser.go's parsedConcept defaults
+-- noAdditional to true, and no DSL annotation turns it off), and a mutation's
+-- read-merge validates the MERGED payload -- stored keys included. So deleting
+-- a field from a concept does not merely stop new writes carrying it: it makes
+-- every EXISTING row that carries it unwritable, with
+--
+--   concept payload validation failed: jsonschema: '' does not validate with
+--   v1:cluster:cluster#/additionalProperties: additionalProperties 'status' not allowed
+--
+-- `status` went in memql#4772 (and the same removal took `database.status` and
+-- `identityProvider.status` in memql#4766). The concept carries a long note
+-- saying not to re-add it: the field had one writer, `createCluster` resolving
+-- `args.status ?? "healthy"`, which `bootstrapCluster` never passed -- so every
+-- cluster wrote the literal "healthy" once and nothing ever moved it. A health
+-- verdict must be DERIVED at read time or it acquires exactly the staleness
+-- that field died of.
+--
+-- WHY THIS IS AN UPGRADE HAZARD RATHER THAN A TEST FAILURE. `clusterInfraRefresh`
+-- runs on EVERY bff start and rewrites the singleton at
+-- `v1:cluster:cluster:self`, so on a cluster that crossed the removal this is a
+-- write that fails on every boot. CI never sees it: the db-tests lane runs
+-- against a FRESH database where the boot seed writes a clean row. It is
+-- visible only on a database with history, which is every real installation and
+-- no CI lane. Measured on the shared throwaway database: 18 versions on 1 id.
+--
+-- SCOPED BY CONCEPT, NEVER BY KEY NAME. `status` is a live, declared field on
+-- v1:cluster:releaseCut (3,120 versions) and v1:cluster:deployment (1,559), and
+-- on a dozen concepts outside this domain. A migration that stripped by key
+-- name alone would delete live data from concepts this issue never touched.
+-- `v1:cluster:database` and `v1:cluster:identityProvider` were the other two
+-- named in the report; both were measured and carry NO `status` key, so they
+-- need nothing here and get nothing -- a WHERE clause that matches nothing is
+-- cheap, but a clause nobody measured is a claim.
+--
+-- APPEND-ONLY ROWS, EVERY VERSION. The table is a time series and a row's
+-- history is its versions, so this rewrites all of them rather than the newest
+-- per id: a read-merge reads the newest, but the older versions are what an
+-- audit walk returns, and half a history validating is worse than none.
+--
+-- Idempotent: the `payload ? 'status'` predicate matches nothing on a cluster
+-- whose rows were all written after the removal.
+
+UPDATE "MemoryNodes"
+SET payload = payload - 'status'
+WHERE concept = 'v1:cluster:cluster'
+  AND payload ? 'status';

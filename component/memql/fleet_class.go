@@ -273,6 +273,55 @@ func usableGigabytes(b uint64) uint64 {
 	return (b + gb/2) / gb
 }
 
+// UsableGigabytes is the machine's usable memory in whole gigabytes -- the
+// figure MachineClass compares against the ladder, exported so the readers that
+// SHOW it to an operator get the same number the engine decides on.
+//
+// There is exactly one implementation of this arithmetic on purpose. A second
+// one would be a second answer: the three-case rule in UsableBytes (a discrete
+// card is its VRAM, everything else is 75 percent of the pool) and the
+// round-to-nearest in usableGigabytes are both defect fixes, and a caller that
+// re-derived "memory in GB" from memoryBytes would reproduce neither -- it would
+// tell somebody with a 48 GB Mac that they have 48 GB to give a model, and then
+// block the 32 GB entry they were promised.
+//
+// Zero for a machine that has not reported. Callers must ask Present() rather
+// than reading zero as "no memory".
+func UsableGigabytes(h MachineHardware) uint64 {
+	if !h.Present() {
+		return 0
+	}
+	return usableGigabytes(UsableBytes(h))
+}
+
+// NormalizePlatform maps an operating system as the MACHINE reports it onto the
+// vocabulary the CATALOG declares.
+//
+// The two never agreed. `platformInfo.os` is Go's GOOS, so a Mac says `darwin`;
+// `modelProfile.offeredOn` is declared `macos | linux` and every seed spells it
+// `macos`. Nothing normalized between them, so `offeredOn` compared `darwin`
+// against `macos` and answered false -- which made the ONLY macOS-only profile
+// in the catalog unavailable on macOS, with the sentence "Not offered on macOS.
+// This entry is macos only." The tests missed it because every recommend-path
+// fixture used OfferedOn: ["linux"] and every client fixture used
+// platform: "macos", so neither side ever spelled the pair that collides.
+//
+// ONE VOCABULARY CROSSES THE WIRE. This runs where the platform is stamped onto
+// a machine entry, so every reader downstream -- the catalog join, the
+// recommended set, the client -- compares catalog words against catalog words.
+// An unknown GOOS passes through lowercased rather than being blanked: an empty
+// platform blocks nothing (offeredOn treats it as permissive), so blanking a
+// value we simply do not have a catalog word for would silently widen what a
+// machine is offered.
+func NormalizePlatform(os string) string {
+	switch v := strings.ToLower(strings.TrimSpace(os)); v {
+	case "darwin":
+		return "macos"
+	default:
+		return v
+	}
+}
+
 // ClassAtLeast reports whether a machine of class `machine` meets a floor of
 // `need` -- the comparison behind "is this profile offered on this machine".
 //

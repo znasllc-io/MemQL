@@ -43,8 +43,15 @@ import type { CatalogModel } from "./useInference";
 // things are fine and dense where they are not, which is the shape of the
 // question an operator brought.
 
-/** What the fleet's machines report, folded out of the model rows. */
-function machineFactsFrom(models: CatalogModel[]): FleetMachineFacts[] {
+/**
+ * What the fleet's machines report, folded out of the model rows.
+ *
+ * EXPORTED FOR TEST. It is link three of memql#5195 -- the one that turns wire
+ * fields into the facts the join compares -- and it was reachable only through
+ * the component, so the whole of it was untested while it consisted of two
+ * hardcoded defaults.
+ */
+export function machineFactsFrom(models: CatalogModel[]): FleetMachineFacts[] {
   const byId = new Map<string, FleetMachineFacts>();
   for (const model of models) {
     for (const m of model.machines) {
@@ -56,15 +63,20 @@ function machineFactsFrom(models: CatalogModel[]): FleetMachineFacts[] {
         name: m.displayName || m.name || key,
         runtimes: [...runtimes],
         online: m.online || (prior?.online ?? false),
-        // Platform and memory are NOT on the fleetModel row's machine entries,
-        // and no epic currently puts them there -- memql#5146's scanner writes
-        // hardware to a DIFFERENT row (`v1:worker:registration.hardware`) that
-        // this path never reads. Absent means "has not said", which blocks
-        // nothing, and stays absent until memql#5195 wires the join.
-        // Guessing either would tell an operator their machine is too small
-        // when the truth is that nobody has asked it yet.
-        platform: prior?.platform ?? "",
-        memoryGb: prior?.memoryGb ?? 0,
+        // ONE MACHINE APPEARS UNDER EVERY MODEL IT SERVES, so this is a fold and
+        // not an assignment: the entries describe the same machine and carry the
+        // same figures, and taking the first non-empty one keeps a fact that one
+        // entry happened to omit. Before memql#5195 these two were the constants
+        // "" and 0 -- nothing on the wire carried them, so the machine-class
+        // floor was compared against a fleet size nobody had reported and was
+        // never checked on any fleet.
+        //
+        // ABSENT STILL MEANS "HAS NOT SAID", which blocks nothing. A cockpit
+        // that predates the hardware scanner sends no inventory, and guessing
+        // would tell an operator their machine is too small when nobody has
+        // asked it yet.
+        platform: m.platform || (prior?.platform ?? ""),
+        memoryGb: m.memoryGb || (prior?.memoryGb ?? 0),
       });
     }
   }
@@ -100,11 +112,16 @@ export function CatalogSection({
    */
   facets?: CatalogFacets;
 }) {
+  // Folded ONCE. Two memos each calling machineFactsFrom built the same map
+  // twice per render, and more to the point they could disagree: the join and
+  // the count are two readings of one fleet, and a surface that asks the same
+  // question twice is a surface where the two answers can drift.
+  const machines = useMemo(() => machineFactsFrom(fleet), [fleet]);
   const reading = useMemo(
-    () => joinCatalog(profiles, fleetFactsFrom(fleet), machineFactsFrom(fleet)),
-    [profiles, fleet],
+    () => joinCatalog(profiles, fleetFactsFrom(fleet), machines),
+    [profiles, fleet, machines],
   );
-  const machineCount = useMemo(() => machineFactsFrom(fleet).length, [fleet]);
+  const machineCount = machines.length;
   const groups = useMemo(
     () => applyFacets(groupByCategory(reading, machineCount > 0), facets ?? {}),
     [reading, machineCount, facets],
@@ -149,16 +166,22 @@ export function CatalogSection({
       )}
 
       {machineCount > 0 && hasUncheckableClass(groups) ? (
-        // The same rule, for the same reason. No machine reports its memory
-        // today -- and nothing scheduled changes that, see memql#5195 -- so
+        // The same rule, for the same reason: it is one fact about the FLEET --
         // the floor cannot be checked for any entry that has one, under every
-        // category at once. It is one fact about the fleet, said once.
+        // category at once -- so it is said once above the list rather than
+        // repeated under each group (rule 7).
         //
-        // Entries stay UNBLOCKED: guessing would tell somebody their machine is
-        // too small when nobody has asked it yet. What changed is that the list
-        // no longer counts an unchecked entry as one that "runs on a machine you
-        // already have", which was a claim about their hardware made out of the
-        // absence of data about it.
+        // SINCE memql#5195 THIS IS A REAL STATE RATHER THAN THE ONLY STATE. The
+        // machine entries now carry memory, so this reads for a cockpit that
+        // predates the hardware scanner and for nothing else; a fleet that
+        // reported and is simply too small says so on the entries themselves,
+        // which is a different sentence and the correct one.
+        //
+        // Entries stay UNBLOCKED here: guessing would tell somebody their machine
+        // is too small when nobody has asked it yet. What the list does not do is
+        // count an unchecked entry as one that "runs on a machine you already
+        // have", which was a claim about their hardware made out of the absence
+        // of data about it.
         <Caption>
           Your machines have not reported their memory yet, so this list cannot say which of these
           they can run.

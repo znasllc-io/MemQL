@@ -100,27 +100,24 @@ export interface CatalogRow {
    * blocked in that state, because guessing would tell an operator their
    * machine is too small when the truth is nobody has asked it yet.
    *
-   * IT IS FALSE ON EVERY FLEET TODAY, AND NOTHING SCHEDULED CHANGES THAT.
-   * An earlier version of this comment said the scanner in epic memql#5146
-   * would resolve it, which read as scheduled work and would have stopped the
-   * next person looking. It will not: the memory join is UNOWNED. memql-3b traced the
-   * reader: `useInference.ts` parses registrationId / name / displayName /
-   * runtimes / online / busy / activeCount / maxConcurrent off a fleetModel
-   * row's machine entries and NO memory or platform field, and epic
-   * memql#5146's scanner writes hardware to `v1:worker:registration.hardware`
-   * -- a different row this path never reads. Three links are missing and
-   * belong to neither epic: the fleetModel row's machine entries must CARRY
-   * memory and platform, `useInference.ts` must parse them onto
-   * `CatalogMachine`, and `machineFactsFrom` must use them instead of
-   * defaulting to 0. Tracked as
-   * memql#5195.
+   * IT CAN NOW BE TRUE, which it could not before memql#5195. The three links
+   * are wired: the fleetModel row's machine entries carry `memoryGb` and
+   * `platform` (component/memql/fleet_catalog_read.go, stamped in
+   * integrations/agent/worker/fleet_inference.go from the hardware epic
+   * memql#5146's scanner writes), `useInference.ts` parses them onto
+   * `CatalogMachine`, and `machineFactsFrom` folds them here. So this flag now
+   * separates a fleet that has genuinely said nothing -- a cockpit predating the
+   * scanner -- from one that has, rather than describing every fleet there is.
    *
-   * But `blocked: null` alone made the SENTENCE claim the opposite: an
-   * uncheckable row counted toward "N of them run on a machine you already
-   * have", which is a positive claim about hardware from an absence of data,
-   * and it is the same defect as saying that to a fleet with no machines at
-   * all. Right now it is wrong for every entry with a floor on every real
-   * fleet. This flag is how the sentence tells the two apart.
+   * IT IS STILL NOT THE SAME QUESTION AS "does it fit". A fleet that reported
+   * and is under every rung has `classKnown: true` and a `no-machine-of-class`
+   * block; only silence reads false. Collapsing the two would tell somebody with
+   * an 8 GB laptop that their machine has not reported, which it has.
+   *
+   * `blocked: null` alone made the SENTENCE claim the opposite: an uncheckable
+   * row counted toward "N of them run on a machine you already have", which is a
+   * positive claim about somebody's hardware built out of the absence of data
+   * about it. This flag is how the sentence tells the two apart.
    */
   classKnown: boolean;
 }
@@ -152,27 +149,53 @@ function classIndex(value: string): number {
 }
 
 /**
- * The largest machine class this fleet has, as an index into MACHINE_CLASSES,
- * or -1 when no machine has said how much memory it has.
+ * What this fleet's machines have said about their memory.
  *
- * A MACHINE THAT HAS NOT SAID DOES NOT COUNT AS SMALL. It counts as unknown,
- * and an unknown fleet blocks nothing -- reporting "no machine of this class"
- * to somebody whose 64 GB laptop simply has not reported its memory yet would
- * be confidently wrong, and the operator has no way to tell that from the
- * truth.
+ * TWO QUESTIONS, NOT ONE, AND THEY WERE COLLAPSED. The previous reading was a
+ * single class index where -1 meant both "nobody has reported" and "somebody
+ * reported and it is under the smallest rung" -- fine while no machine reported
+ * anything, and a live defect the moment one did: an 8 GB laptop that answered
+ * perfectly would have been told "your machines have not reported their memory
+ * yet". The engine has never had them confused (component/memql/fleet_class.go
+ * calls them ClassUnknown and ClassUnsupported, and its file comment is about
+ * exactly this), and now neither do we.
+ *
+ * `known` is the one that decides whether the floor can be CHECKED. `classIndex`
+ * of -1 under `known: true` is a real, checkable answer -- a fleet too small for
+ * every entry that names a size -- and it blocks, where unknown blocks nothing.
  */
-function largestClass(machines: FleetMachineFacts[]): number {
-  let best = -1;
+interface FleetMemory {
+  /** Whether ANY machine has reported its memory. False blocks nothing. */
+  known: boolean;
+  /** The largest usable figure reported, in GB. 0 when `known` is false. */
+  largestGb: number;
+  /** Index into MACHINE_CLASSES; -1 when known and under the smallest rung. */
+  classIndex: number;
+}
+
+/**
+ * Read the fleet's memory.
+ *
+ * A MACHINE THAT HAS NOT SAID DOES NOT COUNT AS SMALL. It counts as unknown, and
+ * an unknown fleet blocks nothing -- reporting "no machine of this class" to
+ * somebody whose 64 GB laptop simply has not reported its memory yet would be
+ * confidently wrong, and the operator has no way to tell that from the truth.
+ */
+function fleetMemory(machines: FleetMachineFacts[]): FleetMemory {
+  let largestGb = 0;
   for (const m of machines) {
-    if (m.memoryGb <= 0) continue;
-    for (let i = MACHINE_CLASSES.length - 1; i >= 0; i--) {
-      if (m.memoryGb >= Number(MACHINE_CLASSES[i])) {
-        if (i > best) best = i;
-        break;
-      }
+    if (m.memoryGb > largestGb) largestGb = m.memoryGb;
+  }
+  if (largestGb <= 0) return { known: false, largestGb: 0, classIndex: -1 };
+
+  let classIndex = -1;
+  for (let i = MACHINE_CLASSES.length - 1; i >= 0; i--) {
+    if (largestGb >= Number(MACHINE_CLASSES[i])) {
+      classIndex = i;
+      break;
     }
   }
-  return best;
+  return { known: true, largestGb, classIndex };
 }
 
 function platforms(machines: FleetMachineFacts[]): Set<string> {
@@ -215,7 +238,7 @@ export function joinCatalog(
 
   const fleetPlatforms = platforms(machines);
   const fleetRuntimes = runtimes(machines);
-  const biggest = largestClass(machines);
+  const memory = fleetMemory(machines);
 
   const rows: CatalogRow[] = profiles.map((profile) => {
     const hit = byId.get(profile.modelId);
@@ -242,7 +265,7 @@ export function joinCatalog(
             kind: "not-offered-on-platform",
             detail: `Runs on ${where}. No machine on your fleet is one.`,
           },
-          classKnown: biggest >= 0,
+          classKnown: memory.known,
         };
       }
     }
@@ -256,19 +279,31 @@ export function joinCatalog(
           kind: "runtime-missing",
           detail: `Needs the ${profile.runtime} runtime. No machine on your fleet has it installed.`,
         },
-        classKnown: biggest >= 0,
+        classKnown: memory.known,
       };
     }
 
     const floor = classIndex(profile.minMachineClass);
-    if (floor >= 0 && biggest >= 0 && biggest < floor) {
+    if (floor >= 0 && memory.known && memory.classIndex < floor) {
       return {
         profile,
         served: false,
         servedBy: [],
         blocked: {
           kind: "no-machine-of-class",
-          detail: `Needs ${profile.minMachineClass} GB. Your largest machine has ${MACHINE_CLASSES[biggest]} GB.`,
+          // THE SECOND SENTENCE REPORTS THE MACHINE, NOT THE RUNG IT LANDED ON.
+          // It used to print MACHINE_CLASSES[biggest], so a 48 GB Mac read "your
+          // largest machine has 32 GB" -- true of the class and false of the
+          // machine, and a lie the operator can check. The usable figure is what
+          // the comparison actually ran on, and "for a model" is what makes 36
+          // rather than 48 make sense: on unified memory the model gets 75
+          // percent of the pool, and a reader told the raw number would
+          // reasonably conclude the page is broken.
+          //
+          // It also covers the fleet that is under EVERY rung, which needs no
+          // sentence of its own: classIndex -1 under known: true blocks here
+          // and reads "Needs a 16 GB machine. Your largest has 6 GB for a model."
+          detail: `Needs a ${profile.minMachineClass} GB machine. Your largest has ${memory.largestGb} GB for a model.`,
         },
         classKnown: true,
       };
@@ -277,7 +312,7 @@ export function joinCatalog(
     // Could be served, and has not been pulled. Not blocked -- an invitation.
     // `classKnown` says whether that invitation rests on a checked floor or on
     // a fleet that has not reported its memory.
-    return { profile, served: false, servedBy: [], blocked: null, classKnown: biggest >= 0 };
+    return { profile, served: false, servedBy: [], blocked: null, classKnown: memory.known };
   });
 
   const known = new Set(profiles.map((p) => p.modelId));
@@ -407,12 +442,12 @@ export function categorySentence(group: CategoryGroup): string {
   }
   // AN UNCHECKABLE FLOOR IS NOT A PASSED ONE. A row whose machine-class floor
   // could not be evaluated -- because no machine on this fleet has reported its
-  // memory, which is every fleet today and stays so until somebody wires the
-  // join (see CatalogRow.classKnown, memql#5195) -- is deliberately not
-  // blocked. Counting it as pullable, though, turns "we could
-  // not check" into "it runs on a machine you already have": a positive claim
-  // about somebody's hardware built out of the absence of data about it, and
-  // wrong in the direction that gets a 122B pull started on a laptop.
+  // memory, which since memql#5195 means a cockpit that predates the hardware
+  // scanner rather than every fleet there is -- is deliberately not blocked.
+  // Counting it as pullable, though, turns "we could not check" into "it runs on
+  // a machine you already have": a positive claim about somebody's hardware
+  // built out of the absence of data about it, and wrong in the direction that
+  // gets a 122B pull started on a laptop.
   //
   // So the sentence names the gap instead, and names the thing that would close
   // it, rather than reporting a count it cannot stand behind.

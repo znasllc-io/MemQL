@@ -323,5 +323,10 @@ func ScanSource(path, src string, opts Options) []Violation {
 	out = append(out, scanRetiredOperators(path, src)...)
 	out = append(out, scanRowIntrinsics(path, src)...)
 	out = append(out, scanConstructAuthz(path, src, opts)...)
+	// The duplicate-import gate is PER-FILE: whether one local name is bound
+	// twice depends on that file's own `use` lines and nothing else. It rides
+	// ScanSource rather than ScanFiles so a single-file caller (memqllint on one
+	// path, Sense) gets the same verdict boot does (memql#5196).
+	out = append(out, scanDuplicateImportNames(path, src)...)
 	return out
 }
