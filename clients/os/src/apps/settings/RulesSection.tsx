@@ -135,7 +135,7 @@ export function RulesSection() {
       {rules.error ? (
         <Notice
           tone="warn"
-          sentence={`The cluster declined this read for ${access?.clusterRole || "your role"}.`}
+          sentence={`The cluster declined this read for ${access?.role || "your role"}.`}
           detail={rules.error}
         />
       ) : null}

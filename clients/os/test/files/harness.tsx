@@ -155,7 +155,9 @@ export function withSession(children: ReactNode, overrides: { userId?: string; r
         access: {
           userId: overrides.userId ?? "u-me",
           primaryEmail: "owner@example.com",
-          clusterRole: overrides.role ?? "owner",
+          role: overrides.role ?? "owner",
+          roleName: "",
+          rank: 0,
         },
         config,
       }}

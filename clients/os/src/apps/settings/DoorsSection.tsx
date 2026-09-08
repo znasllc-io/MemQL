@@ -136,7 +136,7 @@ export function DoorsSection({
   const inference = useInferenceStatus(true);
   const actions = useProviderActions(registry.reload);
   const reach = localityOf(config.domain);
-  const role = access?.clusterRole ?? "";
+  const role = access?.role ?? "";
   const fleetApp = useAppReach("fleet", role);
 
   // WHICH VENDOR FORM IS OPEN. Empty means none, which is the standing state:
@@ -199,7 +199,7 @@ export function DoorsSection({
       {registry.error ? (
         <Notice
           tone="warn"
-          sentence={`The cluster declined this read for ${access?.clusterRole || "your role"}.`}
+          sentence={`The cluster declined this read for ${access?.role || "your role"}.`}
           detail={registry.error}
         />
       ) : null}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Button, Caption } from "../../kit";
+import { RoleIdentity, placeOnLadder } from "../../modules/profile/RoleIdentity";
 import { useSession } from "../../chrome/access";
 import { useConnectionStatus } from "../../chrome/connection";
 import { useOs } from "../../chrome/state";
@@ -74,8 +75,14 @@ export function DiagnosticsSection() {
 
       <section className="os-field-group" aria-label="Permissions">
         <h4 className="os-subhead">Permissions</h4>
+        {/* THE ROLE NAMED, NOT THE SLUG (epic memql#5166). This printed the
+            raw slug at a person -- "You are support-lead" -- which is the
+            machine's word for a thing they know as Support Lead. The block form
+            of RoleIdentity belongs in a definition list; a sentence takes the
+            name and the place beside it. */}
         <p className="os-stub-summary">
-          You are {access?.clusterRole || "unknown"}
+          You are <RoleIdentity access={access} inline />
+          {placeOnLadder(access) === "" ? "" : `, ${placeOnLadder(access)}`}
           {access?.primaryEmail ? ` (${access.primaryEmail})` : ""}.
         </p>
         {hidden.length === 0 ? (
@@ -85,7 +92,7 @@ export function DiagnosticsSection() {
             {hidden.map((h) => (
               <li key={`${h.kind}:${h.label}`}>
                 {h.label} <span className="os-caption-inline">({h.kind})</span> -- requires{" "}
-                {h.requires}; you are {access?.clusterRole || "unknown"}
+                {h.requires}; you are <RoleIdentity access={access} inline />
               </li>
             ))}
           </ul>
@@ -108,7 +115,9 @@ export function DiagnosticsSection() {
               endpoint,
               userId: access?.userId ?? "",
               primaryEmail: access?.primaryEmail ?? "",
-              clusterRole: access?.clusterRole ?? "",
+              role: access?.role ?? "",
+              roleName: access?.roleName ?? "",
+              rank: access?.rank ?? 0,
               connection: history,
               connectionStatus: status,
               themePack: state.themePack,

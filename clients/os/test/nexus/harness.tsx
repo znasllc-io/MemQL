@@ -153,7 +153,9 @@ export function withSession(children: ReactNode, overrides: { role?: string } = 
         access: {
           userId: "v1:identity:user:me",
           primaryEmail: "owner@example.com",
-          clusterRole: overrides.role ?? "owner",
+          role: overrides.role ?? "owner",
+          roleName: "",
+          rank: 0,
         },
         config,
       }}

@@ -37,7 +37,7 @@ export function LogsApp({
   const settingsStore = useMemo(() => store ?? new LocalLogsSettingsStore(), [store]);
   const [settings, setSettings] = useState<LogsSettings>(() => settingsStore.load());
   const { access } = useSession();
-  const actorRole = access?.clusterRole ?? "";
+  const actorRole = access?.role ?? "";
 
   function update(patch: Partial<LogsSettings>): void {
     const next = { ...settings, ...patch, version: 1 as const };

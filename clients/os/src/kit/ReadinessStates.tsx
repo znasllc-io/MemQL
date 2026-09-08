@@ -124,8 +124,8 @@ export function SurfaceUnconfigured({
 }
 
 /** Whether this actor may configure: owner or developer, as a SET (the Integrations gate). */
-export function canConfigure(clusterRole: string): boolean {
-  return clusterRole === "owner" || clusterRole === "developer";
+export function canConfigure(role: string): boolean {
+  return role === "owner" || role === "developer";
 }
 
 /**
@@ -240,7 +240,7 @@ export function SetupGroup({
   readiness: Readiness | undefined;
 }) {
   const { access } = useSession();
-  const role = access?.clusterRole ?? "";
+  const role = access?.role ?? "";
   const reach = useAppReach("settings", role);
   if (!canConfigure(role)) return null;
   const ids = Array.from(new Set([...requires, ...wants]));

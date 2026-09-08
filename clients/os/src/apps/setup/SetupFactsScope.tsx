@@ -33,7 +33,7 @@ import { coreIsConfigured, stopsAreKnown, stopsFor, type PasskeyReading } from "
 export function SetupFactsScope({ children }: { children: ReactNode }) {
   const { access, config, readiness } = useSession();
   const connection = useOsConnection();
-  const role = access?.clusterRole ?? "";
+  const role = access?.role ?? "";
 
   const readPasskeys = useCallback(
     async (signal: AbortSignal): Promise<Row[]> => {

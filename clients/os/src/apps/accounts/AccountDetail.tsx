@@ -97,7 +97,7 @@ function ProfilePanel({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => toDraft(account));
   const { access } = useSession();
-  const actorRole = access?.clusterRole ?? "";
+  const actorRole = access?.role ?? "";
 
   // WHOSE ROW IS THIS, and can this viewer write it.
   //
@@ -121,7 +121,7 @@ function ProfilePanel({
   // would hand them a form the engine refuses on save, which is precisely the
   // shape this panel now exists to avoid.
   //
-  // `clusterRole === "owner"` rather than roleAdmits, because this is not a
+  // `role === "owner"` rather than roleAdmits, because this is not a
   // rank floor: it mirrors auth.IsClusterOwner, which is one role and not a
   // rung. Settings' ClusterSection reads it the same way and for the same
   // reason.

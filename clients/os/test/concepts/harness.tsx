@@ -145,7 +145,7 @@ export function nodeOf(id: string, payload: Record<string, unknown>): Row {
 
 export function withSession(
   children: ReactNode,
-  overrides: { userId?: string; domain?: string; clusterRole?: string } = {},
+  overrides: { userId?: string; domain?: string; role?: string } = {},
 ) {
   const config: OsRuntimeConfig = {
     ...UNKNOWN_RUNTIME_CONFIG,
@@ -157,7 +157,9 @@ export function withSession(
         access: {
           userId: overrides.userId ?? "v1:identity:user:me",
           primaryEmail: "me@example.com",
-          clusterRole: overrides.clusterRole ?? "owner",
+          role: overrides.role ?? "owner",
+          roleName: "",
+          rank: 0,
         },
         config,
       }}

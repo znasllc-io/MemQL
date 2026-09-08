@@ -119,7 +119,7 @@ export function IntegrationsSection({
       </p>
 
       {facts.error ? (
-        <Refusal role={access?.clusterRole ?? ""} message={facts.error} />
+        <Refusal role={access?.role ?? ""} message={facts.error} />
       ) : facts.report === null ? (
         <Caption>
           {facts.loading ? "Loading from the cluster" : "No integration report came back."}

@@ -33,7 +33,7 @@ export const KEYS_SECTION_ROLE: RoleRequirement = { min: "admin" };
 export function KeysSection() {
   const { access, config } = useSession();
   const origin = config.identityUrl || "";
-  const facts = useKeyFacts(origin, access?.clusterRole === "owner");
+  const facts = useKeyFacts(origin, access?.role === "owner");
   const agreement = agreementOf(facts.probe);
 
   return (

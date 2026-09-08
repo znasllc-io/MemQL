@@ -115,7 +115,7 @@ export function LevelsSection() {
       {inference.status.error ? (
         <Notice
           tone="warn"
-          sentence={`The cluster declined this read for ${access?.clusterRole || "your role"}.`}
+          sentence={`The cluster declined this read for ${access?.role || "your role"}.`}
           next="Without it these rows cannot say which door takes a call."
           detail={inference.status.error}
         />

@@ -243,7 +243,7 @@ function ShellRoster({
   return (
     <OsProvider
       registry={OS_REGISTRY}
-      actorRole={access?.clusterRole ?? ""}
+      actorRole={access?.role ?? ""}
       // The role LADDER's load state (memql#4857): the roster gates on the
       // role, and roleAdmits cannot answer until the ladder lands. Threading
       // it through here is what makes the launcher and dock recompute the

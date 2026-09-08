@@ -27,7 +27,7 @@ import { UNKNOWN_RUNTIME_CONFIG } from "../../src/cluster/config";
 // `{identityUrl}/me/api/profile` -- a route registered in no Go file in this
 // repo, which the identity service answers with its own HTML at 200. The read
 // slipped past `!response.ok`, `response.json()` threw on the markup, the
-// try/catch swallowed it, and `clusterRole` became "". `roleAdmits` refuses an
+// try/catch swallowed it, and `role` became "". `roleAdmits` refuses an
 // unrankable role, so EVERY role-gated app was invisible to EVERY user in
 // EVERY cluster -- the owner included. It presented as "the Users app was
 // never built".
@@ -44,13 +44,13 @@ import { UNKNOWN_RUNTIME_CONFIG } from "../../src/cluster/config";
 // the real registry, and it fails against the old code -- which never asked
 // the connection anything at all.
 
-function summary(clusterRole: string, over: Partial<AccessSummary> = {}): AccessSummary {
+function summary(role: string, over: Partial<AccessSummary> = {}): AccessSummary {
   return {
     requestId: "req-1",
     userId: "v1:identity:user:u-42",
     primaryEmail: "ada@example.test",
     sessionId: "sess-1",
-    clusterRole,
+    role,
     ...over,
   } as AccessSummary;
 }
@@ -177,7 +177,7 @@ describe("the cluster's role reaches the app roster", () => {
       <Shell
         layout="desktop"
         onSignOut={vi.fn()}
-        access={{ userId: "u-1", primaryEmail: "a@b.c", clusterRole: "owner" }}
+        access={{ userId: "u-1", primaryEmail: "a@b.c", role: "owner", roleName: "", rank: 0 }}
         config={{ ...UNKNOWN_RUNTIME_CONFIG, domain: "example.test" }}
         ports={{ store: new LocalDesktopStore(memStorage()) }}
       />,
