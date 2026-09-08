@@ -1462,6 +1462,17 @@ and it exists because a plain `owner=` tier has no cluster-owner bypass -- so
 declaring an operator surface plain-owned hides every other user's rows from the
 operator too. The write guard ignores the second argument.
 
+**`account="<field>"` (epic memql#5165) is one more ARGUMENT of the owned tier**
+-- the grant a client's people reach their work through. It ORs "anyone whose
+group ties them to this row's account" onto the concept's admission, resolved
+per request from `v1:identity:groupMembership` and `v1:identity:group`, so
+subscriptions decide with the same function. It widens WRITES as well as reads
+(the verb stays upstream), the field may be a string or a string list, and its
+type is checked at load -- the lowering is one jsonb containment test, which
+also matches a map key, so an `object` field would admit rows nobody declared.
+Developer rank and above are standing members of every account-kind group as a
+RULE rather than as rows.
+
 **RANK (epic memql#4832) adds three more ARGUMENTS of the owned tier, not more
 tiers** -- flags for the same reason `clusterOwner` is one: four sites switch on
 the owned tier and a new tier value falls silently out of all four.

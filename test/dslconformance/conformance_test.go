@@ -473,7 +473,28 @@ var idBearingFieldExemptions = map[string]string{
 	// (docs/internal/design/account-isolation-model.md 3.1). Not declaring
 	// the edge keeps the credential row a leaf, which is the conservative
 	// direction for a field whose whole design note is about isolation.
-	"identity/identity.accountId": "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
+	// v1:identity:groupMembership.ownerUserId is ALWAYS EMPTY by design (epic
+	// memql#5165 D2): the row is the deployment's record of a decision about a
+	// person, not a row that person owns. The field exists because
+	// `@rowAuthz(owner="ownerUserId", ..., unowned="admin")` needs a
+	// PRESENT-and-empty owner key to read the row as cluster-owned at all --
+	// an ABSENT one is denied at every rank. It points at nothing, so there is
+	// no @relationship to declare; annotating it would canonicalize a value
+	// nothing ever writes. Its sibling v1:identity:group.ownerUserId is the
+	// same field for the same reason and does not appear here only because its
+	// @description names no v1: row for the heuristic to catch.
+	// v1:identity:group.accountId is a plain FK because the bare name
+	// `account` is AMBIGUOUS in dsl/identity/concepts.memql: that file
+	// declares v1:identity:account AND imports v1:accounts:account, and the
+	// flat registry resolves a bare `target=` first-wins. A relationship here
+	// would canonicalize the field under the identity concept while every
+	// concept it is compared against (site, campaign) canonicalizes under the
+	// client registry -- so the grant would match nothing, silently, with
+	// every declaration reading correctly. Stored bare, which is the wire
+	// contract anyway. See the comment on the concept.
+	"identity/group.accountId":             "plain-fk-by-design: the bare name `account` shadows in this file, so a relationship would canonicalize under the WRONG concept (epic memql#5165)",
+	"identity/groupMembership.ownerUserId": "plain-fk-by-design: always empty (epic memql#5165 D2); the owned tier needs a present-and-empty owner key, and the field names no target",
+	"identity/identity.accountId":          "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
 	// --- deliberate short-form storage by write-side normalization ---
 	"forge/requestEvent.requestId": "bare-by-contract (#1859): recordRequestEvent/recordMentoredEvent store shortId(args.requestId) so the audit trail unifies whether the caller passes a canonical (automation) or short (tool) id; an @relationship would re-canonicalize on insert and re-split the trail (conf_1859_test asserts zero events under the canonical id)",
 	// --- a MODEL TAG that names a row without being one (epic memql#5146) ---

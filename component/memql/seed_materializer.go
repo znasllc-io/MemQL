@@ -342,6 +342,30 @@ func (m *SeedMaterializer) Start(ctx context.Context) error {
 			"error", err)
 	}
 
+	// Account group backfill (epic memql#5165, D5). Every active account
+	// gets its group, the self account included. An automation covers
+	// accounts created from now on; nothing but this covers the ones that
+	// existed before groups did, and a cluster upgrading into the epic
+	// would otherwise have a registry full of accounts whose people can
+	// reach none of their work, with every screen looking correct.
+	//
+	// Idempotent by the derived id rather than by this call site, so it is
+	// a read per account and no writes on every boot after the first.
+	// Best-effort: a failure is logged, boot continues.
+	if report, err := m.reconcileAccountGroups(ctx); err != nil {
+		if logger != nil {
+			logger.Warn("seed materializer: account group backfill failed", "error", err)
+		}
+	} else if logger != nil {
+		if len(report.Errors) > 0 {
+			logger.Warn("seed materializer: account group backfill had per-account failures",
+				"scanned", report.Scanned, "created", report.Created, "errors", report.Errors)
+		} else if report.Created > 0 {
+			logger.Info("seed materializer: account group backfill",
+				"scanned", report.Scanned, "created", report.Created)
+		}
+	}
+
 	// Materialization complete -- now refresh the AgentRegistry from
 	// the rows we just wrote (plus any user-created agents already
 	// in the DB). The materialized rows are the canonical source of

@@ -175,4 +175,3 @@ func (s *Service) activePasskeyCount(ctx context.Context) (int, error) {
 	}
 	return count, nil
 }
-

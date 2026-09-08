@@ -44,7 +44,7 @@ use work.concepts.{ goal, run }
 /// whether the file it produced carries its own provenance. The record is the provenance of last
 /// resort -- for a format with no metadata channel (design D4) it is the ONLY provenance the output
 /// has, which is why it is a first-class row rather than a field on the file.
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountIds")
 @displayCard(primary="name", secondary="format", tertiary="createdAt", status="status")
 concept composition {
   ownerUserId  string!  @serverSet  @description("v1:identity:user.id of the person this composition belongs to. Stamped from actor.userId and never accepted as a caller arg -- the load-bearing per-row authz key.")
@@ -128,7 +128,7 @@ concept composition {
 /// A file that makes an output repeatable for a customer: a .docx with a branded header, an HTML
 /// shell, a Markdown skeleton, or a zip of files for a deployable. The row binds one Library file
 /// to the format it produces and the placeholders it expects.
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountIds")
 @displayCard(primary="name", secondary="format", tertiary="description", status="archived")
 concept composeTemplate {
   ownerUserId  string!  @serverSet  @description("v1:identity:user.id that owns this template. Stamped from actor.userId, never a caller arg.")
@@ -168,7 +168,7 @@ concept composeTemplate {
 /// A composition that worked, promoted to something you can run again: the source SELECTORS, the
 /// template and the format. Running one opens a goal exactly as a fresh materialization does, and a
 /// re-run with the same shape is a catalog exact match -- so it reaches no model at all.
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountIds")
 @displayCard(primary="name", secondary="format", tertiary="lastRunAt", status="archived")
 concept recipe {
   ownerUserId  string!  @serverSet  @description("v1:identity:user.id that owns this recipe. Stamped from actor.userId, never a caller arg.")

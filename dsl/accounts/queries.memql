@@ -26,7 +26,7 @@
 
 use campaigns.concepts.{ campaign }
 use campaigns.shapes.{ campaignFull }
-use common.traits.{ isNotArchived, isNotDeleted }
+use common.traits.{ isNotArchived, isNotDeleted, statusIsActive }
 use identity.concepts.{ invitation }
 use identity.shapes.{ invitationAdminSummary }
 use knowledge.concepts.{ knowledgeDomain }
@@ -278,4 +278,70 @@ query campaign campaignsForAccount {
   filter  accountId==args.accountId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
   shape   campaignFull
   sort    "row.createdAt", "desc"
+}
+
+/// Every active account, for the boot backfill that gives each one its group.
+///
+/// A SWEEP SET, not a page, and NOT clientAccountsAll (epic memql#5165, D5).
+/// That query is the Accounts app's list: it carries the caller-scope
+/// disjunction an operator surface needs and an @requiresRank floor, both of
+/// which are wrong for a sweep running under the seed materializer's system
+/// actor at boot, where there is no requesting user for actor.userId to name
+/// and no role for a rank floor to clear. usersForSeedSweep is the same
+/// argument for the same reason one rung down.
+@actor
+@serverOnly
+@unbounded("the boot backfill must see EVERY active account -- a truncated page leaves an account with no group, which is a client whose people can reach none of their work, and nothing reports it")
+query account accountsForGroupSweep {
+  filter  actor.isClusterOwner==true && statusIsActive
+  shape   accountIdRef
+}
+
+/// Every active account whose domain is set and whose ownership is not yet proven.
+///
+/// THE WALK'S WHOLE COST CONTROL. A verified account never comes back from this
+/// read, so a cluster whose clients are all verified spends one query per tick
+/// and no DNS lookups at all -- which is what makes a two-minute schedule
+/// affordable. The Go walk re-states the same two conditions as a guard rather
+/// than trusting this filter, so a future widening here cannot silently start
+/// spending lookups on rows that are done.
+///
+/// actor.userId scoping is not the fix and is not available: the walk runs from
+/// a scheduled automation under the engine's own actor, where actor.userId names
+/// nobody -- and scoping it to one person would leave every other client's
+/// domain unverified forever.
+@actor
+@serverOnly
+@unbounded("the domain walk must see EVERY account still waiting on its DNS record -- a truncated page leaves a client's domain unverified indefinitely, and the person watching the panel has no way to tell that from a record they typed wrong")
+query account accountsForDomainWalk {
+  filter  actor.isClusterOwner==true && statusIsActive && domainStatus!="verified" && domain!=""
+  shape   accountDomainWalk
+}
+
+/// The account, if any, that has PROVEN this domain and switched joining on.
+///
+/// ALL THREE CONDITIONS ARE HERE rather than in the Go that calls it (epic
+/// memql#5165, D9): active, `domainStatus == "verified"`, and joinOnDomain. A
+/// condition checked in Go after a broader read is one somebody can drop while
+/// the read keeps working -- and each of these is the difference between a
+/// client's group and a stranger's.
+///
+/// SORTED, so a cluster where two accounts happen to name one domain gives one
+/// stable answer rather than a different one per replica. Two accounts CAN name
+/// the same domain -- nothing stops an operator typing it twice -- and joining
+/// somebody to both would hand one person reach into two clients on an
+/// ambiguity nobody declared.
+///
+/// actor.userId scoping is not the fix and would break the feature: this runs at
+/// ARRIVAL, from the invitation-acceptance and first-sign-in seams, where the
+/// caller is the person being provisioned and they own no account at all.
+@actor
+@serverOnly
+query account accountForDomainJoin {
+  args {
+    domain  string!
+  }
+  filter  actor.isClusterOwner==true && domain==args.domain && statusIsActive && domainStatus=="verified" && joinOnDomain==true
+  shape   accountIdRef
+  sort    "row.createdAt", "asc"
 }

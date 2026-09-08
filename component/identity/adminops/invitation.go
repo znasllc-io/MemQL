@@ -67,6 +67,14 @@ type UserInvitation struct {
 	TTLSeconds int
 	// SourceIP is the origin address, for the audit trail.
 	SourceIP string
+	// GroupIds are the groups the recipient JOINS on acceptance (epic
+	// memql#5165, section G). Empty is the ordinary case and joins nobody.
+	//
+	// Validated at ISSUE rather than at acceptance: the refusal belongs to
+	// the inviter who chose them, and the rank rule -- the invitee must rank
+	// strictly below the inviter, the same rule groupMemberAdd applies -- can
+	// only be checked while the inviter is present.
+	GroupIds []string
 }
 
 // IssueUserInvitation mints a user-targeted invitation and returns the link
@@ -165,6 +173,32 @@ func (s *Service) IssueUserInvitation(ctx context.Context, in UserInvitation) Re
 				", so an invitation for "+email+" could not be redeemed")
 	}
 
+	// The groups this invitation carries, validated BEFORE anything is
+	// written (epic memql#5165, section G).
+	groups, refusalReason, groupErr := s.validateInvitationGroups(ctx, in.GroupIds, inviterRankOf(act), role)
+	if groupErr != nil {
+		outcome := identity.AuditOutcomeBlocked
+		code := int32(CodeInvalidArgument)
+		if refusalReason == "invitee_rank_not_below_inviter" {
+			code = CodePermissionDenied
+		}
+		if refusalReason == "" {
+			// An engine failure rather than a refusal: nothing the caller
+			// did is wrong, so it is reported as a failure and not a block.
+			outcome = identity.AuditOutcomeFailure
+			refusalReason = "group_read_failed"
+			code = CodeInternal
+		}
+		return fail(code, s.emit(ctx, identity.AuditCategoryAdmin, "user_invitation_issued",
+			act, "", email, detail, outcome, refusalReason), groupErr.Error())
+	}
+	if len(groups.ids) > 0 {
+		detail["groupIds"] = groups.ids
+	}
+	if groups.accountID != "" {
+		detail["accountId"] = groups.accountID
+	}
+
 	base, baseErr := s.invitationBaseURL(ctx)
 	if baseErr != "" {
 		// Refused BEFORE the row is written, for the reason IssueEnrolmentLink
@@ -190,11 +224,22 @@ func (s *Service) IssueUserInvitation(ctx context.Context, in UserInvitation) Re
 			detail, "", fmt.Errorf("invitation id mint: %w", err))
 	}
 
-	q := fmt.Sprintf(
-		`mutation createUserInvitation(invitationId: %s, email: %s, tokenHash: %s, expiresAt: %s, inviterId: %s, inviterName: %s, role: %s)`,
+	var b strings.Builder
+	fmt.Fprintf(&b,
+		`mutation createUserInvitation(invitationId: %s, email: %s, tokenHash: %s, expiresAt: %s, inviterId: %s, inviterName: %s, role: %s`,
 		quote(invitationID), quote(email), quote(hash), quote(expiresAt.Format(time.RFC3339)),
 		quote(act.userID), quote(act.email), quote(role),
 	)
+	// Appended only when supplied, so a client naming no groups issues
+	// byte-identically to what it issued before the field existed.
+	if len(groups.ids) > 0 {
+		fmt.Fprintf(&b, ", groupIds: %s", renderStringList(groups.ids))
+	}
+	if groups.accountID != "" {
+		fmt.Fprintf(&b, ", accountId: %s", quote(groups.accountID))
+	}
+	b.WriteString(")")
+	q := b.String()
 	if _, err := s.Engine.Execute(auth.ContextWithInternalOrigin(ctx), q); err != nil {
 		return s.finish(ctx, identity.AuditCategoryAdmin, "user_invitation_issued", act, "", email,
 			detail, "", err)

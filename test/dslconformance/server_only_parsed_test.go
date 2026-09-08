@@ -206,6 +206,56 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// stamps internal origin, which is what @serverOnly admits.
 		{Path: "rbac/mutations.memql", Name: "createRole"}:       true,
 		{Path: "rbac/mutations.memql", Name: "createCapability"}: true,
+		// epic memql#5165. The boot backfill's sweep set. It runs from the
+		// seed materializer at startup under the system actor -- the same
+		// position usersForSeedSweep is in -- so actor.userId names nobody,
+		// and the @requiresRank floor its Accounts-app sibling carries would
+		// have no role to clear. Scoping it to one person would backfill only
+		// that person's accounts, leaving every other client's people unable
+		// to reach their work.
+		{Path: "accounts/queries.memql", Name: "accountsForGroupSweep"}: true,
+
+		// epic memql#5165, section F. The domain walk's work list. It runs
+		// from a scheduled automation under the engine's own actor, so
+		// actor.userId names nobody -- and scoping it to one person would
+		// leave every other client's domain unverified forever, which
+		// presents as "our DNS record is not being seen" with the record
+		// published correctly.
+		{Path: "accounts/queries.memql", Name: "accountsForDomainWalk"}: true,
+
+		// epic memql#5165, D9. Domain join's lookup, and caller-scoping it
+		// would break the feature outright rather than merely being
+		// unavailable: it runs at ARRIVAL, from invitation acceptance and
+		// first sign-in, where the caller IS the person being provisioned
+		// and they own no account at all. All three of its conditions --
+		// active, verified, joining -- are in the filter rather than in the
+		// Go that reads it, because a condition checked after a broader read
+		// is one somebody can drop while the read keeps working.
+		{Path: "accounts/queries.memql", Name: "accountForDomainJoin"}: true,
+
+		// epic memql#5165, section F. The walk's writer. Every field is
+		// optional because the walk advances a row by one state per pass and
+		// the fields differ per state; a caller-scoped version is meaningless
+		// because the writer is the reconciler, not a person. The account
+		// rows keep their composite owner tier, which is what decides who can
+		// READ what this writes.
+		{Path: "accounts/mutations.memql", Name: "recordAccountDomainCheck"}: true,
+
+		// epic memql#5165, D2. Both group writers, and the argument is the
+		// concept's shape rather than the caller's: v1:identity:group and
+		// v1:identity:groupMembership are UNOWNED -- ownerUserId is present
+		// and always empty, because the rows are the deployment's record of
+		// who reaches which client's work rather than anybody's property.
+		//
+		// So there is no field for actor.userId to compare against, and the
+		// membership row makes the point sharply: its natural owner field
+		// would be `userId`, the member -- and an owned row admits its
+		// OWNER'S INSERTS, so scoping it would hand every person on the
+		// cluster a primitive for writing themselves into any client's group.
+		// Authorization is the caller's capability and rank, checked in Go by
+		// integrations/groups before either of these runs.
+		{Path: "identity/mutations.memql", Name: "writeGroup"}:           true,
+		{Path: "identity/mutations.memql", Name: "writeGroupMembership"}: true,
 
 		// epic memql#4966, the work spine's promotion path. Both of these
 		// write the engine's OWN EVIDENCE about a template -- the catalog key

@@ -84,6 +84,7 @@ mutate recipient addRecipient {
     displayName  string
     fields       object
     source       string
+    accountId    string
   }
   insert {
     accept { audienceId, email, displayName, fields }
@@ -92,6 +93,10 @@ mutate recipient addRecipient {
       ownerUserId: actor.userId
       subscriptionStatus: "subscribed"
       source: args.source ?? "manual"
+      // Copied from the parent AUDIENCE by the caller (epic memql#5165,
+      // section J), not read here: a mutation body cannot join, and the
+      // writer already holds the audience row it is adding to.
+      accountId: args.accountId ?? ""
     }
   }
 }
@@ -418,6 +423,7 @@ mutate delivery recordCampaignDelivery {
     nextAttemptAt      datetime
     outboundRequestId  string
     emailRuleId        string
+    accountId          string
   }
   insert {
     accept { campaignId, recipientId, email, status, skipReason, lastError, sentAt, nextAttemptAt, outboundRequestId, emailRuleId }
@@ -428,6 +434,10 @@ mutate delivery recordCampaignDelivery {
       ))
       ownerUserId: actor.userId
       attempts: args.attempts ?? 0
+      // Copied from the parent CAMPAIGN by the drain worker (epic
+      // memql#5165, section J). It borrows the campaign owner's authority
+      // to make this write, so the campaign row is already in hand.
+      accountId: args.accountId ?? ""
     }
   }
 }
@@ -452,13 +462,14 @@ mutate sendJob enqueueCampaignSend {
   args {
     campaignId           string!
     campaignOwnerUserId  string!
+    campaignAccountId    string
     audienceId           string!
     templateId           string!
     status               string
     scheduledAt          datetime
   }
   insert {
-    accept { campaignId, campaignOwnerUserId, audienceId, templateId, scheduledAt }
+    accept { campaignId, campaignOwnerUserId, campaignAccountId, audienceId, templateId, scheduledAt }
     stamp {
       id: args.campaignId
       status: args.status ?? "queued"
@@ -603,10 +614,15 @@ mutate consentEvent recordConsentGrant {
     occurredAt   datetime
     recipientId  string
     campaignId   string
+    accountId    string
   }
   insert {
     accept { emailDigest, source, recipientId, campaignId }
     stamp {
+      // Copied from the parent RECIPIENT by the writer (epic memql#5165,
+      // section J). Empty when the event is about an address with no
+      // recipient row -- a one-click withdraw from a forwarded message.
+      accountId: args.accountId ?? ""
       id: args.eventId
       ownerUserId: actor.userId
       kind: "grant"
@@ -625,10 +641,15 @@ mutate consentEvent recordConsentWithdraw {
     occurredAt   datetime
     recipientId  string
     campaignId   string
+    accountId    string
   }
   insert {
     accept { emailDigest, source, recipientId, campaignId }
     stamp {
+      // Copied from the parent RECIPIENT by the writer (epic memql#5165,
+      // section J). Empty when the event is about an address with no
+      // recipient row -- a one-click withdraw from a forwarded message.
+      accountId: args.accountId ?? ""
       id: args.eventId
       ownerUserId: actor.userId
       kind: "withdraw"
@@ -647,10 +668,15 @@ mutate consentEvent recordConsentBounce {
     occurredAt   datetime
     recipientId  string
     campaignId   string
+    accountId    string
   }
   insert {
     accept { emailDigest, source, recipientId, campaignId }
     stamp {
+      // Copied from the parent RECIPIENT by the writer (epic memql#5165,
+      // section J). Empty when the event is about an address with no
+      // recipient row -- a one-click withdraw from a forwarded message.
+      accountId: args.accountId ?? ""
       id: args.eventId
       ownerUserId: actor.userId
       kind: "bounce"
@@ -669,10 +695,15 @@ mutate consentEvent recordConsentComplaint {
     occurredAt   datetime
     recipientId  string
     campaignId   string
+    accountId    string
   }
   insert {
     accept { emailDigest, source, recipientId, campaignId }
     stamp {
+      // Copied from the parent RECIPIENT by the writer (epic memql#5165,
+      // section J). Empty when the event is about an address with no
+      // recipient row -- a one-click withdraw from a forwarded message.
+      accountId: args.accountId ?? ""
       id: args.eventId
       ownerUserId: actor.userId
       kind: "complaint"
@@ -694,10 +725,15 @@ mutate consentEvent recordConsentSuppress {
     occurredAt   datetime
     recipientId  string
     campaignId   string
+    accountId    string
   }
   insert {
     accept { emailDigest, source, reason, recipientId, campaignId }
     stamp {
+      // Copied from the parent RECIPIENT by the writer (epic memql#5165,
+      // section J). Empty when the event is about an address with no
+      // recipient row -- a one-click withdraw from a forwarded message.
+      accountId: args.accountId ?? ""
       id: args.eventId
       ownerUserId: actor.userId
       kind: "suppress"
@@ -808,6 +844,7 @@ mutate engagementEvent recordEngagementEvent {
     kind        string!
     url         string
     occurredAt  datetime
+    accountId   string
   }
   insert {
     accept { campaignId, deliveryId, kind, url }
@@ -819,6 +856,11 @@ mutate engagementEvent recordEngagementEvent {
       ))
       ownerUserId: actor.userId
       occurredAt: args.occurredAt ?? now
+      // Copied from the parent CAMPAIGN by the tracking handler (epic
+      // memql#5165, section J), out of the same signed token the owner
+      // comes from -- never from the request, which is an unauthenticated
+      // mail client.
+      accountId: args.accountId ?? ""
     }
   }
 }

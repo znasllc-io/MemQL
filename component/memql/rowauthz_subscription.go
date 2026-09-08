@@ -134,11 +134,21 @@ func subscriptionReadContext(ctx context.Context, access *auth.AccessContext) co
 // (streamSession.currentAccess); caching what they outrank alongside it is the
 // same granularity and the same staleness, which is the honest place to put
 // it: a role change reaches both facts together, on the next stream.
+// The ACCOUNT GRANT rides the same context and the same argument (epic
+// memql#5165). Without its memo installed here, a member of Acme's group
+// would read Acme's campaign on load and receive no live event for it --
+// the same "correct on load, frozen after" shape, arriving through the same
+// disjunct-declines-to-widen rule.
+//
+// The name still says Rank because it is the CALLER's cached per-stream
+// context and renaming it would touch every call site for no behaviour; what
+// it carries is "everything this stream resolved about what its caller may
+// see".
 func (e *MemQLEngine) SubscriptionRankContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return contextWithRankScopeMemo(ctx, e)
+	return contextWithAccountScopeMemo(contextWithRankScopeMemo(ctx, e), e)
 }
 
 func AdmitSubscriptionRow(ctx context.Context, access *auth.AccessContext, conceptName, id string, payload []byte) SubscriptionAdmission {

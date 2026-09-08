@@ -3356,6 +3356,96 @@ QueryClient.prototype.globalVariables = function (this: QueryClient, args: Globa
   return this.executeNamed("globalVariables", buildGlobalVariables(args), opts);
 };
 
+/** One group by id, for its page. */
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupById"] in generated_concepts.ts).
+export interface GroupByIdArgs {
+  groupId: string;
+}
+
+export function buildGroupById(args: GroupByIdArgs): string {
+  const parts: string[] = [];
+  parts.push("groupId: " + renderMemQLValue(args.groupId));
+  return "query groupById(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupById(args: GroupByIdArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupById = function (this: QueryClient, args: GroupByIdArgs = {} as GroupByIdArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupById", buildGroupById(args), opts);
+};
+
+/** Every group in the cluster, for the Users app's Groups section. */
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupsAll"] in generated_concepts.ts).
+export interface GroupsAllArgs {
+  includeArchived?: boolean;
+}
+
+export function buildGroupsAll(args: GroupsAllArgs): string {
+  const parts: string[] = [];
+  if (args.includeArchived !== undefined) parts.push("includeArchived: " + renderMemQLValue(args.includeArchived));
+  return "query groupsAll(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupsAll(args: GroupsAllArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupsAll = function (this: QueryClient, args: GroupsAllArgs = {} as GroupsAllArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupsAll", buildGroupsAll(args), opts);
+};
+
+/** The groups tied to one account -- the Accounts ledger's People band. */
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupsForAccount"] in generated_concepts.ts).
+export interface GroupsForAccountArgs {
+  accountId: string;
+}
+
+export function buildGroupsForAccount(args: GroupsForAccountArgs): string {
+  const parts: string[] = [];
+  parts.push("accountId: " + renderMemQLValue(args.accountId));
+  return "query groupsForAccount(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupsForAccount(args: GroupsForAccountArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupsForAccount = function (this: QueryClient, args: GroupsForAccountArgs = {} as GroupsForAccountArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupsForAccount", buildGroupsForAccount(args), opts);
+};
+
+/** The membership rows of one person, for their page in the Users app. */
+// Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["groupsForUser"] in generated_concepts.ts).
+export interface GroupsForUserArgs {
+  userId: string;
+  includeRemoved?: boolean;
+}
+
+export function buildGroupsForUser(args: GroupsForUserArgs): string {
+  const parts: string[] = [];
+  parts.push("userId: " + renderMemQLValue(args.userId));
+  if (args.includeRemoved !== undefined) parts.push("includeRemoved: " + renderMemQLValue(args.includeRemoved));
+  return "query groupsForUser(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupsForUser(args: GroupsForUserArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupsForUser = function (this: QueryClient, args: GroupsForUserArgs = {} as GroupsForUserArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupsForUser", buildGroupsForUser(args), opts);
+};
+
 /** The host's bookings, newest first. Owned. Projects @pii bookerEmail, so the caller constraint is load-bearing. */
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["hostedBookings"] in generated_concepts.ts).
 export interface HostedBookingsArgs {
@@ -4224,6 +4314,30 @@ declare module "./query.js" {
 
 QueryClient.prototype.measurementsForModel = function (this: QueryClient, args: MeasurementsForModelArgs = {} as MeasurementsForModelArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("measurementsForModel", buildMeasurementsForModel(args), opts);
+};
+
+/** The membership rows of one group. Removed members are history and are excluded unless asked for -- the row stays, because who left and when is the question the versions exist to answer. */
+// Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["membersOfGroup"] in generated_concepts.ts).
+export interface MembersOfGroupArgs {
+  groupId: string;
+  includeRemoved?: boolean;
+}
+
+export function buildMembersOfGroup(args: MembersOfGroupArgs): string {
+  const parts: string[] = [];
+  parts.push("groupId: " + renderMemQLValue(args.groupId));
+  if (args.includeRemoved !== undefined) parts.push("includeRemoved: " + renderMemQLValue(args.includeRemoved));
+  return "query membersOfGroup(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    membersOfGroup(args: MembersOfGroupArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.membersOfGroup = function (this: QueryClient, args: MembersOfGroupArgs = {} as MembersOfGroupArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("membersOfGroup", buildMembersOfGroup(args), opts);
 };
 
 /** Drill-in read: fetch a memory's full content by id, gated to the caller. Owned: ownerUserId==actor.userId. Called by the Library Records lens when opening a memory artifact resolved from its sourceConceptRef. */

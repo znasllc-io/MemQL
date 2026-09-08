@@ -216,6 +216,16 @@ func TestOnlyAllowlistedPackagesStampInternalOrigin(t *testing.T) {
 		// different question from "which exist", and stamping there would hand
 		// a caller-scoped read the engine's escape.
 		"integrations/customdomain": "the custom-domain reconciliation sweep, server-initiated; its six @serverOnly writers are refused without it",
+		// integrations/groups writes v1:identity:group and
+		// v1:identity:groupMembership, which are UNOWNED rows (epic
+		// memql#5165 D2): no principal owns them, so a client-origin write
+		// has no owned tier to pass through and is refused with the row
+		// silently not moving. The two writers are @serverOnly for the same
+		// reason. ONE STAMPING SITE, in store.go's SystemActorContext, and
+		// every capability is downstream of guards.go -- the caller's own
+		// capability and rank are checked against their AccessContext before
+		// anything here writes, which is what bounds the stamp.
+		"integrations/groups": "the group and membership writers -- their rows are unowned, so a client-origin write has no tier to pass through; one stamping site, downstream of the per-caller capability and rank guards (epic memql#5165)",
 		// REQUEST-DERIVED, and the FOURTH exception. Ownership transfer
 		// (memql#4838): one stamp, in reassignRow, on the single Execute that
 		// writes the new owner onto one row.

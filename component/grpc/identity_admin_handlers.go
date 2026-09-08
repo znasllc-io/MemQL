@@ -132,6 +132,12 @@ func (s *streamSession) handleIdentityAdmin(envelope *memqlv1.MemqlClientMessage
 			Email:      p.GetEmail(),
 			Role:       p.GetRole(),
 			TTLSeconds: int(p.GetTtlSeconds()),
+			// The groups the recipient joins on acceptance (epic
+			// memql#5165, section G). A caller-supplied value, and
+			// deliberately so -- unlike SourceIP below, this is a CHOICE the
+			// inviter is making, and every id is validated against an active
+			// group and against the rank rule before anything is written.
+			GroupIds: p.GetGroupIds(),
 			// The stream's peer address, not a caller-supplied value, for the
 			// reason IssueEnrolmentLink states: an audit field a caller can
 			// set is an audit field a caller can forge.

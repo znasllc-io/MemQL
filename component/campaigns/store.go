@@ -93,15 +93,26 @@ type SendJob struct {
 	ID                  string
 	CampaignID          string
 	CampaignOwnerUserID string
-	AudienceID          string
-	TemplateID          string
-	Status              string
-	SentCount           int
-	SkippedCount        int
-	FailedCount         int
-	RecipientCount      int
-	ThrottledUntil      time.Time
-	StartedAt           time.Time
+
+	// CampaignAccountID is the client the campaign is FOR, copied off the
+	// same campaign row CampaignOwnerUserID came from (epic memql#5165,
+	// section J).
+	//
+	// Carried on the JOB rather than read per hit because the tracking path
+	// cannot read the campaign row at all: that row is owner-tier, and
+	// establishing the owner is the very thing being asked. Without this
+	// field every tracked pixel fetch would cost a second query.
+	CampaignAccountID string
+
+	AudienceID     string
+	TemplateID     string
+	Status         string
+	SentCount      int
+	SkippedCount   int
+	FailedCount    int
+	RecipientCount int
+	ThrottledUntil time.Time
+	StartedAt      time.Time
 
 	// ScheduledAt is the time this job was enqueued for, copied off the
 	// campaign at schedule time (memql#3459). A HINT, never the authority:
@@ -321,6 +332,26 @@ func (s *Store) CampaignByID(ctx context.Context, campaignID string) (Campaign, 
 		TrackOpens:       booleanOr(r, "trackOpens", true),
 		TrackClicks:      booleanOr(r, "trackClicks", true),
 	}, true, nil
+}
+
+// AudienceAccountID reads which client an audience is for, so a recipient
+// added to it can carry the same tie (epic memql#5165, section J).
+//
+// A READ RATHER THAN A JOIN, because the stamp is what the account grant
+// filters on and a filter conjunct that needs a join cannot be pushed down.
+// One read per import rather than per row: the caller holds the answer for the
+// whole batch.
+//
+// EMPTY IS A NORMAL ANSWER, not a failure -- an audience with no account tie
+// is the ordinary case, and an audience the caller cannot read answers the
+// same way. Both mean "stamp nothing", and the recipient row is written either
+// way: an import must not fail because a tie is missing.
+func (s *Store) AudienceAccountID(ctx context.Context, audienceID string) string {
+	rows, err := s.rows(ctx, call("query", "audienceById", arg{"audienceId", audienceID}))
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	return bare(str(rows[0], "accountId"))
 }
 
 // SenderIdentityByID reads one sending identity. COMPOSITE tier
@@ -683,6 +714,9 @@ func (s *Store) EnqueueSend(ctx context.Context, job SendJob) error {
 		{"audienceId", job.AudienceID},
 		{"templateId", job.TemplateID},
 	}
+	if job.CampaignAccountID != "" {
+		args = append(args, arg{"campaignAccountId", job.CampaignAccountID})
+	}
 	if job.Status != "" {
 		args = append(args, arg{"status", job.Status})
 	}
@@ -742,6 +776,16 @@ type Delivery struct {
 	Attempts      int
 	NextAttemptAt time.Time
 
+	// AccountID is the client this row is for, copied from its PARENT at
+	// write (epic memql#5165, section J). Denormalized rather than joined
+	// because the account grant is a filter conjunct the engine ANDs into
+	// every read, and a conjunct needing a join cannot be pushed down.
+	//
+	// EMPTY IS LEGAL and is what a row written before this field existed
+	// carries. There is no backfill: such a row stays owner-only, which is
+	// the honest state rather than a history pretending to have moved.
+	AccountID string
+
 	// EmailRuleID names the event rule that produced this send, when one did
 	// (memql#4829). EMPTY on every ordinary campaign delivery, which is the
 	// overwhelming majority -- so it is rendered only when set, like
@@ -782,6 +826,9 @@ func (s *Store) RecordDelivery(ctx context.Context, d Delivery) error {
 	}
 	if !d.NextAttemptAt.IsZero() {
 		args = append(args, arg{"nextAttemptAt", d.NextAttemptAt.UTC().Format(time.RFC3339)})
+	}
+	if d.AccountID != "" {
+		args = append(args, arg{"accountId", d.AccountID})
 	}
 	return s.execServerOnly(ctx, call("mutation", "recordCampaignDelivery", args...))
 }
@@ -881,7 +928,7 @@ func (s *Store) SetRecipientSubscription(ctx context.Context, recipientID, statu
 // more often than it is an identifier -- and a bare key there is a parse
 // error at call time, which is the failure mode a fake-engine test suite
 // cannot see (memql#3035's shape).
-func (s *Store) AddRecipient(ctx context.Context, recipientID, audienceID, email, displayName, source string, fields map[string]string) error {
+func (s *Store) AddRecipient(ctx context.Context, recipientID, audienceID, email, displayName, source, accountID string, fields map[string]string) error {
 	args := []arg{
 		{"recipientId", recipientID},
 		{"audienceId", audienceID},
@@ -896,6 +943,12 @@ func (s *Store) AddRecipient(ctx context.Context, recipientID, audienceID, email
 	if len(fields) > 0 {
 		args = append(args, arg{"fields", fields})
 	}
+	// Copied from the parent AUDIENCE by the caller (epic memql#5165,
+	// section J). The caller already holds the audience row it is adding
+	// to, and a mutation body cannot join.
+	if accountID != "" {
+		args = append(args, arg{"accountId", accountID})
+	}
 	return s.exec(ctx, call("mutation", "addRecipient", args...))
 }
 
@@ -908,6 +961,16 @@ type ConsentRecord struct {
 	RecipientID string
 	CampaignID  string
 	OccurredAt  time.Time
+
+	// AccountID is the client this row is for, copied from its PARENT at
+	// write (epic memql#5165, section J). Denormalized rather than joined
+	// because the account grant is a filter conjunct the engine ANDs into
+	// every read, and a conjunct needing a join cannot be pushed down.
+	//
+	// EMPTY IS LEGAL and is what a row written before this field existed
+	// carries. There is no backfill: such a row stays owner-only, which is
+	// the honest state rather than a history pretending to have moved.
+	AccountID string
 }
 
 // RecordConsent appends one consent event of the given kind. OWNED tier: the
@@ -946,6 +1009,9 @@ func (s *Store) RecordConsent(ctx context.Context, kind string, c ConsentRecord)
 	}
 	if !c.OccurredAt.IsZero() {
 		args = append(args, arg{"occurredAt", c.OccurredAt.UTC().Format(time.RFC3339)})
+	}
+	if c.AccountID != "" {
+		args = append(args, arg{"accountId", c.AccountID})
 	}
 	return s.exec(ctx, call("mutation", mutation, args...))
 }
@@ -1048,6 +1114,16 @@ type EngagementEvent struct {
 	Kind       string
 	URL        string
 	OccurredAt time.Time
+
+	// AccountID is the client this row is for, copied from its PARENT at
+	// write (epic memql#5165, section J). Denormalized rather than joined
+	// because the account grant is a filter conjunct the engine ANDs into
+	// every read, and a conjunct needing a join cannot be pushed down.
+	//
+	// EMPTY IS LEGAL and is what a row written before this field existed
+	// carries. There is no backfill: such a row stays owner-only, which is
+	// the honest state rather than a history pretending to have moved.
+	AccountID string
 }
 
 // RecordEngagementEvent appends one open or click. OWNED tier AND
@@ -1073,6 +1149,9 @@ func (s *Store) RecordEngagementEvent(ctx context.Context, e EngagementEvent) er
 	}
 	if !e.OccurredAt.IsZero() {
 		args = append(args, arg{"occurredAt", e.OccurredAt.UTC().Format(time.RFC3339)})
+	}
+	if e.AccountID != "" {
+		args = append(args, arg{"accountId", e.AccountID})
 	}
 	return s.execServerOnly(ctx, call("mutation", "recordEngagementEvent", args...))
 }
@@ -1293,6 +1372,7 @@ func sendJobFromRow(r map[string]any) SendJob {
 		ID:                  bare(str(r, "id")),
 		CampaignID:          bare(str(r, "campaignId")),
 		CampaignOwnerUserID: bare(str(r, "campaignOwnerUserId")),
+		CampaignAccountID:   bare(str(r, "campaignAccountId")),
 		AudienceID:          bare(str(r, "audienceId")),
 		TemplateID:          bare(str(r, "templateId")),
 		Status:              str(r, "status"),

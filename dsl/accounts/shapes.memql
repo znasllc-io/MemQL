@@ -38,6 +38,35 @@ shape account clientAccountFull {
   primaryContactEmail
   notes
   status
+  domainToken
+  domainStatus
+  domainFailureReason
+  domainFailureDetail
+  domainLastCheckedAt
+  domainVerifiedAt
+  joinOnDomain
+  memqlDomain
+  memqlReservedAt
   configuredAt
   row.createdAt
+}
+
+/// Id-only projection for the boot group backfill. The sweep needs nothing but
+/// the id -- it hands each one to groupEnsureForAccount, which reads the row
+/// it needs for itself.
+@row
+shape account accountIdRef {
+  row.id
+}
+
+/// The slice of an account the domain walk reads: the name to check, the token
+/// to check it with, and the reservation fields it stamps on success.
+@row
+shape account accountDomainWalk {
+  row.id
+  domain
+  domainToken
+  domainStatus
+  memqlDomain
+  memqlReservedAt
 }
