@@ -89,7 +89,7 @@ func (s *DoorAccountReader) rows(ctx context.Context, query string) ([]map[strin
 	if s == nil || s.engine == nil {
 		return nil, fmt.Errorf("customdomain: no engine wired")
 	}
-	res, err := s.engine.Execute(SystemActorContext(ctx), query)
+	res, err := s.engine.Execute(doorContext(ctx), query)
 	if err != nil {
 		return nil, fmt.Errorf("customdomain: %s: %w", firstWord(query), err)
 	}

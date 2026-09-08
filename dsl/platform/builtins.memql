@@ -78,6 +78,19 @@ builtin customDomainReleaseForSite {
 @executor("integration.customDomain.reconcile")
 @description("Run one custom-domain reconciliation pass (epic memql#4805). For each non-terminal v1:platform:customDomain row: verify the TXT ownership token and the pointing record, promote to `issuing` when both pass, dispatch the idempotent bind capability script for `issuing` rows and the unbind script for `removing` ones, and write back what was seen with a typed failureReason. Retries ride this schedule; there is no manual re-check. Returns {checked, verified, issued, removed, failed}.")
 builtin customDomainReconcile { }
+
+/// The account front door's sweep (epic memql#5168). NO @sdk, for customDomainReconcile's reason:
+/// its one caller is the automation below, and the only thing a client-reachable version would buy
+/// is the ability to hammer a recursive resolver and an ACME endpoint.
+///
+/// A SECOND SWEEP RATHER THAN A WIDER FIRST ONE, deliberately. The two walk different concepts on
+/// different predicates -- a custom domain proves ownership AND pointing for one host, a front door
+/// inherits ownership from the account's own domain walk and proves pointing for three -- and
+/// folding them would put two state machines behind one result, so a pass that advanced no door and
+/// three domains would report the same shape as its opposite.
+@executor("integration.customDomain.reconcileFrontDoors")
+@description("Run one account front-door pass (epic memql#5168). Opens a door for every account holding a verified reserved MemQL name that has none; for each non-terminal v1:platform:accountFrontDoor row, checks the three CNAMEs, promotes to `issuing` when all three point here, dispatches the idempotent bind capability script for `issuing` rows and the unbind script for `removing` ones, and writes back what was seen at each host with a typed failureReason. Takes down every door whose reservation was withdrawn -- the only transition out of `live`. Retries ride this schedule; there is no manual re-check. Returns {opened, checked, verified, issued, removed, failed}.")
+builtin accountFrontDoorReconcile { }
 // ---- the D10 lifecycle capabilities (epic memql#4794) ----
 //
 // Archiving is the one lifecycle edge that is not a plain status write, and

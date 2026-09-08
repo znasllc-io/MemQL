@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/znasllc-io/memql/component/auth"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
@@ -174,11 +175,24 @@ func (s *DoorStore) MarkRemoved(ctx context.Context, doorID string, at time.Time
 		langparser.QuoteString(stamp(at))))
 }
 
+// doorContext is the actor and origin every read and write here runs under.
+//
+// SystemActorContext already stamps internal origin, so naming
+// auth.ContextWithInternalOrigin again is idempotent -- and deliberate. Every
+// mutation this file calls is @serverOnly, the engine refuses one whose origin
+// is not internal, and the failure is a WARN in a log about "clients" on a
+// cluster nobody is watching. The conformance gate that catches that reads
+// THIS file, and it is right to: somebody grepping here for the stamp has to
+// find it rather than chase it into store.go.
+func doorContext(ctx context.Context) context.Context {
+	return auth.ContextWithInternalOrigin(SystemActorContext(ctx))
+}
+
 func (s *DoorStore) rows(ctx context.Context, query string) ([]map[string]any, error) {
 	if s == nil || s.engine == nil {
 		return nil, fmt.Errorf("customdomain: no engine wired")
 	}
-	res, err := s.engine.Execute(SystemActorContext(ctx), query)
+	res, err := s.engine.Execute(doorContext(ctx), query)
 	if err != nil {
 		return nil, fmt.Errorf("customdomain: %s: %w", firstWord(query), err)
 	}
@@ -189,7 +203,7 @@ func (s *DoorStore) exec(ctx context.Context, query string) error {
 	if s == nil || s.engine == nil {
 		return fmt.Errorf("customdomain: no engine wired")
 	}
-	if _, err := s.engine.Execute(SystemActorContext(ctx), query); err != nil {
+	if _, err := s.engine.Execute(doorContext(ctx), query); err != nil {
 		return fmt.Errorf("customdomain: %s: %w", firstWord(query), err)
 	}
 	return nil

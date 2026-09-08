@@ -373,3 +373,34 @@ func SelectDoorProvisioner() (DoorProvisioner, error) {
 	}
 	return dp, nil
 }
+
+// doorConfig derives the front-door half of the reconciler's configuration
+// from the custom-domain Config.
+//
+// THE SHARED VALUES ARE SHARED, not re-read. EdgeHost, ACMEIssuer, Namespace
+// and IngressClass answer the same questions for both reconcilers, and reading
+// them twice would let one sweep bind against a different issuer from the
+// other on the same cluster. What is added here is only what a front door
+// needs and a custom domain does not: the three extra backend Services.
+func (c Config) doorConfig() DoorConfig {
+	return DoorConfig{
+		EdgeHost:     c.EdgeHost,
+		ACMEIssuer:   c.ACMEIssuer,
+		Namespace:    c.Namespace,
+		IngressClass: c.IngressClass,
+
+		// app. reaches the same edge Service the wildcard rule already does.
+		EdgeService: c.EdgeService,
+		EdgePort:    c.EdgePort,
+
+		// The bff's two edges and the identity service, from the environment
+		// with the cluster's own manifest values as defaults -- the same
+		// Services the generated front door points at.
+		BFFHTTPService:  envOr("MEMQL_ACCOUNT_FRONT_DOOR_BFF_HTTP_SERVICE", "bff-http"),
+		BFFHTTPPort:     envInt("MEMQL_ACCOUNT_FRONT_DOOR_BFF_HTTP_PORT", 8085),
+		BFFGRPCService:  envOr("MEMQL_ACCOUNT_FRONT_DOOR_BFF_GRPC_SERVICE", "bff"),
+		BFFGRPCPort:     envInt("MEMQL_ACCOUNT_FRONT_DOOR_BFF_GRPC_PORT", 50051),
+		IdentityService: envOr("MEMQL_ACCOUNT_FRONT_DOOR_IDENTITY_SERVICE", "identity"),
+		IdentityPort:    envInt("MEMQL_ACCOUNT_FRONT_DOOR_IDENTITY_PORT", 8085),
+	}
+}
