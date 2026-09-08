@@ -21,7 +21,6 @@
 /// stays silent when nothing is actionable. The planner integration applies a quiet/dedup guard on
 /// top so a confident-but-repetitive action does not spam the user.
 @level("strong")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/reactiveConductor.tmpl")
 prompt reactiveConductor {
   user             object! @description("Compact identity of the user whose context this tick reasons over -- {userId}. Output actions are scoped to this user.")
@@ -46,7 +45,6 @@ prompt reactiveConductor {
 /// {complexity: 'trivial'|'moderate'|'complex', reasoning: '<one short sentence>', sectionable?:
 /// bool, assembly?: '<one sentence>', sections?: [{label, instruction}]}.
 @level("fast")
-@defaultProvider("chat54Mini")
 @templateFile("prompts/goalComplexityTriage.tmpl")
 prompt goalComplexityTriage {
   goal  string! @description("The user-stated goal driving the Plan, verbatim. The single most important input -- the classification is inferred from it.")

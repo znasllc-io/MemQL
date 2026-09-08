@@ -492,7 +492,7 @@ func TestTheAIRuntimeServesAReplayWithoutCallingItsProvider(t *testing.T) {
 			tmpl:            template.Must(template.New("probe").Parse("say {{.word}}")),
 			DefaultProvider: "mock",
 		})
-		providers := newProviderRegistry("")
+		providers := newProviderRegistry()
 		mock := &mockAIProvider{}
 		providers.setEntry(&ProviderConfigEntry{
 			Config:    ProviderConfig{Name: "mock", Type: "test", Model: "test-1"},
@@ -548,7 +548,7 @@ func TestADivergenceIsNotReportedAsAProviderFailure(t *testing.T) {
 		tmpl:            template.Must(template.New("probe").Parse("x")),
 		DefaultProvider: "mock",
 	})
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	providers.setEntry(&ProviderConfigEntry{
 		Config: ProviderConfig{Name: "mock", Type: "test"}, Client: &mockAIProvider{}, Available: true,
 	})

@@ -32,7 +32,7 @@ func mkProviderCfg(name, typ, model, extends string, base, disabled bool) parsed
 // way the loader (#1080) leaves it.
 func TestPolicyChainSkipsDisabledPrimary(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 
 	registerParsedProviders(logger, reg, []parsedProviderConfig{
 		mkProviderCfg("openai", "OpenAI", "", "", true, false),
@@ -83,7 +83,7 @@ func TestPolicyChainSkipsDisabledPrimary(t *testing.T) {
 // returns nil, while an enabled provider resolves.
 func TestPromptDefaultProviderFallsBackWhenDisabled(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 
 	registerParsedProviders(logger, reg, []parsedProviderConfig{
 		mkProviderCfg("openai", "OpenAI", "", "", true, false),

@@ -114,7 +114,18 @@ func (i *Integration) Embed(ctx context.Context, text, providerName string) ([]f
 		return nil, fmt.Errorf("embed: text is required")
 	}
 	if providerName == "" {
-		providerName = "embedding3Small"
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This read
+		// "embedding3Small" -- one of five copies of the same paid pin, in five
+		// files, which happened never to drift only because nobody had ever
+		// changed it. There is no fallback: an embedder chosen for the caller
+		// writes vectors into a search space nobody picked, and a mismatched
+		// width is not an error anywhere -- it is a corpus that quietly returns
+		// the wrong neighbours.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 
 	if i.embeddingProvider == nil {
@@ -157,7 +168,18 @@ func (i *Integration) embedHandler(ctx context.Context, args map[string]any, _ i
 	}
 	providerName, _ := args["provider"].(string)
 	if providerName == "" {
-		providerName = "embedding3Small"
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This read
+		// "embedding3Small" -- one of five copies of the same paid pin, in five
+		// files, which happened never to drift only because nobody had ever
+		// changed it. There is no fallback: an embedder chosen for the caller
+		// writes vectors into a search space nobody picked, and a mismatched
+		// width is not an error anywhere -- it is a corpus that quietly returns
+		// the wrong neighbours.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 
 	vec, err := i.Embed(ctx, text, providerName)
@@ -373,7 +395,18 @@ func (i *Integration) storeHandler(ctx context.Context, args map[string]any, _ i
 		vectorField = "content"
 	}
 	if providerName == "" {
-		providerName = "embedding3Small"
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This read
+		// "embedding3Small" -- one of five copies of the same paid pin, in five
+		// files, which happened never to drift only because nobody had ever
+		// changed it. There is no fallback: an embedder chosen for the caller
+		// writes vectors into a search space nobody picked, and a mismatched
+		// width is not an error anywhere -- it is a corpus that quietly returns
+		// the wrong neighbours.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 
 	if i.db() == nil {

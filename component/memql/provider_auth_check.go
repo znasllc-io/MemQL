@@ -113,7 +113,7 @@ func isOpenAIProviderType(providerType string) bool {
 // same trade `memql env` makes, for the same reason: a check that needed a
 // database would not run in the situations it exists for.
 func CheckProviderAuth(ctx context.Context, logger *slog.Logger, providerName string) (ProviderAuthReport, error) {
-	registry := newProviderRegistry("")
+	registry := newProviderRegistry()
 	if _, err := LoadUnifiedProviders(logger, registry); err != nil {
 		return ProviderAuthReport{}, fmt.Errorf("load providers: %w", err)
 	}

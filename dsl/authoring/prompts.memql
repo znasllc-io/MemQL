@@ -24,7 +24,6 @@
 /// name, purpose, candidateSource}]}. kind in {query, mutation, logic, spec, trait, shape}.
 /// candidateSource is a self-contained .memql sketch of ONE construct of that kind.
 @level("strong")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/authoringDesign.tmpl")
 prompt authoringDesign {
   responsibility  string! @description("The user's standing Responsibility in natural language -- the duty the authored bundle must fulfill. The single most important input; the dependency closure is decomposed from it.")
@@ -49,7 +48,6 @@ prompt authoringDesign {
 /// {constructs: [{kind, name, source}]}. kind in {automation, query, mutation, logic, spec, trait,
 /// shape}. source is the self-contained, compilable .memql for ONE construct.
 @level("reasoning")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/authoringEmit.tmpl")
 prompt authoringEmit {
   responsibility    string! @description("The originating Responsibility, carried through for grounding so the emitted constructs stay faithful to the user's intent.")
@@ -73,7 +71,6 @@ prompt authoringEmit {
 /// source}]} -- the corrected versions keyed by the same (kind, name) so the planner splices them
 /// back into the bundle. May add a missing construct a diagnostic revealed.
 @level("reasoning")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/authoringRepair.tmpl")
 prompt authoringRepair {
   responsibility  string! @description("The originating Responsibility, for grounding.")

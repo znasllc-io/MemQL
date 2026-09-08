@@ -937,27 +937,51 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// consentedCloudPolicy is the DECLARED chain a one-shot cloud consent resolves
+// through. It is a shipped, locked policy (epic memql#5127), so the answer to
+// "what did I just consent to" is a thing in the tree a person can read.
+const consentedCloudPolicy = "federationStrongest"
+
 // consentedCloudFallback finds a paid provider to honour a one-shot consent.
 //
-// It takes the registry DEFAULT rather than scanning for anything that
-// answers, because the default is the provider an operator configured as the
-// cluster's ordinary choice -- and a consent that landed on whichever entry
-// happened to sort first would be a different decision from the one the person
-// thought they were making.
+// IT RESOLVES THROUGH A NAMED POLICY, not through a registry default (epic
+// memql#5137, D3). The reasoning that used to be here was right about the
+// problem and wrong about the answer: a consent that landed on whichever entry
+// happened to sort first IS a different decision from the one the person
+// thought they were making -- but so is one that lands on whatever a
+// deployment manifest pinned, or on the alphabetically-first vendor record,
+// which is what "the registry default" actually meant once every concrete
+// record became a paid model.
+//
+// A declared chain fixes both halves: the person consented to cloud, and the
+// cluster's declaration of which cloud model that means is a policy they can
+// read and change. When the policy is absent or resolves to nothing, this
+// returns false and the caller parks -- consenting to a spend does not imply
+// consenting to an arbitrary one.
 func (r *Router) consentedCloudFallback(mod providerModality) (any, Resolved, bool) {
-	if r == nil || r.providers == nil {
+	if r == nil || r.providers == nil || r.policies == nil {
 		return nil, Resolved{}, false
 	}
-	name := strings.TrimSpace(r.providers.Default())
-	if name == "" {
+	policy, ok := r.policies.Lookup(consentedCloudPolicy)
+	if !ok {
 		return nil, Resolved{}, false
 	}
-	if _, isFleet := memql.IsFleetReference(name); isFleet {
-		// A fully-local cluster's default is a fleet model, and consenting to
-		// cloud cannot resolve to the same local model that was unavailable.
-		return nil, Resolved{}, false
+	for _, name := range policy.ProviderChain() {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, isFleet := memql.IsFleetReference(name); isFleet {
+			// Consenting to cloud cannot resolve to a local model: the fleet
+			// entry is exactly the one that was unavailable when the consent
+			// was asked for.
+			continue
+		}
+		if client, resolved, found := r.providerLookup(context.Background(), "", name, mod); found {
+			return client, resolved, true
+		}
 	}
-	return r.providerLookup(context.Background(), "", name, mod)
+	return nil, Resolved{}, false
 }
 
 // Providers exposes the registry this router resolves against, so a caller

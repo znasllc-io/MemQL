@@ -35,7 +35,7 @@ func TestUnifiedLoadersCoverNewTree(t *testing.T) {
 		}
 	}
 
-	providerReg := newProviderRegistry("")
+	providerReg := newProviderRegistry()
 	if n, err := LoadUnifiedProviders(logger, providerReg); err != nil {
 		t.Fatalf("LoadUnifiedProviders: %v", err)
 	} else {

@@ -99,7 +99,7 @@ func TestOnlyAnAppPrefixResolvesToADoor(t *testing.T) {
 }
 
 func TestAnAppEntryIsAvailableOnlyWhenAMachineCanRunIt(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
 
 	entry, ok := r.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdClaudeCode)
@@ -110,7 +110,7 @@ func TestAnAppEntryIsAvailableOnlyWhenAMachineCanRunIt(t *testing.T) {
 	// Signed in but the machine is asleep.
 	asleep := runnableDoor(appIdClaudeCode)
 	asleep.Machines[0].Online = false
-	r2 := newProviderRegistry("")
+	r2 := newProviderRegistry()
 	r2.SetAppInference(&stubApps{doors: []AppDoor{asleep}})
 	entry2, _ := r2.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdClaudeCode)
 	if entry2.Available {
@@ -122,7 +122,7 @@ func TestAnAppEntryIsAvailableOnlyWhenAMachineCanRunIt(t *testing.T) {
 	// and a door this node cannot walk through is a shut door.
 	elsewhere := runnableDoor(appIdClaudeCode)
 	elsewhere.Machines[0].LocalStream = false
-	r3 := newProviderRegistry("")
+	r3 := newProviderRegistry()
 	r3.SetAppInference(&stubApps{doors: []AppDoor{elsewhere}})
 	entry3, _ := r3.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdClaudeCode)
 	if entry3.Available {
@@ -133,7 +133,7 @@ func TestAnAppEntryIsAvailableOnlyWhenAMachineCanRunIt(t *testing.T) {
 // A node with no worker service has an UNAVAILABLE door, not a broken one --
 // the same state as "nobody is signed in", flowing through the same path.
 func TestANodeWithNoAppSessionsHasAnUnavailableDoor(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	entry, ok := r.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdCodex)
 	if !ok {
 		t.Fatal("the reference must still resolve to an entry")
@@ -149,7 +149,7 @@ func TestANodeWithNoAppSessionsHasAnUnavailableDoor(t *testing.T) {
 // The app answers a prompt, and the ledger learns where it ran and who paid.
 func TestAnAppDoorAnswersAChatTurn(t *testing.T) {
 	apps := &stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}, answer: "done"}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(apps)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdClaudeCode)
 
@@ -177,7 +177,7 @@ func TestAnAppDoorAnswersAChatTurn(t *testing.T) {
 // harness that cannot honour one is not selected for it.
 func TestAStructuredTurnNeedsAHarnessThatCanAnswerOne(t *testing.T) {
 	apps := &stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}, answer: `{"ok":true}`}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(apps)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdClaudeCode)
 
@@ -197,7 +197,7 @@ func TestAStructuredTurnNeedsAHarnessThatCanAnswerOne(t *testing.T) {
 	prose := runnableDoor(appIdCodex)
 	prose.Machines[0].StructuredResult = false
 	prose.Machines[0].Harness = "codex-mcp"
-	r2 := newProviderRegistry("")
+	r2 := newProviderRegistry()
 	r2.SetAppInference(&stubApps{doors: []AppDoor{prose}})
 	entry2, _ := r2.EntryForUser(userCtx("alice"), "alice", AppWildcard)
 	_, err := entry2.Client.(common.ChatStructuredProvider).CallChatStructured(
@@ -219,7 +219,7 @@ func TestAStructuredTurnNeedsAHarnessThatCanAnswerOne(t *testing.T) {
 // provider over MCP. The router skips a chain entry that lacks the modality,
 // so the absence is what makes a tool turn walk past every app door.
 func TestAnAppDoorDoesNotServeMemqlsOwnToolCallingTurns(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", AppReferencePrefix+appIdClaudeCode)
 
@@ -239,7 +239,7 @@ func TestTheWildcardPicksTheOwnersPreferredApp(t *testing.T) {
 		order:  []string{appIdCodex},
 		answer: "ok",
 	}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(apps)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", AppWildcard)
 
@@ -265,7 +265,7 @@ func TestTheWildcardPicksTheOwnersPreferredApp(t *testing.T) {
 
 func TestAnAppMissNamesEveryDoorConsidered(t *testing.T) {
 	shut := AppDoor{AppId: appIdCodex}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(&stubApps{doors: []AppDoor{shut}})
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", AppWildcard)
 
@@ -290,7 +290,7 @@ func TestAnAppMissNamesEveryDoorConsidered(t *testing.T) {
 // whether the park card offers "approve cloud", and counting a subscription
 // app as cloud would offer a button that spends nothing and fixes nothing.
 func TestAnAppDoorIsNotACloudProvider(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
 	if r.HasCloudProviderConfigured() {
 		t.Error("an app door must not count as a configured cloud provider")
@@ -338,7 +338,7 @@ func TestTheAppProviderHasNoStaticPerAppChildren(t *testing.T) {
 // the row says which app -- so a surface can name it rather than only counting
 // doors.
 func TestInferenceStatusReportsTheAppDoor(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
 	e := &MemQLEngine{providers: r}
 
@@ -373,7 +373,7 @@ func TestInferenceStatusReportsTheAppDoor(t *testing.T) {
 // could not have been open. Reporting "eligible" here would send somebody to a
 // console whose features then refuse.
 func TestInferenceStatusSeparatesNoAppFromNoWorkerService(t *testing.T) {
-	e := &MemQLEngine{providers: newProviderRegistry("")}
+	e := &MemQLEngine{providers: newProviderRegistry()}
 	nodes, err := e.evaluateInferenceStatusExpression(userCtx("alice"))
 	if err != nil {
 		t.Fatalf("inferenceStatus: %v", err)
@@ -399,7 +399,7 @@ func TestInferenceStatusSeparatesNoAppFromNoWorkerService(t *testing.T) {
 // and it went INTO that function rather than beside its one caller -- so the
 // `ai` readiness module picks it up without knowing the door exists.
 func TestTheAppDoorReachesTheSharedInferenceReading(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
 	e := &MemQLEngine{providers: r}
 
@@ -425,7 +425,7 @@ func TestTheAppDoorReachesTheSharedInferenceReading(t *testing.T) {
 	// THE ORDER IS PART OF THE ANSWER. Every client renders this list rather
 	// than re-deriving one, so a door inserted in the wrong place changes what
 	// four surfaces say the chain tries first.
-	full := newProviderRegistry("")
+	full := newProviderRegistry()
 	full.SetAppInference(&stubApps{doors: []AppDoor{runnableDoor(appIdClaudeCode)}})
 	full.SetFleetInference(&stubFleet{models: []FleetModel{eligibleForGate()}})
 	e2 := &MemQLEngine{providers: full}

@@ -227,7 +227,6 @@ const (
 	defaultChunkSize = 1800
 	defaultOverlap   = 180
 	defaultLimit     = 5
-	defaultProvider  = "embedding3Small"
 )
 
 // Chunk splits text into overlapping windows. It prefers paragraph and
@@ -301,7 +300,17 @@ func (i *Integration) ingestHandler(ctx context.Context, args map[string]any, _ 
 	}
 	providerName, _ := args["provider"].(string)
 	if providerName == "" {
-		providerName = defaultProvider
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This was
+		// `defaultProvider`, a package const reading "embedding3Small" -- one of
+		// five copies of the same paid pin, which happened never to drift only
+		// because nobody had ever changed it. There is no fallback: an embedder
+		// chosen for the caller writes vectors into a search space nobody
+		// picked, and a mismatched width is not an error anywhere.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 	chunkSize := intArg(args, "chunkSize", defaultChunkSize)
 	overlap := intArg(args, "overlap", defaultOverlap)

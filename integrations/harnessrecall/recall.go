@@ -66,8 +66,6 @@ const (
 	// defaultConcept is the primary recall source. Observations carry
 	// `content` embedded into node_vectors keyed by the observation id.
 	defaultConcept = memorynodes.ConceptWorkObservation
-	// defaultProvider matches the embedding write-path + similarTo.
-	defaultProvider = "embedding3Small"
 	// defaultK is the top-k when the caller omits it.
 	defaultK = 10
 	// defaultHalfLifeSeconds: 1h. Recent, relevant memories rank
@@ -286,9 +284,18 @@ func (i *Integration) recallHandler(ctx context.Context, args map[string]any, ta
 // resolveParams validates + defaults the caller args and resolves the
 // owner-scope key (partition isolation) from the auth context.
 func (i *Integration) resolveParams(ctx context.Context, args map[string]any, target int) (recallParams, error) {
+	// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). `provider`
+	// defaulted to the package const "embedding3Small"; recall compares a query
+	// vector against stored ones, so an embedder that does not match the one
+	// the corpus was written with returns confident nonsense rather than an
+	// error. Refusing when nothing is bound is the only honest answer.
+	boundProvider, bindErr := memql.ResolveEmbedderProvider(ctx)
+	if bindErr != nil {
+		return recallParams{}, bindErr
+	}
 	p := recallParams{
 		concept:  defaultConcept,
-		provider: defaultProvider,
+		provider: boundProvider,
 		k:        defaultK,
 		halfLife: defaultHalfLifeSeconds,
 		wSem:     defaultWSem,

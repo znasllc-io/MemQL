@@ -154,7 +154,7 @@ func TestKeylessBootIsOneInfoLine(t *testing.T) {
 	// NOTHING RESOLVED -- a freshly installed cluster, by design.
 	h := &allLevelsHandler{}
 	logger := slog.New(h)
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 
 	registerParsedProviders(logger, reg, []parsedProviderConfig{
 		unresolvable("openai", "", true),
@@ -208,7 +208,7 @@ func TestKeylessBootStillRegistersEveryProvider(t *testing.T) {
 	// so `providerAuthStatus` and `provider-auth check` can say WHY, and so a
 	// later reload has something to re-resolve.
 	h := &allLevelsHandler{}
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 	total := registerParsedProviders(slog.New(h), reg, []parsedProviderConfig{
 		unresolvable("openai", "", true),
 		unresolvable("chatA", "openai", false),
@@ -234,7 +234,7 @@ func TestPartialConfigStillWarns(t *testing.T) {
 	// that keeps D3's risk from materialising -- if this ever goes green while
 	// the WARNs are gone, quieting has started hiding real misconfiguration.
 	h := &allLevelsHandler{}
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 
 	registerParsedProviders(slog.New(h), reg, []parsedProviderConfig{
 		unresolvable("openai", "", true),
@@ -259,7 +259,7 @@ func TestPartialConfigStillWarns(t *testing.T) {
 
 func TestFullyConfiguredNodeSaysNothing(t *testing.T) {
 	h := &allLevelsHandler{}
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 	registerParsedProviders(slog.New(h), reg, []parsedProviderConfig{
 		resolvable("chatGood", ""),
 	})
@@ -280,7 +280,7 @@ func TestDisabledProvidersDoNotCountAsUnconfigured(t *testing.T) {
 	// disabled vendor would read as half-configured and warn about a lane
 	// somebody turned off on purpose.
 	h := &allLevelsHandler{}
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 
 	disabledBase := unresolvable("acme", "", true)
 	disabledBase.cfg.Disabled = true
@@ -342,7 +342,7 @@ func TestRealTreeBootsKeylessAndQuiet(t *testing.T) {
 	}
 
 	h := &allLevelsHandler{}
-	registry := newProviderRegistry("")
+	registry := newProviderRegistry()
 	total, err := LoadUnifiedProviders(slog.New(h), registry)
 	if err != nil {
 		t.Fatalf("the provider tree failed to load with no credentials: %v", err)
@@ -410,7 +410,7 @@ func TestRealTreeBootsKeylessAndQuiet(t *testing.T) {
 // is working exactly as installed.
 func TestPromptDefaultProviderFallsBackQuietly(t *testing.T) {
 	h := &allLevelsHandler{}
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 	registerParsedProviders(slog.New(h), reg, []parsedProviderConfig{
 		unresolvable("openai", "", true),
 		unresolvable("chatA", "openai", false),
@@ -427,7 +427,9 @@ func TestPromptDefaultProviderFallsBackQuietly(t *testing.T) {
 	if p := reg.ChatProvider(""); p != nil {
 		t.Error("the default resolved to a provider on a keyless node")
 	}
-	if d := reg.Default(); d != "" {
-		t.Errorf("a keyless registry named %q as its default; nothing is callable", d)
-	}
+	// The Default() assertion is gone with the method (epic memql#5137, D3):
+	// there is no registry default to be wrong about on a keyless node, because
+	// there is no registry default at all. The ChatProvider("") check above is
+	// what carries the property now -- an unnamed resolution on a node where
+	// nothing is callable must answer nil rather than reaching for something.
 }

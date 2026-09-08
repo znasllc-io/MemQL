@@ -28,7 +28,7 @@ func TestAIRuntimeCacheDefaultEnabled(t *testing.T) {
 		DefaultProvider: "mock",
 	})
 
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	mock := &mockAIProvider{}
 	providers.setEntry(&ProviderConfigEntry{
 		Config: ProviderConfig{
@@ -95,7 +95,7 @@ func TestAIRuntimeCacheStatsBaseline(t *testing.T) {
 		DefaultProvider: "mock",
 	})
 
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	mock := &mockAIProvider{}
 	providers.setEntry(&ProviderConfigEntry{
 		Config: ProviderConfig{
@@ -163,7 +163,7 @@ func TestAIRuntimeCacheOverrideWhenDisabled(t *testing.T) {
 		DefaultProvider: "mock",
 	})
 
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	mock := &mockAIProvider{}
 	providers.setEntry(&ProviderConfigEntry{
 		Config: ProviderConfig{

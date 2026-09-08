@@ -95,10 +95,10 @@ before seeding, since tags move.
 | Category | Entries | Notes |
 |---|---|---|
 | text | `qwen3.5:9b`, `gemma4:12b`, `qwen3.8:27b` | tools, thinking, structured, vision, 256K context; 9B is the 16 GB workhorse, 27B the 32 GB strong pick |
-| reasoning | `gpt-oss:20b`, `qwen3.8:27b`, `gemma4:26b` | gpt-oss Apache 2.0, structured and tools, fits 16 GB at the edge; gemma4 26B is a 3.8B-active mixture |
+| reasoning | `gpt-oss:20b`, `qwen3.8:27b`, `gemma4:26b` | gpt-oss Apache 2.0, structured and tools, fits 16 GB at the edge; gemma4 26B is a 4B-active mixture |
 | omni | `hf.co/Qwen/Qwen3-Omni-30B-A3B-Instruct` | runtime `mlx`, 32 GB, speech out; not in the Ollama library |
 | vision | the text entries | built in; no extra model |
-| audioIn | `gemma4:e4b`, `whisper-large-v3-turbo`, `parakeet-tdt-1.1b`, `canary-qwen-2.5b` | gemma4 through Ollama's OpenAI-compatible endpoint; the others through `whispercpp` and `nemo` |
+| audioIn | `gemma4:e4b`, `whisper-large-v3-turbo`, `parakeet-tdt-0.6b-v3`, `canary-qwen-2.5b` | gemma4 through Ollama's OpenAI-compatible endpoint; the others through `whispercpp` and `nemo` |
 | audioOut | `kokoro-82m`, `fish-speech-1.5`, `dia-1.6b` | runtime `kokoro`; none served by Ollama |
 | imageGen | `x/flux2-klein:4b`, `x/z-image-turbo`, `qwen-image-2.0` | the first two are Ollama's experimental macOS image generation; the third through `mflux` |
 | videoGen | `wan2.2:5b`, `ltx-2.3-distilled`, `hunyuanvideo-1.5` | `offeredOn: linux`; listed so the catalog is honest, never a default |
@@ -120,7 +120,7 @@ Every `@defaultProvider` that names a federated provider is removed; the prompt'
 `default` rule is the default. `TestNoPaidDefault` fails the build when a prompt's pin
 names a federated provider, when the registry declares a `@default`, or when a Go source
 file names a federated provider record by string literal outside `dsl/providers` and the
-registry loader. The twelve placeholder records are deleted; the eight vendor chat models
+registry loader. The ELEVEN placeholder records are deleted; the eight vendor chat models
 become one record each with `streaming: true` in their capability flags; the TTS client
 gains a record when the cockpit's speech door exists, not before.
 
@@ -304,3 +304,41 @@ Every catalog id and size against the Ollama library; that `Dimensions()` still 
 0; the `node_vectors` migration and its width; that `finalizeDefault` still falls to map
 order; the placeholder list in `ai_providers.go`; the `ModelCallStart` proto fields; the
 semantic cache's namespace registry. All were read on 2026-09-07 at commit 907e385fb.
+
+---
+
+## 10. Corrections found while implementing (2026-09-07)
+
+Section 9 asked for every catalog id and several tree facts to be re-verified
+before starting. They were, and four came back different. Recorded here rather
+than silently fixed above, because a record whose numbers are quietly corrected
+stops being evidence of what was known when the decision was made.
+
+1. **`parakeet-tdt-1.1b` does not exist.** NVIDIA's current Parakeet is
+   `parakeet-tdt-0.6b-v3`. D2's audioIn row is corrected in place. This is the
+   exact drift section 9 predicted, found by checking rather than by a failed
+   pull three weeks from now.
+2. **`gemma4:26b` is a 4B-active mixture**, not the 3.8B-active D2 says. Also
+   corrected in place.
+3. **Eleven placeholder records, not twelve.** `newAIProvider` routes nine
+   modalities through `newOpenAIPlaceholderProvider` (stt, realtime, audio,
+   image, video, computerUse, moderation, search, research), and eleven records
+   carry one of them. MEASURED from the dispatch switch, not counted by eye.
+4. **The pair collapse found a live disagreement, which is the argument for
+   doing it.** `chat54Mini` and `stream54Mini` are two records for one model and
+   declared different `maxCompletionTokens` -- 16384 and 4096. The survivor
+   keeps 16384; 4096 appears on every stream record regardless of model, which
+   is the signature of a boilerplate default rather than a measured value. The
+   deleted record's own comment had warned about exactly this class of drift
+   ("the two providers for one model disagreeing about what that model costs")
+   without anyone noticing the pair had already drifted on a different field.
+
+One thing section 9 asked about was confirmed rather than corrected:
+`fleetProvider.Dimensions()` still returns 0, and `finalizeDefault` still fell
+to map order. Both are addressed as the record specifies.
+
+A fifth fact turned up that section 9 did not ask about: **the provider `params`
+grammar accepted only strings and numbers**, so `streaming true` did not parse.
+The parser gains a boolean arm (`component/language/parser/provider_decl.go`)
+rather than the flag being spelled `"true"` as a string, so a typo is a parse
+error instead of a silent false.

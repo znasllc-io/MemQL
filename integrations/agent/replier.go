@@ -263,8 +263,10 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	//      explicit choice on the agent record.
 	//   3. Agent's stored providerConfig.llm.model (promoted to
 	//      provider when the model id matches a provider registry name).
-	//   4. Deploy-time env pin (MEMQL_OPERATOR_AGENT_PROVIDER /
-	//      MEMQL_DEFAULT_AGENT_PROVIDER).
+	//
+	// There was a fourth -- a deploy-time env pin -- and epic memql#5137
+	// deleted it. A provider named in a Deployment manifest is a routing
+	// decision no rule can see and no decision record can explain.
 	explicitProvider := strings.TrimSpace(msg.Hints["provider"])
 	explicitModel := strings.TrimSpace(msg.Hints["model"])
 
@@ -293,24 +295,20 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 		explicitProvider = explicitModel
 	}
 
+	// operatorEnabled still travels on the prepared turn -- it gates the
+	// operator tool surface -- it just no longer picks a policy here.
 	operatorEnabled, _ := data["operatorEnabled"].(bool)
 
-	// Deploy-time env pins for ops tuning. They ride ExplicitProvider now,
-	// because the DefaultProvider slot they used to fill is gone with the
-	// pre-rules precedence -- and a deploy-time provider name is a PIN, which
-	// is the one thing that still outranks a rule.
+	// MEMQL_OPERATOR_AGENT_PROVIDER AND MEMQL_DEFAULT_AGENT_PROVIDER ARE NOW
+	// DELETED (epic memql#5137, D3), which is the deletion the note here
+	// anticipated.
 	//
-	// Under the old precedence they were effectively dead: it read explicit,
-	// then policy, then default, and the policy name was never empty, so the
-	// default slot was reached only when a policy lookup missed. Epic 3 (open
-	// weight defaults) deletes both variables outright; until then they mean
-	// what an operator who set them expected.
-	if explicitProvider == "" && operatorEnabled {
-		explicitProvider = strings.TrimSpace(os.Getenv("MEMQL_OPERATOR_AGENT_PROVIDER"))
-	}
-	if explicitProvider == "" {
-		explicitProvider = strings.TrimSpace(os.Getenv("MEMQL_DEFAULT_AGENT_PROVIDER"))
-	}
+	// They were "deploy-time env pins for ops tuning", a fair account of the
+	// intent and an unfair one of the effect: every concrete provider record is
+	// a paid vendor model, so an operator setting either one pinned every agent
+	// reply in the cluster to a paid model, from a Deployment manifest, with
+	// nothing in the graph recording that they had. An operator who wants that
+	// writes a rule, and every decision record then names it.
 
 	// ROLE IS WHAT IS ACTING, not who is watching. It is the agent's own role
 	// slug, and an operator-capable agent acts as `operator` -- which is what

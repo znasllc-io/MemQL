@@ -28,7 +28,7 @@ func loadCorpusPrompts(t *testing.T) (*PromptRegistry, *LoadReport) {
 
 func loadCorpusProviders(t *testing.T) *ProviderRegistry {
 	t.Helper()
-	registry := newProviderRegistry("")
+	registry := newProviderRegistry()
 	if _, err := LoadUnifiedProviders(discardLogger(), registry, newLoadReport()); err != nil {
 		t.Fatalf("LoadUnifiedProviders: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestCorpusPromptDefaultProvidersResolve(t *testing.T) {
 // pointing at a name no provider declares must fail the load-time check
 // rather than silently resolving to the default provider at call time.
 func TestDanglingDefaultProviderIsRefused(t *testing.T) {
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	registerParsedProviders(discardLogger(), providers, []parsedProviderConfig{
 		mkProviderCfg("openai", "OpenAI", "", "", true, false),
 		mkProviderCfg("realProvider", "", "gpt-real", "openai", false, false),
@@ -104,7 +104,7 @@ func TestPolicySlugInProviderSlotIsRefused(t *testing.T) {
 // that dependents degrade to the default. That must stay a load-time PASS --
 // otherwise turning a keyless vendor lane off would brick every node.
 func TestDisabledDefaultProviderStillLoads(t *testing.T) {
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	registerParsedProviders(discardLogger(), providers, []parsedProviderConfig{
 		mkProviderCfg("openai", "OpenAI", "", "", true, false),
 		mkProviderCfg("acme", "Acme", "", "", true, true), // @disabled base

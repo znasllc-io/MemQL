@@ -20,7 +20,6 @@
 /// to NOT distill than to mint a low-value belief, because every belief costs recall budget and
 /// must be decayed back out later.
 @level("fast")
-@defaultProvider("chat54Mini")
 @templateFile("prompts/consolidateMemory.tmpl")
 prompt consolidateMemory {
   episodes      []object!  @description("The similarity-grouped cluster of episodic nodes to distill from. Each entry carries {id, kind, content, createdAt} -- the embedding-source text plus enough metadata for the model to judge recurrence and recency.")

@@ -16,7 +16,7 @@ package memql
 
 // NewProviderRegistryForTest returns an empty provider registry.
 func NewProviderRegistryForTest() *ProviderRegistry {
-	return newProviderRegistry("")
+	return newProviderRegistry()
 }
 
 // RegisterForTest inserts an AVAILABLE provider entry under a name.
@@ -72,14 +72,7 @@ func NewPolicyRegistryForTest(chains map[string][]string) *PolicyRegistry {
 	return r
 }
 
-// SetDefaultForTest pins the registry default, which is what a one-shot cloud
-// consent resolves to.
-func (r *ProviderRegistry) SetDefaultForTest(name string) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.defaultProvider = name
-	r.defaultPinned = true
-}
+// SetDefaultForTest IS GONE with the registry default it pinned (epic
+// memql#5137, D3). A one-shot cloud consent no longer resolves to "the
+// registry's default" -- there is no such thing -- so a test that needs a
+// consented cloud provider names it on the request.

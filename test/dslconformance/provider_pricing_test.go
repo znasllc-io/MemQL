@@ -132,9 +132,13 @@ func parseProviders(t *testing.T) []providerPricing {
 // because that is the state after somebody switched the @model back and this
 // entry became a claim about nothing. An exemption list nobody prunes becomes a
 // list of claims nobody checks.
+// `stream54Pro`'s entry is GONE because the record is (epic memql#5137, D3):
+// the eight vendor chat/stream pairs collapsed to one record each with
+// `streaming` as a capability flag, so there is no longer a "streaming half" of
+// anything to exempt. The gate itself pruned it -- it fails on an exemption
+// that no longer excuses a disagreement, which is exactly what happened here.
 var pricingAliasExemptions = map[string]string{
-	"chat54Pro":   "pro-tier pricing on a flagship @model alias; gpt-5.4-pro is responses-API only (see the provider comment). Overstates COGS, which is the safe direction, and reverts when the alias does.",
-	"stream54Pro": "the streaming half of the same alias, for the same reason.",
+	"chat54Pro": "pro-tier pricing on a flagship @model alias; gpt-5.4-pro is responses-API only (see the provider comment). Overstates COGS, which is the safe direction, and reverts when the alias does.",
 }
 
 // TestProvidersForOneModelAgreeOnItsPrice.
@@ -147,6 +151,17 @@ var pricingAliasExemptions = map[string]string{
 // correcting `chat54Mini` and not `stream54Mini` leaves the streaming provider
 // -- the one the agent reply path actually uses -- still reporting a fifth of
 // the real input cost.
+//
+// THAT PARTICULAR CLASS IS NOW STRUCTURALLY IMPOSSIBLE, and this gate is what
+// proved the class was still live when it was closed. Epic memql#5137 collapsed
+// the eight chat/stream pairs into one record per model, because two records
+// for one model are two places for one fact and they drift -- and the collapse
+// found that `chat54Mini` and `stream54Mini` HAD already drifted, on
+// maxCompletionTokens (16384 against 4096), which no gate was watching.
+//
+// The gate still has work: an ALIAS puts two records on one @model legitimately
+// (chat54Pro carries @model("gpt-5.4") because gpt-5.4-pro is responses-API
+// only), and that is the case the exemption map above is for.
 func TestProvidersForOneModelAgreeOnItsPrice(t *testing.T) {
 	byModel := map[string][]providerPricing{}
 	for _, p := range parseProviders(t) {

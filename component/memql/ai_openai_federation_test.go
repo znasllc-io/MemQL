@@ -712,24 +712,18 @@ func TestVerifyProviderCredentialMakesTheLiveCallForOpenAI(t *testing.T) {
 		}
 	})
 
-	t.Run("a placeholder with no client refuses rather than reporting success", func(t *testing.T) {
-		cfg := ProviderConfig{Name: "sora2", Type: "OpenAIVideo", Model: "sora-2"}
-		// A placeholder provider carries no HTTP client at all.
-		entry := &ProviderConfigEntry{
-			Config:    cfg,
-			Client:    &openAIPlaceholderProvider{name: "sora2", model: "sora-2", capability: "video"},
-			Available: true,
-		}
-
-		count, err := verifyProviderCredential(context.Background(), entry)
-		if err == nil {
-			t.Fatal("a placeholder with no client reported a successful live verification")
-		}
-		if count != 0 {
-			t.Errorf("models listed = %d on a refusal, want 0", count)
-		}
-		if !strings.Contains(err.Error(), "OpenAIVideo") {
-			t.Errorf("the refusal does not name the provider type: %v", err)
-		}
-	})
+	// THE PLACEHOLDER SUBTEST IS DELETED WITH ITS SUBJECT (epic memql#5137, D3).
+	//
+	// It asserted that a provider carrying no HTTP client refuses verification
+	// rather than reporting success, using `&openAIPlaceholderProvider{...}` as
+	// the clientless provider. There is no clientless provider any more: the
+	// eleven placeholder records and the type behind them are gone, because a
+	// registered, AVAILABLE provider that answers "the Go client is not wired
+	// yet" to every call is worse than an absent one -- a policy can name it, a
+	// page lists it, and the failure arrives three layers from the record that
+	// promised the capability.
+	//
+	// The property is not abandoned so much as made unreachable. If a provider
+	// type ever again has no client behind it, this subtest is the shape to
+	// restore, against that type.
 }

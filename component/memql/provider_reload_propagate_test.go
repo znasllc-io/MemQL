@@ -71,7 +71,7 @@ func engineWithProviders(t *testing.T, bus *events.Bus) *MemQLEngine {
 	t.Helper()
 	e := &MemQLEngine{specs: newSpecRegistry(), functions: newFunctionRegistry()}
 	e.SetEventBus(bus)
-	e.providers = newProviderRegistry("")
+	e.providers = newProviderRegistry()
 	return e
 }
 
@@ -336,12 +336,12 @@ func TestProviderAuthSourceReportsUnresolvedWhenKeyless(t *testing.T) {
 // assertion beside it is that a reader never sees a half-populated registry --
 // the count is either the old one or the new one, never something between.
 func TestReloadIsAtomicUnderConcurrentReads(t *testing.T) {
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 	registerParsedProviders(nil, reg, []parsedProviderConfig{
 		{cfg: &ProviderConfig{Name: "a", Type: "OpenAI", Model: "m", Auth: map[string]string{"apiKey": "k"}}, origin: "t:a"},
 	})
 
-	next := newProviderRegistry("")
+	next := newProviderRegistry()
 	registerParsedProviders(nil, next, []parsedProviderConfig{
 		{cfg: &ProviderConfig{Name: "a", Type: "OpenAI", Model: "m", Auth: map[string]string{"apiKey": "k"}}, origin: "t:a"},
 		{cfg: &ProviderConfig{Name: "b", Type: "OpenAI", Model: "m", Auth: map[string]string{"apiKey": "k"}}, origin: "t:b"},

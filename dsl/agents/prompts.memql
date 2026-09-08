@@ -8,13 +8,13 @@
 /// decomposition, Task dispatch, retry decisions, and escalation to the user. Paired with Claude
 /// Sonnet (streamClaudeSonnet) -- the planner's workload is structured pattern-matching over the
 /// goal + catalog + phases, not novel chain-of-thought, so extended thinking adds 5-30s and ~10x
-/// cost without improving decisions. Opus + thinking (reasoningClaudeOpus) stays available for
-/// goals that prove too ambiguous for Sonnet; flip @defaultProvider back per-instance if needed.
+/// cost without improving decisions. That judgement is the prompt's LEVEL now rather than a
+/// provider pin: a pin named one vendor model and routed around every rule, so a cluster with no
+/// federation reached it and failed rather than falling to its fleet (epic memql#5137, D3).
 /// Invoked by the planner-service on every Plan loop iteration. Output contract: one
 /// structured-output decision per turn (decompose / dispatchTask / retry / createSpecialist /
 /// extendSpecialist / spawnTrainingPlan / escalate / markPlanSucceeded / markPlanFailed).
 @level("strong")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/plannerAgent.tmpl")
 prompt plannerAgent {
   plan          object! @description("Current v1:planner:plan row with goal, phases, status, tokenBudget, tokenSpent, retryThreshold.")
@@ -32,7 +32,6 @@ prompt plannerAgent {
 /// embedChunk) followed by a respondToUser envelope summarizing chunks written, sources consulted,
 /// and confidence.
 @level("strong")
-@defaultProvider("streamClaudeOpus")
 @templateFile("prompts/trainerAgent.tmpl")
 prompt trainerAgent {
   plan              object! @description("Current v1:planner:plan row, kind='trainSpecialist', input={specialistId, topic, mode, domainId}.")
@@ -47,7 +46,6 @@ prompt trainerAgent {
 /// paraphrases the response into a human-facing reply. Specialists never write utterances
 /// themselves.
 @level("fast")
-@defaultProvider("chat54Mini")
 @templateFile("prompts/askSpecialist.tmpl")
 prompt askSpecialist {
   specialistName        string! @description("Display name of the specialist agent.")
@@ -64,12 +62,13 @@ prompt askSpecialist {
 /// 'match'|'extend'|'create', targetAgentId?: string, roleSlug: string, skillIds: []string,
 /// reasoning: string }. The ensureAgent executor reads the structured output, validates against the
 /// role catalog (the role's maxSkills cap + forbiddenSkillIds + lockedSkillIds) + the skill
-/// catalog, and issues the appropriate mutation. @defaultProvider names a PROVIDER, not a policy:
-/// this read "strongReasoning" (the policy) until memql#3616, which resolved to nothing and quietly
-/// dropped the call onto whatever ChatProvider()'s hardcoded preference list picked. streamClaudeSonnet
-/// is that policy's own @primary, so the intended model is what now actually runs.
+/// catalog, and issues the appropriate mutation. This prompt carried a provider PIN for a long time,
+/// and the history is the argument for the level: it first named a POLICY in the provider slot, which
+/// resolved to nothing and quietly dropped the call onto whatever ChatProvider()'s hardcoded
+/// preference list picked (memql#3616); naming a vendor model fixed that and made the choice
+/// unroutable. Epic memql#5137 removes the pin -- what the call needs is a level, and which model
+/// serves it is the router's to decide against what the cluster actually has.
 @level("strong")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/agentFactoryAnalyze.tmpl")
 prompt agentFactoryAnalyze {
   goal              string! @description("The user-stated goal driving the agent-provisioning decision. Forwarded verbatim from the ensureAgent tool call.")
@@ -97,7 +96,6 @@ prompt agentFactoryAnalyze {
 /// flipping the row to active. Fast/cheap tier (chat54Mini) -- this is a quick classification +
 /// gap-spotting pass, not deep reasoning.
 @level("fast")
-@defaultProvider("chat54Mini")
 @templateFile("prompts/responsibilityIntake.tmpl")
 prompt responsibilityIntake {
   statement   string! @description("The user's freeform responsibility statement, verbatim. The single most important input -- everything is inferred from it.")

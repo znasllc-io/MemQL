@@ -128,9 +128,16 @@ func TestOwnedVarsArePrefixed(t *testing.T) {
 // left anywhere in the product. The target of each of the four is gone, so an
 // alias kept here would tell an operator a variable still means something when
 // nothing reads it.
+//
+// 96 -> 94 in epic memql#5137, the same case a third time: the aliases for
+// MEMQL_DEFAULT_AGENT_PROVIDER and MEMQL_OPERATOR_AGENT_PROVIDER. Both targets
+// are deleted with the registry default itself (D3) -- each named a paid vendor
+// model from a Deployment manifest, which put a routing decision where no rule
+// could see it. An alias kept here would offer an operator a migration path to
+// a variable nothing reads.
 func TestLegacyAliasesCount(t *testing.T) {
-	if len(LegacyAliases) != 96 {
-		t.Fatalf("LegacyAliases has %d entries, want 96 (the Epic 7.3 rename map, minus the memql#3453 removal, the fifteen voice/avatar/polyphon aliases retired with their targets in epic memql#4988 and the four vendor-API-key aliases retired with theirs in epic memql#5088, plus the six pre-convention renames in memql#3831, the fourteen SERVER_*/SERVICE_* renames in memql#3892, and the blob connection string in memql#4843 -- the one key every deployed secret carries that no reader survived the rename for)", len(LegacyAliases))
+	if len(LegacyAliases) != 94 {
+		t.Fatalf("LegacyAliases has %d entries, want 94 (the Epic 7.3 rename map, minus the memql#3453 removal, the fifteen voice/avatar/polyphon aliases retired with their targets in epic memql#4988 the four vendor-API-key aliases retired with theirs in epic memql#5088 and the two agent-provider aliases retired in epic memql#5137, plus the six pre-convention renames in memql#3831, the fourteen SERVER_*/SERVICE_* renames in memql#3892, and the blob connection string in memql#4843 -- the one key every deployed secret carries that no reader survived the rename for)", len(LegacyAliases))
 	}
 	seenLegacy := map[string]bool{}
 	for newName, legacy := range LegacyAliases {

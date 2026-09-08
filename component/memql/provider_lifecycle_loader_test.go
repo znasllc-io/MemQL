@@ -15,7 +15,7 @@ import (
 //   - skipped providers do not count toward the registered total.
 func TestRegisterParsedProviders_DisabledSkipAndPropagation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	reg := newProviderRegistry("")
+	reg := newProviderRegistry()
 
 	mk := func(name, typ, model, extends string, base, disabled bool) parsedProviderConfig {
 		return parsedProviderConfig{

@@ -1262,24 +1262,12 @@ variables:
     default: "/var/run/secrets/openai.com/token"
     description: "Path to the projected Kubernetes service-account token presented to OpenAI's token endpoint. Written by the openai-identity projected volume with audience https://api.openai.com/v1 -- a DIFFERENT token from the Anthropic one, because a projected token is minted for exactly one audience; the base manifests set it on every engine Deployment. One of the three OpenAI federation values."
 
-  - name: MEMQL_DEFAULT_AGENT_PROVIDER
-    component: ai
-    scope: node
-    optional: true
-    description: "Overrides the AI router's default provider for agent replies when set."
-
   - name: MEMQL_COGNITION_FIT_THRESHOLD
     component: ai
     scope: node
     default: "0.4"
     optional: true
     description: "Float in [0,1] cognition turn-fit cutoff; higher is a stricter should-I-respond gate."
-
-  - name: MEMQL_DEFAULT_PROVIDER
-    component: ai
-    scope: node
-    optional: true
-    description: "Default AI provider id used for chat completions when no per-request provider is given."
 
   - name: MEMQL_LLM_BG_MAX_CALLS_PER_WINDOW
     component: ai
@@ -1474,12 +1462,6 @@ variables:
     default: "whisper-1"
     optional: true
     description: "OpenAI Whisper model id used when MEMQL_STT_PROVIDER is openai-whisper."
-
-  - name: MEMQL_OPERATOR_AGENT_PROVIDER
-    component: ai
-    scope: node
-    optional: true
-    description: "Deploy-time default model-provider hint for the operator agent, used by the router when no explicit provider or policy applies."
 
   - name: MEMQL_OPERATOR_APP_PROFILES_DIR
     component: ai
@@ -2838,12 +2820,6 @@ variables:
     optional: true
     description: "DEPRECATED legacy alias for MEMQL_AI_OPENAI_PROJECT_ID; resolved via the boot-time alias shim. Remove after operators migrate."
 
-  - name: DEFAULT_AGENT_PROVIDER
-    component: ai
-    scope: node
-    optional: true
-    description: "DEPRECATED legacy alias for MEMQL_DEFAULT_AGENT_PROVIDER; resolved via the boot-time alias shim. Remove after operators migrate."
-
   - name: EMAIL_AZURE_CLIENT_ID
     component: email
     scope: global
@@ -3227,12 +3203,6 @@ variables:
     scope: node
     optional: true
     description: "DEPRECATED legacy alias for MEMQL_IDENTITY_VERIFIER_JWKS_URL; resolved via the boot-time alias shim. Remove after operators migrate."
-
-  - name: OPERATOR_AGENT_PROVIDER
-    component: ai
-    scope: node
-    optional: true
-    description: "DEPRECATED legacy alias for MEMQL_OPERATOR_AGENT_PROVIDER; resolved via the boot-time alias shim. Remove after operators migrate."
 
   - name: OPERATOR_APP_PROFILES_DIR
     component: ai
