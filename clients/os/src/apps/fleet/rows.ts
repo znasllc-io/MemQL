@@ -1,6 +1,6 @@
 import { rowArray, rowNumber, rowObject, rowString, type Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { absent, figureFrom, figureOf, figureValue, type Figure } from "../../cluster/figure";
+import { absent, figureFrom, figureOf, figureValue, type Figure } from "../../kit/measure";
 import { flatten } from "../../kit/rows";
 import { labelMapFrom, mergeLabels, type LabelMap, type MergedLabel } from "./labels";
 
@@ -603,7 +603,7 @@ export function delegationPolicyFromRow(raw: Row): DelegationPolicyRow {
  * `known` is the app's own answer to "did you say anything", and it is why
  * the token counts are Figures rather than numbers: an app that reported
  * nothing did not report zero, and rendering `0` next to "tokens" is the one
- * mistake this whole reading exists to avoid (src/cluster/figure.ts).
+ * mistake this whole reading exists to avoid (src/kit/measure.ts).
  */
 export interface AppSessionUsage {
   known: boolean;

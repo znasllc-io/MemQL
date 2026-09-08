@@ -24,6 +24,12 @@
 // the same decision in Go for the same reason (epic memql#4993): "an absent
 // figure and a zero are different answers".
 //
+// Promoted from src/cluster/figure.ts into the kit (epic memql#5153, D3):
+// thirteen consumers across Campaigns, Cluster, Fleet, Settings and Stores,
+// and this epic adds Levels and the fleet-wide measured column. The
+// COMPONENT half is kit/Measure.tsx; this half stays pure so a .ts module
+// can import it without pulling JSX through the barrel.
+//
 // The portal's Data origins table had this right by hand -- it printed an em
 // dash for absent health, with a comment reading "never run" is not "ran
 // clean". Carrying it as a type rather than as a habit is what keeps the

@@ -10422,7 +10422,7 @@ a.os-button {
  * NOT HERE: the Figure component's own rules
  * ------------------------------------------------------------------------- */
 /* `.os-figure`, `.os-figure-unit` and `.os-figure-absent` belong to
- * `src/cluster/FigureValue.tsx`, which is shared with the Stores app, and
+ * `src/kit/Measure.tsx`, which is shared with the Stores app, and
  * index.css already carries them ("the honest-figure vocabulary"). They are
  * deliberately absent from this file so the fold-in cannot produce a second,
  * drifting copy of a rule that three surfaces read. */
@@ -10814,7 +10814,7 @@ a.os-button {
  * class belongs to that app and only carries ok / warn.
  * ======================================================================== */
 
-/* `.os-figure*` (src/cluster/FigureValue.tsx) is deliberately ABSENT from
+/* `.os-figure*` (src/kit/Measure.tsx) is deliberately ABSENT from
  * this file. Those three rules are SHARED -- Stores, Cluster and whatever
  * reports a count next all render through the same component -- and they are
  * already folded into index.css under "the honest-figure vocabulary". A copy
@@ -11001,7 +11001,7 @@ a.os-button {
  * `.os-fleet-session-status` rather than a third tone bolted onto Deployables'
  * `.os-deploy-status`, which belongs to that app and carries ok / warn only.
  *
- * `.os-figure*` (src/cluster/FigureValue.tsx) is deliberately ABSENT here:
+ * `.os-figure*` (src/kit/Measure.tsx) is deliberately ABSENT here:
  * `_pending_stores.css` and `_pending_cluster.css` already carry the same
  * three rules with a note to fold one copy and drop the other. A third copy
  * would be a third thing to keep in step.

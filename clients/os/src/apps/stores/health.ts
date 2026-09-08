@@ -1,6 +1,6 @@
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { absent, figureFrom, figureOf, type Figure } from "../../cluster/figure";
+import { absent, figureFrom, figureOf, type Figure } from "../../kit/measure";
 
 // The `shopifyStoreHealth` builtin's REPLY, read into the shapes this app
 // renders.
@@ -18,7 +18,7 @@ import { absent, figureFrom, figureOf, type Figure } from "../../cluster/figure"
 // ===========================================================================
 // The portal's version of this reader coerced every number with `?? 0`, and
 // then its table carried a comment reading "never run is not ran clean" to
-// undo it by hand. `src/cluster/figure.ts` is that distinction as a TYPE, so
+// undo it by hand. `src/kit/measure.ts` is that distinction as a TYPE, so
 // the surfaces cannot lose it: a store nothing has reconciled reports
 // `absent("unmeasured")` for drift, and a cost bucket nobody has observed is
 // a dash rather than "0 of 0 points, restoring 0/s".
