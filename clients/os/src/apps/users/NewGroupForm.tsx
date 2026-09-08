@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Button, Field, Input, Panel, Subhead } from "../../kit";
+import { Button, Field, Input, Panel } from "../../kit";
 import { AccountPicker } from "../accounts/AccountPicker";
 import type { AccountRow } from "../accounts/rows";
 import type { UsersActions } from "./actions";
@@ -32,9 +32,10 @@ export function NewGroupForm({
 
   const busy = actions.busyKey === `group:new:${name}`;
 
+  // NO Subhead inside: the Head above already says "New group", and rule 7 is
+  // that a scope is named in ONE place.
   return (
     <Panel label="A new group">
-      <Subhead>New group</Subhead>
       <Field label="Name">
         <Input id="group-name" label="Name" value={name} onChange={setName} placeholder="Acme engineering" />
       </Field>
@@ -77,7 +78,11 @@ export function NewGroupForm({
               // group appear the same way it appears in everybody else's
               // window -- and what stops this one showing a group the cluster
               // refused to write.
-              if (groupId !== "") onCreated();
+              //
+              // NULL is the refusal; an id and an unreadable reply are both
+              // successes, and leaving the form up on the second would invite
+              // a second group.
+              if (groupId !== null) onCreated();
             });
           }}
         >

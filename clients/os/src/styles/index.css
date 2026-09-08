@@ -12437,3 +12437,262 @@ a.os-button {
  *
  * `data-blocked` stays on the element: it is the state, readable by a test and
  * by whatever styles this later, and its being unstyled today is the point. */
+
+/* ===========================================================================
+ * THE USERS APP: the ladder, the grid, and the two pickers (epic memql#5167)
+ * ===========================================================================
+ *
+ * The one surface here worth a shape of its own is the PERMISSIONS GRID: a
+ * role's authority is a matrix, and it is the only thing this app says that a
+ * list of rows cannot. Everything else -- the ladder, the members, the
+ * sessions -- is the shell's existing row language with nothing added, because
+ * an app that invented five layouts for five panels is the drift DESIGN.md
+ * exists to stop.
+ *
+ * No new colours. Rank is not a status, so the amber and red families stay out
+ * of it; the accent marks exactly one thing per surface, as it does everywhere
+ * else in this shell.
+ */
+
+/* ---- the list's scope line (rule 3: sort is quiet text, not a button) ---- */
+
+.os-list-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+}
+
+/* ---- the role ladder ---------------------------------------------------- */
+
+.os-role-ladder,
+.os-role-list,
+.os-holder-list,
+.os-standing-list,
+.os-invited-list,
+.os-session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A rung is a row, and the rungs are read as a column of them: hairline
+ * between, nothing around. A bordered card per rung would draw five boxes and
+ * say that each is a thing of its own, when what the reader is looking at is
+ * an ORDER. */
+.os-role-rung + .os-role-rung {
+  border-top: 1px solid var(--os-line);
+}
+
+.os-role-rung-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--os-radius-xs);
+  cursor: pointer;
+}
+
+.os-role-rung-line[data-static="true"] {
+  cursor: default;
+}
+
+.os-role-rung-line:hover:not(:disabled) {
+  background: var(--os-rail-hover);
+}
+
+.os-role-rung-line:disabled {
+  cursor: default;
+}
+
+/* AN UNOFFERED RUNG IS DRAWN, DASHED -- never dropped. A ladder that showed a
+ * different number of rungs on two people's pages would leave the reader with
+ * nothing to explain the difference, and the reason lives on the rung's own
+ * title. Muted ink plus a dashed underline: quiet, and legibly not-a-choice. */
+.os-role-rung:not([data-offered]) .os-role-rung-line {
+  color: var(--os-muted);
+  border-bottom: 1px dashed var(--os-line);
+  border-radius: 0;
+}
+
+.os-role-rung-name {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The rung somebody actually holds. One accent mark per surface: the tick on
+ * the RankMark is the viewer's own rung, and this word is the row's. */
+.os-role-rung-held {
+  font-size: var(--os-text-xs);
+  color: var(--os-accent);
+}
+
+.os-role-rung[data-current] .os-role-rung-line {
+  background: var(--os-rail);
+}
+
+/* ---- the permissions grid ----------------------------------------------- */
+
+.os-grid {
+  border-collapse: collapse;
+  font-size: var(--os-text-sm);
+  /* Wide content scrolls INSIDE its own container; the pane never scrolls
+   * sideways. */
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.os-grid th,
+.os-grid td {
+  padding: 4px 10px;
+  text-align: center;
+  font-weight: 400;
+}
+
+.os-grid thead th {
+  color: var(--os-muted);
+  font-size: var(--os-text-xs);
+  border-bottom: 1px solid var(--os-line);
+  white-space: nowrap;
+}
+
+/* The row heads are the nouns, left-aligned and in the reading ink: they are
+ * the thing being talked about, and the verbs across the top are the
+ * qualifiers. */
+.os-grid tbody th {
+  text-align: left;
+  color: var(--os-ink);
+  white-space: nowrap;
+}
+
+.os-grid tbody tr + tr th,
+.os-grid tbody tr + tr td {
+  border-top: 1px solid var(--os-line);
+}
+
+/* A DASH IS NOT AN UNCHECKED BOX. An unchecked box says "off", which is an
+ * answer; a dash says the question is not asked here at all. */
+.os-grid-cell[data-state="absent"] {
+  color: var(--os-line);
+}
+
+.os-grid-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--os-accent);
+  background: transparent;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  cursor: pointer;
+}
+
+.os-grid-mark:hover:not(:disabled) {
+  border-color: var(--os-accent);
+}
+
+/* A LOCKED CELL IS SHOWN AND CANNOT BE TOGGLED: the role holds it and the
+ * caller does not, or the role is the cluster's own. Dashed rather than
+ * greyed, because grey reads as "off" and this one may well be ON. */
+.os-grid-mark:disabled {
+  cursor: default;
+  border-style: dashed;
+  color: var(--os-muted);
+}
+
+/* ---- the pickers -------------------------------------------------------- */
+
+.os-people-picker,
+.os-group-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.os-group-picker {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.os-people-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.os-people-picker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--os-radius-xs);
+  cursor: pointer;
+}
+
+.os-people-picker-row:hover:not(:disabled) {
+  background: var(--os-rail-hover);
+}
+
+.os-people-picker-name {
+  flex: none;
+}
+
+/* ---- the rows this app adds to the shell's row language ----------------- */
+
+.os-membership-row,
+.os-session-row,
+.os-invited-row,
+.os-standing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: var(--os-text-base);
+}
+
+.os-session-row + .os-session-row,
+.os-invited-row + .os-invited-row,
+.os-standing-row + .os-standing-row {
+  border-top: 1px solid var(--os-line);
+}
+
+.os-membership-name,
+.os-session-where {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A form's own buttons, on the line, primary last -- the same order the action
+ * bar states for a lifecycle. This is a COMPOSITION rather than a lifecycle,
+ * so it does not take the bar. */
+.os-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

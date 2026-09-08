@@ -237,7 +237,9 @@ export function NewRolePage({
                 accountId,
               })
               .then((created) => {
-                if (created !== "") onCreated(created);
+                // NULL is the refusal; anything else is written. See
+                // NewGroupForm for why the two are told apart.
+                if (created !== null) onCreated(created === "" ? derived : created);
               }),
         },
       ]

@@ -123,14 +123,24 @@ export interface UsersActions {
   endSession: (sessionId: string) => Promise<boolean>;
 
   // ---- groups (integrations/groups, hand-rendered until #5176 regenerates) --
-  groupCreate: (name: string, description: string, accountId: string) => Promise<string>;
+  /**
+   * The new group's id, or NULL when the write was refused.
+   *
+   * The two are different answers and the caller acts on the difference: a
+   * refusal keeps the form up with the server's sentence beside it, while a
+   * SUCCESS whose reply this build could not read is still a success -- the
+   * row is written, it arrives on its own broadcast, and keeping the form open
+   * would invite a second one.
+   */
+  groupCreate: (name: string, description: string, accountId: string) => Promise<string | null>;
   groupUpdate: (groupId: string, name: string, description: string) => Promise<boolean>;
   groupArchive: (groupId: string) => Promise<boolean>;
   groupMemberAdd: (groupId: string, userId: string) => Promise<boolean>;
   groupMemberRemove: (groupId: string, userId: string) => Promise<boolean>;
 
   // ---- roles (integrations/rbac) ------------------------------------------
-  roleCreate: (input: RoleDraft) => Promise<string>;
+  /** The new role's slug, or NULL when the write was refused. See groupCreate. */
+  roleCreate: (input: RoleDraft) => Promise<string | null>;
   roleUpdate: (slug: string, grants: readonly string[]) => Promise<boolean>;
   roleDeactivate: (slug: string) => Promise<boolean>;
 }
@@ -307,7 +317,8 @@ export function useUsersActions(): UsersActions {
           `builtin groupCreate(name: ${renderMemQLValue(name)}, description: ${renderMemQLValue(description)}, accountId: ${renderMemQLValue(accountId)})`,
         ),
       );
-      const row = result?.rows()[0];
+      if (result === null) return null;
+      const row = result.rows()[0];
       return row ? String((row as Record<string, unknown>)["groupId"] ?? "") : "";
     },
     [runQuery],
@@ -369,8 +380,9 @@ export function useUsersActions(): UsersActions {
           `builtin roleCreate(slug: ${renderMemQLValue(input.slug)}, name: ${renderMemQLValue(input.name)}, rank: ${renderMemQLValue(input.rank)}, description: ${renderMemQLValue(input.description)}, grants: ${renderMemQLValue([...input.grants])}, accountId: ${renderMemQLValue(input.accountId)})`,
         ),
       );
-      const row = result?.rows()[0];
-      return row ? String((row as Record<string, unknown>)["slug"] ?? "") : "";
+      if (result === null) return null;
+      const row = result.rows()[0];
+      return row ? String((row as Record<string, unknown>)["slug"] ?? "") : input.slug;
     },
     [runQuery],
   );
