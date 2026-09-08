@@ -2,9 +2,11 @@ import { useMemo } from "react";
 
 import { Caption, Notice, Subhead } from "../../../kit";
 import {
+  applyFacets,
   categorySentence,
   groupByCategory,
   joinCatalog,
+  type CatalogFacets,
   type CatalogRow,
   type FleetMachineFacts,
   type FleetModelFacts,
@@ -79,11 +81,21 @@ export function CatalogSection({
   profilesState,
   profilesError,
   fleet,
+  facets,
 }: {
   profiles: ModelProfile[];
   profilesState: string;
   profilesError: string;
   fleet: CatalogModel[];
+  /**
+   * Optional narrowing, from a Refine control on the Models Head.
+   *
+   * IT IS A PROP RATHER THAN STATE HERE because the control belongs on the
+   * HEAD (DESIGN.md rule 2: filters live behind one affordance on the Head
+   * line, not as chrome over the content) and this section is not the Head.
+   * Epic memql#5153 owns the control; this owns what it narrows.
+   */
+  facets?: CatalogFacets;
 }) {
   const reading = useMemo(
     () => joinCatalog(profiles, fleetFactsFrom(fleet), machineFactsFrom(fleet)),
@@ -91,8 +103,8 @@ export function CatalogSection({
   );
   const machineCount = useMemo(() => machineFactsFrom(fleet).length, [fleet]);
   const groups = useMemo(
-    () => groupByCategory(reading, machineCount > 0),
-    [reading, machineCount],
+    () => applyFacets(groupByCategory(reading, machineCount > 0), facets ?? {}),
+    [reading, machineCount, facets],
   );
 
   if (profilesState === "failed") {
@@ -141,7 +153,7 @@ export function CatalogSection({
             <h4 className="os-fleet-catname">{group.label}</h4>
             {state === "" ? null : <p className="os-fleet-catstate">{state}</p>}
             <ul className="os-fleet-catrows">
-              {group.rows.map((row) => (
+              {group.shown.map((row) => (
                 <CatalogEntry key={`${row.profile.category}:${row.profile.modelId}`} row={row} />
               ))}
             </ul>

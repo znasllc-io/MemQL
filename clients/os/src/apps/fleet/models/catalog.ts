@@ -279,7 +279,21 @@ export const CATEGORY_LABEL: Record<string, string> = {
 export interface CategoryGroup {
   category: string;
   label: string;
+  /**
+   * Every row in this category, unfiltered.
+   *
+   * THE SENTENCE IS COMPUTED FROM THIS, NOT FROM `shown`, and that is the whole
+   * reason the two are separate. "Your fleet serves 2 of 5" describes the
+   * CATEGORY; computing it over a filtered view would make it describe the
+   * filter, so narrowing to "what this fleet lacks" would report 0 of 2 and
+   * read as a fleet that serves nothing.
+   */
   rows: CatalogRow[];
+  /**
+   * The rows to render, after any facets. Equal to `rows` when nothing is
+   * narrowing.
+   */
+  shown: CatalogRow[];
   /** How many of this category's entries the fleet serves. */
   servedCount: number;
   /**
@@ -316,6 +330,7 @@ export function groupByCategory(
       category,
       label: CATEGORY_LABEL[category] ?? category,
       rows,
+      shown: rows,
       servedCount: rows.filter((r) => r.served).length,
       fleetHasMachines,
     });
@@ -354,4 +369,58 @@ export function categorySentence(group: CategoryGroup): string {
   }
   const pullable = group.rows.length - blocked;
   return `Nothing here is pulled yet. ${pullable} of them ${plural(pullable, "runs", "run")} on a machine you already have.`;
+}
+
+/**
+ * What a Refine control on the Models Head can narrow the catalog by
+ * (epic memql#5153's D3, seam agreed with that epic's session).
+ *
+ * EVERY FIELD IS OPTIONAL AND ABSENT MEANS "DO NOT NARROW", the same contract
+ * the `modelProfiles` query's arguments carry. A facet set with nothing in it
+ * is the ordinary state and must render exactly as no facets at all -- a
+ * surface that behaved differently when handed an empty object would make
+ * "the control is closed" and "the control is open with nothing chosen" two
+ * different pages.
+ */
+export interface CatalogFacets {
+  /** One of the nine categories. */
+  category?: string;
+  /** One of the seven runtimes. */
+  runtime?: string;
+  /**
+   * Show only entries this fleet cannot serve.
+   *
+   * BLOCKED, NOT MERELY UNPULLED. "What this fleet lacks" is the set with a
+   * REASON -- no machine of the class, no runtime, wrong platform -- because
+   * those are the entries a person can do nothing about from this page. An
+   * entry that is simply not pulled yet is an invitation, and folding the two
+   * together would put "run one command" in the same list as "buy hardware".
+   */
+  lackingOnly?: boolean;
+}
+
+/**
+ * Narrow each group's `shown` rows by the facets, dropping groups left empty.
+ *
+ * It does NOT touch `rows`, `servedCount` or `fleetHasMachines`, so
+ * `categorySentence` keeps describing the category rather than the filter.
+ */
+export function applyFacets(groups: CategoryGroup[], facets: CatalogFacets): CategoryGroup[] {
+  const category = (facets.category ?? "").trim();
+  const runtime = (facets.runtime ?? "").trim();
+  const lackingOnly = facets.lackingOnly === true;
+  if (category === "" && runtime === "" && !lackingOnly) return groups;
+
+  const out: CategoryGroup[] = [];
+  for (const group of groups) {
+    if (category !== "" && group.category !== category) continue;
+    const shown = group.shown.filter((row) => {
+      if (runtime !== "" && row.profile.runtime !== runtime) return false;
+      if (lackingOnly && row.blocked === null) return false;
+      return true;
+    });
+    if (shown.length === 0) continue;
+    out.push({ ...group, shown });
+  }
+  return out;
 }

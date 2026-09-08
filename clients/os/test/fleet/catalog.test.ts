@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const { categorySentence, groupByCategory, joinCatalog } = await import(
+const { applyFacets, categorySentence, groupByCategory, joinCatalog } = await import(
   "../../src/apps/fleet/models/catalog"
 );
 type FleetMachineFacts = import("../../src/apps/fleet/models/catalog").FleetMachineFacts;
@@ -211,5 +211,87 @@ describe("categorySentence", () => {
       ),
     );
     expect(categorySentence(blocked[0]!)).toContain("says why");
+  });
+});
+
+describe("applyFacets", () => {
+  // The seam epic memql#5153's Refine control narrows through. It is tested
+  // here rather than left to that epic because a prop with no exerciser is
+  // inert code that reads as a working feature -- and the sentence trap below
+  // is invisible from the control's side.
+
+  function threeCategories() {
+    return groupByCategory(
+      joinCatalog(
+        [
+          profile({ modelId: "a", category: "text", runtime: "ollama" }),
+          profile({ modelId: "b", category: "text", runtime: "ollama" }),
+          profile({ modelId: "k", category: "audioOut", runtime: "kokoro" }),
+          profile({ modelId: "w", category: "videoGen", runtime: "comfyui", offeredOn: ["linux"] }),
+        ],
+        [served("a")],
+        [machine({ platform: "macos", runtimes: ["ollama"] })],
+      ),
+    );
+  }
+
+  it("no facets renders exactly what no narrowing renders", () => {
+    // "The control is closed" and "the control is open with nothing chosen"
+    // must be one page, not two.
+    const groups = threeCategories();
+    const same = applyFacets(groups, {});
+    expect(same).toBe(groups);
+    expect(applyFacets(groups, { category: "", runtime: "" }).length).toBe(groups.length);
+  });
+
+  it("narrows to one category", () => {
+    const out = applyFacets(threeCategories(), { category: "audioOut" });
+    expect(out.map((g) => g.category)).toEqual(["audioOut"]);
+  });
+
+  it("narrows by runtime and drops categories left empty", () => {
+    const out = applyFacets(threeCategories(), { runtime: "kokoro" });
+    expect(out.map((g) => g.category)).toEqual(["audioOut"]);
+    expect(out[0]!.shown).toHaveLength(1);
+  });
+
+  it("lackingOnly means BLOCKED, not merely unpulled", () => {
+    // An entry that is simply not pulled is an invitation -- one command away.
+    // Folding it in with the blocked ones would put "run one command" in the
+    // same list as "buy hardware".
+    const out = applyFacets(threeCategories(), { lackingOnly: true });
+
+    // audioOut needs the kokoro runtime and videoGen is linux-only; the
+    // fixture's machine is macos with ollama, so both are genuinely blocked.
+    expect(out.map((g) => g.category)).toEqual(["audioOut", "videoGen"]);
+    for (const group of out) {
+      for (const row of group.shown) {
+        expect(row.blocked).not.toBeNull();
+      }
+    }
+
+    // THE PROPERTY THAT MATTERS: `text` is excluded. Its entry "b" is not
+    // pulled and WOULD run on a machine this fleet already has -- an invitation
+    // one command away, which does not belong in a list of things the fleet
+    // cannot do.
+    expect(out.map((g) => g.category)).not.toContain("text");
+  });
+
+  it("the category sentence still describes the CATEGORY, not the filter", () => {
+    // The trap, and the reason `rows` and `shown` are separate fields. The text
+    // group serves 1 of 2; narrowing to what the fleet lacks must not make that
+    // sentence report 0 of 0.
+    const all = threeCategories();
+    const text = all.find((g) => g.category === "text")!;
+    expect(categorySentence(text)).toContain("1 of 2");
+
+    const narrowed = applyFacets(all, { runtime: "ollama", lackingOnly: false });
+    const narrowedText = narrowed.find((g) => g.category === "text")!;
+    expect(categorySentence(narrowedText)).toBe(categorySentence(text));
+  });
+
+  it("combines facets rather than taking the last one", () => {
+    const out = applyFacets(threeCategories(), { category: "text", runtime: "kokoro" });
+    expect(out).toHaveLength(0);
   });
 });
