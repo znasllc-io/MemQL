@@ -192,6 +192,16 @@ type FleetModel struct {
 	AudioIn  bool
 	AudioOut bool
 	ImageGen bool
+	// Measured is what a probe found this model actually DOES on the machines
+	// behind it (epic memql#5146, D4). Its zero value is "nobody has probed
+	// this", which is a different answer from a measured zero and sorts
+	// differently -- see fleet_measured.go, where both accessors return
+	// `(value, ok)` and every caller reads the ok first.
+	//
+	// It RANKS and it gates nothing this release: eligibility stays with the
+	// advertised flags above, so a model that failed the structured probe is
+	// still eligible for a structured call and is reported as failing.
+	Measured Measured
 	Machines []FleetMachine
 }
 
@@ -441,6 +451,25 @@ func orderModels(models []FleetModel, preference []string) []FleetModel {
 
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
+		// MEASURED CAPABILITY IS THE FIRST KEY (epic memql#5146, D4), above the
+		// caller's own preference list. A preference names models a person
+		// chose; this says which of them actually validates against this
+		// cluster's schemas on the hardware that would serve the call, which is
+		// the question the preference was a proxy for.
+		//
+		// THE BOOL IS READ BEFORE THE NUMBER, so a measured model outranks an
+		// unmeasured one before any value is compared. A measured ZERO still
+		// outranks unmeasured: it is a model somebody looked at, and rewarding
+		// never being measured is the one direction this ordering must not take.
+		if av, aok := ValidityOf(a); true {
+			bv, bok := ValidityOf(b)
+			if aok != bok {
+				return aok
+			}
+			if aok && av != bv {
+				return av > bv
+			}
+		}
 		if ra, rb := prefRank(a), prefRank(b); ra != rb {
 			return ra < rb
 		}

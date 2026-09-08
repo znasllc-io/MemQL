@@ -4157,6 +4157,28 @@ QueryClient.prototype.magicLinkRequestByTokenHash = function (this: QueryClient,
   return this.executeNamed("magicLinkRequestByTokenHash", buildMagicLinkRequestByTokenHash(args), opts);
 };
 
+/** Every measurement the caller may see, newest first (epic memql#5146, D4).
+The read the LIVE CATALOG makes, so the measured ordering and the page read one fact rather than two. Two readers of "which model is strongest" would disagree eventually, and the disagreement would be invisible, because both answers are plausible.
+UNFILTERED BEYOND THE TIER, deliberately. The concept's own tier decides what comes back -- a plain user sees their own machines' figures, a cluster owner sees the fleet's -- and narrowing further here would be a second implementation of a decision the declaration already made. */
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForCaller"] in generated_concepts.ts).
+export interface MeasurementsForCallerArgs {
+}
+
+export function buildMeasurementsForCaller(args: MeasurementsForCallerArgs): string {
+  void args;
+  return "query measurementsForCaller()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    measurementsForCaller(args?: MeasurementsForCallerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.measurementsForCaller = function (this: QueryClient, args: MeasurementsForCallerArgs = {} as MeasurementsForCallerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("measurementsForCaller", buildMeasurementsForCaller(args), opts);
+};
+
 /** Every measurement for one machine, newest first. The machine page's per-model figures.
 KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a person reading it wants every model it has been measured on -- including the ones they have forgotten they pulled. */
 // Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForMachine"] in generated_concepts.ts).

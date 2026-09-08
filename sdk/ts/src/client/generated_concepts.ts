@@ -550,6 +550,7 @@ export const BoundConcepts = {
   markReorderListOrdered: "v1:commerce:reorderList",
   markResponsibilityIntakePending: "v1:planner:responsibility",
   markStoreRedacted: "v1:shopify:store",
+  measurementsForCaller: "v1:platform:modelMeasurement",
   measurementsForMachine: "v1:platform:modelMeasurement",
   measurementsForModel: "v1:platform:modelMeasurement",
   memoryById: "v1:library:memory",

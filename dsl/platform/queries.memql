@@ -856,3 +856,25 @@ query modelEvidence modelEvidenceForKey {
   paginate 5
   shape    modelEvidenceFull
 }
+
+/// Every measurement the caller may see, newest first (epic memql#5146, D4).
+///
+/// The read the LIVE CATALOG makes, so the measured ordering and the page read one fact rather than
+/// two. Two readers of "which model is strongest" would disagree eventually, and the disagreement
+/// would be invisible, because both answers are plausible.
+///
+/// UNFILTERED BEYOND THE TIER, deliberately. The concept's own tier decides what comes back -- a
+/// plain user sees their own machines' figures, a cluster owner sees the fleet's -- and narrowing
+/// further here would be a second implementation of a decision the declaration already made.
+@actor
+query modelMeasurement measurementsForCaller {
+  // PARENTHESIZED, and it is not decoration. A bare top-level disjunction is
+  // undecidable to the implication analyzer -- it cannot expand one -- so the
+  // enforcement gate reports the read as undecidable rather than as safe or
+  // unsafe. The parentheses make it a single composite conjunct the analyzer
+  // can match against the tier.
+  filter   (ownerUserId==actor.userId || actor.isClusterOwner==true)
+  sort     "measuredAt", "desc"
+  paginate 500
+  shape    modelMeasurementFull
+}

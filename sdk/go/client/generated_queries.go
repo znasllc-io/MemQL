@@ -4175,6 +4175,25 @@ func MagicLinkRequestByTokenHashBuild(args MagicLinkRequestByTokenHashArgs) stri
 	return b.String()
 }
 
+// MeasurementsForCaller -- Every measurement the caller may see, newest first (epic memql#5146, D4).
+// The read the LIVE CATALOG makes, so the measured ordering and the page read one fact rather than two. Two readers of "which model is strongest" would disagree eventually, and the disagreement would be invisible, because both answers are plausible.
+// UNFILTERED BEYOND THE TIER, deliberately. The concept's own tier decides what comes back -- a plain user sees their own machines' figures, a cluster owner sees the fleet's -- and narrowing further here would be a second implementation of a decision the declaration already made.
+//
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForCaller"] in generated_concepts.go).
+type MeasurementsForCallerArgs struct {
+}
+
+// MeasurementsForCaller calls the engine query measurementsForCaller.
+func (qc *QueryClient) MeasurementsForCaller(ctx context.Context, args MeasurementsForCallerArgs) (*Result, error) {
+	call := MeasurementsForCallerBuild(args)
+	return qc.executeNamed(ctx, "measurementsForCaller", call)
+}
+
+func MeasurementsForCallerBuild(args MeasurementsForCallerArgs) string {
+	_ = args
+	return "query measurementsForCaller()"
+}
+
 // MeasurementsForMachine -- Every measurement for one machine, newest first. The machine page's per-model figures.
 // KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a person reading it wants every model it has been measured on -- including the ones they have forgotten they pulled.
 //
