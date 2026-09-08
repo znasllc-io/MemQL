@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useDroppable, type DragEndEvent } from "@dnd-kit/core";
 import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
-import { LayoutGrid, RefreshCw, Sparkles } from "lucide-react";
+import { LayoutGrid, RefreshCw } from "lucide-react";
 
 import { useAsk } from "../ask/AskProvider";
 import { BIN_DROPPABLE_ID, type BinDropPayload } from "../apps/bin/concepts";
@@ -18,6 +18,7 @@ import type { AppId } from "../system/windows";
 import { useSession } from "./access";
 import { useConnectionStatus } from "./connection";
 import { ContextMenu, type MenuEntry } from "./ContextMenu";
+import { Mark } from "./Mark";
 import { useOs, type OsNotice } from "./state";
 
 // The one bar (spec A): Launcher at the left end; pinned then running apps
@@ -518,7 +519,7 @@ export function Dock({
       <div className="os-dock-status">
         <RoamNotice notice={notice} />
         <button type="button" className="os-ask-orb" aria-label="Ask" onClick={() => openAsk(null)}>
-          <Sparkles size={16} aria-hidden />
+          <Mark className="os-ask-mark" />
         </button>
         <span
           className="os-dot os-connection-dot"
