@@ -11,44 +11,33 @@
 // prescribe is RETIRED: component/memql/ast_converter.go rejects it and
 // names the predicate form `spec <name>` (no quotes, no parens) as its
 // replacement (memql#2983).
-
-/// Actor must hold an identity-issued JWT with the admin role.
-spec actorEnvelope requiresAdmin {
-  return role == "admin"
-}
-
-/// Caller must hold the owner or admin role.
-///
-/// Moved here from dsl/deployment/specs.memql in memql#2800: it is a generic
-/// role predicate, not a deployment concept, and identity needs it to gate the
-/// full-PII user read. It was defined-but-unused there (referenced only in
-/// comments), so nothing changed behaviourally in the move.
-///
-/// Originally the legacy Deployment Console gate (#728): DeployStaging /
-/// Promote / Rollback / RolloutAction / GetDeploymentStatus.
-spec actorEnvelope requiresOwnerOrAdmin {
-  return role == "admin" || role == "owner"
-}
-
-/// Caller must hold the developer, admin, or owner role.
-///
-/// Moved here from dsl/deployment/specs.memql, for the reason its sibling
-/// above moved in memql#2800: it is a generic role predicate rather than a
-/// deployment concept, and a second namespace now needs it.
-///
-/// TWO UNRELATED POLICIES NAME THIS ONE PREDICATE, and they are free to
-/// diverge:
-///
-///   - deployment: the FORWARD-DEPLOY gate (#1876), mirroring
-///     auth.AtLeastDeveloper -- cut a version and ship it. Rollback stays
-///     owner-only via requiresOwner.
-///   - identity: the PEOPLE-SURFACE read gate -- the user list and the
-///     pending-invitations list. Its Go counterpart is auth.CanAdmitPeople,
-///     a SEPARATE capability (create-on-admission) precisely so a cluster can
-///     later grant one without the other.
-///
-/// The three roles coincide today. If they stop coinciding, this spec splits
-/// rather than picking a side.
-spec actorEnvelope requiresDeveloperOrAbove {
-  return role == "developer" || role == "admin" || role == "owner"
-}
+//
+// ===========================================================================
+// A ROLE COMPARISON IS NOT ONE OF THESE ANY MORE (epic memql#5166, D11)
+// ===========================================================================
+//
+// This file held three -- `requiresAdmin`, `requiresOwnerOrAdmin` and
+// `requiresDeveloperOrAbove` -- and all three are deleted. They compared the
+// actor's role STRING against one or three literals, and that shape has three
+// faults the annotations do not:
+//
+//   - it cannot see a custom role AT ALL. `role == "admin"` is false for a
+//     rank-250 role holding every principal verb, so every role a cluster
+//     authored for itself was refused every surface these gated, whatever it
+//     held. That is the defect epic memql#5166 exists to end.
+//   - the names went stale silently. `requiresDeveloperOrAbove` reads as a
+//     floor and WAS a three-value set; its own comment admitted the name
+//     "predates the ladder flip and reads a rung too high".
+//   - a misspelled spec name is a missing conjunct nothing notices. dslgate's
+//     AdminGateRe recognises gates BY NAME, so a gate it does not know is not
+//     a gate, and the composition rule never runs on a filter using one.
+//
+// The replacements say which question they are asking. `@requiresRank("x")` is
+// a FLOOR on the cluster's ladder; `@requiresCapability("verb", "resource")` is
+// a GRANT a role was given. Both are validated at LOAD -- a typo refuses boot
+// rather than gating on nothing -- and both are enforced at execution, on the
+// direct call and on every plan that expands the construct.
+//
+// What still belongs here is a caller predicate that is NOT about the role
+// ladder: a check over the projected actor envelope that no rank and no grant
+// can express. There is none today, which is why this file declares nothing.

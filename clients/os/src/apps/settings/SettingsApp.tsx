@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useAsk } from "../../ask/AskProvider";
+import { RoleIdentity } from "../../modules/profile/RoleIdentity";
 import { useSession } from "../../chrome/access";
 import { useOs } from "../../chrome/state";
 import { readStoredTheme, setTheme, type ThemeChoice } from "../../app/theme";
@@ -83,7 +84,9 @@ function AboutSection() {
         <dt>Signed in as</dt>
         <dd>{access?.primaryEmail || "unknown"}</dd>
         <dt>Cluster role</dt>
-        <dd className="os-mono">{access?.clusterRole || "unknown"}</dd>
+        <dd>
+          <RoleIdentity access={access} />
+        </dd>
         <dt>Shell</dt>
         <dd>MemQL OS</dd>
         <dt>Shell build</dt>

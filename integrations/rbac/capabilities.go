@@ -16,17 +16,46 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/uptrace/bun"
+
 	componentAuth "github.com/znasllc-io/memql/component/auth"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/num"
 )
 
-// Integration is the DSL-callable governance surface.
-type Integration struct{}
+// Integration is the DSL-callable governance and role-authoring surface.
+//
+// The governance half is PURE -- rank arithmetic over values the DSL resolved
+// -- and needed nothing from the plugin context. The role builtins (epic
+// memql#5166) write rows and count holders, so the integration now carries the
+// engine and the pooled database handle. Both are optional: a node wired
+// without them serves the governance builtins and refuses the authoring ones
+// with a typed code, which is the honest answer rather than a panic.
+type Integration struct {
+	engine roleEngine
+	bunDB  func() *bun.DB
+}
 
-// New constructs the rbac governance integration.
-func New() *Integration { return &Integration{} }
+// roleEngine is the ONE method the role builtins use, declared narrowly rather
+// than taken as memql.IntegrationEngineAccess.
+//
+// The wide interface carries the AI, tool and skill surfaces as well, and a
+// test double for this file would have to stub every one of them to assert a
+// rendered mutation. Narrow here means the guards -- which are the whole
+// product of roles.go -- are reachable by a test that fakes one method.
+// memql.IntegrationEngineAccess satisfies it, so the plugin factory passes
+// PluginContext.Engine straight through.
+type roleEngine interface {
+	Execute(ctx context.Context, query string) (*memql.ExecuteResult, error)
+}
+
+// New constructs the rbac integration. Both arguments may be nil: a node wired
+// without them serves the governance builtins and refuses the authoring ones
+// with a typed code.
+func New(engine roleEngine, bunDB func() *bun.DB) *Integration {
+	return &Integration{engine: engine, bunDB: bunDB}
+}
 
 // IntegrationName returns the stable identifier.
 func (i *Integration) IntegrationName() string { return "rbac" }
@@ -46,6 +75,45 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"targetRank":     "int (required) - target principal's role rank",
 				"targetRoleSlug": "string - target principal's role slug (owner short-circuit)",
 				"verb":           "string (required) - read | create | update | delete",
+			},
+		},
+		{
+			Name: "roleCreate",
+			Description: "Create a custom role with its grants, in one internal-origin write, " +
+				"under the rank-below-caller, rank-not-taken, slug-not-taken and " +
+				"grants-a-subset-of-the-caller's guards. Returns {ok, slug, code, message}.",
+			Handler: i.handleRoleCreate,
+			ArgsSchema: map[string]string{
+				"slug":        "string (required) - stable kebab-case identifier, ^[a-z][a-z0-9-]{1,39}$",
+				"name":        "string (required) - display name",
+				"rank":        "int (required) - strictly below the caller's rank, and equal to no existing rung",
+				"description": "string - what the role is for",
+				"accountId":   "string - scope the role to one account; empty for a global role",
+				"grants":      "array (required) - [{verb, resource}], every pair one the caller holds",
+			},
+		},
+		{
+			Name: "roleUpdate",
+			Description: "Edit a custom role's name, description, rank, scope or grants. A rank " +
+				"change additionally requires the caller to outrank every current holder. " +
+				"Returns {ok, slug, code, message}.",
+			Handler: i.handleRoleUpdate,
+			ArgsSchema: map[string]string{
+				"slug":        "string (required) - the role to edit; never itself editable",
+				"name":        "string - new display name; absent leaves it unchanged",
+				"description": "string - new description; absent leaves it unchanged",
+				"rank":        "int - new rank; absent leaves it unchanged",
+				"accountId":   "string - new scope; absent leaves it unchanged, empty clears it",
+				"grants":      "array - the grant set AS A WHOLE; absent leaves it unchanged",
+			},
+		},
+		{
+			Name: "roleDeactivate",
+			Description: "Retire a custom role. Refused while any active user holds it or any " +
+				"pending invitation names it, with the count. Returns {ok, slug, code, message}.",
+			Handler: i.handleRoleDeactivate,
+			ArgsSchema: map[string]string{
+				"slug": "string (required) - the role to retire",
 			},
 		},
 		{

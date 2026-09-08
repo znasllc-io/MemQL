@@ -41,13 +41,13 @@ import { SEEDED_LADDER } from "../seededLadder";
 // the REAL load through the connection, then asserts the gated app appears
 // with no query typed and no remount. It fails against the stale memo.
 
-function summary(clusterRole: string): AccessSummary {
+function summary(role: string): AccessSummary {
   return {
     requestId: "req-1",
     userId: "v1:identity:user:u-42",
     primaryEmail: "ada@example.test",
     sessionId: "sess-1",
-    clusterRole,
+    role,
   } as AccessSummary;
 }
 

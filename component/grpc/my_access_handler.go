@@ -29,6 +29,7 @@ func (s *streamSession) handleMyAccess(envelope *memqlv1.MemqlClientMessage, msg
 		return s.sendQueryError(requestId, envelope.GetMessageId(), codes.Unauthenticated, "access context not available")
 	}
 
+	slug := strings.ToLower(strings.TrimSpace(string(ac.Role)))
 	result := &memqlv1.MyAccessResult{
 		RequestId:    requestId,
 		UserId:       ac.UserId,
@@ -38,8 +39,26 @@ func (s *streamSession) handleMyAccess(envelope *memqlv1.MemqlClientMessage, msg
 		// query. Empty when no row resolved; a client falls back to the
 		// email it is holding anyway.
 		DisplayName: ac.DisplayName,
-		ClusterRole: roleToProto(ac.Role),
 		SessionId:   sessionIdFromClaims(ctx),
+		// The role as a SLUG (epic memql#5166, D12). It was the UserRole enum,
+		// which could name only the roles this repo shipped -- a cluster's own
+		// role reported USER_ROLE_UNSPECIFIED, the value an unauthenticated
+		// caller gets, so a shell could not tell "you hold a custom role" from
+		// "you hold none".
+		Role: slug,
+	}
+	// THE NAME AND THE RANK COME FROM THE CATALOG, and their absence is a real
+	// answer rather than a failure. A slug the catalog does not carry -- a role
+	// deactivated under its holder, a node whose rows have not loaded -- leaves
+	// role_name empty and rank 0, and the client renders the slug it already
+	// holds. Inventing a title for a role the cluster does not recognise is the
+	// one thing this must not do: it would tell somebody they hold a role the
+	// engine will refuse them everything for.
+	if cat := auth.InstalledCapabilityCatalog(); cat != nil {
+		if rank, ok := cat.Rank(slug); ok {
+			result.Rank = int32(rank)
+			result.RoleName = cat.Name(slug)
+		}
 	}
 
 	return s.sendServerMessage(envelope.GetMessageId(), &memqlv1.MemqlServerMessage{
@@ -47,25 +66,6 @@ func (s *streamSession) handleMyAccess(envelope *memqlv1.MemqlClientMessage, msg
 			MyAccessResult: result,
 		},
 	})
-}
-
-// roleToProto maps the auth.Role string constants to the UserRole
-// proto enum.
-func roleToProto(r auth.Role) memqlv1.UserRole {
-	switch r {
-	case auth.RoleOwner:
-		return memqlv1.UserRole_USER_ROLE_OWNER
-	case auth.RoleAdmin:
-		return memqlv1.UserRole_USER_ROLE_ADMIN
-	case auth.RoleDeveloper:
-		return memqlv1.UserRole_USER_ROLE_DEVELOPER
-	case auth.RoleWriter:
-		return memqlv1.UserRole_USER_ROLE_WRITER
-	case auth.RoleReader:
-		return memqlv1.UserRole_USER_ROLE_READER
-	default:
-		return memqlv1.UserRole_USER_ROLE_UNSPECIFIED
-	}
 }
 
 // sessionIdFromClaims reads the `sid` claim off the VERIFIED token

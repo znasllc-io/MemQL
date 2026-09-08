@@ -14,7 +14,9 @@ const BASE: DiagnosticsInput = {
   endpoint: "wss://os.example.com/_memql/ws",
   userId: "v1:identity:user:abc123",
   primaryEmail: "owner@example.com",
-  clusterRole: "owner",
+  role: "owner",
+  roleName: "Owner",
+  rank: 400,
   connection: EMPTY_HISTORY,
   connectionStatus: "connected",
   themePack: "graphite",
@@ -36,7 +38,7 @@ describe("the diagnostics report (memql#4744)", () => {
         Shell build:      0.1.0
         Signed in as:     owner@example.com
         User id:          v1:identity:user:abc123
-        Cluster role:     owner
+        Cluster role:     Owner (owner, rank 400)
 
       Connection
         Status:           connected
@@ -97,7 +99,7 @@ describe("the diagnostics report (memql#4744)", () => {
   it("names the hidden surfaces and what each needs", () => {
     const report = buildDiagnosticsReport({
       ...BASE,
-      clusterRole: "writer",
+      role: "writer",
       hidden: [
         { kind: "app", label: "Users", requires: "admin" },
         { kind: "section", label: "Settings -- Cluster", requires: "admin" },

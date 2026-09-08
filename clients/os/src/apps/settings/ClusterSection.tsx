@@ -63,7 +63,7 @@ export function ClusterSection() {
   // Owner-only reads, same as providerAuthStatus: gate the CALL on the role so
   // an admin does not issue a read whose empty answer we already know, and let
   // the engine remain the authority either way.
-  const infra = useInfrastructureFacts(access?.clusterRole === "owner");
+  const infra = useInfrastructureFacts(access?.role === "owner");
 
   return (
     <div className="os-settings">
@@ -144,13 +144,13 @@ export function ClusterSection() {
 
       <section className="os-field-group" aria-label="Infrastructure">
         <h4 className="os-subhead">Infrastructure</h4>
-        {access?.clusterRole !== "owner" ? (
+        {access?.role !== "owner" ? (
           <Caption>
             The database and identity-provider records are cluster-owner only. This section admits
             admins, and the engine decides that read, not this window.
           </Caption>
         ) : infra.error ? (
-          <Refusal role={access?.clusterRole ?? ""} message={infra.error} />
+          <Refusal role={access?.role ?? ""} message={infra.error} />
         ) : infra.loading ? (
           <Caption>Loading from the cluster</Caption>
         ) : (
@@ -214,7 +214,7 @@ export function ClusterSection() {
       <section className="os-field-group" aria-label="Mail sender">
         <h4 className="os-subhead">Mail sender</h4>
         {mail.error ? (
-          <Refusal role={access?.clusterRole ?? ""} message={mail.error} />
+          <Refusal role={access?.role ?? ""} message={mail.error} />
         ) : mail.value === null ? (
           <Caption>{mail.loading ? "Loading from the cluster" : "No mail status reported."}</Caption>
         ) : (
@@ -246,7 +246,7 @@ export function ClusterSection() {
           (DESIGN.md rule 6). Owner or admin, which is what adminops enforces
           -- the same floor this section already carries, so there is no
           narrower gate to apply here. */}
-      <PolicyPanel enabled={access?.clusterRole === "owner" || access?.clusterRole === "admin"} />
+      <PolicyPanel enabled={access?.role === "owner" || access?.role === "admin"} />
 
     </div>
   );

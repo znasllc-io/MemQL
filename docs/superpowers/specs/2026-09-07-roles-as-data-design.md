@@ -2,7 +2,14 @@
 
 - **Date:** 2026-09-07
 - **Epic:** memql#5166 (tasks #5177-#5181; the cockpit follow-up memql-cockpit#403), filed 2026-09-08
-- **Status:** approved in the 2026-09-07 brainstorm; the program record
+- **Status:** SHIPPED 2026-09-07 in one PR (tasks #5177-#5181). Two deliberate
+  departures from the record, both argued at the code: `CapabilityCatalog`
+  carries a sixth method, `Name`, because section G's `role_name` needs it and a
+  second read of the same rows would be a second source for one fact; and
+  `MayAssignRole` keeps the owner carve-out D4's bare arithmetic would remove,
+  since `newRank < actorRank` refuses owner -> owner and would leave a cluster
+  with one owner unable to name a second. Approved in the 2026-09-07 brainstorm;
+  the program record
   (`2026-09-07-access-program.md`) carries the cross-cutting decisions P1 to P9, cited
   below by number.
 - **Scope:** the engine half of roles. A runtime capability catalog read from the role

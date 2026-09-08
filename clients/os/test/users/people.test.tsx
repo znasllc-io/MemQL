@@ -236,14 +236,14 @@ describe("People, live", () => {
   it("renders a refused read in surface, with the engine's own words", async () => {
     const connection = fakeConnection();
     connection.query.searchUsers = vi.fn(async () => {
-      throw new Error("searchUsers: requiresOwnerOrAdmin");
+      throw new Error("searchUsers: requires the developer role or above");
     });
     const view = mount(connection);
 
     // Not a toast, and not an empty list: somebody who reached this surface
     // out-of-band has to read WHY rather than conclude the cluster is empty.
     expect(await screen.findByText(/did not return its people/i)).toBeTruthy();
-    expect(screen.getByText(/requiresOwnerOrAdmin/)).toBeTruthy();
+    expect(screen.getByText(/requires the developer role or above/)).toBeTruthy();
     view.unmount();
   });
 

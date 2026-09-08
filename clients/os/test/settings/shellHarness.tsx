@@ -20,9 +20,9 @@ export const CONFIG: OsRuntimeConfig = {
   domain: "example.com",
 };
 
-export const OWNER = { userId: "u-1", primaryEmail: "owner@example.com", clusterRole: "owner" };
-export const ADMIN = { userId: "u-3", primaryEmail: "admin@example.com", clusterRole: "admin" };
-export const READER = { userId: "u-2", primaryEmail: "reader@example.com", clusterRole: "reader" };
+export const OWNER = { userId: "u-1", primaryEmail: "owner@example.com", role: "owner", roleName: "", rank: 0 };
+export const ADMIN = { userId: "u-3", primaryEmail: "admin@example.com", role: "admin", roleName: "", rank: 0 };
+export const READER = { userId: "u-2", primaryEmail: "reader@example.com", role: "reader", roleName: "", rank: 0 };
 
 export function memStorage(): Pick<Storage, "getItem" | "setItem"> & { dump: () => string } {
   const data = new Map<string, string>();

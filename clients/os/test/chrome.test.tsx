@@ -19,8 +19,8 @@ const CONFIG: OsRuntimeConfig = {
   domain: "example.test",
 };
 
-const OWNER = { userId: "u-1", primaryEmail: "owner@example.test", clusterRole: "owner" };
-const READER = { userId: "u-2", primaryEmail: "reader@example.test", clusterRole: "reader" };
+const OWNER = { userId: "u-1", primaryEmail: "owner@example.test", role: "owner", roleName: "", rank: 0 };
+const READER = { userId: "u-2", primaryEmail: "reader@example.test", role: "reader", roleName: "", rank: 0 };
 
 function memStorage(): Pick<Storage, "getItem" | "setItem"> {
   const data = new Map<string, string>();

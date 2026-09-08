@@ -33,7 +33,7 @@ function mount(
   const view = render(
     withSession(
       withSetupFacts(withOs(<WidgetHost manifest={setupWidget} onRemove={retire} />, role)),
-      { clusterRole: role, readiness: feed },
+      { role: role, readiness: feed },
     ),
   );
   return { view, retire };
@@ -167,7 +167,7 @@ describe("the rail a fresh cluster shows", () => {
       withSession(
         withSetupFacts(withOs(<WidgetHost manifest={setupWidget} onRemove={vi.fn()} />, "owner")),
         {
-          clusterRole: "owner",
+          role: "owner",
           readiness: readiness(true, [
             { ...vFor("ai", "configured"), core: true },
             {
@@ -268,14 +268,14 @@ describe("the retire rule", () => {
   function at(feed: ReturnType<typeof coreAt>, retire: () => void) {
     return withSession(
       withSetupFacts(withOs(<WidgetHost manifest={setupWidget} onRemove={retire} />, "owner")),
-      { clusterRole: "owner", readiness: feed },
+      { role: "owner", readiness: feed },
     );
   }
 });
 
 describe("the body alone", () => {
   it("renders nothing outside its gate, which is the only thing that decides it draws", () => {
-    render(withSession(withOs(<SetupWidget />, "owner"), { clusterRole: "owner" }));
+    render(withSession(withOs(<SetupWidget />, "owner"), { role: "owner" }));
     expect(screen.queryByRole("list", { name: "Set up this cluster" })).toBeNull();
   });
 

@@ -30,14 +30,27 @@ import (
 // Role
 // =============================================================================
 
-// Role is the cluster-wide authorization role assigned to a user.
-// Mirrors memqlv1.UserRole but stays inside the SDK so consumers
-// don't pull in the proto enum constants.
+// Role is the cluster-wide authorization role assigned to a user: the SLUG
+// their v1:identity:user row carries.
+//
+// IT IS A PLAIN STRING AND NOT A CLOSED SET (epic memql#5166). It mirrored the
+// memqlv1.UserRole enum, which is deleted: the set of roles is cluster state,
+// so an enum could only name the five this repo shipped, and a role a cluster
+// authored for itself arrived as USER_ROLE_UNSPECIFIED -- the same value an
+// unauthenticated caller gets.
+//
+// The constants below stay because the five they name are the roles every
+// cluster seeds, and comparing against one is the ordinary thing a consumer
+// does. A consumer that needs to ORDER roles reads the ladder from
+// `activeRoles` and resolves through it; there is deliberately no rank table
+// here, for the reason MemQL OS ships none: two hand-maintained ladders
+// disagree, and nothing notices.
 type Role string
 
 const (
-	// RoleUnspecified is the zero value -- a user with no role yet.
-	// Treated as "no access" by every gate.
+	// RoleUnspecified is the zero value -- a user with no role yet, or one
+	// whose role this SDK was handed as an empty string. Treated as "no access"
+	// by every gate.
 	RoleUnspecified Role = ""
 	// RoleOwner has full cluster-wide privileges including the
 	// admin / cluster-management surfaces.
@@ -57,24 +70,6 @@ const (
 	// cannot mutate.
 	RoleReader Role = "reader"
 )
-
-// roleFromProto converts memqlv1.UserRole -> Role.
-func roleFromProto(r memqlv1.UserRole) Role {
-	switch r {
-	case memqlv1.UserRole_USER_ROLE_OWNER:
-		return RoleOwner
-	case memqlv1.UserRole_USER_ROLE_ADMIN:
-		return RoleAdmin
-	case memqlv1.UserRole_USER_ROLE_DEVELOPER:
-		return RoleDeveloper
-	case memqlv1.UserRole_USER_ROLE_WRITER:
-		return RoleWriter
-	case memqlv1.UserRole_USER_ROLE_READER:
-		return RoleReader
-	default:
-		return RoleUnspecified
-	}
-}
 
 // =============================================================================
 // SubscriptionKind
@@ -249,13 +244,26 @@ func eventKindString(k memqlv1.EventKind) string {
 // =============================================================================
 
 // AccessSummary is the SDK-owned shape of QueryClient.GetMyAccess.
-// Mirrors memqlv1.MyAccessResult with the cluster-wide role typed as
-// Role instead of the proto enum.
+//
+// `ClusterRole Role` became three fields in epic memql#5166, and the shape of
+// the change is the point: the role is a SLUG the cluster wrote, its NAME is
+// what a person reads, and its RANK is where it sits on the ladder. One enum
+// could carry none of those for a role the cluster authored itself.
 type AccessSummary struct {
 	RequestId    string
 	UserId       string
 	PrimaryEmail string
-	ClusterRole  Role
+	// Role is the caller's role slug.
+	Role Role
+	// RoleName is the role's display name off the catalog ("Owner", "Support
+	// Lead"). EMPTY when the slug resolves to no active rung, which is a real
+	// answer: render the slug rather than inventing a title for a role the
+	// cluster does not recognise.
+	RoleName string
+	// Rank is the role's rung, HIGHER == more privileged. Zero when the slug
+	// ranks nowhere -- and zero is the answer rather than "unknown", because an
+	// unrankable role admits nothing.
+	Rank int
 }
 
 // accessSummaryFromProto translates memqlv1.MyAccessResult ->
@@ -268,7 +276,9 @@ func accessSummaryFromProto(p *memqlv1.MyAccessResult) *AccessSummary {
 		RequestId:    p.GetRequestId(),
 		UserId:       p.GetUserId(),
 		PrimaryEmail: p.GetPrimaryEmail(),
-		ClusterRole:  roleFromProto(p.GetClusterRole()),
+		Role:         Role(p.GetRole()),
+		RoleName:     p.GetRoleName(),
+		Rank:         int(p.GetRank()),
 	}
 }
 

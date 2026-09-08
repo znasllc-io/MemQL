@@ -515,7 +515,8 @@ func tryParseNewFunctionSyntax(expectedName, expectedKind, content, origin strin
 		// entry and a chance to ship a silent one -- which has already
 		// happened twice (forgeDeveloper, forgeApprover were live filter
 		// conjuncts the composition rule had never run on).
-		RequiresRank: stringAttributeValue(funcDef.Attributes, "requiresRank"),
+		RequiresRank:       stringAttributeValue(funcDef.Attributes, "requiresRank"),
+		RequiresCapability: capabilityAttributeValue(funcDef.Attributes),
 	}
 
 	// Handle rate limit
@@ -1169,6 +1170,41 @@ func stringAttributeValue(attrs []*languageParser.Attribute, name string) string
 		}
 	}
 	return ""
+}
+
+// capabilityAttributeValue reads `@requiresCapability("verb", "resource")`.
+//
+// The generic attribute parser stores two comma-separated strings as a
+// []string, so no parser change was needed for the syntax. What IS needed is
+// this function refusing to half-read it: a one- or three-argument form
+// produces a requirement with a missing half, and the load-time validator
+// refuses that by name rather than treating it as no requirement. Returning the
+// partial value rather than the zero value is deliberate -- the zero value
+// would silently become "no gate", which is the failure this annotation exists
+// to make impossible.
+func capabilityAttributeValue(attrs []*languageParser.Attribute) CapabilityRequirement {
+	for _, a := range attrs {
+		if a == nil || a.Name != "requiresCapability" {
+			continue
+		}
+		switch v := a.Value.(type) {
+		case []string:
+			req := CapabilityRequirement{}
+			if len(v) > 0 {
+				req.Verb = strings.TrimSpace(v[0])
+			}
+			if len(v) > 1 {
+				req.Resource = strings.TrimSpace(v[1])
+			}
+			return req
+		case string:
+			// One argument. Carried through as a half-requirement so the
+			// validator refuses it with the author's own spelling in the
+			// message.
+			return CapabilityRequirement{Verb: strings.TrimSpace(v)}
+		}
+	}
+	return CapabilityRequirement{}
 }
 
 func collectFunctionDefsFromFile(file *languageParser.File) []*languageParser.FunctionDef {

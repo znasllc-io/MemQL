@@ -46,7 +46,7 @@ const CONFIG: OsRuntimeConfig = {
   domain: "example.test",
 };
 
-const OWNER = { userId: "u-1", primaryEmail: "owner@example.test", clusterRole: "owner" };
+const OWNER = { userId: "u-1", primaryEmail: "owner@example.test", role: "owner", roleName: "", rank: 0 };
 
 const GRID = { cols: 10, rows: 6 };
 

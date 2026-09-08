@@ -439,20 +439,22 @@ message MemqlServerMessage {
 // -----------------------------------------------------------------------------
 // Roles
 // -----------------------------------------------------------------------------
-
-enum UserRole {
-  USER_ROLE_UNSPECIFIED = 0;
-  USER_ROLE_OWNER = 1;
-  USER_ROLE_ADMIN = 2;
-  USER_ROLE_WRITER = 3;
-  USER_ROLE_READER = 4;
-  // USER_ROLE_DEVELOPER is engineering power (authoring + inline DSL +
-  // deploy/cut-version) without user management (#1532 / #1876). Sits in
-  // the privileged tier alongside admin (different powers, not a strict
-  // ordering). Added to the wire so MyAccess can surface it to the
-  // cockpit's deploy-control gating (#1886).
-  USER_ROLE_DEVELOPER = 5;
-}
+//
+// THERE IS NO ROLE ENUM ON THIS WIRE (epic memql#5166, D12).
+//
+// `UserRole` was one -- unspecified/owner/admin/writer/reader/developer -- and
+// it is deleted. The set of roles is CLUSTER STATE now: an operator authors a
+// role from the permissions that exist, and it lands on user rows, in the
+// ladder every client draws ranks on, and in the capability catalog every gate
+// resolves through. An enum can only name the roles this repo happened to ship,
+// so a custom role could not be carried at all: MyAccess reported
+// USER_ROLE_UNSPECIFIED for it, which is the same value an unauthenticated
+// caller gets.
+//
+// Every field that named a role is a `string` carrying the SLUG. What a client
+// does with it is resolve it against the ladder it already reads from
+// `activeRoles` -- which is what MemQL OS's roleRungOf has done since epic
+// memql#4832, and what makes a rung added tomorrow work with no client release.
 
 // -----------------------------------------------------------------------------
 // Handshake / control
@@ -997,7 +999,10 @@ message IdentityCreateMsg {
   repeated string emails = 7;
   repeated string phones = 8;
   string avatar_url = 9;
-  UserRole role = 10;
+  // The cluster role as a SLUG (epic memql#5166) -- a v1:rbac:role slug or one
+  // of its aliases, validated in Go where the row is written. Was the UserRole
+  // enum, which could not carry a role the cluster authored for itself.
+  string role = 10;
   repeated string group_ids = 11;
   string guardian_identity_id = 12;   // Required for type "synthetic"
   bool guardian_approval_required = 13;
@@ -1032,7 +1037,8 @@ message IdentityInfo {
   repeated string emails = 7;
   repeated string phones = 8;
   string avatar_url = 9;
-  UserRole role = 10;
+  // The cluster role as a SLUG (epic memql#5166); see IdentityCreateMsg.role.
+  string role = 10;
   repeated string group_ids = 11;
   bool active = 12;
   string guardian_identity_id = 13;
@@ -1046,7 +1052,11 @@ message DelegationCreateMsg {
   string request_id = 1;
   string identity_id = 2;
   string agent_id = 3;
-  UserRole role_ceiling = 4;
+  // The delegation ceiling as a SLUG (epic memql#5166). Compared by RANK
+  // through the catalog, not by the legacy four-value level scale, which
+  // collapsed every custom role into its bottom rung and so admitted a ceiling
+  // that outranked its own delegator.
+  string role_ceiling = 4;
   repeated string scopes = 5;
   google.protobuf.Timestamp expires_at = 6;
   string note = 7;
@@ -1077,7 +1087,8 @@ message DelegationInfo {
   string identity_subject = 3;
   string identity_type = 4;
   string agent_id = 5;
-  UserRole role_ceiling = 6;
+  // The delegation ceiling as a SLUG (epic memql#5166); see DelegationCreateMsg.
+  string role_ceiling = 6;
   repeated string scopes = 7;
   google.protobuf.Timestamp expires_at = 8;
   bool active = 9;
@@ -2058,9 +2069,8 @@ message MyAccessResult {
   string request_id = 1;
   string user_id = 2;
   string primary_email = 3;
-  UserRole cluster_role = 4;
-  reserved 5;
-  reserved "partitions";
+  reserved 4, 5;
+  reserved "cluster_role", "partitions";
   // session_id is the v1:identity:authSession row backing THIS connection,
   // read off the verified claims (memql#4306).
   //
@@ -2095,6 +2105,35 @@ message MyAccessResult {
   // registration insert, a PAT with no provisioned user). Not an error: a
   // client renders the email instead, which it already holds.
   string display_name = 7;
+
+  // 8, 9 and 10 are LEFT FREE for the groups-and-grants epic (memql#5165),
+  // which edits this message too. Taking them would force a renumber in
+  // whichever of the two lands second, and a renumbered field on a message
+  // clients already decode is a silently mis-read value rather than an error.
+
+  // role is the caller's cluster role, as the SLUG their v1:identity:user row
+  // carries -- a catalog slug or one of its aliases (epic memql#5166).
+  //
+  // It replaces `cluster_role`, which was the UserRole enum: an enum can only
+  // name the roles this repo shipped, so a custom role reported
+  // USER_ROLE_UNSPECIFIED -- the same value an unauthenticated caller gets.
+  string role = 11;
+
+  // role_name is the role's DISPLAY NAME off the catalog row ("Owner",
+  // "Support Lead"). Empty when the slug resolves to no active rung, which is
+  // the honest answer rather than a fabricated title: a client renders the slug
+  // it already holds instead.
+  //
+  // It is here rather than looked up client-side because the client would then
+  // need the ladder loaded before it could name the signed-in person, and the
+  // shell paints its identity rail before that read lands.
+  string role_name = 12;
+
+  // rank is the role's rung, HIGHER == more privileged. Zero when the slug
+  // resolves to no rung -- and zero is a real answer here rather than
+  // "unknown", because an unrankable role admits nothing, which is exactly what
+  // rank 0 means everywhere else in this model.
+  int32 rank = 13;
 }
 
 // -----------------------------------------------------------------------------

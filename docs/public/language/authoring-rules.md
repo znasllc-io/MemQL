@@ -936,7 +936,7 @@ carries an individual construct's name.
 ```
 dsl/library/queries.memql       query folder activeFolders { ... }
 dsl/library/mutations.memql     mutate folder createFolder { ... }
-dsl/common/specs.memql          spec actorEnvelope requiresAdmin { ... }
+dsl/common/specs.memql          spec actorEnvelope isSelfActing { ... }
 dsl/common/traits.memql         trait isActiveRecord { ... }
 dsl/library/logic.memql         logic indexArtifact { ... }
 ```
@@ -1904,9 +1904,10 @@ the change. The gates, with their test names:
   (`ownerUserId`, `userId`, `createdBy`, ...)
   must either carry a caller-scope check (`actor.userId` in the
   filter / write), an admin gate (`actor.isClusterOwner == true`, or an admin
-  context-spec such as `requiresAdmin` / `requiresOwnerOrAdmin`, named
-  as a bare top-level conjunct), or an explicit `@public` annotation
-  acknowledging the intent. Anything else hard-fails.
+  context-spec such as `requiresOwner`, named as a bare top-level conjunct),
+  an actor-gate ANNOTATION (`@requiresRank` / `@requiresCapability` — see
+  [#33](#33-requiresrank-and-requirescapability-epic-memql4832--memql5166)), or an explicit `@public`
+  annotation acknowledging the intent. Anything else hard-fails.
 - **Actor vocabulary** (`TestNoCallerVocabulary`, #221). `caller.X`
   and `@caller` are retired; write `actor.X` and `@actor`.
 - **Pagination authoring rule** (`TestPaginationAuthoringRule`,
@@ -2857,3 +2858,49 @@ its negative cases), `component/memql/executor_filter_startswith_test.go`
 (SQL + in-process agreement), and
 `component/memql/code_metrics_in_window_db_test.go` (the memql#4208 read
 against a real Postgres, db-gated).
+
+## 33. `@requiresRank` and `@requiresCapability` (epic memql#4832 / memql#5166)
+
+A construct states who may CALL it. Two annotations, on a `query`, a `mutate` or
+a `logic`, and they answer different questions:
+
+```memql fragment
+@requiresRank("developer")                    // a FLOOR on the cluster's ladder
+@requiresCapability("update", "principal")    // a GRANT a role was given
+```
+
+**A rank is a floor and a capability is a grant, and a cluster can hold one
+without the other.** `developer` ranks 300 above `admin`'s 200 and holds
+strictly fewer verbs on `principal`, so the two have opposite answers on the
+pair that matters most. Reach for the FLOOR when the admitted set is a
+contiguous top of the ladder ("who works on this cluster"); reach for the GRANT
+when what excludes somebody is a permission rather than a rung ("who edits
+credentials"). Declared together, BOTH must pass.
+
+Both are validated at LOAD -- a rank naming no role in `dsl/rbac`, or a verb
+outside the five, or a resource no role holds a grant on, refuses boot with the
+known set in the message. Both are enforced at execution, on the direct call and
+on every plan that EXPANDS the construct: a floor checked only on the direct
+call is bypassed by a query that expands the floored construct.
+
+They gate WHO MAY CALL. `@rowAuthz` still decides WHICH ROWS come back, and a
+floor that also narrowed rows would be a second answer to a question the tier
+already answers.
+
+**They replaced three specs, and the replacement is not a rename.**
+`requiresAdmin`, `requiresOwnerOrAdmin` and `requiresDeveloperOrAbove` compared
+the actor's role STRING against literals. Three faults, all closed here:
+
+- a slug comparison cannot see a custom role at all -- `role == "admin"` is
+  false for a rank-250 role holding every principal verb, so every role a
+  cluster authored for itself was refused every surface those gated;
+- the names went stale silently: `requiresDeveloperOrAbove` reads as a floor and
+  WAS a three-value set;
+- a misspelled spec name is a missing conjunct nothing notices, because
+  `dslgate`'s recogniser knows gates BY NAME and a gate it does not know is not
+  a gate.
+
+A ROLE COMPARISON IS NOT A SPEC ANY MORE. What still belongs in a context-spec
+is a caller predicate no rank and no grant can express -- a question about the
+actor themselves.
+

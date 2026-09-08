@@ -15,6 +15,25 @@
 // concept field-for-field, matching the materializer's
 // mutationCreate<Concept> convention.
 
+/// SERVER-ONLY (epic memql#5166). The client-reachable path is `roleCreate` in builtins.memql,
+/// which applies the guards this mutation has none of: rank strictly below the creator, a rank
+/// no rung already holds, a slug no role or alias already claims, and every grant one the
+/// creator holds. A client reaching this mutation directly would write a role at any rank
+/// holding anything, which is the whole of the escalation the builtins exist to refuse.
+///
+/// CALLER-SCOPING IS NOT THE FIX HERE, and that is the argument @serverOnly always owes. A
+/// filter on actor.userId narrows WHICH ROWS a caller sees; the danger on this mutation is not
+/// which role row you read but what rank and what grants you write into a new one. The role
+/// catalog is deployment-wide reference data with no owner field to scope by -- every principal
+/// reads the whole ladder, by design, because a client that cannot see a rung cannot rank it --
+/// so there is no per-row predicate that could express "you may not mint a role above yourself".
+/// That rule is relational (creator's rank versus the new rank) and set-valued (the grants
+/// against the creator's own), which is Go, which is `roleCreate`.
+///
+/// The SeedMaterializer still writes through it, because that path stamps internal origin
+/// (component/memql/seed_materializer.go) -- which is what @serverOnly admits and a client
+/// cannot forge.
+///
 /// Insert a v1:rbac:role catalog row -- a named, ranked capability bundle. Called by the
 /// SeedMaterializer when it walks the base-role seed declarations under dsl/rbac/seeds.memql (the
 /// materializer stamps the seed body's `id` into `roleId`). Also the write surface the E1.4
@@ -25,6 +44,7 @@
 /// predefined role, so a base role can never be redefined / re-ranked as data to escalate
 /// privilege. Partition-agnostic: the engine stamps every v1:rbac:role insert into the _system slot
 /// regardless of the envelope, exactly like createAgentRole / createCapability.
+@serverOnly
 mutate role createRole {
   args {
     roleId       string
@@ -34,6 +54,11 @@ mutate role createRole {
     description  string
     predefined   bool
     active       bool
+    /// The account this role is scoped to (D10), or empty for a global role.
+    /// Accepted here for the reason `aliases` is: the guarded authoring path
+    /// (`roleCreate`) writes through this mutation, and a field the mutation
+    /// does not accept is a field the write silently drops.
+    accountId    string
     /// Other slugs that resolve to THIS rung. Accepted because the seed
     /// materializer writes base roles through this mutation, and a field the
     /// mutation does not accept is a field the seed silently drops -- which is
@@ -43,7 +68,7 @@ mutate role createRole {
     aliases      []string
   }
   insert {
-    accept { slug, name, rank, description, aliases }
+    accept { slug, name, rank, description, aliases, accountId }
     stamp {
       id: args.roleId ?? args.slug
       predefined: args.predefined ?? false
@@ -52,6 +77,16 @@ mutate role createRole {
   }
 }
 
+/// SERVER-ONLY, for `createRole`'s reason (epic memql#5166): a grant written directly is a grant
+/// nothing checked the writer held. The guarded path is `roleCreate` / `roleUpdate`, which write
+/// the capability rows for a role in the same internal-origin write that writes the role.
+///
+/// Scoping to actor.userId would not help and could not be written: a capability row belongs to a
+/// ROLE rather than to a person, carries no owner field, and is read by every principal on every
+/// request -- the catalog is public reference data by declaration. The rule that has to hold is
+/// "you may not grant what you do not hold", which compares the writer's resolved grant set
+/// against the row being written; no per-row filter can say that.
+///
 /// Insert a v1:rbac:capability catalog row -- one (verb x resourceType) grant for a role. Called by
 /// the SeedMaterializer when it walks the capability seed declarations under dsl/rbac/*.memql (the
 /// materializer stamps the seed body's `id` into `capabilityId`). Also the write surface the E1.4
@@ -60,6 +95,7 @@ mutate role createRole {
 /// predefined=true to mark the row immutable at runtime (enforced by E1.2). Partition-agnostic: the
 /// engine stamps every v1:rbac:capability insert into the _system slot regardless of the envelope,
 /// exactly like createAgentRole / createSkill.
+@serverOnly
 mutate capability createCapability {
   args {
     capabilityId  string

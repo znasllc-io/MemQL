@@ -143,15 +143,21 @@ rename the row.
 > grep -rn '^spec actorEnvelope ' dsl/
 > ```
 >
-> Worth knowing why that is not a formality: the pairing is not the
-> obvious one. `requiresOwnerOrAdmin` lives in `dsl/common/specs.memql`
-> beside `requiresAdmin` — not in `dsl/deployment/specs.memql` beside
-> `requiresOwner` — having moved there in memql#2800. #2983 asserted the
-> deployment pairing, the first correction copied it unchecked, and both
-> were wrong. `requiresDeveloperOrAbove` is a fourth live
-> `actorEnvelope` spec that neither list mentioned; note it is absent
-> from the admin recogniser, so it is a role gate the admin classifier
-> does not see.
+> Worth knowing why that is not a formality: this list has been wrong
+> three times. `requiresOwnerOrAdmin` was said to live beside
+> `requiresOwner` in `dsl/deployment/specs.memql` and did not; #2983
+> asserted the deployment pairing, the first correction copied it
+> unchecked, and both were wrong. `requiresDeveloperOrAbove` was a
+> fourth live spec neither list mentioned, absent from the admin
+> recogniser -- a role gate the admin classifier could not see.
+>
+> **THE THREE ROLE-COMPARING SPECS ARE NOW DELETED** (epic memql#5166),
+> and the drift above is why: a name-keyed recogniser and a
+> hand-maintained list disagree, silently, forever. A role question is
+> `@requiresRank("<slug>")` or `@requiresCapability("<verb>",
+> "<resource>")`, both validated at LOAD. `requiresOwner` survives as a
+> context-spec because `owner` is the cluster-owner tier rather than a
+> rung anybody authors around.
 >
 > `requiresClusterOwner` survives inside that recogniser as a #54
 > placeholder, which is why the retired spelling still reads as real
@@ -983,7 +989,7 @@ false there. The query is `@serverOnly` for precisely that reason
 
 > **It is `userByIdSystem`, not `userById`.** This section named the
 > latter until memql#2984. `userById` (`dsl/identity/queries.memql`) is
-> a different query, gated by `requiresOwnerOrAdmin` — so anyone who
+> a different query, gated by `@requiresCapability("read", "principal")` — so anyone who
 > followed the citation found a *gated* construct and reasonably
 > concluded the constraint was imaginary. The constraint is real and
 > unchanged; only the name was wrong, in this section, in the
@@ -1103,9 +1109,11 @@ emerged from the initial sweep:
 3. **Admin-only paths** — audit-event queries. Tracked under #54 once
    the admin surface is consolidated. The fix here used to be written
    as "composing a `requiresClusterOwner` spec", which does not exist —
-   see the note under "The buckets"; the live context-specs are
-   `requiresAdmin`, `requiresOwner` and `requiresOwnerOrAdmin`, named
-   as a bare top-level conjunct rather than through `spec("...")`.
+   see the note under "The buckets". The live context-spec is
+   `requiresOwner`, named as a bare top-level conjunct rather than
+   through `spec("...")`; a role FLOOR or a role GRANT is now an
+   annotation (`@requiresRank` / `@requiresCapability`) rather than a
+   spec at all (epic memql#5166).
 4. **Web-authenticated user-self** — PAT + worker-token list
    queries backing the `/me/...` pages. The web handler authenticates
    the caller and supplies their own userId as the arg. Proper

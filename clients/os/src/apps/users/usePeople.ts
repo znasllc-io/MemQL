@@ -39,12 +39,18 @@ export const USER_CONCEPT = "v1:identity:user";
  * list as new.
  *
  * The gate is the query's own -- `searchUsers` carries
- * `requiresDeveloperOrAbove` as a top-level conjunct, so the engine empties
- * the result below that whatever this code renders. Developer is included
- * deliberately: the RBAC catalog has granted it read-on-principal all along,
- * described as "see the user list", and a caller who can INVITE people needs
- * to see the roster they are inviting into. The manifest's
- * `roles: { min: "admin" }` is presentation on top of that, never instead.
+ * `@requiresRank("developer")`, so the engine REFUSES the read below that
+ * whatever this code renders. Developer is included deliberately: the RBAC
+ * catalog has granted it read-on-principal all along, described as "see the
+ * user list", and a caller who can INVITE people needs to see the roster they
+ * are inviting into. The manifest's `roles: { min: "admin" }` is presentation
+ * on top of that, never instead.
+ *
+ * IT REFUSES RATHER THAN EMPTYING (epic memql#5166). The gate was a spec
+ * conjunct, which zeroed the row set -- and an empty list is indistinguishable
+ * from "nobody works here", which is the wrong thing to tell somebody who is
+ * simply not allowed to look. The live collection catches a rejected seed and
+ * reports it as an error on the surface, which is the honest rendering.
  */
 export function usePeople(): LiveCollectionHandle<Row> {
   return useLiveCollection<Row>("users:people", (connection) => ({

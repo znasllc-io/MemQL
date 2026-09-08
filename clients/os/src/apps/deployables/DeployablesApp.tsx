@@ -83,7 +83,7 @@ export function DeployablesApp({
   // An UNRESOLVED session is not an admin. `roleAdmits` refuses an unrankable
   // role, so "" admits only ungated surfaces -- the right answer while access
   // is still resolving, and the safe one if it never resolves.
-  const actorRole = access?.clusterRole ?? "";
+  const actorRole = access?.role ?? "";
   const viewerUserId = access?.userId ?? "";
   // Rank >= 200 under the one ladder (epic memql#4832, D1) -- {admin,
   // developer, owner}, which is the set the engine's deploy gate already

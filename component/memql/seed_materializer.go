@@ -662,7 +662,16 @@ func (m *SeedMaterializer) executeSeedWriteWithRetry(ctx context.Context, query 
 		logger = m.engine.Logger
 	}
 	return retryOnDBSurge(ctx, logger, func() error {
-		_, err := m.engine.Execute(systemActorContext(ctx), query)
+		// INTERNAL ORIGIN (epic memql#5166). Call origin defaults to CLIENT,
+		// and `createRole` / `createCapability` became @serverOnly when the
+		// three guarded role builtins landed -- a client reaching the raw
+		// mutation would write a role with no rank bound and no
+		// grants-a-subset-of-the-caller's check. The boot seed is trusted
+		// server-side Go by definition (it is the cluster writing its own
+		// catalog), and the read half of this materializer already stamps the
+		// same thing. Without it the five base roles stop materializing and a
+		// fresh cluster boots with no ladder at all.
+		_, err := m.engine.Execute(auth.ContextWithInternalOrigin(systemActorContext(ctx)), query)
 		return err
 	})
 }

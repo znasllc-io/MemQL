@@ -48,7 +48,7 @@ the call site).
 - Side-effect free. Specs cannot call mutation functions or logic
   functions.
 - Named for the predicate they express, with no kind prefix
-  (`requiresAdmin`, `isActiveRecord`). The `spec` / `trait` keyword
+  (`requiresOwner`, `isActiveRecord`). The `spec` / `trait` keyword
   already marks the kind at the declaration.
 - The `@shape("name")` annotation is removed; the legacy
   `func (Spec) name(ctx any) bool { ... }` form and the older
@@ -99,11 +99,20 @@ rejected at parse time -- `&&` / `||` are the only connectives.)
 ```memql
 use common.shapes.{ actorEnvelope }
 
-@description("Caller must hold owner or admin role to use the Deployment Console.")
-spec actorEnvelope requiresOwnerOrAdmin {
-  return role == "admin" || role == "owner"
+@description("Caller must hold the owner role -- the rollback gate (#1876).")
+spec actorEnvelope requiresOwner {
+  return role == "owner"
 }
 ```
+
+**A ROLE COMPARISON IS THE ONE THING THIS FORM IS NOW WRONG FOR** (epic
+memql#5166). `requiresOwner` survives because `owner` is the cluster-owner tier
+rather than a rung anybody authors around; the three specs that named admin and
+developer are DELETED, because a slug comparison cannot see a role a cluster
+authored for itself -- `role == "admin"` is false for a rank-250 role holding
+every principal verb. Write `@requiresRank("<slug>")` for a floor on the ladder
+or `@requiresCapability("<verb>", "<resource>")` for a grant; both are validated
+at load and enforced at execution.
 
 (The `actorEnvelope` `@actor` shape is the gateway to the auth envelope;
 the spec reads its projected key -- `role` -- by bare name. The

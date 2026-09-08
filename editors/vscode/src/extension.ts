@@ -1517,7 +1517,7 @@ function registerRuntimeSurface(context: ExtensionContext): void {
       const query = connections?.query;
       if (query === undefined) return roleVisibility(undefined);
       const access = await query.getMyAccess().catch(() => null);
-      return roleVisibility(access?.clusterRole);
+      return roleVisibility(access?.role);
     },
     confirm: (prompt, phrase) =>
       Promise.resolve(
@@ -4419,7 +4419,7 @@ async function offerPasskeyEnrolment(cluster: ClusterConfig): Promise<void> {
         const access = await query.getMyAccess();
         return access === null
           ? null
-          : { userId: access.userId, clusterRole: String(access.clusterRole ?? '') };
+          : { userId: access.userId, role: String(access.role ?? '') };
       },
       countOwnPasskeys,
     },

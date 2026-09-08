@@ -16,7 +16,7 @@ import type { ProfileAccess } from "./access";
 // the surrounding try/catch swallowed it, and the shell concluded it had no
 // access facts.
 //
-// The consequence was total and silent: `clusterRole` became "", `roleAdmits`
+// The consequence was total and silent: the role became "", `roleAdmits`
 // refuses an unrankable role, and therefore EVERY role-gated app was invisible
 // to EVERY user in EVERY cluster -- including the owner. Users (admin) and
 // Training (writer) could never appear; the ungated apps could, which made it
@@ -40,7 +40,7 @@ import type { ProfileAccess } from "./access";
  * Narrow an `AccessSummary` to what the shell needs.
  *
  * LENIENT ON PURPOSE, and specifically on `primaryEmail`. The parser this
- * replaces returned null unless `userId`, `primaryEmail` AND `clusterRole`
+ * replaces returned null unless `userId`, `primaryEmail` AND the role
  * were all non-blank, so a session with no email erased a perfectly good role
  * -- a second, independent way to arrive at "you are unknown". The SDK's own
  * type notes that some credentials legitimately carry no session and no
@@ -50,14 +50,30 @@ import type { ProfileAccess } from "./access";
  * Null only when there is NOTHING usable. A blank role with a real user id is
  * still returned: it admits no gated surface (fail-closed, which is right) and
  * it keeps the user id that owner-scoped client filters depend on.
+ *
+ * The same leniency applies to the role's NAME and RANK, which the cluster
+ * leaves empty for a slug its catalog cannot resolve (epic memql#5166). Those
+ * are facts about the role, not about whether this person is signed in.
  */
 export function accessFromSummary(summary: AccessSummary | null): ProfileAccess | null {
   if (summary === null) return null;
   const userId = summary.userId.trim();
   const primaryEmail = summary.primaryEmail.trim();
-  const clusterRole = String(summary.clusterRole ?? "").trim();
-  if (userId === "" && clusterRole === "") return null;
-  return { userId, primaryEmail, clusterRole };
+  const role = String(summary.role ?? "").trim();
+  if (userId === "" && role === "") return null;
+  // A BLANK NAME BESIDE A REAL SLUG IS NORMAL (epic memql#5166), not a
+  // half-failed read: the engine leaves role_name empty when the slug resolves
+  // to no active rung, and the honest rendering is the slug itself. Narrowing
+  // on the name here would throw away a perfectly good role for the second time
+  // in this file's history -- the parser it replaced did exactly that with the
+  // email.
+  return {
+    userId,
+    primaryEmail,
+    role,
+    roleName: String(summary.roleName ?? "").trim(),
+    rank: typeof summary.rank === "number" ? summary.rank : 0,
+  };
 }
 
 /**

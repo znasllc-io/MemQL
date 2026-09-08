@@ -568,6 +568,27 @@ func (s *Service) SetUserRole(ctx context.Context, userId, role string) Result {
 		return s.notFound(ctx, "user_role_changed", act, userID, detail, err)
 	}
 	detail["oldRole"] = user.Role
+
+	// D4 (epic memql#5166). The gate above is `authorize`, which asks only
+	// whether the caller manages users at all -- and until this call landed
+	// that was the WHOLE of SetUserRole's authorization. Three comments
+	// elsewhere in this tree name "the uncapped SetUserRole" as the second move
+	// in a path to owner: mint a credential for an existing admin, sign in as
+	// them, then make anybody an owner through here.
+	//
+	// MayAssignRole is the same function invitation issue calls, which is the
+	// point: two seams assign a role, and two implementations of a rule this
+	// shape do not stay in step.
+	if refusal := auth.MayAssignRole(
+		auth.UserContext{ID: act.userID, Role: act.role},
+		userID, user.Role, newRole,
+		func(accountId string) bool { return s.targetIsAccountMember(ctx, userID, accountId) },
+	); refusal != auth.AssignAllowed {
+		return fail(CodePermissionDenied, s.emit(ctx, identity.AuditCategoryAdmin, "user_role_changed",
+			act, userID, user.PrimaryEmail, detail, identity.AuditOutcomeBlocked, string(refusal)),
+			"identity admin: "+auth.AssignRefusalSentence(refusal, act.role, newRole))
+	}
+
 	user.Role = newRole
 
 	return s.finish(ctx, identity.AuditCategoryAdmin, "user_role_changed", act, userID, user.PrimaryEmail,
@@ -1111,4 +1132,23 @@ func signInPolicyOrDefault(policy string) string {
 		return "any"
 	}
 	return policy
+}
+
+// targetIsAccountMember answers D10's membership question: is the target
+// principal a member of the groups belonging to `accountId`?
+//
+// IT ANSWERS FALSE, AND THAT IS THE HONEST STATE OF THE TREE RATHER THAN A
+// STUB LEFT UNFINISHED. A scoped role is one whose accountId is set, and
+// nothing in the product creates one yet: the New role rail that would offer
+// the scope is record C (memql#5167) and the account-scoped GROUPS a
+// membership would be read from are record A (memql#5165). Until a role can be
+// authored with a scope, this function is asked about a state no row is in.
+//
+// False is the fail-closed answer for the day that changes. A scoped role
+// granted to somebody outside its account is the exact failure D10 exists to
+// prevent, and "we could not check" is not a reason to skip the check -- the
+// refusal names `target_not_a_member_of_the_scope`, which is a sentence an
+// operator can act on, while a silent pass is not.
+func (s *Service) targetIsAccountMember(_ context.Context, _ string, _ string) bool {
+	return false
 }

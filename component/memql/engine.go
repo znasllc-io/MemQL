@@ -67,6 +67,13 @@ type MemQLEngine struct {
 	// rather than falling back, because the fallback would be the registry
 	// default this epic deletes. See ai_resolver.go.
 	aiResolver aiResolverHolder
+
+	// rbacCatalog is the resolved role + capability catalog (epic memql#5166),
+	// published through an atomic pointer because every gate on every request
+	// reads it without a lock and a reload swaps a fresh snapshot in. Nil until
+	// the first successful load, which is exactly the window the compiled
+	// mirror in component/auth answers. See rbac_catalog.go.
+	rbacCatalog atomic.Pointer[rbacCatalog]
 	// configSnapshot is the bus-distributed ConfigSnapshot that
 	// backs ctx.config.* inside spec bodies. Optional; nil
 	// resolves every allow-listed key to its zero value (sensitive
@@ -973,6 +980,13 @@ func (e *MemQLEngine) executeWith(ctx context.Context, query string, fns *Functi
 	if err := e.refusePlanBelowRequiredRank(ctx, plan); err != nil {
 		return nil, err
 	}
+	// The capability GRANT beside the rank FLOOR (epic memql#5166, D11). Both,
+	// because a construct may declare both and they compose -- and both at the
+	// PLAN level, because a query that expands a gated construct must clear its
+	// gate exactly as a direct call does.
+	if err := e.refusePlanBelowRequiredCapability(ctx, plan); err != nil {
+		return nil, err
+	}
 
 	// ANONYMOUS READS (epic memql#4541, D4). The row gate is what makes the
 	// public tier correct -- it denies every row a non-public read could
@@ -1333,6 +1347,11 @@ func (e *MemQLEngine) executeLogicFunctionCall(ctx context.Context, call *Functi
 	if err := e.refuseBelowRequiredRank(ctx, fn, call.Name); err != nil {
 		return nil, err
 	}
+	// The capability grant, repeated at each entry point for the reason the
+	// rank floor is (epic memql#5166, D11).
+	if err := e.refuseBelowRequiredCapability(ctx, fn, call.Name); err != nil {
+		return nil, err
+	}
 	if fn.LogicSteps == nil {
 		return nil, fmt.Errorf("function %q has no multi-step body (LogicSteps unset)", call.Name)
 	}
@@ -1394,6 +1413,11 @@ func (e *MemQLEngine) executeMutationFunctionCall(ctx context.Context, call *Fun
 	// here rather than through the query expansion path, so a single check
 	// in one of the three would leave the other two open.
 	if err := e.refuseBelowRequiredRank(ctx, fn, call.Name); err != nil {
+		return nil, err
+	}
+	// The capability grant, repeated at each entry point for the reason the
+	// rank floor is (epic memql#5166, D11).
+	if err := e.refuseBelowRequiredCapability(ctx, fn, call.Name); err != nil {
 		return nil, err
 	}
 	if fn.MutationTemplate == nil {
@@ -1878,6 +1902,14 @@ func (e *MemQLEngine) run(ctx context.Context, markStarted func()) error {
 	if e.aiRuntime != nil && e.aiRuntime.cache != nil {
 		e.aiRuntime.cache.startStatsEmitter(ctx, e.Logger, statsInterval)
 	}
+
+	// epic memql#5166: load the role + capability catalog, install it as the
+	// resolver every Capable call reads, and keep it current on role and
+	// capability events. WITHOUT THE RELOAD HALF THIS IS WORSE THAN ABSENT: a
+	// role created on replica A would hold its grants there and nothing on
+	// replica B, so the person who created it sees it work on one page and
+	// refuse on the next, with both replicas reporting healthy.
+	e.StartCapabilityCatalog(ctx)
 
 	// 5.4: wire result-cache invalidation to the graph event bus. A
 	// write to a concept evicts the dependent cached query results so a

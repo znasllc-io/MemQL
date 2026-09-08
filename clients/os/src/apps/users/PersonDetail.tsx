@@ -157,14 +157,19 @@ export function PersonDetail({
           value={formatFreshness(local.lastSeenAt, now)}
           title={local.lastSeenAt || undefined}
         />
-        {/* NOT SHOWN BELOW ADMIN, because the number would be a lie rather
-            than a gap. `sessionsForSubjectAdmin` still carries
-            requiresOwnerOrAdmin, and a spec conjunct EMPTIES a result rather
-            than refusing it -- so a developer gets zero rows, no thrown error,
-            and countLive([]) renders a confident "0 recent" for an account
-            that may have several live sessions. "How many ways into this
-            account are open" is the one field where a fabricated zero is worse
-            than no field at all. */}
+        {/* NOT SHOWN BELOW ADMIN. The reason CHANGED and the decision did
+            not (epic memql#5166). It was that a spec conjunct EMPTIES a result
+            rather than refusing it, so a developer got zero rows, no thrown
+            error, and countLive([]) rendered a confident "0 recent" for an
+            account that might have several live sessions -- a fabricated zero,
+            which is worse than no field at all.
+            `sessionsForSubjectAdmin` now carries
+            `@requiresCapability("update", "principal")` and REFUSES the read,
+            so the fabricated zero is impossible. What is left is a choice:
+            showing a developer this field would show them an error where a
+            number goes, every time they open a person. Hiding a fact somebody
+            cannot have beats letting them ask and reading the refusal, which is
+            the rule the whole role-gating language rests on. */}
         {canManagePeople ? <Fact label="Recent sessions" value={sessions.label} /> : null}
         <Fact label="Joined" value={formatMoment(local.createdAt)} />
         {local.sharedMailbox ? (

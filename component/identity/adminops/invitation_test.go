@@ -116,10 +116,28 @@ func TestAnInviterCannotGrantAboveTheirOwnRole(t *testing.T) {
 		// verbs they lack, including the uncapped SetUserRole.
 		{"developer cannot grant admin", auth.RoleDeveloper, "admin", true},
 		{"developer may grant writer", auth.RoleDeveloper, "writer", false},
-		{"developer may grant developer", auth.RoleDeveloper, "developer", false},
-		{"admin may grant admin", auth.RoleAdmin, "admin", false},
+
+		// STRICTLY BELOW, NOT AT-OR-BELOW (epic memql#5166, D4). These two
+		// cases read `false` until the two assignment seams were unified: this
+		// one capped at `rank > inviterRank`, admitting a peer, while
+		// auth.CanCreatePrincipal -- the rule SetUserRole and every other
+		// create-a-principal path uses -- has always been "strictly below the
+		// creator's own rank: they cannot mint a peer or a superior".
+		//
+		// D4 picks CanCreatePrincipal's, so an admin no longer invites another
+		// admin and a developer no longer invites another developer. It is not
+		// an escalation either way -- a peer invitation hands out nothing the
+		// inviter lacks -- so this is a policy tightening rather than a fix,
+		// and the owner remains able to name anybody.
+		{"developer cannot grant a peer developer", auth.RoleDeveloper, "developer", true},
+		{"admin cannot grant a peer admin", auth.RoleAdmin, "admin", true},
+
 		{"admin may grant writer", auth.RoleAdmin, "writer", false},
 		{"owner may grant developer", auth.RoleOwner, "developer", false},
+
+		// The owner carve-out survives: `newRank < actorRank` would refuse
+		// owner -> owner and leave a cluster with one owner unable to name a
+		// second, which is a cluster nobody can hand on.
 		{"owner may grant owner", auth.RoleOwner, "owner", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,7 +154,7 @@ func TestAnInviterCannotGrantAboveTheirOwnRole(t *testing.T) {
 				// tests cover. What matters here is that it was NOT refused
 				// for outranking the inviter.
 				if res.Code == CodePermissionDenied {
-					t.Fatalf("%s was refused as PERMISSION_DENIED: %s", tc.name, res.Message)
+					t.Fatalf("%s was refused as PERMISSION_DENIED: %s", tc.name, res.ErrorMessage)
 				}
 				return
 			}
@@ -149,6 +167,11 @@ func TestAnInviterCannotGrantAboveTheirOwnRole(t *testing.T) {
 			if len(audit.events) != 1 {
 				t.Fatalf("want exactly 1 audit event, got %d", len(audit.events))
 			}
+			// The reason string is KEPT across the refactor to
+			// auth.MayAssignRole: `role_above_inviter` has meant "the rank cap
+			// or the people-authority clause refused this" since the /admin
+			// routes wrote it, and an audit trail whose reasons change meaning
+			// under a refactor is one nobody can read backwards.
 			if got := audit.events[0].FailureReason; got != "role_above_inviter" {
 				t.Errorf("audit failure reason = %q, want role_above_inviter", got)
 			}

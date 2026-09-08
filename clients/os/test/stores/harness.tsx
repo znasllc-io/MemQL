@@ -116,7 +116,9 @@ export function withSession(
         access: {
           userId: overrides.userId ?? "v1:identity:user:me",
           primaryEmail: "me@example.com",
-          clusterRole: role,
+          role: role,
+          roleName: "",
+          rank: 0,
         },
         config,
       }}

@@ -220,7 +220,7 @@ export function withSession(
   overrides: {
     userId?: string;
     domain?: string;
-    clusterRole?: string;
+    role?: string;
     identityUrl?: string;
     readiness?: SessionFacts["readiness"];
     /**
@@ -246,7 +246,9 @@ export function withSession(
           // Owner by default: most of this app is owner-floored, and a
           // harness whose default actor could not reach the surface under
           // test would make every assertion about the refusal instead.
-          clusterRole: overrides.clusterRole ?? "owner",
+          role: overrides.role ?? "owner",
+          roleName: "",
+          rank: 0,
         },
         config,
         ladderLoaded: overrides.ladderLoaded ?? true,

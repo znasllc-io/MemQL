@@ -116,7 +116,7 @@ function wrap(children: ReactNode, role: string, domain: string) {
   return (
     <SessionProvider
       value={{
-        access: { userId: "u-1", primaryEmail: "owner@example.com", clusterRole: role },
+        access: { userId: "u-1", primaryEmail: "owner@example.com", role: role, roleName: "", rank: 0 },
         config: {
           ...UNKNOWN_RUNTIME_CONFIG,
           domain,

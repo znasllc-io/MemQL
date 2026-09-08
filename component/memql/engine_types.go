@@ -94,6 +94,13 @@ type QueryPlan struct {
 	// cleared it" is not a property of a plan.
 	RequiredRanks map[string]string
 
+	// RequiredCapabilities maps construct name -> the (verb, resource)
+	// grant its `@requiresCapability` demands (epic memql#5166, D11).
+	// Collected by the same expansion that collects RequiredRanks and
+	// enforced beside it, because a query that EXPANDS a gated construct
+	// must clear its gate exactly as a direct call does.
+	RequiredCapabilities map[string]CapabilityRequirement
+
 	// RowAuthzConcept names the concept whose declaration was injected,
 	// so the ctx-bearing side of the engine can re-read the tier instead
 	// of re-deriving it from the expression.

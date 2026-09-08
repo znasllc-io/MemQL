@@ -486,6 +486,28 @@ func (e *MemQLEngine) Init(concepts concept.Registry) error {
 		}
 	}
 
+	// The capability half of the same load-time check (epic memql#5166, D11).
+	// A misspelled resource is a requirement no role can satisfy, which refuses
+	// every caller and gates a surface into SILENCE rather than into a refusal
+	// somebody reads -- so it refuses to load, with the vocabulary in the
+	// message. Landed on the report as a strict-boot problem, exactly like its
+	// rank sibling above, so a MEMQL_DSL_PATH product bundle is covered by the
+	// same check this repo's own tree is.
+	for _, problem := range e.validateRequiresCapabilitySlugs(context.Background(), functionRegistry) {
+		report.AddSkip(baseloader.Skip{
+			Component: "memql.engine",
+			Keyword:   "requiresCapability",
+			Name:      "requiresCapability",
+			Phase:     "contract-gate:requiresCapability",
+			Err:       problem.Error(),
+		})
+		if e.Component != nil && e.Logger != nil {
+			e.Logger.Error("@requiresCapability names an unknown verb or resource",
+				"component", "memql.engine",
+				"detail", problem.Error())
+		}
+	}
+
 	// The OTHER slug a declaration can name (epic memql#4832): an
 	// `unowned="<role>"` floor. Same failure as a mistyped @requiresRank
 	// and worse in one direction -- an unresolvable floor would admit

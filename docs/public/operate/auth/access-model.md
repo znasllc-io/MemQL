@@ -125,27 +125,97 @@ identity for a bounded role / scope / lifetime. Also global-scoped.
 Token-hashed invitation credential for admin-issued user
 invitations.
 
-## Role spectrum
+## The role catalog
 
-One enum, cluster-wide, on `v1:identity:user.role`. Five values, as
-declared in `component/auth/rbac.go` (`AllRoles()`) and in the
-concept's own `role` field:
+**A role is a row, and the rows are the truth** (epic memql#5166). There is
+no enum: `v1:identity:user.role` carries a SLUG naming a `v1:rbac:role`
+row, and a cluster authors its own roles from the permissions that exist.
 
-| Role      | Meaning                                                                  |
-|-----------|--------------------------------------------------------------------------|
-| owner     | The cluster operator. The only role `auth.IsClusterOwner()` accepts.      |
-| admin     | User + cluster management. Not the same as owner -- see below.            |
-| developer | Engineering power: authoring, inline DSL, deploy / cut-version. May ADMIT people (invitations, enrolment links) and read the user list; may not manage the accounts that result. |
-| writer    | Regular data producer.                                                    |
-| reader    | Regular data consumer.                                                    |
+Five ship, seeded in `dsl/rbac/seeds.memql`:
 
-There is **no second, per-partition role**. The grant row that used to
-carry one is gone; a user has exactly one role and it is cluster-wide.
+| Role      | Slug        | Rank | Meaning                                                                  |
+|-----------|-------------|-----:|--------------------------------------------------------------------------|
+| Owner     | `owner`     |  400 | The cluster operator. The only role `auth.IsClusterOwner()` accepts.      |
+| Developer | `developer` |  300 | Engineering power: authoring, inline DSL, deploy / cut-version. May ADMIT people (invitations, enrolment links) and read the user list; may not manage the accounts that result. |
+| Admin     | `admin`     |  200 | User + cluster management. Not the same as owner -- see below.            |
+| Member    | `user`      |  100 | Regular data producer. A user row spells this rung `writer`, which the role's `aliases` field records. |
+| Viewer    | `viewer`    |   50 | Regular data consumer. Spelled `reader` on a user row.                    |
+
+**Developer OUTRANKS admin, and the ranks are spaced deliberately.** The two
+hold different powers rather than more and less of one, and the gaps exist so a
+cluster can slot a role of its own between two rungs it already has -- a
+"Support Lead" at 150, above Member and below Admin.
+
+**Two vocabularies, one ladder.** The catalog seeds
+`owner/developer/admin/user/viewer`; a user row carries
+`owner/admin/developer/writer/reader`. `writer` is an alias of `user` and
+`reader` of `viewer`, recorded on the role row's `aliases` field -- as DATA, so
+no consumer keeps a translation table. Every gate accepts either spelling.
+
+There is **no second, per-partition role**. A user has exactly one role and it
+is cluster-wide.
+
+### Capabilities
+
+A role holds `v1:rbac:capability` rows: one `(verb, resourceType)` grant each.
+The five verbs -- `read`, `create`, `update`, `delete`, `execute` -- are uniform
+across every resource, and the resource vocabulary is an OPEN string, so a
+product layer introduces its own kinds without an engine change. `effect: deny`
+overrides an `allow` for the same triple; no v1 path writes one.
+
+The engine loads both concepts at boot into a runtime CATALOG
+(`component/memql/rbac_catalog.go`), installs it into `component/auth`, and
+reloads it on the two concepts' graph events -- which are broadcast, so a role
+created on one replica is real on all of them. Every `auth.Capable` call and
+every `Can*` adapter resolves through it.
+
+**An unknown slug holds nothing and ranks 0.** That is the fail-closed rule and
+it has one consequence worth knowing: a role DEACTIVATED while somebody holds it
+leaves that person resolving to nothing, everywhere, until they are re-roled.
+`roleDeactivate` refuses while any active user holds the role or any pending
+invitation names it; the one path around that refusal is a cluster owner editing
+the row directly under the write escape.
+
+Before the rows are readable -- the identity node's gates run before the seed
+is -- a compiled MIRROR in `component/auth/rbac_model.go` answers for the five
+base roles. `TestSeedMatchesCompiledMirror` fails the build when the mirror and
+the seeds disagree in either direction.
+
+### Authoring a role
+
+`roleCreate`, `roleUpdate` and `roleDeactivate` (`dsl/rbac/builtins.memql`,
+executed by `integrations/rbac`). The guards, each refusing by its own code:
+
+| Guard | Code |
+|---|---|
+| The caller holds `create` (or `update`) on `role` | `role_not_authorized` |
+| The slug is claimed by no role and no alias, retired ones included | `role_slug_taken` |
+| The rank is strictly below the caller's own | `role_rank_not_below_caller` |
+| The rank equals no existing rung | `role_rank_taken` |
+| Every grant is a pair the caller holds | `role_grant_not_held` |
+| A predefined role refuses every change | `role_predefined_immutable` |
+| A rank change leaves every holder below the caller | `role_held_above_caller` |
+| A retirement finds no holder and no pending invitation | `role_held` |
+
+`createRole` and `createCapability` are `@serverOnly`: the guarded builtins are
+the only way in, and the seed materializer reaches them under internal origin.
+
+### Assigning a role
+
+`auth.MayAssignRole` is the ONE rule, called by `SetUserRole` and by invitation
+issue. The caller must hold `update` on `principal` (an INVITATION needs
+`create` on `admission` or on `principal` instead -- there is no principal yet,
+and the create-versus-update split is what lets a developer invite people
+without being able to re-role them), must outrank the target's current rung, and
+must outrank the new one. An owner may name another owner; nobody else may name
+a peer. A role holding a principal verb the caller lacks is refused whatever the
+ranks say -- developer outranks admin and holds fewer principal verbs, so rank
+alone would let a developer mint an admin.
 
 ## What the role actually decides
 
 Since #56 there is no ACL layer between the caller and the row, so a
-role matters only where something reads it. Two places do:
+role matters only where something reads it. Three places do:
 
 - **`auth.IsClusterOwner()` -- `Role == RoleOwner`, and nothing else.**
   This is the sole escape in the row-authz write guard
@@ -153,15 +223,29 @@ role matters only where something reads it. Two places do:
   alongside internal server origin. `admin` is deliberately **not** an
   escape there, and is not inferred from the read side or from the
   fact that admin sounds privileged.
-- **Filter conjuncts that name the role**, such as the
-  `requiresOwnerOrAdmin` spec guarding `searchUsers` and `userById` in
-  `dsl/identity/queries.memql`. These are author-written, per-construct,
-  and reach only the construct that names them.
+- **`@requiresRank("<slug>")` on a construct** -- an actor-rank FLOOR,
+  validated at load and enforced at execution.
+- **`@requiresCapability("<verb>", "<resource>")` on a construct** -- the
+  GRANT half, same lifecycle. Declared together, both must pass.
+
+**A rank is a floor and a capability is a grant, and a cluster can hold one
+without the other.** "developer and above" is a statement about the ladder;
+"holds `update` on `principal`" is a statement about what a role was given.
+Reach for the floor when the admitted set is a contiguous top of the ladder, and
+for the grant when what excludes somebody is a permission rather than a rung.
+
+Both replaced the slug-comparing specs `requiresAdmin`, `requiresOwnerOrAdmin`
+and `requiresDeveloperOrAbove`, which are deleted. Those compared the role
+string against literals, so they could not see a custom role at all --
+`role == "admin"` is false for a rank-250 role holding every principal verb --
+and a misspelled spec name is a missing conjunct nothing notices, while a
+misspelled slug or resource here refuses BOOT.
 
 The consequence is worth stating plainly: **a role is not a boundary
 the engine applies on your behalf.** Row visibility comes from the
 concept's `@rowAuthz` tier where one is declared, and from the
-construct's own filter where one is not.
+construct's own filter where one is not. The two annotations gate WHO MAY CALL;
+they never narrow which rows come back.
 
 ## Enforcement
 
@@ -355,7 +439,7 @@ See `component/server/unauthenticated_surface.go` and
    The resolved `AccessContext` is cached on the stream.
 
    Note the query name. **`userById` is a different query**, gated by
-   `requiresOwnerOrAdmin`, and it is NOT the bootstrap. Naming it here
+   `@requiresCapability("read", "principal")`, and it is NOT the bootstrap. Naming it here
    was wrong for long enough that it spread to five other places -- two
    documents and three code comments (memql#2984); a reader who follows the citation to an
    owner-or-admin-gated query concludes the circularity constraint is

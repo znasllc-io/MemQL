@@ -57,7 +57,14 @@ func TestSpecBindingsResolveAcrossFullTree(t *testing.T) {
 
 	// Context-specs bound to the @actor envelope: classify as context and
 	// the body is rewritten from the bare `role` to `actor.role`.
-	for _, name := range []string{"requiresOwner", "requiresOwnerOrAdmin", "requiresDeveloperOrAbove", "requiresAdmin", "forgeDeveloper", "forgeApprover"} {
+	// THREE NAMES LEFT THIS LIST IN EPIC memql#5166 -- `requiresOwnerOrAdmin`,
+	// `requiresDeveloperOrAbove` and `requiresAdmin`. They compared the actor's
+	// role STRING against literals, which cannot see a custom role at all, and
+	// dsl/common/specs.memql no longer declares them: a role question is
+	// `@requiresRank` (a floor) or `@requiresCapability` (a grant), neither of
+	// which is a spec. What is left here is every context-spec the tree still
+	// declares.
+	for _, name := range []string{"requiresOwner", "forgeDeveloper", "forgeApprover"} {
 		s, err := specs.Get(name)
 		if err != nil || s == nil {
 			t.Errorf("expected context-spec %q to be registered: %v", name, err)

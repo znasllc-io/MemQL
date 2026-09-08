@@ -45,13 +45,20 @@ func ValidRoles() []Role {
 // RoleLevel returns the numeric privilege level for a role.
 // Lower values indicate higher privilege: owner=0, admin=1, writer=2, reader=3.
 //
-// E1.5 (memql#2073): this legacy level is now DERIVED from the DSL-aligned rank
+// E1.5 (memql#2073): this legacy level is DERIVED from the DSL-aligned rank
 // model (rbac_model.go: roleRank, where HIGHER == more privileged) so there is
 // one source of truth. The mapping preserves the historical levels exactly:
 // owner=0, admin/developer=1 (the privileged tier -- different power axes,
-// same delegation-capping level), writer=2, reader=3. The level is used only
-// for delegation-ceiling capping (RoleAtMost); the relative ordering it
-// encodes is what matters, not the absolute numbers.
+// same delegation-capping level), writer=2, reader=3.
+//
+// IT IS A FOUR-VALUE SCALE AND EVERY CUSTOM ROLE COLLAPSES INTO ITS BOTTOM RUNG
+// (epic memql#5166). That is why RoleAtMost, the delegation resolver and the
+// createDelegation guard stopped reading it: two custom rungs 100 apart tied at
+// 3, so a ceiling could not narrow and a ceiling that outranked its delegator
+// looked least-privileged. Compare auth.RoleRank instead, which resolves a
+// custom rung through the catalog. What is left here reads the scale for a
+// COARSE tier question -- "is this caller above the admin band" -- where the
+// collapse is the answer rather than a loss.
 func RoleLevel(r Role) int {
 	switch roleRank(r) {
 	case rankOwner:
@@ -66,10 +73,30 @@ func RoleLevel(r Role) int {
 	}
 }
 
-// RoleAtMost returns the more restrictive of two roles (higher privilege level).
-// Used to cap an agent's effective role to the delegation ceiling.
+// RoleAtMost returns the more restrictive of two roles. Used to cap an agent's
+// effective role to the delegation ceiling.
+//
+// COMPARES RANKS THROUGH THE CATALOG (epic memql#5166, section C), because
+// RoleLevel is a four-value scale and every custom role collapses into its
+// bottom rung -- so two custom rungs 100 apart tied, and the identity won
+// whichever way round the ceiling was written. A ceiling that cannot narrow is
+// not a ceiling.
+//
+// AND IT NEVER WIDENS PEOPLE-AUTHORITY, which is the clause the bare rank
+// comparison needs and does not have. developer ranks 300 above admin's 200, so
+// by rank alone admin is "more restrictive" and a developer-delegated agent
+// with an admin ceiling would be capped AT admin -- gaining create, update and
+// delete on `principal`, which its delegator does not hold. Capping is supposed
+// to take authority away; on that one pair the arithmetic hands it over.
+//
+// The old RoleLevel comparison got that pair right by accident: admin and
+// developer tie at level 1, and a tie returned the identity. Preserving the
+// answer deliberately is what this clause is for.
 func RoleAtMost(identity, ceiling Role) Role {
-	if RoleLevel(identity) >= RoleLevel(ceiling) {
+	if roleRank(ceiling) >= roleRank(identity) {
+		return identity
+	}
+	if GrantsPrincipalAuthorityBeyond(identity, ceiling) {
 		return identity
 	}
 	return ceiling
@@ -424,9 +451,24 @@ func migrateRole(role string) string {
 	}
 }
 
-// IsValidRole returns true if the given role is one of the valid roles.
+// IsValidRole reports whether a slug names a role this cluster can assign: an
+// ACTIVE catalog slug, or one of its aliases (epic memql#5166, D3).
+//
+// It used to be a five-value switch, and that switch was the reason a custom
+// role could be created, could rank, and could not be assigned to anybody: the
+// two seams that write a role (SetUserRole and invitation issue) both validate
+// through here, so a slug the catalog carried and this function did not was
+// refused at the point of use.
+//
+// A DSL enum cannot name a row, which is why this is Go rather than an enum on
+// v1:identity:user.role. The compiled five answer when NO catalog is installed
+// -- a first boot, a node whose database is unreachable -- so sign-in and the
+// identity gates keep working on a cluster whose catalog has not seeded yet.
 func IsValidRole(role Role) bool {
-	switch role {
+	if assignable, answered := catalogAssignable(string(role)); answered {
+		return assignable
+	}
+	switch Role(normalizeSlug(string(role))) {
 	case RoleOwner, RoleAdmin, RoleDeveloper, RoleWriter, RoleReader:
 		return true
 	default:
