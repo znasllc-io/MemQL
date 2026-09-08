@@ -526,6 +526,10 @@ var nonBehavioralConstruct = map[string]bool{
 	"concept": true, "query": true, "mutate": true, "capability": true,
 	"spec": true, "trait": true, "shape": true, "tool": true, "prompt": true,
 	"provider": true, "builtin": true, "policy": true, "seed": true, "use": true,
+	// A rule's body is EMPTY -- every part of it is a leading annotation --
+	// so it invokes nothing and an invocation-name completion inside its
+	// braces would offer names that cannot legally go there.
+	"rule": true,
 }
 
 // insideUnmatchedParen reports whether the cursor sits inside an open `(` -- a

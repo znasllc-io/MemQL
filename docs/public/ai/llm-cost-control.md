@@ -47,6 +47,50 @@ Layer 0 is the backstop **behind** every other layer: even when a higher
 layer is generous or a loop's terminal condition is loose, the cumulative
 kill-switch caps total spend.
 
+### The selection seam is a layer -- and it is NOT the enforcement one
+
+Since epic [memql#5127](https://github.com/znasllc-io/memql/issues/5127) every
+call to a model goes through **one router seam**: a call declares a *level*
+(`fast` / `strong` / `reasoning` / `embeddings`) instead of a model, a *rule*
+maps the call's metadata to a *policy*, and the policy is an ordered chain that
+reaches the fleet first, a signed-in subscription app second and a metered
+vendor last. So the shipped default now **chooses** the cheapest sufficient door
+before any of the layers above has to **refuse** an expensive one. That is
+genuine cost control and it belongs in this document -- but it is a different
+kind from everything in the table.
+
+**A kill switch a policy can author around is not a kill switch.** The rules
+system is authored: a DSL bundle may add rules, and an owner may add one at
+runtime through `routingRuleActivate`. So the split is explicit and enforced by
+where the code lives:
+
+| Decided by rules (authored) | Decided in Go (not authorable) |
+|---|---|
+| which door a call tries first, and in what order | the process-wide rate ceiling and identical-request loop breaker |
+| whether an exhausted chain degrades a level or parks | the cumulative call and dollar kill switch, and its per-scope latches |
+| which concrete model a selector picks | the run's token and cost ceilings (`component/work/budget.go`) |
+| whether a level is raised for a particular prompt or role | door classification, provider availability, and the refusal codes |
+
+The two meet at exactly one place, unchanged by this epic: **the federation hop
+asks the cost ceiling before it is taken, and only when a local door preceded it
+in the chain.** A chain that starts at a vendor is a decision somebody made
+rather than a fallback, and refusing it there would break every deliberately-paid
+policy. See [Layer 4b](#layer-4b--the-ceiling-gates-the-federation-hop-memql5096).
+
+**One call was added, and it is bounded by construction.** The work spine's
+failure path now runs the deterministic symptom table first and reaches the
+`classifySymptom` prompt -- at level `fast`, the cheapest tier -- **only when the
+table has no opinion**. A rules-classified failure costs zero provider calls; a
+novel one costs exactly one. Both figures are asserted by a proving scenario
+whose negative control is the classifier being reached at all, because a counter
+that never rises on any path reads as zero forever.
+
+Every resolution writes one `v1:router:call` row saying which rule matched, which
+policy it named, which door served, what it cost, and every entry the walk passed
+over with the reason. Read them with `routerDecisionsRecent`. A cost control
+nobody can audit is an assertion; see
+[AI routing](../operate/ai-routing.md).
+
 ## Where the chokepoint is (and why it moved)
 
 Every layer below is described in terms of a single point every LLM call

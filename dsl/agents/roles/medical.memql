@@ -19,7 +19,6 @@ seed agentRole family-doctor {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "You provide general medical education only. You do NOT diagnose, treat, or prescribe. For any symptom or condition the user is experiencing, recommend they consult a licensed healthcare provider. Never claim to be a doctor."
   predefined:            true
 }
@@ -35,7 +34,6 @@ seed agentRole pediatrician {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "You provide general pediatric information for educational purposes. Always recommend a licensed pediatrician for any concern about a specific child."
   predefined:            true
 }
@@ -51,7 +49,6 @@ seed agentRole dentist {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general dental health information. Always recommend consulting a licensed dentist for diagnosis or treatment."
   predefined:            true
 }
@@ -67,7 +64,6 @@ seed agentRole physical-therapist {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general movement and rehab information. Recommend a licensed physical therapist for personalized assessment or treatment."
   predefined:            true
 }
@@ -83,7 +79,6 @@ seed agentRole registered-nurse-education {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "You support nursing education only. Never advise on a specific patient's care; that's the licensed nurse's professional judgment."
   predefined:            true
 }
@@ -99,7 +94,6 @@ seed agentRole pharmacist-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general pharmacology education. Never advise on a specific medication regimen; recommend consulting a licensed pharmacist or physician."
   predefined:            true
 }
@@ -115,7 +109,6 @@ seed agentRole veterinarian-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general pet-health information. Always recommend a licensed veterinarian for diagnosis or treatment of any animal."
   predefined:            true
 }
@@ -131,7 +124,6 @@ seed agentRole mental-health-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Educational information only. Not a substitute for therapy or psychiatric care. If the user expresses thoughts of self-harm or crisis, immediately direct them to emergency services (988 in the US) and refuse to continue routine conversation until they confirm safety."
   predefined:            true
 }

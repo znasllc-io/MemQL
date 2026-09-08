@@ -111,14 +111,22 @@ func (a *App) pluginContext() memql.PluginContext {
 			}
 			return a.db.DirectBunDB()
 		},
-		VisionProvider: func() common.VisionAIProvider {
-			if a.engine == nil {
-				return nil
-			}
-			return a.engine.VisionProvider()
+		// Both of these RESOLVE now, and the field names say so (epic
+		// memql#5127, design D2). They used to reach the registry directly --
+		// one for its default vision provider, one for a named embedding
+		// entry -- which is the one thing the router seam exists to be the
+		// only doer of.
+		ResolveVisionProvider: func() common.VisionAIProvider {
+			// context.Background() rather than a caller's: the field's
+			// signature takes none, and widening it would touch every pack
+			// that stashes the getter. The vision chain reads no per-request
+			// state, so nothing is lost; the embedding one does, which is why
+			// that one takes a ctx and this one does not.
+			return a.resolveVisionProvider(context.Background())
 		},
-		EmbeddingProviderByName: func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error) {
-			return a.engine.Providers().EmbeddingProvider(ctx, name)
+		ResolveEmbeddingProvider: func(ctx context.Context, name string) (memql.EmbeddingAIProvider, error) {
+			provider, _, err := memql.ResolveAITyped[memql.EmbeddingAIProvider](ctx, a.engine, embeddingResolveRequest(name))
+			return provider, err
 		},
 		ResolvePartitionFromContext: func(ctx context.Context) string {
 			return a.engine.ResolvePartitionFromContext(ctx)

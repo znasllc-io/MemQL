@@ -70,7 +70,10 @@ func TestAgentRoleTierIsPromptAdvisoryOnly(t *testing.T) {
 	// guesses wrong either misfires (and gets deleted) or misses. An entry here
 	// is a claim someone checked; a NEW line is a claim nobody has.
 	known := map[string]string{
-		"factory.go | Tier:                  stringField(payload, \"tier\"),":             "populates the field; not a read",
+		// The alignment changed when epic memql#5127 removed the longer
+		// RecommendedPolicySlug field from this literal and gofmt re-aligned
+		// what was left. Same line, same claim.
+		"factory.go | Tier:              stringField(payload, \"tier\"),":                 "populates the field; not a read",
 		"factory.go | \"tier\":              r.Tier,":                                     "THE consumer: roleCatalogForPrompt",
 		"worker/dispatch.go | detail[\"tier\"] = cls.Tier.String()":                       "classifier tier, not agentRole",
 		"nonstreaming.go | \"tier\", \"cheap\",":                                          "log field",

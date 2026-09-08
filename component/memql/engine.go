@@ -56,6 +56,17 @@ type MemQLEngine struct {
 	seedMaterializer        *SeedMaterializer
 	providers               *ProviderRegistry
 	policies                *PolicyRegistry
+	// rules is the routing-rule corpus (epic memql#5127). Unpopulated until
+	// the rule loader lands: every reader is nil-safe, and a nil registry
+	// reports NOTHING rather than an empty set, so nobody can read "no rules
+	// are loaded" off an engine that never had a loader wired.
+	rules *RuleRegistry
+
+	// aiResolver is the router seam every model call in this package goes
+	// through (epic memql#5127). Installed from app/; unwired it REFUSES
+	// rather than falling back, because the fallback would be the registry
+	// default this epic deletes. See ai_resolver.go.
+	aiResolver aiResolverHolder
 	// configSnapshot is the bus-distributed ConfigSnapshot that
 	// backs ctx.config.* inside spec bodies. Optional; nil
 	// resolves every allow-listed key to its zero value (sensitive

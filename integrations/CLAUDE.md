@@ -87,10 +87,14 @@ interface itself does not change -- only the dispatch mechanism.
 
 Integrations should receive `IntegrationEngineAccess` (narrow interface) instead of the full `MemQLEngine`. This interface provides:
 - `RegisterIntegration()` -- capability registration
-- Streaming provider access (for protocol-level streaming)
 - Tool definitions and execution (for tool-calling streams)
 
 It explicitly does NOT provide `Execute()`, `InvokeAI()`, or `RenderPrompt()` -- those belong in MemQL automations and functions.
+
+It provides **no provider lookup** (epic memql#5127): `ChatStreamProvider`,
+`ChatStreamProviderByName` and `ChatStreamWithToolsProviderByName` were removed
+with their zero callers. An integration that needs a model declares a level and
+a modality and asks the router.
 
 ### Pattern: Events Inward, Capabilities Outward
 
@@ -342,8 +346,8 @@ MemQL's integration system has two registration paths:
 1. **Self-registration** (`memql.RegisterPlugin`; preferred) -- the
    integration registers itself at `init()` with a narrow
    `PluginContext`. Good for integrations whose dependencies fit
-   the common surface (Logger, Engine, BunDB, VisionProvider,
-   EmbeddingProviderByName, partition/variable resolvers). Use this
+   the common surface (Logger, Engine, BunDB, ResolveVisionProvider,
+   ResolveEmbeddingProvider, partition/variable resolvers). Use this
    for any product-specific integration (registered from its pack repo)
    that doesn't need deps outside `PluginContext`.
 2. **Explicit `app/` wiring** -- reserved for first-party integrations

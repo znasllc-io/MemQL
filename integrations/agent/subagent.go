@@ -82,22 +82,6 @@ const ExecutionLaneHintKey = "execution_lane"
 // turn onto the non-streaming background executor.
 const ExecutionLaneBackground = "background"
 
-// backgroundExecutionPolicy is the AI Router policy the background lane
-// resolves against (memql#897). It gives batch/plan execution its own
-// provider chain, tuned independently of the interactive chat policies, so
-// background model selection (and, per memql#898, its model tier) can
-// change without touching live chat. Defined in dsl/policies/policies.memql.
-// memql#898 retuned it to a CHEAP default tier.
-const backgroundExecutionPolicy = "backgroundExecution"
-
-// backgroundEscalationPolicy is the strong/expensive AI Router policy the
-// background executor swaps to mid-turn when the cheap backgroundExecution
-// tier gets stuck (memql#898). Cheap-by-default, strong-on-demand: most
-// routine deliverables finish on the cheap tier; only a turn that trips the
-// stuck signal pays for the stronger model. Defined in
-// dsl/policies/policies.memql.
-const backgroundEscalationPolicy = "backgroundEscalation"
-
 // ResumeHintKey marks a background dispatch as a RESUME of a previously
 // passed/paused task (memql#907). When the planner re-admits a task whose
 // slot freed up, it re-dispatches with hints[ResumeHintKey]="true"; the

@@ -18,7 +18,6 @@ seed agentRole accounting-finance {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "Provide general accounting and finance information. For tax advice specific to a person's situation, recommend a CPA or licensed tax professional."
   predefined:            true
 }
@@ -34,7 +33,6 @@ seed agentRole human-resources {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   systemPromptHints:     "Provide general HR guidance. For employment-law questions specific to a jurisdiction or case, recommend a labor lawyer."
   predefined:            true
 }
@@ -49,7 +47,6 @@ seed agentRole customer-service {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -63,7 +60,6 @@ seed agentRole quality-assurance {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -77,7 +73,6 @@ seed agentRole sales-marketing {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -91,7 +86,6 @@ seed agentRole it-support {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -105,7 +99,6 @@ seed agentRole operations {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -119,7 +112,6 @@ seed agentRole project-management {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -133,7 +125,6 @@ seed agentRole research-development {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   predefined:            true
 }
 
@@ -147,7 +138,6 @@ seed agentRole training-education {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -161,7 +151,6 @@ seed agentRole executive-assistant {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -175,7 +164,6 @@ seed agentRole data-analyst {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   predefined:            true
 }
 
@@ -189,7 +177,6 @@ seed agentRole data-scientist {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   predefined:            true
 }
 
@@ -203,7 +190,6 @@ seed agentRole data-engineer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -217,7 +203,6 @@ seed agentRole software-engineer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "fastCoding"
   predefined:            true
 }
 
@@ -231,7 +216,6 @@ seed agentRole frontend-engineer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "fastCoding"
   predefined:            true
 }
 
@@ -245,7 +229,6 @@ seed agentRole devops-engineer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "fastCoding"
   predefined:            true
 }
 
@@ -260,7 +243,6 @@ seed agentRole security-engineer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "Provide general security information. For incident response specific to a breach or active threat, recommend engaging a qualified security responder."
   predefined:            true
 }
@@ -275,7 +257,6 @@ seed agentRole product-manager {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -289,7 +270,6 @@ seed agentRole technical-writer {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -303,7 +283,6 @@ seed agentRole business-analyst {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -317,6 +296,5 @@ seed agentRole supply-chain-manager {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }

@@ -6,20 +6,21 @@ import (
 )
 
 // TestParsePolicyMemQL_GoldenPath locks the AI-router policy
-// surface: @primary + @fallback + tuning knobs + empty `policy NAME { }`
-// declaration.
+// surface: @description + @primary + @fallback + an empty
+// `policy NAME { }` declaration.
 //
-// (Cross-cutting decision policies use `func (Policy)` and are
-// parsed via the general function-parser path, not this routing
-// parser.)
+// The three tuning knobs this used to assert -- @maxLatencyMs,
+// @maxTimeToFirstTokenMs, @preferredRole -- are removed with epic memql#5127.
+// Note where they went in THIS parser specifically: it is the legacy
+// hand-rolled path, whose default branch SKIPS an unrecognised decorator, so
+// removing their cases makes it ignore them rather than refuse them. The
+// refusal lives on the production path (the langparser's Policy receiver),
+// which is what a .memql file in the tree actually goes through.
 func TestParsePolicyMemQL_GoldenPath(t *testing.T) {
-	src := []byte(`@description("Balanced LLM for most agent replies.")
-@primary("chat54Mini")
-@fallback("chat53")
-@maxLatencyMs(8000)
-@maxTimeToFirstTokenMs(500)
-@preferredRole("assistant")
-policy balancedChat { }`)
+	src := []byte(`@description("Local strongest, then an app, then the cheapest federated model.")
+@primary("fleet:strongest")
+@fallback("app:*")
+policy localFirst { }`)
 
 	cfg, err := parsePolicyMemQL("test.memql", src)
 	if err != nil {
@@ -28,23 +29,14 @@ policy balancedChat { }`)
 	if cfg == nil {
 		t.Fatal("expected non-nil *PolicyConfig")
 	}
-	if cfg.Name != "balancedChat" {
-		t.Errorf("Name = %q, want balancedChat", cfg.Name)
+	if cfg.Name != "localFirst" {
+		t.Errorf("Name = %q, want localFirst", cfg.Name)
 	}
-	if cfg.Primary != "chat54Mini" {
-		t.Errorf("Primary = %q, want chat54Mini", cfg.Primary)
+	if cfg.Primary != "fleet:strongest" {
+		t.Errorf("Primary = %q, want fleet:strongest", cfg.Primary)
 	}
-	if len(cfg.Fallbacks) != 1 || cfg.Fallbacks[0] != "chat53" {
-		t.Errorf("Fallbacks = %v, want [chat53]", cfg.Fallbacks)
-	}
-	if cfg.MaxLatencyMs != 8000 {
-		t.Errorf("MaxLatencyMs = %d, want 8000", cfg.MaxLatencyMs)
-	}
-	if cfg.MaxTimeToFirstTokenMs != 500 {
-		t.Errorf("MaxTimeToFirstTokenMs = %d, want 500", cfg.MaxTimeToFirstTokenMs)
-	}
-	if len(cfg.PreferredRoles) != 1 || cfg.PreferredRoles[0] != "assistant" {
-		t.Errorf("PreferredRoles = %v, want [assistant]", cfg.PreferredRoles)
+	if len(cfg.Fallbacks) != 1 || cfg.Fallbacks[0] != "app:*" {
+		t.Errorf("Fallbacks = %v, want [app:*]", cfg.Fallbacks)
 	}
 }
 

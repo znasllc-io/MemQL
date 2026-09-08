@@ -49,19 +49,60 @@ const FleetProviderName = "fleet"
 // `@primary("fleet:llama3.1:8b")`.
 const FleetReferencePrefix = "fleet:"
 
-// FleetWildcard is the whole reference a policy writes to mean ANY eligible
-// local model, strongest first (epic memql#5096, design D5).
+// FleetWildcard is the RETIRED reference `fleet:*`. It is kept as a constant
+// for exactly one purpose: recognising it, so it can be refused by name with
+// the replacement spelled out (design D4).
 //
-// It exists because the alternative is a policy that names one model id, and
+// It used to mean "any eligible local model, strongest first". That reading
+// survives under the name `fleet:strongest`, and the retirement is what makes
+// room for a second question about the same fleet -- `fleet:fastest` -- which
+// `*` could never have expressed: a wildcard says which models are allowed,
+// and the selectors say which of them to prefer.
+const FleetWildcard = FleetReferencePrefix + "*"
+
+// Fleet SELECTORS. A selector is the part after `fleet:` when it names an
+// ORDERING over the live catalog rather than one model id.
+//
+// They exist because the alternative is a policy that names one model id, and
 // a model id is the one thing an operator cannot know in advance: which
 // weights are pulled is a decision made on each machine, and a chain pinned
-// to `fleet:llama3.1:8b` parks on a fleet that is running qwen2.5:7b and
-// would have served the turn perfectly.
+// to `fleet:llama3.1:8b` parks on a fleet running qwen2.5:7b that would have
+// served the turn perfectly.
+const (
+	// FleetSelectorStrongest orders the catalog strongest-first: the owner's
+	// explicit preference, then parameters, then context window, missing
+	// attributes last.
+	FleetSelectorStrongest = "strongest"
+	// FleetSelectorFastest orders it fastest-first: measured throughput when
+	// there is any, else FEWEST parameters, missing attributes last.
+	FleetSelectorFastest = "fastest"
+)
+
+// FleetStrongest and FleetFastest are the whole references a policy writes.
+const (
+	FleetStrongest = FleetReferencePrefix + FleetSelectorStrongest
+	FleetFastest   = FleetReferencePrefix + FleetSelectorFastest
+)
+
+// IsFleetSelector reports whether a reference names an ordering over the live
+// catalog rather than one model, and returns which ordering.
 //
-// The model is chosen at CALL time rather than at entry time, because
-// eligibility depends on what the call needs -- a structured turn and a tool
-// turn can legitimately resolve to different models on the same fleet.
-const FleetWildcard = FleetReferencePrefix + "*"
+// A model id is never mistaken for a selector, because the two selector words
+// are reserved: a runtime that published a model literally called `strongest`
+// would be unreachable by id, which is a trade nobody will ever make and is
+// cheaper than a grammar where the meaning of `fleet:x` depends on what is
+// installed today.
+func IsFleetSelector(name string) (string, bool) {
+	modelId, ok := IsFleetReference(name)
+	if !ok {
+		return "", false
+	}
+	switch modelId {
+	case FleetSelectorStrongest, FleetSelectorFastest:
+		return modelId, true
+	}
+	return "", false
+}
 
 // Model call kinds, mirroring the wire.
 const (
@@ -270,9 +311,10 @@ func (r *ProviderRegistry) FleetCatalog(ctx context.Context, actingUserId string
 	return models, nil
 }
 
-// IsFleetReference reports whether a policy's provider name refers to a fleet
-// model, and returns the model id. The wildcard returns "*", which is a model
-// id no runtime can serve -- callers that care ask IsFleetWildcard.
+// IsFleetReference reports whether a policy's provider name refers to the
+// fleet at all, and returns whatever followed the prefix -- a model id, a
+// selector word, or the retired "*". Callers that need to tell those apart ask
+// IsFleetSelector and IsFleetWildcard.
 func IsFleetReference(name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if !strings.HasPrefix(name, FleetReferencePrefix) {
@@ -282,8 +324,13 @@ func IsFleetReference(name string) (string, bool) {
 	return modelId, modelId != ""
 }
 
-// IsFleetWildcard reports whether a reference names ANY eligible local model
-// rather than one in particular.
+// IsFleetWildcard reports whether a reference is the RETIRED `fleet:*`.
+//
+// It is a recognizer, not a resolution path. Nothing resolves a wildcard any
+// more: fleetEntry refuses it by name so an author who wrote the old spelling
+// is told what to write instead, rather than getting an entry that behaves
+// almost like `fleet:strongest` and diverges the first time somebody asks for
+// `fleet:fastest`.
 func IsFleetWildcard(name string) bool {
 	return strings.TrimSpace(name) == FleetWildcard
 }
@@ -346,6 +393,138 @@ func orderModels(models []FleetModel, preference []string) []FleetModel {
 	return out
 }
 
+// orderModelsFastest ranks a catalog fastest-first.
+//
+// The order is: MEASURED THROUGHPUT when there is any, then FEWEST
+// PARAMETERS, then model id. There is no measured throughput this epic --
+// nothing on the wire reports tokens per second per model -- so the first key
+// is a hook with a nil body and a name, deliberately left visible rather than
+// written as a proxy: a number computed from parameters and called throughput
+// would read on the decision record exactly like a measurement.
+//
+// MISSING PARAMETERS SORT LAST HERE TOO, and that is the same rule as
+// orderModels rather than its mirror. "The machine did not say" is not "zero
+// parameters": treating an unknown size as zero would make every model that
+// failed to report itself the fastest thing on the fleet, which is the
+// silence-wins failure orderModels exists to avoid, arriving from the other
+// direction.
+//
+// The owner's model preference is deliberately NOT consulted. A preference
+// list answers "which model do I want", which is the question `strongest`
+// already asks; letting it win here would make `fleet:fastest` and
+// `fleet:strongest` return the same model on every fleet whose owner set one
+// -- exactly the fleets where the distinction was worth writing down.
+//
+// The sort is STABLE over the input order, so two replicas reading one
+// catalog agree with no shared state.
+func orderModelsFastest(models []FleetModel) []FleetModel {
+	out := make([]FleetModel, len(models))
+	copy(out, models)
+
+	// throughputOf is the hook. It answers "not measured" for every model
+	// today; epic 4 fills it from what the machines report.
+	throughputOf := func(FleetModel) (float64, bool) { return 0, false }
+
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		ta, okA := throughputOf(a)
+		tb, okB := throughputOf(b)
+		if okA != okB {
+			return okA
+		}
+		if okA && okB && ta != tb {
+			return ta > tb
+		}
+		// Unknown size last, in both directions.
+		if (a.Params > 0) != (b.Params > 0) {
+			return a.Params > 0
+		}
+		if a.Params != b.Params {
+			return a.Params < b.Params
+		}
+		return a.ModelId < b.ModelId
+	})
+	return out
+}
+
+// orderBySelector applies the ordering a selector names. An unknown selector
+// is an ERROR rather than a default, because a defaulted ordering is a
+// routing decision nobody wrote: a typo in a policy would silently mean
+// "strongest" and the chain would look correct.
+func orderBySelector(models []FleetModel, selector string, preference []string) ([]FleetModel, error) {
+	switch selector {
+	case FleetSelectorStrongest:
+		return orderModels(models, preference), nil
+	case FleetSelectorFastest:
+		return orderModelsFastest(models), nil
+	}
+	return nil, fmt.Errorf("unknown fleet selector %q: a fleet selector is one of %s, %s",
+		selector, FleetSelectorStrongest, FleetSelectorFastest)
+}
+
+// FleetCandidate is one model from the live catalog, in the order a selector
+// put it, carrying either its eligibility or the reason it cannot serve the
+// call.
+//
+// Every model is returned, including the ones that were ruled out. The router
+// records a reason per candidate on the decision, and a candidate list that
+// silently omitted the misses would leave "your fleet cannot do this" with
+// nothing behind it -- which is the sentence memql#4682 exists to replace.
+type FleetCandidate struct {
+	ModelId  string
+	Eligible bool
+	// Reason is why this model cannot serve the call. Empty when Eligible.
+	Reason string
+}
+
+// FleetCandidatesFor resolves a fleet SELECTOR against the live catalog for
+// one acting user, ordered by the selector and marked against these needs.
+//
+// It is the resolve-time half of fleet selection, and it exists because the
+// decision record has to name a MODEL. The call-time chooser inside
+// fleetProvider knows the needs of the call it is about to place but has
+// nowhere to record what it passed over; this one knows the request's needs,
+// including the context-window floor the call-time path cannot see, and hands
+// the whole considered list back.
+//
+// An empty actingUserId asks for the shared-inference set -- machines whose
+// owners opted in to cluster work -- never for "everything".
+func (r *ProviderRegistry) FleetCandidatesFor(ctx context.Context, actingUserId, selector string, needs FleetNeeds) ([]FleetCandidate, error) {
+	if r == nil {
+		return nil, fmt.Errorf("no provider registry")
+	}
+	r.mu.RLock()
+	f := r.fleet
+	r.mu.RUnlock()
+	if f == nil {
+		return nil, fmt.Errorf("this node has no fleet inference installed")
+	}
+	models, err := f.Catalog(ctx, actingUserId)
+	if err != nil {
+		return nil, err
+	}
+
+	var preference []string
+	if selector == FleetSelectorStrongest {
+		// A policy read that failed must not decide the model. Falling back
+		// to the default ordering is the honest degrade: the caller gets the
+		// strongest eligible model rather than a refusal over a row nobody
+		// asked about.
+		preference, _ = f.ModelPreference(ctx, actingUserId)
+	}
+
+	ordered, err := orderBySelector(models, selector, preference)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FleetCandidate, 0, len(ordered))
+	for _, m := range ordered {
+		ok, why := m.eligibleFor(needs)
+		out = append(out, FleetCandidate{ModelId: m.ModelId, Eligible: ok, Reason: why})
+	}
+	return out, nil
+}
+
 // eligibleFor reports whether a model can serve a call with these needs, and
 // names the miss when it cannot. It mirrors ModelAttributes.Satisfies on the
 // agent side -- the same questions asked of the CATALOG rather than of one
@@ -388,14 +567,26 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 	f := r.fleet
 	r.mu.RUnlock()
 
-	wildcard := modelId == "*"
 	cfg := ProviderConfig{
 		Name:  FleetReferencePrefix + modelId,
 		Type:  FleetProviderType,
 		Model: modelId,
 	}
-	client := &fleetProvider{registry: r, modelId: modelId, actingUserId: actingUserId, wildcard: wildcard}
+	selector, isSelector := IsFleetSelector(cfg.Name)
+	client := &fleetProvider{registry: r, modelId: modelId, actingUserId: actingUserId, selector: selector}
 	entry := &ProviderConfigEntry{Config: cfg, Client: client}
+
+	// `fleet:*` IS RETIRED, and it is refused HERE rather than resolved as a
+	// synonym for `fleet:strongest` (design D4). A synonym would work right up
+	// to the day somebody wrote `fleet:fastest` beside it and could not say
+	// what the star meant any more; the refusal names the replacement, which
+	// is the whole reason the constant survives.
+	if modelId == "*" {
+		entry.err = fmt.Errorf("%s is retired: write %s for the strongest eligible local model, or %s for the quickest",
+			FleetWildcard, FleetStrongest, FleetFastest)
+		return entry, true
+	}
+
 	if f == nil {
 		// No worker service on this node. UNAVAILABLE, not an error: the
 		// authored fallback runs, or the work parks.
@@ -409,8 +600,8 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 		return entry, true
 	}
 
-	// THE WILDCARD IS AVAILABLE WHEN ANY MODEL IS ONLINE, and the concrete
-	// model is chosen later, in call(), once the needs are known.
+	// A SELECTOR IS AVAILABLE WHEN ANY MODEL IS ONLINE, and the concrete model
+	// is chosen later, in call(), once the needs are known.
 	//
 	// Deciding it here would mean deciding it without them, and a fleet
 	// running one structured-capable model and one embeddings model would
@@ -418,11 +609,15 @@ func (r *ProviderRegistry) fleetEntry(ctx context.Context, actingUserId, modelId
 	// call the other one could have served. Availability here answers "is
 	// there any local model at all", which is exactly the question the chain
 	// walk is asking.
-	if wildcard {
+	//
+	// The ROUTER does not reach this path: it expands a selector into concrete
+	// model ids through FleetCandidatesFor, because a decision record has to
+	// name a model and because only the request knows the context-window floor.
+	// This path serves the callers that still resolve a provider by name.
+	if isSelector {
 		for _, m := range models {
 			if m.Online() {
 				entry.Available = true
-				cfg.Model = "*"
 				return entry, true
 			}
 		}
@@ -472,9 +667,10 @@ type fleetProvider struct {
 	// machines are eligible -- a disagreement in that direction is a silent
 	// cloud call for a user whose laptop was awake.
 	actingUserId string
-	// wildcard marks the `fleet:*` provider, whose concrete model is chosen
-	// per call rather than at entry time.
-	wildcard   bool
+	// selector is FleetSelectorStrongest or FleetSelectorFastest for a
+	// provider whose concrete model is chosen per call rather than at entry
+	// time, and empty for one pinned to a model id.
+	selector   string
 	attributes FleetModel
 	// lastMu guards the surface bookkeeping the ledger reads back after a
 	// call. It is per-entry rather than per-call because the provider
@@ -516,8 +712,8 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 		req.ActingUserId = actingUserFromContext(ctx)
 	}
 
-	if p.wildcard {
-		chosen, err := p.resolveWildcard(ctx, f, req)
+	if p.selector != "" {
+		chosen, err := p.resolveSelector(ctx, f, req)
 		if err != nil {
 			return FleetCallResult{}, err
 		}
@@ -544,37 +740,44 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 	return res, nil
 }
 
-// resolveWildcard picks the concrete model a `fleet:*` call runs on.
+// resolveSelector picks the concrete model a `fleet:strongest` or
+// `fleet:fastest` call runs on.
 //
-// Strongest first, among the models that can actually serve THIS call: the
-// needs come off the request, so a structured turn and an embedding turn on
-// the same fleet legitimately land on different models. The owner's
-// modelPreference, when they have one, wins over the size ordering -- it is
-// an explicit statement about their own hardware, and the default ordering
-// exists precisely for the users who have not made one.
+// In the selector's order, among the models that can actually serve THIS
+// call: the needs come off the request, so a structured turn and an embedding
+// turn on the same fleet legitimately land on different models. For
+// `strongest`, the owner's modelPreference wins over the size ordering when
+// they have one -- it is an explicit statement about their own hardware, and
+// the default ordering exists precisely for the users who have not made one.
 //
 // A miss is the TYPED refusal naming every model considered and why each was
 // ruled out, in the same grammar the machine-level refusal uses. "Your fleet
 // has nothing that can do this" is the answer, and an operator reading it
 // needs to know whether the fix is waking a laptop, pulling a bigger model,
 // or using a runtime that supports tools.
-func (p *fleetProvider) resolveWildcard(ctx context.Context, f FleetInference, req FleetCallRequest) (string, error) {
+func (p *fleetProvider) resolveSelector(ctx context.Context, f FleetInference, req FleetCallRequest) (string, error) {
 	models, err := f.Catalog(ctx, req.ActingUserId)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrFleetUnavailable, err)
 	}
-	preference, err := f.ModelPreference(ctx, req.ActingUserId)
+	var preference []string
+	if p.selector == FleetSelectorStrongest {
+		if pref, err := f.ModelPreference(ctx, req.ActingUserId); err == nil {
+			// A policy read that failed must not decide the model. Falling
+			// back to the default ordering is the honest degrade: the caller
+			// gets the strongest eligible model rather than a refusal over a
+			// row nobody asked about.
+			preference = pref
+		}
+	}
+	ordered, err := orderBySelector(models, p.selector, preference)
 	if err != nil {
-		// A policy read that failed must not decide the model. Falling back
-		// to the default ordering is the honest degrade: the caller gets the
-		// strongest eligible model rather than a refusal over a row nobody
-		// asked about.
-		preference = nil
+		return "", fmt.Errorf("%w: %v", ErrFleetUnavailable, err)
 	}
 
 	needs := req.Needs()
 	considered := map[string]string{}
-	for _, m := range orderModels(models, preference) {
+	for _, m := range ordered {
 		if ok, why := m.eligibleFor(needs); ok {
 			return m.ModelId, nil
 		} else {
@@ -582,7 +785,7 @@ func (p *fleetProvider) resolveWildcard(ctx context.Context, f FleetInference, r
 		}
 	}
 	return "", &FleetUnavailable{
-		ModelId:    "*",
+		ModelId:    p.selector,
 		Considered: considered,
 		Total:      len(models),
 	}

@@ -11,7 +11,6 @@ package memql
 // observed in production 2026-08-26, request id req_011CeQjVK9KPC1AW48Wy1bnQ.
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -50,19 +49,9 @@ func TestToAnthropicMessagesRealConversationGetsNoSynthesizedTurn(t *testing.T) 
 	}
 }
 
-func TestStructuredFallbackMessagesCarryAUserTurn(t *testing.T) {
-	msgs := structuredFallbackMessages("rendered instructions", []byte(`{"type":"object"}`))
-
-	var sawUser bool
-	for _, m := range msgs {
-		if m.Role == "user" {
-			sawUser = true
-			if !strings.Contains(m.Content, `{"type":"object"}`) {
-				t.Fatal("the user turn must carry the schema directive")
-			}
-		}
-	}
-	if !sawUser {
-		t.Fatal("the structured fallback must include a user turn: a system-only list cannot be sent to Anthropic")
-	}
-}
+// The structured-fallback message shape and its fence stripping are GONE with
+// the last-resort path they served (epic memql#5127, design D2). InvokeAIStructured
+// no longer pastes a schema into a chat model's user turn and hopes the answer
+// parses: a chain that cannot serve a structured call refuses, and the refusal
+// names the doors. The tests that covered that shape were deleted rather than
+// re-pointed, because there is nothing left for them to be about.

@@ -13,6 +13,7 @@
 /// Invoked by the planner-service on every Plan loop iteration. Output contract: one
 /// structured-output decision per turn (decompose / dispatchTask / retry / createSpecialist /
 /// extendSpecialist / spawnTrainingPlan / escalate / markPlanSucceeded / markPlanFailed).
+@level("strong")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/plannerAgent.tmpl")
 prompt plannerAgent {
@@ -30,6 +31,7 @@ prompt plannerAgent {
 /// sequence of tool calls (webSearch / fetchUrl / writeKnowledgeChunk / markChunkSuperseded /
 /// embedChunk) followed by a respondToUser envelope summarizing chunks written, sources consulted,
 /// and confidence.
+@level("strong")
 @defaultProvider("streamClaudeOpus")
 @templateFile("prompts/trainerAgent.tmpl")
 prompt trainerAgent {
@@ -44,6 +46,7 @@ prompt trainerAgent {
 /// returns ONE JSON object: {response, rationale?, confidence, needsMore?}. The assistant then
 /// paraphrases the response into a human-facing reply. Specialists never write utterances
 /// themselves.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/askSpecialist.tmpl")
 prompt askSpecialist {
@@ -65,6 +68,7 @@ prompt askSpecialist {
 /// this read "strongReasoning" (the policy) until memql#3616, which resolved to nothing and quietly
 /// dropped the call onto whatever ChatProvider()'s hardcoded preference list picked. streamClaudeSonnet
 /// is that policy's own @primary, so the intended model is what now actually runs.
+@level("strong")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/agentFactoryAnalyze.tmpl")
 prompt agentFactoryAnalyze {
@@ -92,6 +96,7 @@ prompt agentFactoryAnalyze {
 /// the user answers -- re-runs with answers folded in (foldResponsibilityIntakeAnswers) before
 /// flipping the row to active. Fast/cheap tier (chat54Mini) -- this is a quick classification +
 /// gap-spotting pass, not deep reasoning.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/responsibilityIntake.tmpl")
 prompt responsibilityIntake {

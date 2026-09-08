@@ -13,6 +13,7 @@
 /// filing better requests in this area in the future. Called by Claude immediately after
 /// forgeSubmitRequest for reader/writer/admin submitters; the resulting text is shown to the user
 /// and then recorded as a 'mentored' requestEvent via forgeRecordMentoring.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/forgeMentoringExplanation.tmpl")
 prompt forgeMentoringExplanation {

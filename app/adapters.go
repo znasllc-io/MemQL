@@ -135,26 +135,18 @@ func (a *CognitionEngineAdapter) RenderPrompt(templateId string, data map[string
 	return a.Engine.RenderPrompt(templateId, data)
 }
 
-func (a *CognitionEngineAdapter) ChatStreamProvider() common.ChatStreamProvider {
-	if a == nil || a.Engine == nil {
-		return nil
-	}
-	return a.Engine.ChatStreamProvider()
-}
-
-func (a *CognitionEngineAdapter) ChatStreamProviderByName(name string) common.ChatStreamProvider {
-	if a == nil || a.Engine == nil {
-		return nil
-	}
-	return a.Engine.ChatStreamProviderByName(name)
-}
-
-func (a *CognitionEngineAdapter) ChatStreamWithToolsProviderByName(name string) common.ChatStreamWithToolsProvider {
-	if a == nil || a.Engine == nil {
-		return nil
-	}
-	return a.Engine.ChatStreamWithToolsProviderByName(name)
-}
+// THE THREE PROVIDER-LOOKUP PASSTHROUGHS ARE GONE (epic memql#5127, design
+// D2). ChatStreamProvider, ChatStreamProviderByName and
+// ChatStreamWithToolsProviderByName each forwarded a registry lookup out to an
+// integration, and each had exactly zero callers -- not through this adapter,
+// not through memql.IntegrationEngineAccess, and not through
+// agent.MemQLEngine, which declared the third one and never invoked it. They
+// were deleted rather than re-pointed onto the resolver, because re-pointing a
+// method nobody calls builds a second seam to maintain and proves nothing.
+//
+// The interface declarations went with them, so the shape is gone rather than
+// merely unimplemented; an integration that needs a streaming provider now
+// declares a level and a modality like every other call site.
 
 func (a *CognitionEngineAdapter) ToolDefinitionsForNames(names []string) []common.ToolDefinition {
 	if a == nil || a.Engine == nil {
@@ -177,32 +169,14 @@ func (a *CognitionEngineAdapter) ResolveSkills(ctx context.Context, skillIds []s
 	return a.Engine.ResolveSkills(ctx, skillIds)
 }
 
-// CognitionProviderAdapter wraps MemQLEngine.s provider registry to satisfy cognition.AIProviderRegistry.
-type CognitionProviderAdapter struct {
-	Engine *memql.MemQLEngine
-}
-
-func (a *CognitionProviderAdapter) GetProvider(name string) (any, bool) {
-	if a.Engine == nil {
-		return nil, false
-	}
-	entry, ok := a.Engine.ProviderEntry(name)
-	if !ok || entry == nil || !entry.Available {
-		return nil, false
-	}
-	return entry.Client, true
-}
-
-func (a *CognitionProviderAdapter) DefaultProvider() (any, bool) {
-	if a.Engine == nil {
-		return nil, false
-	}
-	defaultName := a.Engine.DefaultProviderName()
-	if defaultName == "" {
-		return nil, false
-	}
-	return a.GetProvider(defaultName)
-}
+// CognitionProviderAdapter IS DELETED (epic memql#5127, design D2). It handed
+// a caller the registry entry's raw client by name, which is the reach this
+// epic fences off -- and it did so for an interface that no longer exists:
+// `cognition.AIProviderRegistry` survived in this file's own doc comment and
+// nowhere else in the tree, the type was never constructed, and neither
+// GetProvider nor DefaultProvider had a caller. It answered `(any, bool)`,
+// so every user of it would have had to type-assert its way back to a
+// modality the router now decides.
 
 // AttachmentEngineAdapter wraps MemQLEngine to satisfy server.MemQLExecutor.
 type AttachmentEngineAdapter struct {

@@ -13,8 +13,8 @@ import (
 // agnostic and any concept with a content vector is fair game.
 func init() {
 	memql.RegisterPlugin("similarity", func(pctx memql.PluginContext) (memql.IntegrationProvider, error) {
-		if pctx.EmbeddingProviderByName == nil {
-			return nil, fmt.Errorf("similarity plug-in: no EmbeddingProviderByName in plugin context")
+		if pctx.ResolveEmbeddingProvider == nil {
+			return nil, fmt.Errorf("similarity plug-in: no ResolveEmbeddingProvider in plugin context")
 		}
 		if pctx.ResolvePartitionFromContext == nil {
 			return nil, fmt.Errorf("similarity plug-in: no ResolvePartitionFromContext in plugin context")
@@ -37,7 +37,7 @@ func init() {
 			}
 			return bunDB.DB
 		})
-		integ.SetEmbeddingProvider(pctx.EmbeddingProviderByName)
+		integ.SetEmbeddingProvider(pctx.ResolveEmbeddingProvider)
 		integ.SetPartitionFunc(pctx.ResolvePartitionFromContext)
 		return integ, nil
 	})

@@ -10,6 +10,7 @@ package memql
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/znasllc-io/memql/core/common"
@@ -99,8 +100,8 @@ func TestAnExplicitPreferenceOutranksSize(t *testing.T) {
 
 func TestOrderModelsIsStableAcrossReplicas(t *testing.T) {
 	// Two models identical on every signal. Every replica must order them
-	// the same way or `fleet:*` resolves differently per node, which is the
-	// property the routing strategies already depend on.
+	// the same way or `fleet:strongest` resolves differently per node, which
+	// is the property the routing strategies already depend on.
 	a := sized("a:1b", 0, 0)
 	b := sized("b:1b", 0, 0)
 	for range 20 {
@@ -109,27 +110,114 @@ func TestOrderModelsIsStableAcrossReplicas(t *testing.T) {
 	}
 }
 
-func TestFleetWildcardIsRecognisedAndOrdinaryNamesAreNot(t *testing.T) {
+// `fleet:*` is RECOGNISED so that it can be REFUSED by name. It resolves
+// nothing: the recognizer exists only to carry the replacement into the
+// message an author reads.
+func TestFleetWildcardIsRecognisedSoItCanBeRefused(t *testing.T) {
 	if !IsFleetWildcard(FleetWildcard) {
-		t.Error("fleet:* must be recognised as the wildcard")
+		t.Error("fleet:* must still be recognised, or the refusal cannot name its replacement")
 	}
-	for _, name := range []string{"fleet:llama3.1:8b", "fleet:", "*", "chat54Mini", ""} {
+	for _, name := range []string{"fleet:llama3.1:8b", "fleet:", "*", "chat54Mini", "", FleetStrongest} {
 		if IsFleetWildcard(name) {
 			t.Errorf("%q must not be read as the wildcard", name)
 		}
 	}
+
+	r := newProviderRegistry("")
+	r.SetFleetInference(&stubFleet{models: []FleetModel{sized("llama3.1:8b", 8_000_000_000, 8192)}})
+	entry, ok := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	if !ok || entry == nil {
+		t.Fatal("fleet:* must still resolve to an ENTRY, so the refusal reaches the door report")
+	}
+	if entry.Available {
+		t.Fatal("fleet:* resolved as available; it is retired")
+	}
+	// An author who wrote fleet:* meant "the best local model". Telling them
+	// only that it is invalid sends them to the source to find out what to
+	// write; the message carries both replacements instead.
+	msg := entry.Err().Error()
+	if !strings.Contains(msg, FleetStrongest) || !strings.Contains(msg, FleetFastest) {
+		t.Fatalf("the refusal must name both selectors, got %q", msg)
+	}
 }
 
-// `fleet:*` is AVAILABLE when any model is online, because the concrete model
+// THE SELECTOR WORDS ARE RESERVED, so a model id can never be mistaken for an
+// ordering and an ordering can never be mistaken for a model id.
+func TestIsFleetSelectorRecognisesExactlyTheTwoWords(t *testing.T) {
+	for name, want := range map[string]string{
+		FleetStrongest: FleetSelectorStrongest,
+		FleetFastest:   FleetSelectorFastest,
+	} {
+		got, ok := IsFleetSelector(name)
+		if !ok || got != want {
+			t.Errorf("IsFleetSelector(%q) = (%q, %v), want %q", name, got, ok, want)
+		}
+	}
+	for _, name := range []string{"fleet:llama3.1:8b", FleetWildcard, "fleet:", "strongest", "chat54Mini", ""} {
+		if _, ok := IsFleetSelector(name); ok {
+			t.Errorf("%q must not be read as a selector", name)
+		}
+	}
+}
+
+// FASTEST is fewest parameters, and a model that never said how big it is
+// sorts LAST here too -- the same rule as strongest rather than its mirror.
+// Reading an unknown size as zero would make every silent model the fastest
+// thing on the fleet, which is the silence-wins failure arriving from the
+// other direction.
+func TestOrderModelsFastestRanksFewestParametersMissingLast(t *testing.T) {
+	models := []FleetModel{
+		sized("big", 70_000_000_000, 8192),
+		sized("silent", 0, 131072),
+		sized("small", 8_000_000_000, 8192),
+	}
+	sameOrder(t, ids(orderModelsFastest(models)), "small", "big", "silent")
+
+	// Stable across replicas: two models that tie on every signal come back in
+	// the same order however the catalog was handed over.
+	a, b := sized("a:1b", 0, 0), sized("b:1b", 0, 0)
+	for range 20 {
+		sameOrder(t, ids(orderModelsFastest([]FleetModel{a, b})), "a:1b", "b:1b")
+		sameOrder(t, ids(orderModelsFastest([]FleetModel{b, a})), "a:1b", "b:1b")
+	}
+}
+
+// The owner's model preference is deliberately NOT consulted by `fastest`. A
+// preference list answers "which model do I want", which is the question
+// `strongest` asks; honouring it here would make the two selectors return the
+// same model on every fleet whose owner set one -- exactly the fleets where
+// the distinction was worth writing down.
+func TestOrderModelsFastestIgnoresTheOwnersPreference(t *testing.T) {
+	models := []FleetModel{
+		sized("big", 70_000_000_000, 8192),
+		sized("small", 8_000_000_000, 8192),
+	}
+	sameOrder(t, ids(orderModels(models, []string{"big"})), "big", "small")
+	sameOrder(t, ids(orderModelsFastest(models)), "small", "big")
+}
+
+// An unknown selector is an ERROR rather than a default. A defaulted ordering
+// is a routing decision nobody wrote: a typo in a policy would silently mean
+// "strongest" and the chain would look correct.
+func TestOrderBySelectorRefusesAnUnknownSelector(t *testing.T) {
+	if _, err := orderBySelector(nil, "quickest", nil); err == nil {
+		t.Fatal("an unknown selector was accepted")
+	} else if !strings.Contains(err.Error(), FleetSelectorStrongest) ||
+		!strings.Contains(err.Error(), FleetSelectorFastest) {
+		t.Fatalf("the error must name the selectors that exist, got %q", err)
+	}
+}
+
+// A SELECTOR is AVAILABLE when any model is online, because the concrete model
 // depends on what the call needs and the chain walk is asking a different
 // question: is there any local model at all.
-func TestTheWildcardEntryIsAvailableWhenAnyModelIsOnline(t *testing.T) {
+func TestASelectorEntryIsAvailableWhenAnyModelIsOnline(t *testing.T) {
 	r := newProviderRegistry("")
 	r.SetFleetInference(&stubFleet{models: []FleetModel{sized("llama3.1:8b", 8_000_000_000, 8192)}})
 
-	entry, ok := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	entry, ok := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 	if !ok || entry == nil {
-		t.Fatal("the wildcard must resolve to an entry")
+		t.Fatal("the selector must resolve to an entry")
 	}
 	if !entry.Available {
 		t.Fatalf("want available, got unavailable: %v", entry.Err())
@@ -139,16 +227,16 @@ func TestTheWildcardEntryIsAvailableWhenAnyModelIsOnline(t *testing.T) {
 	offline.Machines[0].Online = false
 	r2 := newProviderRegistry("")
 	r2.SetFleetInference(&stubFleet{models: []FleetModel{offline}})
-	entry2, _ := r2.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	entry2, _ := r2.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 	if entry2.Available {
-		t.Error("a fleet with nothing online must make the wildcard unavailable")
+		t.Error("a fleet with nothing online must make the selector unavailable")
 	}
 }
 
 // The concrete model is chosen PER CALL, from what the call needs. A fleet
 // running one structured model and one embeddings model serves both kinds of
-// turn through the same `fleet:*` reference.
-func TestTheWildcardPicksTheStrongestModelThatFitsTheCall(t *testing.T) {
+// turn through the same `fleet:strongest` reference.
+func TestTheSelectorPicksTheStrongestModelThatFitsTheCall(t *testing.T) {
 	chatBig := sized("llama3.3:70b", 70_000_000_000, 8192)
 	chatBig.Embeddings = false
 	embed := sized("nomic-embed-text", 137_000_000, 8192)
@@ -158,11 +246,11 @@ func TestTheWildcardPicksTheStrongestModelThatFitsTheCall(t *testing.T) {
 	fleet := &stubFleet{models: []FleetModel{chatBig, embed}, answer: "ok"}
 	r := newProviderRegistry("")
 	r.SetFleetInference(fleet)
-	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
 	chat := entry.Client.(common.ChatAIProvider)
 	if _, err := chat.CallChat(userCtx("alice"), []common.ChatMessage{{Role: "user", Content: "hi"}}); err != nil {
-		t.Fatalf("chat through the wildcard: %v", err)
+		t.Fatalf("chat through the selector: %v", err)
 	}
 	if fleet.lastReq.ModelId != "llama3.3:70b" {
 		t.Errorf("chat ran on %q, want the strongest eligible model", fleet.lastReq.ModelId)
@@ -178,9 +266,9 @@ func TestTheWildcardPicksTheStrongestModelThatFitsTheCall(t *testing.T) {
 	}
 }
 
-// The owner's preference reaches the wildcard resolver through the seam, so a
+// The owner's preference reaches the selector resolver through the seam, so a
 // policy edit changes routing with no restart.
-func TestTheWildcardHonoursTheOwnersModelPreference(t *testing.T) {
+func TestTheStrongestSelectorHonoursTheOwnersModelPreference(t *testing.T) {
 	fleet := &stubFleet{
 		models: []FleetModel{
 			sized("llama3.3:70b", 70_000_000_000, 8192),
@@ -191,7 +279,7 @@ func TestTheWildcardHonoursTheOwnersModelPreference(t *testing.T) {
 	}
 	r := newProviderRegistry("")
 	r.SetFleetInference(fleet)
-	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
 	if _, err := entry.Client.(common.ChatAIProvider).CallChat(
 		userCtx("alice"), []common.ChatMessage{{Role: "user", Content: "hi"}}); err != nil {
@@ -216,7 +304,7 @@ func TestAFailedPreferenceReadFallsBackToTheDefaultOrdering(t *testing.T) {
 	}
 	r := newProviderRegistry("")
 	r.SetFleetInference(fleet)
-	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
 	if _, err := entry.Client.(common.ChatAIProvider).CallChat(
 		userCtx("alice"), []common.ChatMessage{{Role: "user", Content: "hi"}}); err != nil {
@@ -227,17 +315,17 @@ func TestAFailedPreferenceReadFallsBackToTheDefaultOrdering(t *testing.T) {
 	}
 }
 
-// A wildcard whose fleet can serve nothing this call needs is the TYPED
-// refusal, naming every MODEL considered -- not every machine. `fleet:*` asked
-// about models, and a machine-shaped report would name one laptop once per
-// model it hosts.
-func TestAWildcardMissNamesTheModelsConsidered(t *testing.T) {
+// A selector whose fleet can serve nothing this call needs is the TYPED
+// refusal, naming every MODEL considered -- not every machine. The selector
+// asked about models, and a machine-shaped report would name one laptop once
+// per model it hosts.
+func TestASelectorMissNamesTheModelsConsidered(t *testing.T) {
 	proseOnly := sized("tinyllama:1b", 1_000_000_000, 2048)
 	proseOnly.StructuredOutput = false
 	fleet := &stubFleet{models: []FleetModel{proseOnly}}
 	r := newProviderRegistry("")
 	r.SetFleetInference(fleet)
-	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
+	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
 	_, err := entry.Client.(common.ChatStructuredProvider).CallChatStructured(
 		userCtx("alice"),

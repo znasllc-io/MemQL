@@ -21,6 +21,7 @@ func TestAIRuntimeCacheDefaultEnabled(t *testing.T) {
 	prompts := newPromptRegistry()
 	tmpl := template.Must(template.New("test").Parse("hello {{.name}}"))
 	prompts.set(&PromptTemplate{
+		Level:           "fast",
 		Name:            "testPrompt",
 		TemplateSource:  "hello {{.name}}",
 		tmpl:            tmpl,
@@ -38,7 +39,7 @@ func TestAIRuntimeCacheDefaultEnabled(t *testing.T) {
 		Available: true,
 	})
 
-	runtime := newAIRuntime(nil, prompts, providers, aiCacheConfig{
+	runtime := newTestAIRuntime(prompts, providers, aiCacheConfig{
 		DefaultEnabled: true,
 		MaxTTLSeconds:  120,
 	})
@@ -87,6 +88,7 @@ func TestAIRuntimeCacheStatsBaseline(t *testing.T) {
 	prompts := newPromptRegistry()
 	tmpl := template.Must(template.New("baseline").Parse("greeting {{.name}}"))
 	prompts.set(&PromptTemplate{
+		Level:           "fast",
 		Name:            "baselinePrompt",
 		TemplateSource:  "greeting {{.name}}",
 		tmpl:            tmpl,
@@ -104,7 +106,7 @@ func TestAIRuntimeCacheStatsBaseline(t *testing.T) {
 		Available: true,
 	})
 
-	runtime := newAIRuntime(nil, prompts, providers, aiCacheConfig{
+	runtime := newTestAIRuntime(prompts, providers, aiCacheConfig{
 		DefaultEnabled: true,
 		MaxTTLSeconds:  120,
 	})
@@ -154,6 +156,7 @@ func TestAIRuntimeCacheOverrideWhenDisabled(t *testing.T) {
 	prompts := newPromptRegistry()
 	tmpl := template.Must(template.New("test2").Parse("ping {{.value}}"))
 	prompts.set(&PromptTemplate{
+		Level:           "fast",
 		Name:            "ttlPrompt",
 		TemplateSource:  "ping {{.value}}",
 		tmpl:            tmpl,
@@ -171,7 +174,7 @@ func TestAIRuntimeCacheOverrideWhenDisabled(t *testing.T) {
 		Available: true,
 	})
 
-	runtime := newAIRuntime(nil, prompts, providers, aiCacheConfig{
+	runtime := newTestAIRuntime(prompts, providers, aiCacheConfig{
 		DefaultEnabled: false,
 		MaxTTLSeconds:  120,
 	})

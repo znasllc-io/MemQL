@@ -364,10 +364,15 @@ func matchConstructHeader(tokens []parser.Token, i int) (constructSpan, int, boo
 		return constructSpan{}, 0, false
 	}
 
+	// A lexer-promoted keyword is legal in the NAME position, exactly as the
+	// parser accepts it: `rule default { }` is a real shipped declaration, and
+	// a scanner that skipped it would shift every following span by one
+	// construct -- reporting the NEXT declaration with the previous one's body
+	// and failing source-hash parity on a construct nobody had edited.
 	idents := make([]int, 0, 2)
 	j := i + 1
 	for ; j < len(tokens) && len(idents) < 2; j++ {
-		if tokens[j].Type != parser.TokenIdentifier {
+		if tokens[j].Type != parser.TokenIdentifier && !parser.IsKeywordUsableAsName(tokens[j].Type) {
 			break
 		}
 		idents = append(idents, j)

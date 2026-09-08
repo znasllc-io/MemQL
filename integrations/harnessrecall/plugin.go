@@ -18,7 +18,7 @@ import (
 // then resolves to "no handler" rather than failing startup.
 func init() {
 	memql.RegisterPlugin("harnessRecall", func(pctx memql.PluginContext) (memql.IntegrationProvider, error) {
-		if pctx.EmbeddingProviderByName == nil {
+		if pctx.ResolveEmbeddingProvider == nil {
 			// No embedding provider on this node-type binary; recall
 			// cannot embed the query text. Opt out cleanly.
 			return nil, nil
@@ -38,7 +38,7 @@ func init() {
 			}
 			return bunDB.DB
 		})
-		integ.SetEmbeddingProvider(pctx.EmbeddingProviderByName)
+		integ.SetEmbeddingProvider(pctx.ResolveEmbeddingProvider)
 		return integ, nil
 	})
 }

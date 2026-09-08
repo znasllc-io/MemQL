@@ -75,6 +75,12 @@ type workJournal struct {
 	exec   journalExecutor
 	logger *slog.Logger
 	nodeId string
+
+	// classifier is the failure path's ONE model call, installed from app/ on
+	// a node that can reach a model. Nil is a working state: a table miss then
+	// falls to ActAsk, which is what a failed run did before any of this was
+	// wired. See failure_path.go.
+	classifier SymptomClassifier
 }
 
 // newWorkJournal returns nil when there is no executor, and every method
@@ -435,6 +441,17 @@ func (j *workJournal) closeRun(ctx context.Context, exec *AutomationExecution, c
 		// here, where a synthetic entry would claim a door nobody named.
 		if code, doors, ok := work.DoorsFrom(runFailure(exec)); ok {
 			j.parkOnInference(ctx, exec, chainHead, code, doors)
+			return
+		}
+
+		// EVERY OTHER FAILURE IS CLASSIFIED BEFORE IT IS RECORDED AS ONE
+		// (epic memql#5127, design D12). The deterministic rules run first and
+		// most failures never reach a model at all; the act they select lands
+		// on the run as a `waiting` state the sweep can serve, on the node that
+		// can serve it. classifyAndAct returns true when it wrote that state,
+		// in which case writing `failed` over the top of it here would undo the
+		// classification the moment it was made.
+		if j.classifyAndAct(ctx, exec, chainHead) {
 			return
 		}
 	}

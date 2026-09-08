@@ -11,9 +11,8 @@ import (
 // node into the *PolicyConfig the unified policy loader stores in
 // PolicyRegistry. Mirrors the validation rules the legacy
 // `parsePolicyMemQL` applied at the end of its parse: the policy
-// name + @primary are required; @fallback / @preferredRole lists
-// are passed through in declaration order; tuning knobs default
-// to zero.
+// name + @primary are required; the @fallback list is passed
+// through in declaration order.
 //
 // The loader (LoadUnifiedPolicies) overrides Name with the slice
 // name from `ExtractKeywordSlices` to keep parity with the legacy
@@ -32,12 +31,9 @@ func policyDeclToPolicyConfig(decl *ast.PolicyDecl) (*PolicyConfig, error) {
 		return nil, fmt.Errorf("policy %q: @primary is required", decl.Name)
 	}
 	return &PolicyConfig{
-		Name:                  decl.Name,
-		Description:           languageParser.EffectiveDescription(decl.DocComment, decl.Description),
-		Primary:               decl.Primary,
-		Fallbacks:             decl.Fallbacks,
-		MaxLatencyMs:          decl.MaxLatencyMs,
-		MaxTimeToFirstTokenMs: decl.MaxTimeToFirstTokenMs,
-		PreferredRoles:        decl.PreferredRoles,
+		Name:        decl.Name,
+		Description: languageParser.EffectiveDescription(decl.DocComment, decl.Description),
+		Primary:     decl.Primary,
+		Fallbacks:   decl.Fallbacks,
 	}, nil
 }

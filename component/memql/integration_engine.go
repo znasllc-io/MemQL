@@ -59,15 +59,13 @@ type IntegrationEngineAccess interface {
 	// feeding it to a streaming provider.
 	RenderPrompt(templateId string, data map[string]any) (string, error)
 
-	// ChatStreamProvider returns the default streaming chat provider, or nil.
-	ChatStreamProvider() common.ChatStreamProvider
-
-	// ChatStreamProviderByName returns a named streaming chat provider, or nil.
-	ChatStreamProviderByName(name string) common.ChatStreamProvider
-
-	// ChatStreamWithToolsProviderByName returns a named provider that supports
-	// streaming chat with tool calling, or nil.
-	ChatStreamWithToolsProviderByName(name string) common.ChatStreamWithToolsProvider
+	// THERE IS NO PROVIDER LOOKUP ON THIS SURFACE (epic memql#5127, design
+	// D2). ChatStreamProvider, ChatStreamProviderByName and
+	// ChatStreamWithToolsProviderByName were declared here, implemented by
+	// app/'s adapter, and called by nothing -- an integration that wants a
+	// model asks the router for one by declaring a level and a modality, and
+	// handing out a provider by name here would be a second way to reach the
+	// registry that records no decision and no rule can see.
 
 	// ToolDefinitionsForNames returns tool definitions for the given tool names.
 	ToolDefinitionsForNames(names []string) []common.ToolDefinition

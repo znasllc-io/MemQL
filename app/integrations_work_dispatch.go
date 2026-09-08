@@ -70,15 +70,23 @@ func (a *App) wireWorkRunDispatcher() {
 		return
 	}
 
-	d := &workRunDispatcher{
-		app: a,
-		exec: automations.NewExecutor(automations.ExecutorOptions{
-			Logger:       a.Logger,
-			Engine:       a.engine,
-			EventBus:     a.eventBus,
-			StepRegistry: a.stepRegistry,
-		}),
-	}
+	exec := automations.NewExecutor(automations.ExecutorOptions{
+		Logger:       a.Logger,
+		Engine:       a.engine,
+		EventBus:     a.eventBus,
+		StepRegistry: a.stepRegistry,
+	})
+
+	// THE FAILURE PATH'S ONE MODEL CALL (epic memql#5127, design D12). The
+	// executor classifies a failed run with the deterministic rules table
+	// first and reaches this only on a miss. Wiring it can only REDUCE the
+	// number of times a person is asked: with no classifier installed a table
+	// miss falls to ActAsk, which is what a failed run did before any of this
+	// existed, so an agent node that cannot reach a model degrades to the
+	// previous behaviour rather than to a worse one.
+	exec.SetSymptomClassifier(&workSymptomClassifier{engine: a.engine})
+
+	d := &workRunDispatcher{app: a, exec: exec}
 	work.SetDispatcher(d)
 	work.SetRunClaimer(a.clusterGuard)
 

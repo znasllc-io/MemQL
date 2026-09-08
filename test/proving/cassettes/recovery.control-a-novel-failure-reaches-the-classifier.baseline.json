@@ -1,0 +1,16 @@
+{
+  "scenario": "recovery.control-a-novel-failure-reaches-the-classifier",
+  "arm": "baseline",
+  "modelId": "synthetic",
+  "recordedAt": "2026-09-07",
+  "turns": [
+    {
+      "requestHash": "c6e040b5ed0c3d369358dfc2",
+      "prompt": "classifySymptom:reconcile:the upstream feed answered 811 and nobody has written a rule for that",
+      "response": "human",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  ]
+}

@@ -26,7 +26,10 @@ type Integration struct {
 	engine    memql.IntegrationEngineAccess
 	providers *memql.ProviderRegistry
 	policies  *memql.PolicyRegistry
-	logger    *slog.Logger
+	// ruleActivator arms runtime-authored routing rules. Installed from app/;
+	// nil on a node with no authored runtime, where the capability refuses.
+	ruleActivator RuleActivator
+	logger        *slog.Logger
 }
 
 // New builds a Router admin integration.
@@ -62,6 +65,16 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Name:        "listPolicies",
 			Description: "Return all routing policies loaded from policies/v1/*.memql. Feeds the /router/policies page.",
 			Handler:     i.handleListPolicies,
+		},
+		{
+			Name:        "activateRoutingRule",
+			Description: "Render a routing rule from a structured form, run it through the authoring gates, and arm it live. Owner or developer. No model is involved: the construct is a deterministic rendering of the form.",
+			Handler:     i.handleActivateRoutingRule,
+		},
+		{
+			Name:        "retireRoutingRule",
+			Description: "Retire a runtime-authored routing rule. A shipped rule is refused: the shipped set is re-read from the embedded tree on every boot, so one you want out of the way is out-ranked with a higher precedence rather than removed.",
+			Handler:     i.handleRetireRoutingRule,
 		},
 	}
 }
@@ -194,15 +207,16 @@ func (i *Integration) handleListPolicies(_ context.Context, _ map[string]any, _ 
 		if p == nil {
 			continue
 		}
+		// maxLatencyMs / maxTimeToFirstTokenMs / preferredRoles are GONE from
+		// this projection with the annotations behind them (epic memql#5127).
+		// They were shown to an operator as though they governed selection,
+		// and nothing read them.
 		payload := map[string]any{
-			"name":                  p.Name,
-			"description":           p.Description,
-			"primary":               p.Primary,
-			"fallbacks":             p.Fallbacks,
-			"chain":                 p.ProviderChain(),
-			"maxLatencyMs":          p.MaxLatencyMs,
-			"maxTimeToFirstTokenMs": p.MaxTimeToFirstTokenMs,
-			"preferredRoles":        p.PreferredRoles,
+			"name":        p.Name,
+			"description": p.Description,
+			"primary":     p.Primary,
+			"fallbacks":   p.Fallbacks,
+			"chain":       p.ProviderChain(),
 		}
 		raw, _ := json.Marshal(payload)
 		nodes = append(nodes, memorynodes.MemoryNode{

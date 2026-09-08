@@ -134,6 +134,8 @@ type (
 	ActionCallArg         = ast.ActionCallArg
 	CapabilityDecl        = ast.CapabilityDecl
 	PolicyDecl            = ast.PolicyDecl
+	RuleDecl              = ast.RuleDecl
+	RuleWhen              = ast.RuleWhen
 	SeedDecl              = ast.SeedDecl
 	SeedBlock             = ast.SeedBlock
 	SeedValue             = ast.SeedValue

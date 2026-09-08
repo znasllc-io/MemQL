@@ -31,6 +31,8 @@ import (
 	"github.com/znasllc-io/memql/component/events"
 	"github.com/znasllc-io/memql/component/identity"
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/routingrules"
+	integrationsrouter "github.com/znasllc-io/memql/integrations/router"
 )
 
 // wireAuthoredRuntime constructs + wires the authored-construct runtime. Called
@@ -111,6 +113,34 @@ func (a *App) wireAuthoredRuntime() {
 	// scheduler exist and BEFORE the re-arm, so a rule armed by a re-armed
 	// bundle finds the seam already wired.
 	emailrules.Bind(emailrules.EngineAdapter{Engine: a.engine}, a.AuthoredRuntimeDeps)
+
+	// Routing rules (epic memql#5127, design D7) bind through the same seam and
+	// for the same reason: a rule an owner adds is a `rule` construct, the
+	// authored runtime is what compiles and arms one, and both halves of the
+	// handoff -- ActivateApprovedBundle on the concrete engine, and the deps
+	// assembled from this App -- are outside PluginContext.
+	//
+	// The shipped-name check reads the LIVE registries rather than a list, so
+	// adding a shipped rule never requires editing anything here.
+	routingrules.Bind(
+		routingRuleEngine{engine: a.engine},
+		a.AuthoredRuntimeDeps,
+		routingrules.EngineShippedNames{Engine: a.engine},
+	)
+
+	// And the other half of that handoff: the router integration serves the
+	// two builtins and cannot import component/routingrules (its module
+	// requires the root module at a PUBLISHED version, and the package is
+	// newer than any of them), so app/ installs the adapter on it here.
+	//
+	// A node where the integration did not materialize installs nothing and
+	// the capability refuses by name, which is the visible failure rather than
+	// the silent one.
+	if ri := integrationsrouter.Materialized(); ri != nil {
+		ri.SetRuleActivator(routingRuleActivatorAdapter{})
+		a.Logger.Info("routing-rule authoring wired: an owner or developer can add a rule at runtime and it survives a restart",
+			"component", "router")
+	}
 
 	// Boot re-arm (#1039): re-register every already-active bundle across all
 	// owners so their automations fire again after a restart, with no manual
@@ -252,4 +282,23 @@ func (a *App) authoredAuditLogger() identity.AuditLogger {
 		Logger: a.Logger,
 		DB:     &identity.EngineAuditSink{Engine: a.engine, Logger: a.Logger},
 	}
+}
+
+// routingRuleEngine adapts the concrete engine to component/routingrules'
+// narrow Engine. It exists for the reason emailrules.EngineAdapter does: the
+// package declares the three operations it needs so its dependency reads as
+// three named calls rather than as the whole engine, and the adapter is where
+// the concrete method set meets that declaration.
+type routingRuleEngine struct{ engine *memql.MemQLEngine }
+
+func (r routingRuleEngine) Execute(ctx context.Context, query string) (*memql.ExecuteResult, error) {
+	return r.engine.Execute(ctx, query)
+}
+
+func (r routingRuleEngine) ActivateApprovedBundle(ctx context.Context, owner, bundleId string, deps memql.AuthoredRuntimeDeps) (memql.ActivationResult, error) {
+	return r.engine.ActivateApprovedBundle(ctx, owner, bundleId, deps)
+}
+
+func (r routingRuleEngine) RetireActiveBundle(ctx context.Context, owner, bundleId string, deps memql.AuthoredRuntimeDeps) error {
+	return r.engine.RetireActiveBundle(ctx, owner, bundleId, deps)
 }

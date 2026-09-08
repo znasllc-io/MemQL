@@ -26,9 +26,12 @@ type MemQLEngine interface {
 	// the rendered text. Used to build the system prompt for the streaming
 	// tool loop.
 	RenderPrompt(templateId string, data map[string]any) (string, error)
-	// ChatStreamWithToolsProviderByName returns a named provider that supports
-	// streaming chat with tools. Used by the streaming tool loop.
-	ChatStreamWithToolsProviderByName(name string) common.ChatStreamWithToolsProvider
+	// ChatStreamWithToolsProviderByName IS GONE (epic memql#5127, design D2).
+	// The comment it carried -- "used by the streaming tool loop" -- had
+	// stopped being true: the loop resolves its provider through the router,
+	// and this declaration was satisfied by app/'s adapter and invoked by
+	// nothing. A named lookup here would be a second way to reach a model that
+	// records no decision.
 	// ToolDefinitionsForNames returns tool definitions for the given tool names.
 	ToolDefinitionsForNames(names []string) []common.ToolDefinition
 	// ExecuteToolByName looks up a tool by name and executes it with args.

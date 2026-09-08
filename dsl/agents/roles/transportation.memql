@@ -17,7 +17,6 @@ seed agentRole commercial-pilot-educator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "strongReasoning"
   systemPromptHints:     "Educational only. Never substitute for FAA-approved training or a CFI; always refer the pilot to their flight instructor and the current FARs."
   predefined:            true
 }

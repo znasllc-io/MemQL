@@ -15,7 +15,6 @@ seed agentRole civic-navigator {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -29,6 +28,5 @@ seed agentRole nonprofit-program-manager {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }

@@ -29,6 +29,7 @@ type promptDecl struct {
 	docComment      string
 	name            string
 	description     string
+	level           string // @level -- how much intelligence the call needs
 	defaultProvider string
 	templateSource  string // inline template from @template("""...""")
 	templateFile    string // external template file from @templateFile("...")

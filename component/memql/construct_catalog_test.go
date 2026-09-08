@@ -200,6 +200,14 @@ func catalogEnumeratesEveryKind(t *testing.T) {
 	if got, want := len(groups[ConstructKindSeed]), len(eng.seeds.All()); got != want {
 		t.Errorf("seed count: catalog %d, seed registry %d", got, want)
 	}
+	// Rules (epic memql#5127). The loader is wired, so both sides are the six
+	// shipped rules; the parity is what catches a corpus and a loader moving
+	// apart, in either direction. A rule loaded by nothing and reported by
+	// nothing produces no error anywhere, which is why the count is asserted
+	// rather than the presence.
+	if got, want := len(groups[ConstructKindRule]), eng.rules.Count(); got != want {
+		t.Errorf("rule count: catalog %d, rule registry %d", got, want)
+	}
 
 	// The function + spec registries hold several kinds each, so parity is over
 	// the sum: every entry is reported exactly once, under exactly one kind.
@@ -219,7 +227,7 @@ func catalogEnumeratesEveryKind(t *testing.T) {
 		ConstructKindConcept, ConstructKindQuery, ConstructKindMutation,
 		ConstructKindLogic, ConstructKindTool, ConstructKindSpec,
 		ConstructKindTrait, ConstructKindShape, ConstructKindPrompt,
-		ConstructKindProvider, ConstructKindBuiltin, ConstructKindPolicy,
+		ConstructKindProvider, ConstructKindBuiltin, ConstructKindPolicy, ConstructKindRule,
 		ConstructKindSeed,
 	} {
 		if len(groups[kind]) == 0 {

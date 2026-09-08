@@ -159,6 +159,17 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		status := rowString(run, "status")
 
 		if status == runStatusWaiting {
+			// A CLASSIFIED FAILURE'S ACT IS SERVED FIRST (epic memql#5127).
+			// It is checked before the inference park and the timer because
+			// those two ask different questions of the same field: a `retry`
+			// wait carries a resumeAt exactly as a timer does, and reaching
+			// timerDue first would release it to `running` WITHOUT a dispatch
+			// -- a run at `running` that nobody is executing, which the
+			// abandoned sweep then closes saying the node stopped answering.
+			if i.serveFailureWait(ctx, run, runId, owner, now, &res) {
+				continue
+			}
+
 			// A RUN PARKED ON A SHUT INFERENCE DOOR IS RE-TRIED
 			// (epic memql#5096, design D9), and it is the ONE approval kind
 			// that is. Every other kind waits on a person, and handing one

@@ -10,6 +10,7 @@ import (
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/router"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/env"
 )
@@ -118,17 +119,18 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 		}
 	}
 
-	// Isolate the lane's provider selection (memql#897). prepareTurn set
-	// PolicyName from the agent's INTERACTIVE preferences (its stored policy
-	// or the role default). Background work runs on its own policy so the
-	// chain (and, via #898, the model tier) is tuned independently of live
-	// chat. A per-turn explicit provider pin still wins -- routerReq
-	// precedence is ExplicitProvider > PolicyName -- so an admin hotfix hint
-	// is honored, but the agent's stored interactive policy no longer leaks
-	// into the background lane. The rate-budget isolation is independent of
-	// this and holds even when both lanes resolve the same provider (the
-	// si_guard buckets are split by context, not by provider).
-	prep.routerReq.PolicyName = backgroundExecutionPolicy
+	// Isolate the lane (memql#897). The background lane says what it IS --
+	// a turn nobody is waiting on, on the non-streaming tool surface -- and
+	// the shipped `backgroundLane` rule decides what serves it. The lane used
+	// to name its own policy here, which meant the isolation lived in a Go
+	// constant nobody could see from the routing decision.
+	//
+	// A per-turn explicit provider pin still wins, so an admin hotfix hint is
+	// honoured. The rate-budget isolation is independent of all of this and
+	// holds even when both lanes resolve the same provider: the guard buckets
+	// split by context, not by provider.
+	prep.routerReq.Tags = []string{airoute.TagBackground}
+	prep.routerReq.Modality = airoute.ModalityTools
 
 	provider, resolved, err := r.router.ResolveWithTools(prep.routerReq)
 	if err != nil {
@@ -181,8 +183,11 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 // to skip a no-op escalation.
 func (r *Replier) resolveBackgroundEscalation(baseReq router.ResolveRequest, cheapProviderName string) common.ToolCallingChatAIProvider {
 	escReq := baseReq
-	escReq.ExplicitProvider = "" // escalation always uses the strong policy chain
-	escReq.PolicyName = backgroundEscalationPolicy
+	escReq.ExplicitProvider = "" // escalation always goes through the rules
+	// The escalation tag is what the shipped `backgroundEscalation` rule keys
+	// on, and that rule RAISES THE LEVEL rather than naming a stronger model
+	// -- which is the whole reason the escalation survives a fleet change.
+	escReq.Tags = []string{airoute.TagBackgroundEscalation}
 	provider, resolved, err := r.router.ResolveWithTools(escReq)
 	if err != nil {
 		r.logger.Warn("agentReply: background escalation tier unavailable; staying on cheap tier",

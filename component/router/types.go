@@ -4,10 +4,14 @@
 // per call (tokens, cost, latency, outcome), and hands the wrapped provider
 // back to the caller.
 //
-// Phase 1 scope: observability and attribution for existing OpenAI and
-// Anthropic providers. Policy evaluation, fallback chains, BYOK, and
-// budgets land in later phases. Selection today is strictly "explicit
-// provider > default provider"; policies become a third input in Phase 2.
+// SELECTION IS RULE-DRIVEN (epic memql#5127). A call declares a LEVEL and
+// carries the metadata a rule may branch on; the router matches the first rule
+// in the registry's evaluation order, takes the POLICY that rule names, walks
+// the policy's expanded chain, and either resolves an entry or degrades to the
+// next level down -- or parks, when the rule says so. An explicit provider pin
+// still wins over all of it, and nothing else does: there is no default-provider
+// tier and no caller-supplied policy name any more, because both were ways for
+// a call site to make a routing decision the rules could not see.
 //
 // Design notes
 //
@@ -30,69 +34,21 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/airoute"
 )
 
-// ResolveRequest carries the attribution and selection inputs for one
-// router resolution. Every field is optional except that SOMETHING must
-// pick a provider or a policy.
+// ResolveRequest is the shared vocabulary's request, aliased so that
+// router.ResolveRequest keeps resolving for every existing caller.
 //
-// Selection precedence (first non-empty wins):
-//  1. ExplicitProvider  (caller pinned a specific registry entry)
-//  2. PolicyName        (caller picked a policy -- primary + fallbacks)
-//  3. DefaultProvider   (caller's pre-policy default)
-//  4. Registry default  (engine-wide default provider)
-type ResolveRequest struct {
-	// RequestId correlates the router call to an upstream request --
-	// cognition turn, suggest envelope, prompt invocation. The router
-	// stamps a UUID when the caller leaves this empty.
-	RequestId string
+// It LIVES in core/airoute rather than here because the seam's two halves are
+// separate Go modules pointing one way: this package imports component/memql,
+// and the call sites that build a request live inside component/memql.
+// Declaring the request here would make every one of those an import cycle.
+type ResolveRequest = airoute.ResolveRequest
 
-	// AgentId, UserId, PromptName are attribution fields written
-	// straight to the v1:router:call row. Leave empty when a given
-	// dimension doesn't apply (e.g. AgentId is empty for a suggest
-	// call). (Epic 3 3.2 #1899: the product's space-attribution field
-	// was dropped -- the tenant scope is Partition; per-space AI-cost
-	// attribution is a product-pack concern.)
-	AgentId    string
-	UserId     string
-	PromptName string
-
-	// Partition is the tenant scope. The mutation call is executed
-	// under this partition; rows land in the tenant's usage ledger.
-	// Leave empty to use the engine's current-partition default.
-	Partition string
-
-	// CloudConsent is an explicit, human decision to let this call reach a
-	// paid provider when the local one is unavailable (epic memql#4676,
-	// design D2).
-	//
-	// It exists because "park, never fall back" needs a way for a person to
-	// say yes -- and a way that is legible as a decision. It is a REQUEST
-	// FIELD rather than ambient state so it reaches exactly the calls the
-	// consenting surface makes: a stored flag would have to be expired by
-	// somebody, and the somebody is what gets forgotten, leaving a cluster
-	// that "asked once" quietly billing forever.
-	//
-	// Absent is the default everywhere, which is the direction that cannot
-	// spend money by omission.
-	CloudConsent bool
-
-	// ExplicitProvider names a specific provider registry entry
-	// (e.g. "stream54Mini", "streamClaudeSonnet"). Takes precedence
-	// over PolicyName and DefaultProvider when set.
-	ExplicitProvider string
-
-	// PolicyName names a routing policy from policies/v1/<name>.memql.
-	// When set (and ExplicitProvider is empty), the router uses the
-	// policy's primary provider and tries fallbacks on pre-flight
-	// error.
-	PolicyName string
-
-	// DefaultProvider is what the caller would have picked absent any
-	// agent-level override. Used when neither ExplicitProvider nor
-	// PolicyName is set.
-	DefaultProvider string
-}
+// Resolution is the shared vocabulary's answer: the entry that was picked and
+// the whole decision that led there.
+type Resolution = airoute.Resolution
 
 // Resolved describes the provider the router picked and is returned to
 // the caller alongside the wrapped provider. Callers log this so the
@@ -105,7 +61,24 @@ type Resolved struct {
 	Pricing      memql.Pricing // per-million-token USD prices (may be zero-valued)
 	Streaming    bool          // true when the wrapped path is a streaming interface
 	PolicyName   string        // non-empty when selection came from a policy
-	Chain        []string      // full provider chain (primary + fallbacks), for logging
+	Chain        []string      // the concrete chain from the winner on, for the fallback walk
+
+	// Decision is the whole resolution in the record's own words: the level
+	// asked for, the level served, the rule and policy that decided, the door
+	// the winner came through, and the entries considered on the way.
+	//
+	// It is filled on SUCCESS, not only on refusal (design D10). The pre-rules
+	// router accumulated exactly this report and dropped it with the stack
+	// frame the moment an entry won, so the only decisions that could ever be
+	// read back were the ones that failed -- and a rule is falsifiable only if
+	// the decisions it MADE can be read.
+	Decision airoute.Decision
+
+	// Entry is the registry record the chain walk picked, handed back so
+	// component/memql's own callers keep the provider's configuration -- its
+	// answer-affecting parameters and its declared modality -- without a
+	// second lookup that could resolve differently.
+	Entry *memql.ProviderConfigEntry
 }
 
 // CallRecord is the payload for one v1:router:call row. Populated by
@@ -150,6 +123,37 @@ type CallRecord struct {
 	ErrorCategory     string
 	ErrorMessage      string
 	FallbackFromModel string // set on fallback_used rows: the model that failed
+
+	// THE DECISION (design D10). What the call asked for, what served it, and
+	// which rule decided -- carried on every row, success and refusal alike,
+	// so a park is as legible as a hit.
+	//
+	// Nothing writes these to v1:router:call yet; the concept fields, the
+	// mutation and the routerDecisionsRecent query are memql#5132's. They are
+	// populated here because the resolution is the only moment that knows
+	// them, and a field filled in later from a re-derivation would be a second
+	// answer to a question the router already answered.
+	Level string
+	// RequestedLevel is what the CALL declared, before a rule overrode it.
+	// Equal to Level when no rule raised or lowered it, which is how a rule's
+	// effect is visible on the record without diffing the rule set.
+	RequestedLevel string
+	ServedLevel    string
+	Degraded       bool
+	Rule           string
+	Policy         string
+	Door           string
+	// Considered is the door report, in the order the chain was walked.
+	Considered []airoute.ConsideredEntry
+	// Touches is the call's footprint, copied from the request.
+	Touches []string
+	// MinContextTokens is the floor the resolution was made against. It sits
+	// beside the winning model's window, which is what makes an under-counted
+	// estimate diagnosable rather than merely wrong.
+	MinContextTokens int
+	// MachineOwnerUserId names whose machine served a local call. Empty until
+	// epic 4 (shared machines) fills it.
+	MachineOwnerUserId string
 
 	// Billing says who PAID (memql#4362): "metered" (MemQL's own
 	// vendor spend, which is what the cost fields above are about),

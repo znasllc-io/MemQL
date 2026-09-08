@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/events"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -25,6 +26,14 @@ type aiRuntime struct {
 	// value the engine holds. Nil-safe: a runtime built without one calls
 	// straight through.
 	seam *modelSeam
+
+	// resolve is the router seam (epic memql#5127). It is a FUNCTION rather
+	// than the engine, because this type is constructed before the engine
+	// finishes wiring and holding the engine would make the runtime's
+	// lifetime the engine's. Nil is not a working state: it refuses, for the
+	// reason ai_resolver.go gives -- the fallback would be the registry
+	// default this epic deletes.
+	resolve func(context.Context, airoute.ResolveRequest) (ResolvedProvider, error)
 
 	// semantic is the optional vector (similarity) cache layer (5.9). It
 	// sits AFTER the exact-hash cache: exact-hash check first (cheap),
@@ -103,31 +112,39 @@ func (r *aiRuntime) Invoke(ctx context.Context, invocation *AIInvocation, data a
 		return nil, fmt.Errorf("executing prompt template %q: %w", prompt.Name, err)
 	}
 
-	providerName, err := r.resolveProviderName(prompt, invocation)
+	// ONE SEAM (epic memql#5127, design D2). The prompt declares a LEVEL and
+	// the call derives the modality; which model serves it is the router's
+	// decision, made from the rules and recorded on v1:router:call.
+	//
+	// The typed refusal a caller matches on survives, and is now the ROUTER's
+	// rather than this path's: a run that cannot be served parks on the door
+	// report instead of failing, which is what lets it resume when a machine
+	// wakes. The old branch reconstructed that shape here from a registry
+	// miss, and could only ever produce it for a `fleet:` name -- a shut app
+	// door or an exhausted chain fell through to a generic error.
+	req, err := requestForPrompt(prompt, invocation, airoute.ModalityChat, text)
 	if err != nil {
 		return nil, err
 	}
-
-	// EntryForContext, not Entry: a `fleet:<modelId>` provider resolves
-	// against the ACTING USER'S machines (epic memql#4676), and the caller's
-	// actor is on ctx. Resolving it context-free would answer for the
-	// shared-inference set instead -- reporting a user's own awake laptop as
-	// unavailable.
-	entry, ok := r.providers.EntryForContext(ctx, providerName)
-	if !ok || entry == nil || !entry.Available || entry.Client == nil {
-		// A FLEET provider that is unavailable is the TYPED refusal, not a
-		// generic one. The difference is the whole of design D2 on this path:
-		// a planner Task PARKS on `no_local_model_available` and resumes when
-		// a machine wakes, where a generic error FAILS the plan and makes the
-		// user start over for a laptop that was merely asleep. errors.As is
-		// what the planner matches on, so the shape has to survive here.
-		if modelId, isFleet := IsFleetReference(providerName); isFleet {
-			return nil, r.providers.FleetRefusal(ctx, actingUserFromContext(ctx), modelId)
-		}
-		return nil, ErrProviderUnavailable(providerName)
+	if r.resolve == nil {
+		// Not a working state, and it refuses rather than resolving a default:
+		// falling back here would reintroduce the registry-default path this
+		// epic deletes, on precisely the nodes where nobody wired the router.
+		return nil, ErrAIResolverUnwired
 	}
-
-	// Validate provider supports text modality for ai() expressions
+	resolved, err := r.resolve(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	entry := resolved.Entry
+	resolution := resolved.Resolution
+	providerName := resolution.ProviderName
+	if entry == nil || entry.Client == nil {
+		return nil, fmt.Errorf("the router resolved %q for an ai() expression and handed back no provider record", providerName)
+	}
+	// An ai() expression is TEXT, and the registry's own modality flag is what
+	// says whether a record serves one. The router interface-checked the chat
+	// surface; this is the narrower question the expression asks.
 	if !entry.Config.SupportsText() {
 		return nil, fmt.Errorf("provider %q (modality: %s) cannot be used in ai() expressions; only text-based providers are supported",
 			providerName, entry.Config.ResolvedModality())
@@ -193,13 +210,13 @@ func (r *aiRuntime) Invoke(ctx context.Context, invocation *AIInvocation, data a
 	// billed, which is what `served: "local"` records -- the scorecard counts
 	// subscription and local spend separately from the dollar ceiling.
 	_, isFleet := IsFleetReference(providerName)
-	req := common.ModelRequest{
+	journalReq := common.ModelRequest{
 		Provider: providerName,
-		Model:    entry.Config.Model,
+		Model:    resolution.Model,
 		Settings: answerAffectingParams(entry.Config.Params),
 		Messages: []common.ChatMessage{{Role: "user", Content: text}},
 	}
-	result, err := r.seam.serve(ctx, req, invocation.TemplateId, func(ctx context.Context) (modelCallOutcome, error) {
+	result, err := r.seam.serve(ctx, journalReq, invocation.TemplateId, func(ctx context.Context) (modelCallOutcome, error) {
 		v, callErr := entry.Client.Call(ctx, text)
 		return modelCallOutcome{Value: v, Local: isFleet}, callErr
 	})
@@ -259,24 +276,6 @@ func (r *aiRuntime) cacheTTL(invocation *AIInvocation) time.Duration {
 		return 0
 	}
 	return time.Duration(maxSeconds) * time.Second
-}
-
-func (r *aiRuntime) resolveProviderName(prompt *PromptTemplate, invocation *AIInvocation) (string, error) {
-	if r == nil || r.providers == nil {
-		return "", fmt.Errorf("provider registry is not configured")
-	}
-	if invocation != nil && invocation.ProviderOverride != nil {
-		if trimmed := strings.TrimSpace(*invocation.ProviderOverride); trimmed != "" {
-			return trimmed, nil
-		}
-	}
-	if prompt != nil && strings.TrimSpace(prompt.DefaultProvider) != "" {
-		return strings.TrimSpace(prompt.DefaultProvider), nil
-	}
-	if defaultName := r.providers.Default(); strings.TrimSpace(defaultName) != "" {
-		return strings.TrimSpace(defaultName), nil
-	}
-	return "", ErrProviderUnavailable("(default)")
 }
 
 func (r *aiRuntime) resolvePrompt(id string) (*PromptTemplate, error) {

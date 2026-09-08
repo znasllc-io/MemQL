@@ -20,6 +20,7 @@
 /// Emitting an EMPTY actions list (with silentReason) is the correct, common output -- the loop
 /// stays silent when nothing is actionable. The planner integration applies a quiet/dedup guard on
 /// top so a confident-but-repetitive action does not spam the user.
+@level("strong")
 @defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/reactiveConductor.tmpl")
 prompt reactiveConductor {
@@ -44,6 +45,7 @@ prompt reactiveConductor {
 /// instead of a serial decompose chain. Fast/cheap tier (chat54Mini) by design. Output contract:
 /// {complexity: 'trivial'|'moderate'|'complex', reasoning: '<one short sentence>', sectionable?:
 /// bool, assembly?: '<one sentence>', sections?: [{label, instruction}]}.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/goalComplexityTriage.tmpl")
 prompt goalComplexityTriage {

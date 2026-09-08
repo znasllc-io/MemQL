@@ -16,6 +16,7 @@ import (
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/router"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/env"
 	"github.com/znasllc-io/memql/core/logger"
@@ -245,37 +246,36 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	// hiccups. Ordinary turns are untouched (the hint is absent).
 	toolNames = ScopeToolsForDeliverableSurface(msg.Hints, toolNames)
 
-	// Provider selection runs through the MemQL AI Router. The replier
-	// still owns the default policy (operator-capable agents get
-	// strongReasoning because the prompt is long and tool-calling
-	// choreography punishes instruction-following lapses); resolution,
-	// observability, and ledger recording all live behind
-	// router.ResolveStreamWithTools.
+	// Provider selection runs through the MemQL AI Router, and the replier no
+	// longer owns any part of the decision (epic memql#5127). It says what
+	// the turn IS -- an `agentReply` at level `strong`, acting as this
+	// agent's role -- and the RULES decide what serves it. The role-to-policy
+	// literal that used to live here (strongReasoning for an operator,
+	// balancedChat otherwise) is now the shipped `operatorReasoning` rule,
+	// where it is data an owner can read, override and see on every decision
+	// record.
 	//
-	// Precedence (highest wins):
+	// What is left is the PIN, which still wins over every rule, in the order
+	// it always had:
 	//   1. Per-turn hint on the message (cognition override, used for
 	//      hot-fixing a specific turn).
 	//   2. Agent's stored providerConfig.llm.provider -- the user's
 	//      explicit choice on the agent record.
 	//   3. Agent's stored providerConfig.llm.model (promoted to
-	//      provider when the model id matches a provider registry
-	//      name, common case in the policy catalog).
-	//   4. Agent's stored providerConfig.llm.policyName.
-	//   5. Role-based default policy (strongReasoning for operator,
-	//      balancedChat otherwise).
-	//   6. Deploy-time env default (MEMQL_OPERATOR_AGENT_PROVIDER /
-	//      MEMQL_DEFAULT_AGENT_PROVIDER) -- the router's DefaultProvider
-	//      slot, only consulted if 1-5 are all empty.
-	//   7. Router registry global default.
+	//      provider when the model id matches a provider registry name).
+	//   4. Deploy-time env pin (MEMQL_OPERATOR_AGENT_PROVIDER /
+	//      MEMQL_DEFAULT_AGENT_PROVIDER).
 	explicitProvider := strings.TrimSpace(msg.Hints["provider"])
 	explicitModel := strings.TrimSpace(msg.Hints["model"])
 
 	// Agent-stored preferences (surfaced via buildPromptData -> assistant.*).
-	// Precedence for selection: hint > agent's explicit model > agent's
-	// policy > operator-based default policy > registry default.
+	//
+	// providerConfig.llm.policyName is NOT read any more. A stored policy name
+	// was a call site naming a chain, which is the decision rules took over;
+	// an agent that wants a different chain gets a rule, where the choice is
+	// visible to everyone rather than buried on one row.
 	agentExplicitProvider := agentLLMField(data, "provider")
 	agentExplicitModel := agentLLMField(data, "model")
-	agentPolicyName := agentLLMField(data, "policyName")
 
 	if explicitProvider == "" {
 		explicitProvider = agentExplicitProvider
@@ -294,35 +294,43 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	}
 
 	operatorEnabled, _ := data["operatorEnabled"].(bool)
-	policyName := agentPolicyName
-	if policyName == "" {
-		if operatorEnabled {
-			policyName = "strongReasoning"
-		} else {
-			policyName = "balancedChat"
-		}
+
+	// Deploy-time env pins for ops tuning. They ride ExplicitProvider now,
+	// because the DefaultProvider slot they used to fill is gone with the
+	// pre-rules precedence -- and a deploy-time provider name is a PIN, which
+	// is the one thing that still outranks a rule.
+	//
+	// Under the old precedence they were effectively dead: it read explicit,
+	// then policy, then default, and the policy name was never empty, so the
+	// default slot was reached only when a policy lookup missed. Epic 3 (open
+	// weight defaults) deletes both variables outright; until then they mean
+	// what an operator who set them expected.
+	if explicitProvider == "" && operatorEnabled {
+		explicitProvider = strings.TrimSpace(os.Getenv("MEMQL_OPERATOR_AGENT_PROVIDER"))
+	}
+	if explicitProvider == "" {
+		explicitProvider = strings.TrimSpace(os.Getenv("MEMQL_DEFAULT_AGENT_PROVIDER"))
 	}
 
-	// Deploy-time env overrides for ops tuning -- still honoured, but
-	// now as a default-provider hint the router sees alongside the
-	// policy. If both a policy and a default-provider override are
-	// live, the explicit-provider wins and the policy is ignored
-	// because we populated DefaultProvider below.
-	defaultProvider := ""
+	// ROLE IS WHAT IS ACTING, not who is watching. It is the agent's own role
+	// slug, and an operator-capable agent acts as `operator` -- which is what
+	// the shipped operatorReasoning rule keys on. The calling human's cluster
+	// role is the separate ActorRole field, deliberately left unset here: a
+	// human operator driving an ordinary agent is an ordinary turn.
+	role := strings.TrimSpace(msg.GetActingAgent().GetRole())
 	if operatorEnabled {
-		defaultProvider = strings.TrimSpace(os.Getenv("MEMQL_OPERATOR_AGENT_PROVIDER"))
-	}
-	if defaultProvider == "" {
-		defaultProvider = strings.TrimSpace(os.Getenv("MEMQL_DEFAULT_AGENT_PROVIDER"))
+		role = "operator"
 	}
 
 	routerReq := router.ResolveRequest{
 		RequestId:        msg.RequestId,
 		AgentId:          msg.AgentId,
 		PromptName:       "agentReply",
+		Level:            airoute.LevelStrong,
+		Modality:         airoute.ModalityStreamingTools,
+		Needs:            airoute.Needs{Tools: true},
+		Role:             role,
 		ExplicitProvider: explicitProvider,
-		PolicyName:       policyName,
-		DefaultProvider:  defaultProvider,
 	}
 	// Provider resolution + the tool loop are the lane-specific caller's
 	// job (handleStreaming resolves stream-with-tools; handleBackground

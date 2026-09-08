@@ -102,7 +102,6 @@ shape agentRole agentRoleFull {
   availableSkillIds
   forbiddenSkillIds
   maxSkills
-  recommendedPolicySlug
   systemPromptHints
   active
   predefined

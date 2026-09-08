@@ -895,6 +895,11 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 					}
 				}
 				if !retried {
+					// Every attempt was spent: the initial one plus RetryCount
+					// retries. The symptom table's stall rule keys on exactly
+					// this, and it sits above every transient matcher so a
+					// repeated action escalates instead of retrying forever.
+					exec.RecordFailedStep(step, step.RetryCount+1)
 					exec.Fail(err)
 					// The last attempt's receipt, so the row does not sit at
 					// `running` forever when every retry was spent.
@@ -904,6 +909,7 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 					return exec, err
 				}
 			default: // ErrorStrategyStop
+				exec.RecordFailedStep(step, 1)
 				exec.Fail(err)
 				journal.closeRun(ctx, exec, chainHead)
 				e.handleAutomationError(ctx, automation, exec, triggeringEvent, err)
@@ -1222,6 +1228,13 @@ func (e *Executor) publishEvent(topic string, kind events.Kind, payload map[stri
 func (e *Executor) emitPreconditionMiss(automation *Automation, exec *AutomationExecution, triggeringEvent *events.Event, missed *Precondition) {
 	if missed == nil {
 		return
+	}
+	// The same fact the event carries, kept on the execution so the failure
+	// path's symptom table can read it as a value (epic memql#5127). The event
+	// reaches the healer on whichever replica subscribed; this reaches the
+	// journal on THIS one, and neither substitutes for the other.
+	if exec != nil {
+		exec.PreconditionMissed = true
 	}
 	payload := map[string]any{
 		"automationName":          automation.Name,

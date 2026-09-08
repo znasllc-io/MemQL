@@ -37,9 +37,31 @@ mutate call recordRouterCall {
     billing             enum("metered", "subscription", "local", "unknown")
     /// Where the call ran; empty for MemQL's own provider calls.
     executionSurface    string
+    /// The level the call was resolved at, after any rule override.
+    level               string
+    /// The level the CALL declared, before a rule overrode it.
+    requestedLevel      string
+    /// The level that actually served; differs from level only when degraded.
+    servedLevel         string
+    /// True when the chain was exhausted at the requested level and the rule said degrade.
+    degraded            bool
+    /// The rule that matched. Empty only for a call pinned with an explicit provider.
+    rule                string
+    /// The policy that rule named, after policy: expansion.
+    policy              string
+    /// local | app | federation -- which door the winning entry belongs to.
+    door                string
+    /// The door report: every entry the walk passed over, and the one it took.
+    considered          []object
+    /// The call's footprint, so a decision can be filtered by what it was about.
+    touches             []string
+    /// The context-window floor this resolution was made against. Never zero.
+    minContextTokens    int
+    /// Whose machine served a local call. Empty until shared machines land.
+    machineOwnerUserId  string
   }
   insert {
-    accept { requestId, agentId, userId, promptName, policyName, vendor, model, providerName, inputTokens, outputTokens, cachedInputTokens, tokensEstimated, inputCost, outputCost, cachedInputCost, totalCost, pricingConfigured, timeToFirstTokenMs, totalDurationMs, tokensPerSec, streaming, outcome, errorCategory, errorMessage, fallbackFromModel, executionSurface }
+    accept { requestId, agentId, userId, promptName, policyName, vendor, model, providerName, inputTokens, outputTokens, cachedInputTokens, tokensEstimated, inputCost, outputCost, cachedInputCost, totalCost, pricingConfigured, timeToFirstTokenMs, totalDurationMs, tokensPerSec, streaming, outcome, errorCategory, errorMessage, fallbackFromModel, executionSurface, level, requestedLevel, servedLevel, degraded, rule, policy, door, considered, touches, minContextTokens, machineOwnerUserId }
     stamp {
       id: args.callId
       // NOT in accept{}: a concept-level @default is documentation and is

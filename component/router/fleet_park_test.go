@@ -63,7 +63,7 @@ func newParkRouter(t *testing.T, models []memql.FleetModel, chain []string, clou
 		providers.RegisterForTest(cloudName, "AnthropicStream", "claude-sonnet", cloud)
 	}
 	policies := memql.NewPolicyRegistryForTest(map[string][]string{"testPolicy": chain})
-	return New(providers, policies, nil, nil), cloud, fleet
+	return New(providers, policies, testRules(t, defaultRule("testPolicy")), nil, nil), cloud, fleet
 }
 
 // D2, made structural. An unavailable fleet primary with NO authored fallback
@@ -76,7 +76,7 @@ func TestAnUnavailableFleetWithNoAuthoredFallbackRefusesRatherThanSpending(t *te
 		"streamClaudeSonnet", // configured, but NOT in the chain
 	)
 
-	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"})
+	_, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err == nil {
 		t.Fatal("an unavailable fleet primary with no authored fallback must refuse")
 	}
@@ -115,7 +115,7 @@ func TestAnAuthoredFallbackRunsWithNoParkAndNoPrompt(t *testing.T) {
 		"streamClaudeSonnet",
 	)
 
-	client, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"})
+	client, resolved, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err != nil {
 		t.Fatalf("an authored fallback must resolve without a refusal: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestAnOnlineFleetPrimaryServesTheCall(t *testing.T) {
 		"streamClaudeSonnet",
 	)
 
-	client, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"})
+	client, resolved, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	if err != nil {
 		t.Fatalf("ResolveChat: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAnOnlineFleetPrimaryServesTheCall(t *testing.T) {
 // machines did not match, and the refusal must say which.
 func TestARefusalDistinguishesNoMachinesFromNoMatch(t *testing.T) {
 	r, _, _ := newParkRouter(t, nil, []string{"fleet:llama3.1:8b"}, "")
-	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"})
+	_, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"})
 	var refusal *InferenceUnavailable
 	if !errors.As(err, &refusal) {
 		t.Fatalf("err = %v, want the typed refusal", err)
@@ -253,7 +253,7 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 	// Without consent: refused, and nothing paid is touched.
 	r, cloud, _ := newParkRouter(t, models, []string{"fleet:llama3.1:8b"}, "streamClaudeSonnet")
 	r.Providers().SetDefaultForTest("streamClaudeSonnet")
-	if _, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"}); err == nil {
+	if _, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"}); err == nil {
 		t.Fatal("without consent this must refuse")
 	}
 	if cloud.calls != 0 {
@@ -263,7 +263,7 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 	// With consent: the cluster's DEFAULT provider serves it, once.
 	r2, cloud2, _ := newParkRouter(t, models, []string{"fleet:llama3.1:8b"}, "streamClaudeSonnet")
 	r2.Providers().SetDefaultForTest("streamClaudeSonnet")
-	client, resolved, err := r2.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice", CloudConsent: true})
+	client, resolved, err := r2.ResolveChat(ResolveRequest{UserId: "alice", CloudConsent: true})
 	if err != nil {
 		t.Fatalf("consent must be honoured: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 func TestConsentOnAFullyLocalClusterStillRefusesAndExplains(t *testing.T) {
 	r, _, _ := newParkRouter(t, []memql.FleetModel{fleetModel("llama3.1:8b", false)},
 		[]string{"fleet:llama3.1:8b"}, "")
-	_, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice", CloudConsent: true})
+	_, _, err := r.ResolveChat(ResolveRequest{UserId: "alice", CloudConsent: true})
 	var refusal *InferenceUnavailable
 	if !errors.As(err, &refusal) {
 		t.Fatalf("err = %v, want the refusal to stand", err)

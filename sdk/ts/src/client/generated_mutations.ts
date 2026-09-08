@@ -1155,7 +1155,6 @@ export interface CreateAgentRoleArgs {
   availableSkillIds?: unknown[];
   forbiddenSkillIds?: unknown[];
   maxSkills?: number;
-  recommendedPolicySlug?: string;
   systemPromptHints?: string;
   active?: boolean;
   predefined?: boolean;
@@ -1174,7 +1173,6 @@ export function buildCreateAgentRole(args: CreateAgentRoleArgs): string {
   if (args.availableSkillIds !== undefined) parts.push("availableSkillIds: " + renderMemQLValue(args.availableSkillIds));
   if (args.forbiddenSkillIds !== undefined) parts.push("forbiddenSkillIds: " + renderMemQLValue(args.forbiddenSkillIds));
   if (args.maxSkills !== undefined) parts.push("maxSkills: " + renderMemQLValue(args.maxSkills));
-  if (args.recommendedPolicySlug !== undefined) parts.push("recommendedPolicySlug: " + renderMemQLValue(args.recommendedPolicySlug));
   if (args.systemPromptHints !== undefined) parts.push("systemPromptHints: " + renderMemQLValue(args.systemPromptHints));
   if (args.active !== undefined) parts.push("active: " + renderMemQLValue(args.active));
   if (args.predefined !== undefined) parts.push("predefined: " + renderMemQLValue(args.predefined));
@@ -5068,6 +5066,28 @@ export interface RecordRouterCallArgs {
   billing?: string;
   /** Where the call ran; empty for MemQL's own provider calls. */
   executionSurface?: string;
+  /** The level the call was resolved at, after any rule override. */
+  level?: string;
+  /** The level the CALL declared, before a rule overrode it. */
+  requestedLevel?: string;
+  /** The level that actually served; differs from level only when degraded. */
+  servedLevel?: string;
+  /** True when the chain was exhausted at the requested level and the rule said degrade. */
+  degraded?: boolean;
+  /** The rule that matched. Empty only for a call pinned with an explicit provider. */
+  rule?: string;
+  /** The policy that rule named, after policy: expansion. */
+  policy?: string;
+  /** local | app | federation -- which door the winning entry belongs to. */
+  door?: string;
+  /** The door report: every entry the walk passed over, and the one it took. */
+  considered?: Record<string, unknown>[];
+  /** The call's footprint, so a decision can be filtered by what it was about. */
+  touches?: string[];
+  /** The context-window floor this resolution was made against. Never zero. */
+  minContextTokens?: number;
+  /** Whose machine served a local call. Empty until shared machines land. */
+  machineOwnerUserId?: string;
 }
 
 export function buildRecordRouterCall(args: RecordRouterCallArgs): string {
@@ -5100,6 +5120,17 @@ export function buildRecordRouterCall(args: RecordRouterCallArgs): string {
   if (args.fallbackFromModel !== undefined) parts.push("fallbackFromModel: " + renderMemQLValue(args.fallbackFromModel));
   if (args.billing !== undefined) parts.push("billing: " + renderMemQLValue(args.billing));
   if (args.executionSurface !== undefined) parts.push("executionSurface: " + renderMemQLValue(args.executionSurface));
+  if (args.level !== undefined) parts.push("level: " + renderMemQLValue(args.level));
+  if (args.requestedLevel !== undefined) parts.push("requestedLevel: " + renderMemQLValue(args.requestedLevel));
+  if (args.servedLevel !== undefined) parts.push("servedLevel: " + renderMemQLValue(args.servedLevel));
+  if (args.degraded !== undefined) parts.push("degraded: " + renderMemQLValue(args.degraded));
+  if (args.rule !== undefined) parts.push("rule: " + renderMemQLValue(args.rule));
+  if (args.policy !== undefined) parts.push("policy: " + renderMemQLValue(args.policy));
+  if (args.door !== undefined) parts.push("door: " + renderMemQLValue(args.door));
+  if (args.considered !== undefined) parts.push("considered: " + renderMemQLValue(args.considered));
+  if (args.touches !== undefined) parts.push("touches: " + renderMemQLValue(args.touches));
+  if (args.minContextTokens !== undefined) parts.push("minContextTokens: " + renderMemQLValue(args.minContextTokens));
+  if (args.machineOwnerUserId !== undefined) parts.push("machineOwnerUserId: " + renderMemQLValue(args.machineOwnerUserId));
   return "mutation recordRouterCall(" + parts.join(", ") + ")";
 }
 

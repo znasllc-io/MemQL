@@ -14,7 +14,6 @@ seed agentRole chef-professional {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -28,7 +27,6 @@ seed agentRole sommelier {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -42,7 +40,6 @@ seed agentRole barista {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }
 
@@ -56,6 +53,5 @@ seed agentRole event-planner {
   availableSkillIds:     []
   forbiddenSkillIds:     []
   maxSkills:             5
-  recommendedPolicySlug: "balancedChat"
   predefined:            true
 }

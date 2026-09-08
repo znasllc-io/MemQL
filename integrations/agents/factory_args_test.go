@@ -12,12 +12,11 @@ import (
 // their own seed materializers.
 func TestBuildCreateAgentArgs_StampsKindSpecialist(t *testing.T) {
 	role := roleSnapshot{
-		Slug:                  "it-support",
-		Name:                  "IT Support",
-		Tier:                  "A",
-		LockedSkillIds:        []string{"workbench-baseline"},
-		DefaultSkillIds:       []string{"engineering-baseline"},
-		RecommendedPolicySlug: "balancedChat",
+		Slug:            "it-support",
+		Name:            "IT Support",
+		Tier:            "A",
+		LockedSkillIds:  []string{"workbench-baseline"},
+		DefaultSkillIds: []string{"engineering-baseline"},
 	}
 	decision := factoryDecision{Action: "create", RoleSlug: "it-support", Reasoning: "fits"}
 

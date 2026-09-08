@@ -295,6 +295,8 @@ func receiverKeyToConstructKeywords(receiverKey string) []string {
 		return []string{"shape"}
 	case "Policy":
 		return []string{"policy"}
+	case "Rule":
+		return []string{"rule"}
 	case "Seed":
 		return []string{"seed"}
 	default:

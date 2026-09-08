@@ -72,6 +72,10 @@ type Integration struct {
 	// no archive means no delete, so a cluster with no archive container
 	// keeps its journal and the sweep says so every night.
 	archiver Archiver
+	// remedy serves the `replan` and `repair` waits a classified failure
+	// writes. Nil on every node that cannot replan, which leaves those runs
+	// parked rather than abandoned. See failure_waits.go.
+	remedy Remedy
 
 	// compiler is the compile seam (design section B, "Compile"). Set by the
 	// node that runs compile; nil everywhere else, and a nil one leaves a

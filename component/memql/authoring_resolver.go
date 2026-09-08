@@ -70,6 +70,8 @@ func ResolveConstruct(coreHas CoreHasFunc, authored *AuthoredRuntimeRegistry, ow
 // Kinds map onto the engine's core registries:
 //   - query / mutation / logic / builtin -> the function registry
 //   - spec / trait                       -> the spec registry
+//   - policy                             -> the policy registry
+//   - rule                               -> the rule registry
 //
 // Any other kind reports false (core does not own it through these
 // registries), so the authored layer is free to define it. As the authored
@@ -90,6 +92,29 @@ func EngineCoreHas(e *MemQLEngine) CoreHasFunc {
 		case "spec", "trait":
 			if specs := e.Specs(); specs != nil {
 				if _, ok := specs.Lookup(name); ok {
+					return true
+				}
+			}
+			return false
+		case "policy":
+			// A shipped policy is named by shipped rules, and both are
+			// re-read from the embedded tree on every boot. An authored one
+			// taking the name would be shadowed at the next restart, so the
+			// cluster would route by one policy today and another tomorrow
+			// with nothing in between saying so (epic memql#5127, D7).
+			if policies := e.Policies(); policies != nil {
+				if _, ok := policies.Lookup(name); ok {
+					return true
+				}
+			}
+			return false
+		case "rule":
+			// Same, and one degree worse: a shipped rule is @locked, which
+			// means it evaluates before every unlocked rule. An authored rule
+			// that took its name would either inherit that authority or lose
+			// it silently at re-seed, and neither is a thing anybody asked for.
+			if rules := e.Rules(); rules != nil {
+				if _, ok := rules.Lookup(name); ok {
 					return true
 				}
 			}

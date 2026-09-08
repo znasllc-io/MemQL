@@ -30,6 +30,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/airoute"
 )
 
 // Door names, matching v1:platform:inferenceStatus.doorsOpen so an operator
@@ -42,7 +43,8 @@ const (
 
 // doorFor classifies a chain entry by the reference an author wrote.
 //
-// Everything that is not a `fleet:` or an `app:` name is FEDERATION -- which
+// Everything that is not a `fleet:` or an `app:` name is FEDERATION -- the
+// explicit `federation:` forms and a bare provider name alike -- which
 // over-approximates deliberately. A cluster with a raw API key rather than
 // workload-identity federation reaches a vendor through the same chain entry
 // and spends money the same way, and the ceiling must gate both; calling the
@@ -71,6 +73,24 @@ type InferenceUnavailable struct {
 	// Doors is the report, in chain order -- the order the router tried
 	// them, which is the order a reader needs to follow the decision.
 	Doors []work.DoorReport
+	// Considered is the SAME report in the shared vocabulary's shape, carried
+	// alongside rather than instead of Doors.
+	//
+	// Two shapes for one report is not duplication here: work.DoorReport is
+	// what work.DoorReporter hands across a module boundary neither side can
+	// import through, and airoute.ConsideredEntry is what the decision record
+	// stores and what a resolution keeps on SUCCESS -- where there is no
+	// refusal to hang a DoorReport on. They are built by the same calls, so
+	// they cannot disagree.
+	Considered []airoute.ConsideredEntry
+	// Decision is the whole resolution that ended here: the level asked for,
+	// the level it got down to, the rule and policy that decided.
+	//
+	// A PARK IS AS LEGIBLE AS A HIT (design D9). Without this, the only
+	// decisions a person could read back would be the successful ones, and
+	// the interesting question -- why did this call refuse when the identical
+	// one yesterday did not -- is a question about a refusal.
+	Decision airoute.Decision
 	// CeilingReason is the guard's own sentence when Code is
 	// ceiling_reached. Carried verbatim: it names the env var to change.
 	CeilingReason string
@@ -176,11 +196,32 @@ func (e *InferenceUnavailable) DoorsShut() []string {
 // only say "no provider in chain [...] is available", a sentence that names
 // the chain and explains nothing.
 type doorReporter struct {
-	doors []work.DoorReport
+	doors      []work.DoorReport
+	considered []airoute.ConsideredEntry
 }
 
 func (r *doorReporter) note(name, reason string) {
 	r.doors = append(r.doors, work.DoorReport{Door: doorFor(name), Name: name, Reason: reason})
+	r.considered = append(r.considered, airoute.ConsideredEntry{Entry: name, Door: doorFor(name), Reason: reason})
+}
+
+// noteConsidered records a line that belongs on the DECISION but not in a
+// refusal's door list: the entry that won, and the notes a selector makes
+// about candidates it ordered rather than rejected.
+//
+// The split is what keeps the refusal honest. work.DoorReport answers "why did
+// nothing serve this call", and a line saying "selected" in that list would
+// contradict the refusal it appears in.
+func (r *doorReporter) noteConsidered(name, door, reason string) {
+	r.considered = append(r.considered, airoute.ConsideredEntry{Entry: name, Door: door, Reason: reason})
+}
+
+// entries returns the decision's considered list, in walk order.
+func (r *doorReporter) entries() []airoute.ConsideredEntry {
+	if r == nil {
+		return nil
+	}
+	return r.considered
 }
 
 // noteLocal records a local door with the DETAIL that door can give: which
@@ -198,6 +239,14 @@ func (r *doorReporter) noteLocal(name, reason string, considered map[string]stri
 		Reason:     reason,
 		Considered: considered,
 	})
+	// The decision's line carries the machine detail INLINE, because
+	// airoute.ConsideredEntry is three strings by design -- a record a person
+	// reads, not a nested structure a client has to walk.
+	full := reason
+	for _, k := range sortedKeys(considered) {
+		full += fmt.Sprintf(" [%s: %s]", k, considered[k])
+	}
+	r.considered = append(r.considered, airoute.ConsideredEntry{Entry: name, Door: doorFor(name), Reason: full})
 }
 
 // refusal builds the typed refusal from what the walk recorded.
@@ -206,6 +255,7 @@ func (r *doorReporter) refusal(code, policyName, ceilingReason string) *Inferenc
 		Code:          code,
 		PolicyName:    policyName,
 		Doors:         r.doors,
+		Considered:    r.considered,
 		CeilingReason: ceilingReason,
 	}
 }

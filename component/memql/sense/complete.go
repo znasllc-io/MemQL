@@ -664,7 +664,13 @@ func annotationTakesArgs(name string) bool {
 		// could not see them. Added together rather than one at a time,
 		// because the next one added would inherit the same gap.
 		"mergeFields", "appendFields", "addToSet", "removeFromSet",
-		"createOnly", "noUnset", "requiresRank", "visibility", "alias":
+		"createOnly", "noUnset", "requiresRank", "visibility", "alias",
+		// The rule surface (epic memql#5127). @when takes keyword arguments
+		// and is declared in annotations.KeywordArgs, so the in-sync test
+		// fires on it by name; the other four take a positional value, which
+		// that test cannot see -- they are added together for the reason the
+		// field-list family above was.
+		"when", "policy", "level", "precedence", "onUnavailable", "exclude":
 		return true
 	default:
 		return false

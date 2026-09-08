@@ -19,6 +19,7 @@
 /// the embedding source for similarTo dedup + recall (#585). Conservative by design: it is better
 /// to NOT distill than to mint a low-value belief, because every belief costs recall budget and
 /// must be decayed back out later.
+@level("fast")
 @defaultProvider("chat54Mini")
 @templateFile("prompts/consolidateMemory.tmpl")
 prompt consolidateMemory {

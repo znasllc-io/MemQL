@@ -235,7 +235,6 @@ mutate agentRole createAgentRole {
     availableSkillIds       array
     forbiddenSkillIds       array
     maxSkills               integer
-    recommendedPolicySlug   string
     systemPromptHints       string
     active                  bool
     predefined              bool
@@ -252,7 +251,6 @@ mutate agentRole createAgentRole {
     availableSkillIds: args.availableSkillIds ?? []
     forbiddenSkillIds: args.forbiddenSkillIds ?? []
     maxSkills: args.maxSkills ?? 5
-    args.recommendedPolicySlug
     args.systemPromptHints
     active: args.active ?? true
     predefined: args.predefined ?? false

@@ -1607,8 +1607,16 @@ type BuiltinField struct {
 //
 //	@enabled / @disabled              lifecycle (engine-side flags)
 //	@description("text")              documentation
+//	@level("fast")                    how much intelligence the call needs
 //	@defaultProvider("name")          AI provider pinned by default
 //	@templateFile("file.tmpl")        sidecar template path (relative to the prompt .memql file)
+//
+// @level is one of fast / strong / reasoning / embeddings (core/airoute's
+// closed four). It is what the router's rules branch on, and it is the reason
+// a prompt never names a model: a model name at a call site is a release every
+// time the fleet changes. The PARSER validates the value and leaves it empty
+// when absent; requiring it is the loader's job, so a corpus can be swept
+// before the requirement lands.
 //
 // Field grammar mirrors BuiltinField: `<name> <type> [@required
 // @description("...") @enum(...) @default(...)]`. Type accepts
@@ -1630,6 +1638,7 @@ type PromptDecl struct {
 	// description sourcing flips in #2634).
 	DocComment string
 	Name       string         // prompt name
+	Level      string         // @level("fast") -- one of the closed four; empty when absent
 	Attributes []*Attribute   // prompt-level annotations
 	Fields     []*PromptField // body field declarations (the input schema)
 	Path       string         // source path, for errors/diagnostics
@@ -2058,19 +2067,26 @@ type ToolFieldDecl struct {
 //
 // Authoring shape:
 //
-//	@description("Balanced LLM for most agent replies.")
-//	@primary("chat54Mini")
-//	@fallback("chat53")
-//	@fallback("anthropicSonnet")
-//	@maxLatencyMs(8000)
-//	@maxTimeToFirstTokenMs(500)
-//	@preferredRole("assistant")
-//	policy balancedChat { }
+//	@description("Local strongest, then an app, then the cheapest federated model.")
+//	@primary("fleet:strongest")
+//	@fallback("app:*")
+//	@fallback("federation:cheapest")
+//	policy localFirst { }
+//
+// Each entry is held to the CLOSED entry grammar in
+// component/language/parser.ValidatePolicyEntry: a bare provider name, a
+// fleet / app / federation selector, or `policy:<name>`.
+//
+// @maxLatencyMs, @maxTimeToFirstTokenMs and @preferredRole USED to sit here and
+// are removed. All three steered nothing -- no selection path ever read them --
+// and an annotation that reads as configuration while doing nothing is worse
+// than its absence, because an author who writes one believes they have told
+// the router something.
 //
 // The `policy NAME { }` body is empty today; the grammar reserves
 // brace space for future per-vendor tuning knobs. Multiple
-// `@fallback` / `@preferredRole` annotations on the same policy
-// accumulate (order preserved).
+// `@fallback` annotations on the same policy accumulate (order
+// preserved).
 //
 // Distinct from cross-cutting decision policies (`func (Policy)
 // name { ... }`) which are parsed via the general function-parser
@@ -2080,17 +2096,97 @@ type PolicyDecl struct {
 	// DocComment carries the joined /// doc-comment block attached
 	// immediately above this declaration (memql#2633, capture-only;
 	// description sourcing flips in #2634).
-	DocComment            string
-	Name                  string
-	Description           string
-	Primary               string
-	Fallbacks             []string
-	MaxLatencyMs          int
-	MaxTimeToFirstTokenMs int
-	PreferredRoles        []string
+	DocComment  string
+	Name        string
+	Description string
+	Primary     string
+	Fallbacks   []string
 }
 
 func (*PolicyDecl) node() {}
+
+// RuleWhen is a rule's condition set: the call metadata a rule branches on.
+//
+// The seven keys are CLOSED. Every key is optional, and every key the author
+// WROTE is ANDed with the rest, so a rule with no keys at all matches every
+// call -- which is what makes the shipped `default` rule the floor.
+//
+// Present records which keys were written, which is a different question from
+// which are non-empty. `@when(prompt="")` is a condition matching only a call
+// with no prompt name; an absent `prompt` key is no condition at all.
+// Collapsing the two would make every rule carrying an empty value match
+// everything, silently.
+type RuleWhen struct {
+	Level     string
+	Modality  string
+	Prompt    string
+	Role      string
+	ActorRole string
+	Tag       string
+	Touches   string
+
+	Present map[string]bool
+}
+
+// Has reports whether the author wrote key.
+func (w RuleWhen) Has(key string) bool { return w.Present[key] }
+
+// RuleDecl is the shared-frontend AST node for a `rule NAME { }`
+// declaration -- the construct that maps a call's declared metadata to a
+// policy, in explicit precedence order (design D5, epic memql#5127).
+//
+// Authoring shape:
+//
+//	/// Operators reason at the reasoning level.
+//	@when(prompt="agentReply", role="operator")
+//	@level("reasoning")
+//	@policy("federationStrongest")
+//	@precedence(60)
+//	@onUnavailable("degrade")
+//	@exclude("fleet:qwen3.5:7b")
+//	@locked
+//	rule operatorReasoning { }
+//
+// Empty-bodied for the reason a policy is: a rule is a record, and every part
+// of it is a leading annotation. A non-empty body is refused rather than walked
+// over, so a body somebody wrote expecting it to mean something cannot be
+// silently dropped.
+//
+// @policy is REQUIRED -- a rule that names no policy decides nothing.
+// @level OVERRIDES the level the call declared, which is how a rule raises an
+// operator's reply to reasoning without naming a model.
+// @onUnavailable is "degrade" or "park" and says what happens when the chain is
+// exhausted at the level; empty reads as degrade.
+// @exclude is repeatable and removes a concrete entry from the chain's
+// resolution -- the demotion vehicle of the shared-machines epic.
+// @locked makes a rule evaluate before every unlocked one regardless of
+// precedence. The PARSER accepts it unconditionally; refusing it outside the
+// embedded tree is the loader's job, because the parser does not know which
+// tree it is reading.
+type RuleDecl struct {
+	// DocComment carries the joined /// doc-comment block attached
+	// immediately above this declaration; it wins over @description.
+	DocComment  string
+	Name        string
+	Description string
+
+	When RuleWhen
+
+	Policy        string   // @policy("name") -- required
+	Level         string   // @level("reasoning") -- empty means "do not override"
+	Precedence    int      // @precedence(60) -- highest first; a tie is a load error
+	OnUnavailable string   // @onUnavailable("degrade" | "park"); empty means degrade
+	Excludes      []string // @exclude(...), repeatable, in declaration order
+
+	Locked   bool // @locked
+	Enabled  bool // @enabled -- the explicit no-op
+	Disabled bool // @disabled -- loaded, not evaluated
+
+	Attributes []*Attribute // the leading annotation set, kept for the audits that walk it
+	Path       string       // source path, for errors/diagnostics
+}
+
+func (*RuleDecl) node() {}
 
 // SeedDecl is the shared-frontend AST node for a `seed NAME { ... }`
 // declaration. Introduced by memql#335 (sub-epic #329 / #310 Stage 1C)

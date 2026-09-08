@@ -370,14 +370,7 @@ func (s *stubEngine) InvokeAI(context.Context, string, map[string]any) (any, err
 func (s *stubEngine) InvokeAIStructured(context.Context, string, map[string]any, string, json.RawMessage, bool) (string, error) {
 	return "", nil
 }
-func (s *stubEngine) RenderPrompt(string, map[string]any) (string, error) { return "", nil }
-func (s *stubEngine) ChatStreamProvider() common.ChatStreamProvider       { return nil }
-func (s *stubEngine) ChatStreamProviderByName(string) common.ChatStreamProvider {
-	return nil
-}
-func (s *stubEngine) ChatStreamWithToolsProviderByName(string) common.ChatStreamWithToolsProvider {
-	return nil
-}
+func (s *stubEngine) RenderPrompt(string, map[string]any) (string, error)      { return "", nil }
 func (s *stubEngine) ToolDefinitionsForNames([]string) []common.ToolDefinition { return nil }
 func (s *stubEngine) ExecuteToolByName(context.Context, string, map[string]any) (string, error) {
 	return "", nil

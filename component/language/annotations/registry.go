@@ -59,7 +59,7 @@ var ByReceiver = map[string][]string{
 		"description", "enabled", "disabled", "executor", "alias", "args", "sdk",
 	},
 	"Prompt": {
-		"description", "enabled", "disabled", "defaultProvider", "templateFile",
+		"description", "enabled", "disabled", "level", "defaultProvider", "templateFile",
 	},
 	"Provider": {
 		"enabled", "disabled",
@@ -69,7 +69,11 @@ var ByReceiver = map[string][]string{
 		"description", "row", "actor",
 	},
 	"Policy": {
-		"description", "primary", "fallback", "maxLatencyMs", "maxTimeToFirstTokenMs", "preferredRole",
+		"description", "primary", "fallback",
+	},
+	"Rule": {
+		"description", "enabled", "disabled",
+		"when", "policy", "level", "precedence", "onUnavailable", "exclude", "locked",
 	},
 	"Seed": {
 		"description", "version", "namespace", "scope", "templateFile", "enabled", "disabled",
@@ -139,12 +143,20 @@ var Docs = map[string]string{
 	"extends":  "Inherit configuration from a base provider.",
 	// Shape.
 	"row": "Shape kind: projects a concept's payload + row intrinsics (concept bound via the `shape <Concept> <name>` signature).",
-	// Policy (AI Router provider-selection records). @primary is required; @fallback / @preferredRole are repeatable.
-	"primary":               "Required on a policy: the primary provider name the AI Router resolves first.",
-	"fallback":              "On a policy: a fallback provider tried when the primary is unavailable. Repeatable (order preserved).",
-	"maxLatencyMs":          "On a policy: cap the acceptable provider latency in milliseconds for selection.",
-	"maxTimeToFirstTokenMs": "On a policy: cap the acceptable time-to-first-token (streaming) in milliseconds for selection.",
-	"preferredRole":         "On a policy: bias selection toward providers matching this agent role. Repeatable.",
+	// Policy (AI Router provider-selection records). @primary is required; @fallback is repeatable.
+	// Every entry is held to the closed entry grammar: a bare provider name,
+	// fleet:strongest / fleet:fastest / fleet:<modelId>, app:* / app:<id>,
+	// federation:cheapest / federation:strongest / federation:<providerName>, or policy:<name>.
+	"primary":  "Required on a policy: the first entry the AI Router resolves. A provider name, a fleet: / app: / federation: selector, or policy:<name>.",
+	"fallback": "On a policy: an entry tried when the ones before it cannot serve the call. Repeatable (order preserved). Same closed grammar as @primary.",
+	// Rule (the call-metadata -> policy mapping the router evaluates in precedence order).
+	"when":          "On a rule: the condition set, as keyword arguments. Closed keys, every one optional, all present keys ANDed: level, modality, prompt, role, actorRole, tag, touches. @when() with no arguments matches every call.",
+	"policy":        "Required on a rule: the policy this rule resolves the call through.",
+	"level":         "On a prompt: how much intelligence the call needs -- fast, strong, reasoning or embeddings. On a rule: the level to resolve at, OVERRIDING what the call declared.",
+	"precedence":    "On a rule: evaluation order, highest first. A tie between two rules of the same locked-ness is a load error.",
+	"onUnavailable": "On a rule: what happens when the chain is exhausted at the level -- \"degrade\" walks down to the next level and records that it did, \"park\" returns the refusal with the door report. Empty reads as degrade.",
+	"exclude":       "On a rule: remove one concrete entry from the chain's resolution, e.g. @exclude(\"fleet:qwen3.5:7b\"). Repeatable.",
+	"locked":        "On a rule: evaluate before every unlocked rule regardless of precedence. Accepted only in the embedded tree -- the loader refuses it elsewhere.",
 	// Concept.
 	"version":    "Version tag for a concept.",
 	"namespace":  "Concept namespace. DEFAULTS to the containing dsl/<domain>/ directory (#2614) -- write it only for a colon-scoped sub-namespace (\"cognition:client:tool\") or a pinned divergence (namespace.pin). An explicit value must equal the directory, extend it as <dir>:..., or match the domain pin; any other mismatch is a load error (the moved-file guard: file location is id-bearing, so moving a .memql file between domains changes canonical ids).",
@@ -215,6 +227,15 @@ var KeywordArgs = map[string][]ArgSpec{
 	"rateLimit": {
 		{Name: "maxCalls", Type: "int", Doc: "Maximum calls allowed per period."},
 		{Name: "periodSeconds", Type: "int", Doc: "Rate-limit window in seconds."},
+	},
+	"when": {
+		{Name: "level", Type: "string", Doc: "The level the call declared: fast, strong, reasoning or embeddings."},
+		{Name: "modality", Type: "string", Doc: "The modality derived from the call site: chat, streamingChat, tools, streamingTools, structured, vision, embedding, speech, transcribe."},
+		{Name: "prompt", Type: "string", Doc: "The DSL prompt this call renders. Empty matches a Go call site with no prompt."},
+		{Name: "role", Type: "string", Doc: "The AGENT's role slug. Distinct from actorRole: this is what is acting."},
+		{Name: "actorRole", Type: "string", Doc: "The calling human's cluster role. Distinct from role: this is who is watching."},
+		{Name: "tag", Type: "string", Doc: "A call tag, e.g. \"background\" or \"backgroundEscalation\"."},
+		{Name: "touches", Type: "string", Doc: "A concept id PREFIX the call's footprint matches (startsWith semantics)."},
 	},
 	"relationship": {
 		{Name: "type", Type: "string", Doc: "STRUCTURAL type -- what the engine does with the edge. Closed set: parent, owns, createdBy, alias, equals, contains, references."},
