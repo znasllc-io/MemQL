@@ -66,7 +66,26 @@ Everything else, without asking beyond one password prompt:
 | A local certificate authority | mkcert's `CAROOT` | Only if you tick it, and only if MemQL created it |
 | `api.memql.localhost` etc. in `/etc/hosts` | a marked block | Yes, always -- MemQL put it there |
 | The MemQL checkout | `~/.memql/src/` | Yes, always |
-| The k3d cluster | Docker | Yes, always |
+| The k3d cluster | Docker | Only if MemQL created it, or if you tick the data box |
+
+### An uninstall is not a data reset
+
+**If the cluster was already on this machine, the wizard installed nothing over
+it — it adopted it.** An uninstall then keeps it, says so on the done screen,
+and keeps the receipt that describes it, so the wizard goes on offering repair,
+rebuild and uninstall rather than Install.
+
+So **uninstall followed by install does not clear a database.** The install
+adopts the cluster it finds, exactly as it did the first time.
+
+To actually remove the cluster and everything in it, tick **Also delete the
+cluster and its data** on the uninstall form and type `delete memql data` in the
+field beside it. It is the only thing in the wizard that removes an artifact
+MemQL did not create, and nothing else on the form asks for a phrase.
+
+`make up-refresh` is the same act from the repository, for a cluster you brought
+up yourself
+([reproduce the cloud locally](reproduce-the-cloud-locally.md)).
 
 ### The password prompt
 

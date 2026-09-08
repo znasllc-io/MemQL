@@ -493,6 +493,12 @@ const (
 // section 4.4). See readiness_read.go.
 const ModuleReadinessConcept = "v1:platform:moduleReadiness"
 
+// WorkerRegistrationConcept is the canonical id of a cockpit machine's
+// registration row. Named here because the readiness recompute subscriber
+// keys its one graph subscription on it and component/memql may not import
+// component/worker (that module requires this one).
+const WorkerRegistrationConcept = "v1:worker:registration"
+
 // ModuleVerdictConcept is the canonical id of the virtual, never-persisted
 // cluster-wide fold of ModuleReadinessConcept rows, one row per module
 // (section 4.5). See readiness_read.go.

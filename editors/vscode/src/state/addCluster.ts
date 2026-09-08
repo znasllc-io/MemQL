@@ -547,6 +547,14 @@ export function requiredFields(action: AddClusterAction): InputField[] {
       // installer's own default when the receipt is gone. A field here would
       // be the form this exists to remove.
       return [];
+    case "adopt":
+      // The same nothing, for the same reason, on a cluster that has no
+      // receipt at all (memql#5118, D8): the front door of a k3d cluster named
+      // `memql` is the installer's own default hostname, and asking somebody
+      // to type an address the machine already knows is the form `reconnect`
+      // exists to remove. What differs is only that this one is offered on
+      // evidence from k3d rather than from a receipt.
+      return [];
   }
 }
 

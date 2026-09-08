@@ -621,6 +621,60 @@ test("a refusal on a pre-existing artifact is PRESERVED, not a failure", async (
   // The dependent still ran: preservation is not breakage.
   assert.equal(report.outcomes.find((o) => o.id === "removeToolMkcert")?.status, "ok");
   assert.equal(report.ok, true);
+
+  // TWO PREDICATES, AND THIS RUN SEPARATES THEM (memql#5118, D8). Something IS
+  // still on this machine -- the operator's own mkcert CA -- so the closing
+  // sentence must not claim a complete removal. No CLUSTER is, so the receipt
+  // and the registry row have to go, or `detectPresence` goes on answering
+  // `installed-*` over a cluster that was deleted, permanently and with no
+  // control that can clear it (memql#3544, from the other side).
+  assert.equal(report.kept, true, "a preserved CA is something left behind");
+  assert.equal(report.keptCluster, false, "no stack was preserved -- the records must not be kept");
+});
+
+test("a preserved STACK is the one preservation the records are kept for", async () => {
+  // The other half of the pair above. Same machinery, one artifact kind
+  // different, opposite answer -- which is the whole reason `keptCluster` is
+  // its own field rather than a reading of `kept`.
+  const g = graphOf(
+    [
+      {
+        id: "removeStack",
+        script: "install.removeArtifact",
+        readOnly: false,
+        reverses: "k3dUp",
+        verify: { kind: "resultEquals", field: "result.kind", value: "stack" },
+      },
+    ],
+    "uninstall",
+  );
+  const runner = fakeRunner(() => ({
+    exitCode: 3,
+    envelope: {
+      ok: false,
+      capability: "install.removeArtifact",
+      changed: false,
+      result: {},
+      error: { code: 3, message: "refusing to remove a pre-existing cluster" },
+    },
+  }));
+
+  const report = await executeGraph({
+    graph: g,
+    scriptPath: () => "/bin/true",
+    run: runner.run,
+    // `kind` is what removalParams stamps from the receipt entry, and "stack"
+    // is the word remove-artifact.sh gives the k3d cluster.
+    plan: () => ({
+      action: "run" as const,
+      params: { kind: "stack", cluster: "memql", "pre-existing": "true" },
+      preservedOnRefusal: true,
+    }),
+  });
+
+  assert.equal(report.outcomes[0]?.status, "preserved");
+  assert.equal(report.kept, true);
+  assert.equal(report.keptCluster, true, "the cluster is still here, so both records stay");
 });
 
 test("a refusal NOT explained by pre-existence is still a failure", async () => {
@@ -869,6 +923,89 @@ test("the uninstall plan reads its target and its verdict off the receipt", asyn
   const cluster = plan(g.steps.find((s) => s.id === "removeCluster")!);
   assert.equal(cluster.action, "skip");
   assert.equal(cluster.action === "skip" ? cluster.satisfied : false, true);
+});
+
+test("the uninstall plan carries the one run-time param, over the receipt's own", async () => {
+  // THE CONFIRM PHRASE REACHES THE SCRIPT (memql#5118, D9), and it is the only
+  // thing that does: the receipt supplies every other param, and a graph value
+  // is pinned for every run -- which is exactly wrong for a value that must be
+  // present only when a person typed a phrase.
+  const g = await loadGraphFile(graphDocumentPath("uninstall", REPO_ROOT));
+  const receipt: Receipt = {
+    version: 1,
+    graph: "install",
+    startedAt: "t",
+    updatedAt: "t",
+    entries: [
+      {
+        stepId: "clusterUp",
+        script: "k3d.up",
+        receipt: "stack",
+        preExisting: true,
+        params: {},
+        result: { cluster: "memql" },
+        changed: false,
+        recordedAt: "t",
+      },
+      {
+        stepId: "toolK3d",
+        script: "install.binary",
+        receipt: "binary",
+        preExisting: false,
+        params: {},
+        result: { path: "/home/dev/.memql/bin/k3d" },
+        changed: true,
+        recordedAt: "t",
+      },
+    ],
+  };
+  const plan = uninstallPlan(receipt, new Set(), {
+    removeCluster: { confirm: "delete-memql-data" },
+  });
+
+  const cluster = plan(g.steps.find((s) => s.id === "removeCluster")!);
+  assert.equal(cluster.action, "run");
+  assert.equal(cluster.action === "run" ? cluster.params.confirm : "", "delete-memql-data");
+  // The receipt's own params survive beside it -- the phrase adds, it does not
+  // replace.
+  assert.equal(cluster.action === "run" ? cluster.params.cluster : "", "memql");
+  // And the pre-existence verdict is still passed faithfully. The script uses
+  // BOTH: the flag is what it refuses on, the phrase is what overrides it.
+  assert.equal(cluster.action === "run" ? cluster.params["pre-existing"] : "", "true");
+
+  // NOTHING ELSE GETS IT. A phrase reaching a second step would be a second
+  // artifact removed on one person's consent to the first.
+  const k3d = plan(g.steps.find((s) => s.id === "removeToolK3d")!);
+  assert.equal(k3d.action === "run" ? k3d.params.confirm : "absent", undefined);
+});
+
+test("with no run-time params the uninstall plan is exactly what it was", async () => {
+  // The default argument, asserted rather than assumed: every other caller of
+  // uninstallPlan passes two arguments and must be unchanged by the third.
+  const g = await loadGraphFile(graphDocumentPath("uninstall", REPO_ROOT));
+  const receipt: Receipt = {
+    version: 1,
+    graph: "install",
+    startedAt: "t",
+    updatedAt: "t",
+    entries: [
+      {
+        stepId: "clusterUp",
+        script: "k3d.up",
+        receipt: "stack",
+        preExisting: true,
+        params: {},
+        result: { cluster: "memql" },
+        changed: false,
+        recordedAt: "t",
+      },
+    ],
+  };
+  const step = g.steps.find((s) => s.id === "removeCluster")!;
+  const withDefault = uninstallPlan(receipt)(step);
+  const withEmpty = uninstallPlan(receipt, new Set(), {})(step);
+  assert.deepEqual(withDefault, withEmpty);
+  assert.equal(withDefault.action === "run" ? withDefault.params.confirm : "absent", undefined);
 });
 
 // -----------------------------------------------------------------------------

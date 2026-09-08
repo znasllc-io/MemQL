@@ -11426,6 +11426,141 @@ a.os-button {
   padding: 12px 14px;
 }
 
+/* The same sentence, in the SHEET (epic memql#5118, D7). The sheet already
+   pads, so the paragraph inside it does not pad again -- the widget's copy
+   does, because a widget body carries none of its own. */
+.os-ask-sheet-unconfigured > .os-ask-unconfigured {
+  padding: 0;
+}
+
+/* ==========================================================================
+   THE CORE GATE -- the shell held before the desk
+   (design record 2026-09-07-core-gate-and-honest-install, D1, D2 and D6)
+   ==========================================================================
+
+   NOT AN ERROR, AND NOT DRESSED AS ONE. Nobody has told this cluster what to
+   talk to yet, which is a thing to do rather than a thing that broke. So the
+   surface borrows `.os-setup`'s vocabulary -- the ground, the open ring, the
+   muted sentence -- at full-viewport scale, and `--os-warn` and `--os-error`
+   appear nowhere. Red and amber are STATUS in this shell and belong on the
+   entry where the fix is.
+
+   TOP-ANCHORED, NOT CENTRED, and that is the one structural decision here.
+   `.os-signin` and `.os-setup` both centre, and both hold one headline and one
+   sentence at a fixed height. This holds a RAIL whose height changes every
+   time somebody opens a stop: centred, the whole column would jump and the
+   thing they just clicked would move away from the cursor. Top-anchored it
+   grows downward and the ring stays where they left it. The column is centred
+   HORIZONTALLY and its contents are left-aligned, because a rail is a list.
+
+   BOTH VARIANTS ARE THE SAME COLUMN. Two shapes for one situation would read
+   as two different kinds of problem -- the argument `.os-setup` already makes
+   about mirroring `.os-rank-refused`. The reader's variant simply has less in
+   it.
+
+   NO ENTRANCE AND NO EXIT. The gate appears because the shell booted, with
+   nothing to animate from, and disappears because the answer changed -- and
+   the desk arriving IS the confirmation. The setup widget's fold-away below is
+   a different case: it earns its beat because a person finished the last stop
+   while looking at it. */
+
+.os-core-gate {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  background: var(--os-ground);
+  color: var(--os-ink);
+  /* Top-anchored, and the number was set by looking: at a tenth of the
+     viewport the column sat in the top third of a 900px screen with a third of
+     the page empty beneath it. Fourteen brings it toward the optical centre
+     while still leaving the rail room to grow DOWNWARD rather than pushing the
+     ring somebody is reading away from their cursor -- which is the whole
+     reason this is not centred. Clamped at both ends so a laptop and a 4K
+     display both get a column that starts where the eye lands. */
+  padding: clamp(48px, 14vh, 160px) 24px 96px;
+}
+
+.os-core-gate-column {
+  width: 100%;
+  /* A readable measure (rule 9): wide enough for the inference stop's three
+     doors on one line, narrow enough that the sentence stays well under 80
+     characters at --os-text-base. */
+  max-width: 34rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* The `off` dot at display size -- the same ring every unconfigured surface in
+   this shell already uses, and it means exactly what is true here. NOT the
+   brand mark: that was shown at sign-in, and repeating it says "sign in
+   again". The border scales with the dot so the ring keeps its weight instead
+   of thinning to a hairline at three times the diameter. */
+.os-core-gate-mark {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--os-muted);
+}
+
+/* --os-text-lg is otherwise a window title, which is the right borrowing:
+   while this draws, it IS the window. */
+.os-core-gate-head {
+  margin: 0;
+  font-size: var(--os-text-lg);
+  font-weight: 600;
+  color: var(--os-ink);
+}
+
+/* NO max-width OF ITS OWN. The column is 34rem, which is about 68 characters
+   at --os-text-base -- a measure already inside the 80 the rule asks for --
+   and a second, tighter one only broke a two-line sentence into a ragged
+   three-line block that read as a paragraph. One measure, set where the
+   surface's width is decided. */
+.os-core-gate-body {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-muted);
+  text-wrap: pretty;
+}
+
+/* The line that tells somebody they do not have to keep reloading. Smaller
+   than the sentence above it, because it is the least of the three things this
+   surface says. */
+.os-core-gate-note {
+  margin: 0;
+  font-size: var(--os-text-sm);
+  color: var(--os-muted);
+}
+
+/* The rail is this surface's content, so it takes the width and the
+   separation the sentence above it does not. */
+.os-core-gate .os-rail {
+  align-self: stretch;
+  margin: 14px 0 0;
+}
+
+/* The way out, under its own hairline: an escape, never one of the acts in the
+   rail (rule 6 -- an action is never seated among the things it is not). */
+.os-core-gate-out {
+  align-self: stretch;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--os-line);
+}
+
+/* A phone has no desk behind this and no room to spare, so the column takes
+   the width and the top anchor tightens. */
+@media (max-width: 560px) {
+  .os-core-gate {
+    padding: 32px 20px 72px;
+  }
+}
+
 /* ===========================================================================
  * THE FIRST-RUN WIZARD (epic memql#5106)
  * ===========================================================================

@@ -93,6 +93,43 @@ export interface ExecutionReport {
    * that needs "did the whole graph run?" asks both.
    */
   cancelled?: boolean;
+  /**
+   * Whether any step KEPT its artifact rather than removing it (memql#5118, D8).
+   *
+   * SEPARATE FROM `ok`, which keeps its meaning: nothing FAILED. An uninstall
+   * that preserved the operator's own k3d cluster is entirely successful AND
+   * has left something on the machine, and folding the two makes "is anything
+   * still here?" unanswerable -- which is how the wizard came to print
+   * "Removed. Everything the install put on this machine has been taken back"
+   * over a cluster it had just declined to remove, delete the receipt that
+   * described it, and then offer to install over the top.
+   *
+   * The same shape as `cancelled` above, for the same reason: a caller that
+   * needs a second question answered asks a second field.
+   */
+  kept?: boolean;
+  /**
+   * Whether the run kept THE CLUSTER, which is a narrower question than `kept`
+   * above and the only one the records can answer (memql#5118, D8).
+   *
+   * TWO PREDICATES BECAUSE THERE ARE TWO QUESTIONS. `kept` asks "is anything
+   * still on this machine?", which is what the closing sentence reports, and a
+   * preserved checkout or mkcert CA answers it yes. This asks "is the CLUSTER
+   * still here?", which is what the receipt and the registry row assert -- and
+   * only a preserved `stack` answers that one.
+   *
+   * Reading `kept` for both is the bug that hides behind a passing test: a
+   * developer whose own checkout is preserved while the cluster is deleted
+   * would keep a receipt naming a cluster that is gone, `detectPresence` would
+   * go on answering `installed-*` over nothing, and no control in the extension
+   * could clear it -- which is memql#3544 exactly, re-opened from the other
+   * side.
+   *
+   * `stack` is the artifact KIND remove-artifact.sh gives the k3d cluster, and
+   * `removalParams` stamps it on every removal step from the receipt entry, so
+   * this reads the same word the script is invoked with.
+   */
+  keptCluster?: boolean;
 }
 
 /** What the caller wants done with a step. */
@@ -233,6 +270,8 @@ export async function executeGraph(options: ExecuteOptions): Promise<ExecutionRe
   return {
     graph: graph.name,
     ok: ordered.every((o) => o.status !== "failed"),
+    kept: ordered.some((o) => o.status === "preserved"),
+    keptCluster: ordered.some((o) => o.status === "preserved" && o.params["kind"] === "stack"),
     waves,
     outcomes: ordered,
     ...(cancelled ? { cancelled: true } : {}),

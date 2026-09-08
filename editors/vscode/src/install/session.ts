@@ -46,7 +46,13 @@ import {
   type Step,
 } from "./graph.js";
 import { normalizeNodeList } from "./nodeList.js";
-import { entryFor, readReceipt, removalParams, type Receipt } from "./receipt.js";
+import {
+  entryFor,
+  readReceipt,
+  removalParams,
+  unreceiptedClusterReceipt,
+  type Receipt,
+} from "./receipt.js";
 import { refuseUnsupportedPlatform } from "./platform.js";
 import { resolveScriptRoot } from "./root.js";
 import { capabilityScriptPath, withInstalledTools, type RunScript } from "./runner.js";
@@ -211,6 +217,25 @@ export interface SessionOptions {
   /** Escape hatch: per-step flag overrides. */
   stepParams: Record<string, Record<string, string>>;
   timeoutMs?: number;
+  /**
+   * The k3d cluster to plan a removal for when there is NO receipt
+   * (memql#5118, D8).
+   *
+   * A NAME RATHER THAN A RECEIPT, deliberately. The caller for this is the
+   * `present-unreceipted` verdict -- a live cluster this installer did not
+   * create -- and the only thing it knows is that name, from `k3d cluster
+   * list`. Taking a whole `Receipt` here would let any caller fabricate
+   * entries for a hosts block and a trust-store CA nothing has evidence for,
+   * which is precisely what `requireReceipt` exists to refuse; taking the name
+   * lets `unreceiptedClusterReceipt` build the one entry that is observed
+   * fact, and every other removal step still skips for want of a record.
+   *
+   * A REAL RECEIPT OUTRANKS IT. When the file is there it is read, and this is
+   * ignored: the record describes more of the machine than an observation can,
+   * and the two can only disagree if the caller set this in a state where the
+   * verdict says it should not have.
+   */
+  unreceiptedCluster?: string;
 }
 
 /**
@@ -847,6 +872,19 @@ export function updateRebuildPlan(opts: SessionOptions): (step: Step) => StepPla
 export function uninstallPlan(
   receipt: Receipt,
   skip: Set<string> = new Set(),
+  /**
+   * Run-time params, per step id, merged OVER the ones the receipt supplies.
+   *
+   * There is exactly one caller and one param (memql#5118, D9): the uninstall
+   * form's `--confirm` on `removeCluster`, which is the only thing in the graph
+   * that lets a PRE-EXISTING artifact be removed. It rides here rather than in
+   * the graph because a graph value is pinned for every run, and the whole
+   * point of this one is that it is present only when a person typed a phrase.
+   *
+   * Merged LAST so a receipt value cannot shadow it, and empty by default so
+   * every other caller is unchanged.
+   */
+  stepParams: Record<string, Record<string, string>> = {},
 ): (step: Step) => StepPlan {
   return (step: Step): StepPlan => {
     if (skip.has(step.id)) return { action: "skip", reason: `skipped: ${step.id}` };
@@ -869,7 +907,16 @@ export function uninstallPlan(
       // have established already holds, so the removals waiting on it run.
       return { action: "skip", reason: `${installStep} left no artifact behind`, satisfied: true };
     }
-    return { action: "run", params, preservedOnRefusal: entry.preExisting };
+    return {
+      action: "run",
+      params: { ...params, ...(stepParams[step.id] ?? {}) },
+      // STILL TRUE, AND SIMPLY UNREACHED WHEN THE PHRASE IS GIVEN. The flag
+      // says "an exit 3 here is the expected answer"; with the phrase the
+      // script exits 0 instead, so the run takes the ordinary verify path and
+      // reports a removal. Clearing it conditionally would be the same
+      // behaviour with one more thing to keep in step.
+      preservedOnRefusal: entry.preExisting,
+    };
   };
 }
 
@@ -964,7 +1011,7 @@ export async function runUninstall(
   if (refused !== undefined) return refused;
   const graph = hooks.graph ?? (await loadGraphFor("uninstall", opts));
   const receipt = await requireReceipt(opts);
-  return execute(graph, uninstallPlan(receipt, opts.skip), opts, hooks, undefined);
+  return execute(graph, uninstallPlan(receipt, opts.skip, opts.stepParams), opts, hooks, undefined);
 }
 
 /**
@@ -1098,13 +1145,16 @@ async function loadGraphFor(kind: GraphKind, opts: SessionOptions): Promise<Grap
 
 async function requireReceipt(opts: SessionOptions): Promise<Receipt> {
   const receipt = await readReceipt(opts.receiptFile);
-  if (!receipt) {
-    throw new Error(
-      `no receipt at ${opts.receiptFile} -- an uninstall removes what an install recorded, ` +
-        `and without that record it would be guessing at the operator's machine`,
-    );
-  }
-  return receipt;
+  if (receipt) return receipt;
+  // THE ONE THING THAT CAN STAND IN FOR A RECEIPT, and it is not a fallback:
+  // the caller has to name a cluster it has SEEN (memql#5118, D8). See
+  // SessionOptions.unreceiptedCluster and unreceiptedClusterReceipt.
+  const observed = opts.unreceiptedCluster ?? "";
+  if (observed !== "") return unreceiptedClusterReceipt(observed);
+  throw new Error(
+    `no receipt at ${opts.receiptFile} -- an uninstall removes what an install recorded, ` +
+      `and without that record it would be guessing at the operator's machine`,
+  );
 }
 
 // ---------------------------------------------------------------------------

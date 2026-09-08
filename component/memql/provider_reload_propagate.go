@@ -116,13 +116,16 @@ func (e *MemQLEngine) StartProvidersReloadSubscriber(ctx context.Context) {
 
 			// The ai module's verdict may have changed with the providers,
 			// and this node is the one that just changed, so it is the one
-			// that must rewrite its own row. A failure is a warning: the row
-			// then stands at the previous boot's verdict until the next
-			// reload or restart, which is stale rather than wrong.
-			if _, werr := e.WriteModuleReadiness(ctx); werr != nil {
-				logger.Warn("module readiness: rewrite after providers reload failed",
-					"component", ComponentName, "error", werr)
-			}
+			// that must rewrite its own row.
+			//
+			// THROUGH THE DEBOUNCED SUBSCRIBER rather than directly (epic
+			// memql#5118, D5), so every rewrite this node performs from an
+			// event goes through one loop. Two triggers arriving together --
+			// an operator applying a provider change while a cockpit
+			// reconnects -- would otherwise run two evaluations racing on the
+			// same deterministic row ids. A failure is logged there and the
+			// previous rows stand, which is stale rather than wrong.
+			e.NotifyReadinessRecompute("providers")
 		},
 		events.WithSubscriberName("providers:reload:propagation"),
 	)

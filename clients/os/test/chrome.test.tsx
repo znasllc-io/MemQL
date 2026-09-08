@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Shell } from "../src/chrome/Shell";
@@ -240,27 +240,24 @@ describe("desktop items (spec K bullet 4)", () => {
     expect((entry as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("removes a seeded widget through its menu", () => {
-    renderShell();
-    fireEvent.click(screen.getByRole("button", { name: "Ask widget menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from desk" }));
-    expect(document.querySelector("[data-os-widget='ask']")).toBeNull();
-    // The hint does NOT come back, and that is the seed rather than a bug: an
-    // owner's desk also carries the first-run Set up wizard (epic
-    // memql#5106). It draws nothing HERE only because this shell has no
-    // cluster connection to read a readiness feed over -- the item is still
-    // on the desk, so the desk is not empty.
-    expect(screen.queryByText("Drop a file, or open the Launcher.")).toBeNull();
-  });
-
-  it("shows the empty-desk hint once nothing is left on the desk", () => {
-    // A reader's seed carries Ask alone: the Set up wizard is gated to owner
-    // and developer, so removing Ask leaves a genuinely empty desk.
-    renderShell({ access: READER });
-    fireEvent.click(screen.getByRole("button", { name: "Ask widget menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from desk" }));
-    expect(document.querySelector("[data-os-widget='ask']")).toBeNull();
-    expect(screen.getByText("Drop a file, or open the Launcher.")).toBeTruthy();
+  it("removes the seeded widget through its menu, leaving the empty-desk hint", () => {
+    // THE SEED IS ASK ALONE, FOR EVERY ROLE (epic memql#5118, D4), so removing
+    // it leaves a genuinely empty desk and the hint comes back.
+    //
+    // This case used to assert the opposite for an owner, on the grounds that
+    // the seed placed the Set up wizard beneath Ask. It never did: the seed
+    // runs in a state initializer, before the role ladder lands, and
+    // `roleAdmits("")` refused the widget on every production boot. The
+    // wizard's presence is derived now, from the readiness feed and the
+    // ladder, so a shell dialling nothing places nothing.
+    for (const access of [OWNER, READER]) {
+      cleanup();
+      renderShell({ access });
+      fireEvent.click(screen.getByRole("button", { name: "Ask widget menu" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Remove from desk" }));
+      expect(document.querySelector("[data-os-widget='ask']")).toBeNull();
+      expect(screen.getByText("Drop a file, or open the Launcher.")).toBeTruthy();
+    }
   });
 });
 

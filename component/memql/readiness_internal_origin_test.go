@@ -18,6 +18,15 @@ import (
 // Precondition 1: the caller's authority does not survive the stamp. The
 // context that reaches the write carries the synthetic system actor, never the
 // caller's -- so nothing downstream can act as the person who asked.
+// THE EVALUATION HALF OF THIS PROPERTY LIVES IN readiness_inference_test.go
+// (epic memql#5118). `WriteModuleReadiness` ran the EVALUATION on the caller's
+// context and only the WRITE on its own, so an owner pulling readinessRecompute
+// had their own machines resolved and written as a cluster fact. The cases that
+// pin it are TestTheEvaluationContextIsTheClustersOwn and
+// TestTheWriteContextStaysAReader; they sit beside the inference arm they exist
+// for rather than here, and this note is so a reader looking for them finds
+// them.
+
 func TestReadinessWriteCarriesNoCallerAuthority(t *testing.T) {
 	caller := &auth.AccessContext{UserId: "user-42", Role: auth.RoleOwner, PrimaryEmail: "owner@example.com"}
 	ctx := auth.ContextWithAccess(context.Background(), caller)

@@ -74,6 +74,7 @@ import { addCluster, defaultClustersPath, readClustersFileSafe, setSelectedClust
 import { refreshTokenFieldPlan, resolveCredentialInput, tokenFieldPlan } from './clusters/form.js';
 import { displayLabel, needsAuth, type ClusterConfig } from './clusters/model.js';
 import { clusterRowText } from './clusters/status.js';
+import { listK3dClusters } from "./clusters/k3dListing.js";
 import { ClusterPresence } from './clusters/presence.js';
 import {
   claimProbeSignal,
@@ -2051,7 +2052,17 @@ function registerRuntimeSurface(context: ExtensionContext): void {
   // What the "+" branches on. Held for the life of the surface rather than
   // built per click, because the memo (and the single-flight it wraps) is the
   // whole reason opening the menu twice does not dial twice.
-  const presence = new ClusterPresence({ clustersPath });
+  //
+  // `listClusters` is the FOURTH signal (memql#5118, D8), and presence asks it
+  // on exactly one path: the one where both evidence sources say nothing and
+  // the menu would otherwise offer to install over a k3d cluster somebody
+  // already had. Supplied here because this is where the repository root is
+  // known; every other caller and every test leaves it out, and an absent
+  // listing reads exactly like an empty one.
+  const presence = new ClusterPresence({
+    clustersPath,
+    listClusters: () => listK3dClusters({ root: installRootFor(context) }),
+  });
 
   // "Forget this cluster", as one call: the entry, the stored credential and
   // the live connection. Lifted out of the memql.clusters.remove handler
