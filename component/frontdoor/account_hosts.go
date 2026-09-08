@@ -1,5 +1,7 @@
 package frontdoor
 
+import "strings"
+
 // The hosts served under an ACCOUNT's reserved MemQL name (epic memql#5168).
 //
 // A client whose own domain is `acme.com` reserves `memql.acme.com` on this
@@ -129,4 +131,42 @@ func AccountCertificateSANs(reservedName string) []string {
 		out = append(out, h.Name)
 	}
 	return out
+}
+
+// AccountReservedNameFromAppHost is the inverse of
+// AccountRoleHost(AccountRoleApp, name): it recovers the reserved name from
+// the `app.` host the edge was asked for, and reports whether the host was one
+// at all.
+//
+// # WHY THE EDGE STRIPS RATHER THAN THE QUERY COMPOSING
+//
+// A row stores `memql.acme.com`, not `app.memql.acme.com`, and a DSL filter
+// compiles to SQL over stored fields -- it cannot prepend a label. So one side
+// has to do the composition, and doing it HERE keeps the pair together: the
+// label appears once, in AccountRoleApp, and a round-trip test pins the two
+// functions against each other. The alternative, a denormalized `appHost`
+// column, is a second spelling that drifts the first time the label changes.
+//
+// ONLY the `app.` label is recognised, and that is not an omission. `api.` and
+// `id.` are routed by Ingress straight to the bff and the identity service and
+// never reach the edge at all, so a host arriving here under either of those
+// labels is not a front door being resolved -- it is a request that should
+// 404, exactly as it does today.
+//
+// A bare reserved name with no label ("memql.acme.com") is NOT a match: the
+// front door serves three hosts beneath the name and nothing at the name
+// itself, and answering there would be the cluster claiming an apex nobody
+// asked it to serve.
+func AccountReservedNameFromAppHost(host string) (string, bool) {
+	name, ok := strings.CutPrefix(host, string(AccountRoleApp)+".")
+	if !ok || name == "" {
+		return "", false
+	}
+	// A reserved name is a client's own multi-label domain. One label after
+	// the prefix would mean the host was `app.<tld>`, which no reservation can
+	// produce and no guard would have admitted.
+	if !strings.Contains(name, ".") {
+		return "", false
+	}
+	return name, true
 }

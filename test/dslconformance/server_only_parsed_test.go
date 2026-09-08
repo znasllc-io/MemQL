@@ -439,6 +439,20 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "platform/mutations.memql", Name: "recordCustomDomainIssuingProgress"}: true,
 		{Path: "platform/mutations.memql", Name: "markCustomDomainLive"}:              true,
 		{Path: "platform/mutations.memql", Name: "markCustomDomainRemoved"}:           true,
+
+		// The per-account front door (epic memql#5168). Every write on a door's
+		// walk is the reconciler's: what a client-reachable one would buy is the
+		// ability to declare a door live without its three hostnames ever having
+		// pointed here, which is traffic resolved through a certificate that does
+		// not exist. Each construct's own doc carries the specific argument.
+		{Path: "platform/mutations.memql", Name: "createAccountFrontDoor"}:                true,
+		{Path: "platform/mutations.memql", Name: "recordAccountFrontDoorCheck"}:           true,
+		{Path: "platform/mutations.memql", Name: "markAccountFrontDoorVerified"}:          true,
+		{Path: "platform/mutations.memql", Name: "recordAccountFrontDoorIssuingProgress"}: true,
+		{Path: "platform/mutations.memql", Name: "recordAccountFrontDoorIssuanceFailure"}: true,
+		{Path: "platform/mutations.memql", Name: "markAccountFrontDoorLive"}:              true,
+		{Path: "platform/mutations.memql", Name: "requestAccountFrontDoorRemoval"}:        true,
+		{Path: "platform/mutations.memql", Name: "markAccountFrontDoorRemoved"}:           true,
 		// epic memql#4794. The packages pipeline's writers, the D11 feeds'
 		// single write, and the two status setters behind the D10 archive
 		// capabilities. They divide into two arguments and neither is
@@ -1001,7 +1015,7 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "worker/mutations.memql", Name: "createModelProbe"}:         true,
 		{Path: "worker/mutations.memql", Name: "recordModelProbeProgress"}: true,
 		{Path: "worker/mutations.memql", Name: "finishModelProbe"}:         true,
-		{Path: "worker/mutations.memql", Name: "finishModelPull"}:         true,
+		{Path: "worker/mutations.memql", Name: "finishModelPull"}:          true,
 		// memql#4389. The connector's own writes, and the two halves of
 		// the push channel. What they share is that the caller is a
 		// CONNECTOR rather than a person, so actor.userId names nobody --

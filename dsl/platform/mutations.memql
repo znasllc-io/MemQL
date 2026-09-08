@@ -856,6 +856,234 @@ mutate customDomain markCustomDomainRemoved {
   }
 }
 
+// ---- The per-account front door (epic memql#5168) ----
+//
+// EVERY MUTATION HERE IS @serverOnly, and the clusterOwner tier is not the
+// reason -- the tier is the ACCESS decision, and @serverOnly is about the WIRE.
+// A door's whole walk is driven by the reconciler: what a client-reachable
+// write would buy is the ability to declare a door live without the three
+// hostnames ever having pointed at this cluster, which is a certificate the
+// edge would then resolve traffic through. There is no operator need on the
+// other side of that: the one act a person performs is opening the door, and
+// the reconciler does the opening from the account's own reservation.
+
+/// Open a front door for an account, pending DNS. Written by the reconciler when it first sees a
+/// verified account holding a reserved name with no live door.
+///
+/// `reservedName` is COPIED from account.memqlDomain rather than read through the relationship,
+/// and the concept's own description says why: changing a client's domain CLEARS memqlDomain, and
+/// the teardown that follows has to name three hosts the account row can no longer produce.
+/// actor.userId scoping is not the fix, and could not be. There is nothing to scope to -- the
+/// concept is clusterOwner tier and carries no owner field -- but the deeper reason is that the
+/// property in question is not who is asking. What has to hold is that the reservation was VERIFIED,
+/// and only the reconciler's own frame, which has just read domainStatus and memqlReservedAt off the
+/// account, knows that. A client-reachable create scoped perfectly to its caller would still open a
+/// door for a name nobody proved they own.
+@serverOnly
+@description("Open a front door for an account's reserved MemQL name, pending DNS. The three hosts are derived from reservedName by frontdoor.AccountHosts.")
+mutate accountFrontDoor createAccountFrontDoor {
+  args {
+    doorId        string!
+    accountId     string!
+    reservedName  string!  @maxLength(253) @pattern("^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
+  }
+  insert {
+    accept { accountId, reservedName }
+    stamp {
+      id:             args.doorId
+      status:         "pending_dns"
+      failureReason:  ""
+      failureDetail:  ""
+    }
+  }
+}
+
+/// Record a pass that looked and did not advance. Writes what was seen at each of the three hosts
+/// and the typed reason, and moves lastCheckedAt.
+///
+/// `hostChecks` is written on EVERY pass, including the ones that change nothing. That is what
+/// makes "checked 40 seconds ago, api. still resolves to the old load balancer" a different
+/// statement from "nobody has looked", and it is the only thing standing between an operator and
+/// testing three CNAMEs by hand.
+/// actor.userId scoping is not the fix: what this writes is what a DNS lookup RETURNED, and no
+/// caller can be scoped into being a resolver. A client-reachable version would let the observation
+/// be asserted rather than made, which is the one thing the whole walk rests on.
+@serverOnly
+@description("Record a front-door verification pass that did not advance: what each host looked like, the typed reason, and when.")
+mutate accountFrontDoor recordAccountFrontDoorCheck {
+  args {
+    doorId         string!
+    status         enum("pending_dns", "verifying", "issuing", "removing")!
+    hostChecks     object!
+    failureReason  string!
+    failureDetail  string
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { status, hostChecks, failureReason, failureDetail, lastCheckedAt }
+    stamp {
+      id:  args.doorId
+    }
+  }
+}
+
+/// All three hosts point at this cluster. Moves the door to `issuing` and stamps verifiedAt.
+///
+/// verifiedAt is never cleared by a later failure: an issuance that fails afterwards does not
+/// un-prove that the records were created, and clearing it would restart a walk already past that
+/// stage.
+/// actor.userId scoping is not the fix: verification is a claim about three CNAME records in the
+/// public DNS, not about who is asking. Scoped to its caller it would still be a person declaring
+/// that their own name points here, and the ACME order that follows would then be attempted on
+/// their say-so against a rate limit the whole cluster shares.
+@serverOnly
+@description("Mark a front door verified: all three hosts point at this cluster, and issuance may begin.")
+mutate accountFrontDoor markAccountFrontDoorVerified {
+  args {
+    doorId         string!
+    hostChecks     object!
+    verifiedAt     datetime!
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { hostChecks, verifiedAt, lastCheckedAt }
+    stamp {
+      id:             args.doorId
+      status:         "issuing"
+      failureReason:  ""
+      failureDetail:  ""
+    }
+  }
+}
+
+/// The objects are applied and the certificate is not Ready yet -- the ordinary state for the first
+/// minutes of an ACME order, and NOT a failure. Carries cert-manager's own condition message so the
+/// rail can say what the issuer is waiting on rather than showing a spinner with no content.
+/// actor.userId scoping is not the fix: the value written is cert-manager's own condition message,
+/// read out of the cluster by the frame that just applied the objects. There is no caller who could
+/// supply it truthfully, so a scoped write would only make it forgeable.
+@serverOnly
+@description("Record a front-door issuance pass that applied the five objects and is waiting for the three-SAN certificate to become Ready. Clears any previous failure and moves lastCheckedAt.")
+mutate accountFrontDoor recordAccountFrontDoorIssuingProgress {
+  args {
+    doorId         string!
+    failureDetail  string
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { failureDetail, lastCheckedAt }
+    stamp {
+      id:             args.doorId
+      status:         "issuing"
+      failureReason:  ""
+    }
+  }
+}
+
+/// Issuance refused or failed. The door stays at `issuing` and carries the typed reason: a cluster
+/// with no ACME issuer sits here forever, which is the correct local-cluster answer (custom domains
+/// D7) and not a stuck state.
+/// actor.userId scoping is not the fix, for recordAccountFrontDoorIssuingProgress's reason: this
+/// records what the capability envelope came back with. A caller-scoped version would let a person
+/// write no_acme_issuer onto a door that is issuing perfectly well, and the sweep would believe it.
+@serverOnly
+@description("Record a typed issuance refusal or failure on a front door, keeping it at issuing so the sweep retries on the schedule.")
+mutate accountFrontDoor recordAccountFrontDoorIssuanceFailure {
+  args {
+    doorId         string!
+    failureReason  string!
+    failureDetail  string
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { failureReason, failureDetail, lastCheckedAt }
+    stamp {
+      id:      args.doorId
+      status:  "issuing"
+    }
+  }
+}
+
+/// The certificate is Ready. From this write on the edge resolves `app.<reservedName>` to the OS
+/// site with the account in context, and the api and id hosts terminate TLS.
+/// actor.userId scoping is not the fix, and this is the sharpest case in the file. `live` is what
+/// makes the edge resolve traffic through the door, and the only evidence for it is a Certificate
+/// the reconciler read as Ready. A caller-scoped write would let anyone holding an account declare
+/// their own door live and take traffic on a certificate that does not exist -- the browser's
+/// error, their client's employees, our name on it.
+@serverOnly
+@description("Mark a front door live once its certificate is Ready. All three hosts answer from this write on.")
+mutate accountFrontDoor markAccountFrontDoorLive {
+  args {
+    doorId         string!
+    issuedAt       datetime!
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { issuedAt, lastCheckedAt }
+    stamp {
+      id:             args.doorId
+      status:         "live"
+      failureReason:  ""
+      failureDetail:  ""
+    }
+  }
+}
+
+/// The reservation behind this door is gone -- the account's domain changed, or the account was
+/// archived (design D9). Moves it to `removing` so the next pass unbinds.
+///
+/// THIS IS THE ONLY TRANSITION THAT CAN LEAVE `live`, and it is a teardown rather than a park. A
+/// door whose reservation was discarded is the cluster serving three names it no longer holds proof
+/// for; record A's rule is that proof of one name is not proof of another, and this is that rule
+/// reaching the hosts.
+/// actor.userId scoping is not the fix: the trigger is the ABSENCE of a reservation on the account
+/// row, which is a fact about a different row the caller may not be able to read at all. An
+/// operator who wants a door taken down changes the account's reservation, which is the act they
+/// already have; this write is the consequence, not the control.
+@serverOnly
+@description("Move a front door to removing because the reservation behind it is gone. The next sweep pass unbinds the Ingresses and the Certificate.")
+mutate accountFrontDoor requestAccountFrontDoorRemoval {
+  args {
+    doorId         string!
+    failureReason  string
+    failureDetail  string
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { failureReason, failureDetail, lastCheckedAt }
+    stamp {
+      id:      args.doorId
+      status:  "removing"
+    }
+  }
+}
+
+/// The unbind completed. Terminal, and the row stays -- the pair (issuedAt, removedAt) is how long
+/// this cluster served the client's name.
+/// actor.userId scoping is not the fix: this records that the unbind script's envelope came back
+/// applied, which only the frame that ran it saw. Scoped to a caller it would let a door be marked
+/// removed while its Ingresses are still serving -- the row and the cluster disagreeing, with the
+/// row being the one anybody reads.
+@serverOnly
+@description("Mark a front door removed once the unbind script has taken the objects away. Terminal; the row survives as the audit.")
+mutate accountFrontDoor markAccountFrontDoorRemoved {
+  args {
+    doorId         string!
+    removedAt      datetime!
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { removedAt, lastCheckedAt }
+    stamp {
+      id:             args.doorId
+      status:         "removed"
+      failureReason:  ""
+      failureDetail:  ""
+    }
+  }
+}
+
 // ---- The sync runtime's writes (epic memql#4378) ----
 //
 // Every one is @serverOnly, and for the same reason the shopify mirror's

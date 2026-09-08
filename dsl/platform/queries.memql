@@ -381,6 +381,97 @@ query customDomain customDomainById {
   shape   customDomainFull
 }
 
+// ---- The per-account front door (epic memql#5168) ----
+
+/// One LIVE front door by the name it serves beneath -- the edge's third and last resolution step.
+///
+/// TAKES THE RESERVED NAME, NOT THE HOST, and that split is deliberate. A row stores
+/// `memql.acme.com`; the host the edge was asked for is `app.memql.acme.com`. A filter compiles to
+/// SQL over stored fields and cannot prepend a label, so one side has to compose -- and doing it in
+/// Go (frontdoor.AccountReservedNameFromAppHost, the pinned inverse of AccountRoleHost) keeps the
+/// label spelled once. A denormalized appHost column would be a second spelling that drifts the
+/// first time the label changes, and the symptom would be every client's door resolving to nothing.
+///
+/// `status=="live"` carries the whole security property, liveCustomDomainByHostname's reasoning one
+/// domain over: a door reaches `live` only after all three of its hosts pointed at this cluster AND
+/// its certificate came back Ready. Every other status resolves to nothing, so a teardown takes
+/// effect at the speed of a row write rather than at the speed of an Ingress deletion.
+@cache(30)
+@unbounded("live account front door by reserved name -- bounded to a single row (one live door per account, and a reserved name is cluster-unique)")
+@actor
+query accountFrontDoor liveAccountFrontDoorByReservedName {
+  args {
+    reservedName  string!
+  }
+  filter  reservedName==args.reservedName && status=="live" && actor.isClusterOwner==true
+  shape   accountFrontDoorFull
+}
+
+/// Every front door the reconciliation sweep still has work for: everything but `live` and
+/// `removed`.
+///
+/// UNPAGINATED for customDomainsToReconcile's reason -- a sweep that read a page would silently
+/// never reconcile the doors past it, and the symptom is a client's name that verifies for nobody
+/// with nothing in any log to say why. Bounded by how many doors are in flight at once, not by how
+/// many the cluster has ever served.
+///
+/// `live` IS EXCLUDED, and the teardown still works, because the sweep does not discover a cleared
+/// reservation by walking live doors -- it walks accounts, and a reservation that has gone missing
+/// moves its door to `removing` through the account side of the pass. Reading every live door on
+/// every tick to ask whether its account still wants it would make the steady state of a healthy
+/// cluster the most expensive one.
+/// NO `sort`, and the parser is right to insist: a sorted query is a bounded one. Order costs
+/// nothing here -- each door advances independently of the others.
+@unbounded("account front doors awaiting reconciliation -- an internal sweep that must see all of them, bounded by how many are in flight rather than by how many exist")
+@actor
+query accountFrontDoor accountFrontDoorsToReconcile {
+  filter  status in ["pending_dns", "verifying", "issuing", "removing"] && actor.isClusterOwner==true
+  shape   accountFrontDoorFull
+}
+
+/// Every front door ever opened for one account, including removed ones. What the Accounts app's
+/// MemQL address stop reads.
+///
+/// REMOVED ROWS ARE INCLUDED, customDomainsForSite's reasoning: the rows survive removal because
+/// the history is the audit, and a list that hid them would make "we stopped serving their name
+/// last Tuesday" a fact only the database remembers. There is one LIVE door per account; there may
+/// be several removed ones, because changing a client's domain tears the old one down (design D9).
+@actor
+query accountFrontDoor accountFrontDoorsForAccount {
+  args {
+    accountId  string!
+  }
+  filter    accountId==args.accountId && actor.isClusterOwner==true
+  sort      "row.createdAt", "desc"
+  paginate  50
+  shape     accountFrontDoorFull
+}
+
+/// Every front door this cluster knows about. The Accounts rail's live seed and the operator's
+/// fleet-wide read.
+///
+/// NO STATUS FILTER, customDomainsAll's reasoning: a subscription delivers every row the concept
+/// writes, so a seed narrowed to non-terminal rows would give the browser a list that grows a
+/// `live` row the first time one is touched and never has one on load.
+@actor
+query accountFrontDoor accountFrontDoorsAll {
+  filter    actor.isClusterOwner==true
+  sort      "reservedName", "asc"
+  paginate  200
+  shape     accountFrontDoorFull
+}
+
+/// One front door by its own row id -- the seam the sweep re-reads through.
+@unbounded("account front door by id -- bounded to a single row (id is the row's own primary key)")
+@actor
+query accountFrontDoor accountFrontDoorById {
+  args {
+    doorId  string!
+  }
+  filter  row.id==args.doorId && actor.isClusterOwner==true
+  shape   accountFrontDoorFull
+}
+
 // ---- The sync runtime's reads (epic memql#4378) ----
 //
 // Every one of these is cluster-owner gated by its concept's declared

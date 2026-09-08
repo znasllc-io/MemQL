@@ -94,3 +94,47 @@ func TestAccountHostsComposeOnlyTheReservedName(t *testing.T) {
 		}
 	}
 }
+
+// The strip and the compose are inverses, pinned against each other so the
+// label lives in exactly one place. Without this, changing AccountRoleApp
+// would leave the edge stripping a prefix nothing produces -- and the symptom
+// is every client's front door resolving to nothing, with no error anywhere.
+func TestTheAppHostRoundTrips(t *testing.T) {
+	for _, reserved := range []string{"memql.acme.com", "memql.a-very-long-client-name.co.uk", "portal.acme.com"} {
+		host := AccountRoleHost(AccountRoleApp, reserved)
+		got, ok := AccountReservedNameFromAppHost(host)
+		if !ok {
+			t.Errorf("AccountReservedNameFromAppHost(%q) reported no match for a host this package composed", host)
+			continue
+		}
+		if got != reserved {
+			t.Errorf("round trip of %q gave %q", reserved, got)
+		}
+	}
+}
+
+func TestOnlyTheAppLabelResolvesADoor(t *testing.T) {
+	// api. and id. are routed by Ingress straight to the bff and the identity
+	// service; a host arriving at the EDGE under either label is a request
+	// that should 404, not a door.
+	for _, role := range []AccountRole{AccountRoleAPI, AccountRoleID} {
+		host := AccountRoleHost(role, "memql.acme.com")
+		if got, ok := AccountReservedNameFromAppHost(host); ok {
+			t.Errorf("AccountReservedNameFromAppHost(%q) resolved to %q; only the %q label may", host, got, AccountRoleApp)
+		}
+	}
+
+	for _, host := range []string{
+		"memql.acme.com",   // the bare reserved name: the door serves BENEATH it, never at it
+		"app.localhost",    // one label after the prefix: no reservation produces this
+		"app.",             // degenerate
+		"app",              // the label alone
+		"",                 // nothing
+		"notapp.acme.com",  // a name that merely ends in the label
+		"www.app.acme.com", // the label in the wrong position
+	} {
+		if got, ok := AccountReservedNameFromAppHost(host); ok {
+			t.Errorf("AccountReservedNameFromAppHost(%q) resolved to %q, want no match", host, got)
+		}
+	}
+}

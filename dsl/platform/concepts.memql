@@ -266,6 +266,39 @@ concept customDomain {
   @relationship(type="references", as="servedBy", field="siteId", target=site, direction="outgoing")
 }
 
+/// One account's reserved MemQL name, served (epic memql#5168, design D of the access program:
+/// docs/superpowers/specs/2026-09-08-per-account-front-door-design.md). A client whose own domain is
+/// acme.com reserves memql.acme.com through record A's domain walk, and this row is what turns that
+/// reservation into three hosts the cluster actually answers on -- app. for the OS shell, api. for the
+/// engine's API edge, id. for sign-in.
+///
+/// A NEW CONCEPT RATHER THAN FOUR MORE FIELDS ON THE ACCOUNT ROW, for customDomain's own reason: what
+/// a cluster serves at its front door is one DEPLOYMENT's fact, and v1:accounts:account sits on a
+/// rank-visible tier where a client-rank member can read it. The reservation belongs on the account
+/// (it is a fact about the client); the serving belongs here.
+///
+/// It reuses the custom-domain machinery end to end -- the same DNS resolver, the same six-value
+/// status ladder, the same one-transition-per-pass reconciler, the same capability-script provisioner
+/// -- and differs in exactly two ways. It checks POINTING ONLY, because record A's TXT walk already
+/// proved the parent domain and memqlReservedAt is stamped only on success; and its certificate names
+/// THREE hosts, which is what makes activation all-or-nothing without a rule to police (design D8).
+@rowAuthz(clusterOwner)
+@displayCard(primary="reservedName", secondary="accountId", tertiary="failureReason", status="status")
+concept accountFrontDoor {
+  accountId     string!  @description("The v1:accounts:account this door is served for. Required, and ONE LIVE ROW PER ACCOUNT: a second door for the same account is a second certificate order for the same three names, which spends a Let's Encrypt rate-limit unit to produce the same result. Refused in Go by component/memql/account_domain_validation.go, not here, because it needs a read.")
+  reservedName  string!  @description("The name this door serves beneath -- account.memqlDomain as it stood when the door was created, e.g. memql.acme.com. COPIED rather than read through the relationship, and that is the field's whole job: changing an account's domain CLEARS memqlDomain, the token and the verification (record A's resetAccountDomainOnChange), and the reconciler then has to tear down three hosts it can no longer name from the account row. A door that cannot say what it serves is one nothing can unbind.")
+  status        enum("pending_dns", "verifying", "issuing", "live", "removing", "removed")!  @description("Where this door is on its walk -- the same six customDomain uses, deliberately, so one vocabulary, one panel grammar and one NonTerminal predicate cover both. pending_dns: created, nothing seen yet. verifying: at least one of the three hosts is not pointing here -- read hostChecks for which. issuing: all three point at the cluster and the bind script is applying the Certificate and the four Ingresses. live: the certificate is Ready and the three hosts answer. removing: the reservation is gone (design D9) and the unbind script is taking the objects away. removed: terminal, and the row stays -- the history is the audit.")
+  hostChecks    object   @description("What the last pass saw at each of the three hosts, keyed by role: { app: { ok, reason, detail }, api: {...}, id: {...} }. Activation is all-or-nothing (D8), so this does NOT gate anything -- it exists so the Accounts rail can name WHICH CNAME is still wrong rather than saying three names are not pointing and leaving an operator to test each one. Written on EVERY pass, including the ones that change nothing, for lastCheckedAt's reason. Keys are frontdoor.AccountRoles(), which is where the three labels are spelled.")
+  failureReason string   @description("The TYPED reason the last attempt did not advance, or empty. dns_not_pointing, no_acme_issuer and issuance_failed today -- the custom-domain vocabulary minus dns_token_missing, which this concept cannot produce because it runs no ownership check of its own. Not an enum, for customDomain.failureReason's reason: a refusal the engine has never seen must still reach the row rather than being refused by its own schema.")
+  failureDetail string   @description("What the sweep or the bind script actually observed, verbatim -- the address a host resolves to, or cert-manager's own condition message while a certificate is issuing. The rail renders it beside failureReason, because the code says which stage and this says what is in the way.")
+  lastCheckedAt datetime @description("When the sweep last looked. Written on EVERY pass, which is what makes 'checked 40 seconds ago, still not pointing' a different statement from 'nobody has looked'. Deliberately NOT in the rail's arrival-cue fingerprint: it moves on a timer, and fingerprinting it would turn the stop into a strobe (clients/os/README.md's heartbeat rule).")
+  verifiedAt    datetime @description("When all three hosts first pointed at the cluster. Empty until they do; never cleared by a later failure, because an issuance that fails afterwards does not un-prove that the records were created.")
+  issuedAt      datetime @description("When the certificate first became Ready and the door went live. Empty until then.")
+  removedAt     datetime @description("When the unbind completed. Empty on every row that has not been removed; the pair with issuedAt is how long this cluster served the client's name.")
+
+  @relationship(type="references", as="servedFor", field="accountId", target=account, direction="outgoing")
+}
+
 /// Per-instance pack enablement state (module-registry design,
 /// docs/superpowers/specs/2026-08-20-module-registry-design.md section 4). One row per pack at the
 /// deterministic id v1:platform:packState:<packDomain>; the append-only version history IS the audit
