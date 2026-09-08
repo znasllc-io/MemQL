@@ -108,6 +108,28 @@ export interface ExecutionReport {
    * needs a second question answered asks a second field.
    */
   kept?: boolean;
+  /**
+   * Whether the run kept THE CLUSTER, which is a narrower question than `kept`
+   * above and the only one the records can answer (memql#5118, D8).
+   *
+   * TWO PREDICATES BECAUSE THERE ARE TWO QUESTIONS. `kept` asks "is anything
+   * still on this machine?", which is what the closing sentence reports, and a
+   * preserved checkout or mkcert CA answers it yes. This asks "is the CLUSTER
+   * still here?", which is what the receipt and the registry row assert -- and
+   * only a preserved `stack` answers that one.
+   *
+   * Reading `kept` for both is the bug that hides behind a passing test: a
+   * developer whose own checkout is preserved while the cluster is deleted
+   * would keep a receipt naming a cluster that is gone, `detectPresence` would
+   * go on answering `installed-*` over nothing, and no control in the extension
+   * could clear it -- which is memql#3544 exactly, re-opened from the other
+   * side.
+   *
+   * `stack` is the artifact KIND remove-artifact.sh gives the k3d cluster, and
+   * `removalParams` stamps it on every removal step from the receipt entry, so
+   * this reads the same word the script is invoked with.
+   */
+  keptCluster?: boolean;
 }
 
 /** What the caller wants done with a step. */
@@ -249,6 +271,7 @@ export async function executeGraph(options: ExecuteOptions): Promise<ExecutionRe
     graph: graph.name,
     ok: ordered.every((o) => o.status !== "failed"),
     kept: ordered.some((o) => o.status === "preserved"),
+    keptCluster: ordered.some((o) => o.status === "preserved" && o.params["kind"] === "stack"),
     waves,
     outcomes: ordered,
     ...(cancelled ? { cancelled: true } : {}),

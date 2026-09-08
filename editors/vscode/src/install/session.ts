@@ -46,7 +46,13 @@ import {
   type Step,
 } from "./graph.js";
 import { normalizeNodeList } from "./nodeList.js";
-import { entryFor, readReceipt, removalParams, type Receipt } from "./receipt.js";
+import {
+  entryFor,
+  readReceipt,
+  removalParams,
+  unreceiptedClusterReceipt,
+  type Receipt,
+} from "./receipt.js";
 import { refuseUnsupportedPlatform } from "./platform.js";
 import { resolveScriptRoot } from "./root.js";
 import { capabilityScriptPath, withInstalledTools, type RunScript } from "./runner.js";
@@ -211,6 +217,25 @@ export interface SessionOptions {
   /** Escape hatch: per-step flag overrides. */
   stepParams: Record<string, Record<string, string>>;
   timeoutMs?: number;
+  /**
+   * The k3d cluster to plan a removal for when there is NO receipt
+   * (memql#5118, D8).
+   *
+   * A NAME RATHER THAN A RECEIPT, deliberately. The caller for this is the
+   * `present-unreceipted` verdict -- a live cluster this installer did not
+   * create -- and the only thing it knows is that name, from `k3d cluster
+   * list`. Taking a whole `Receipt` here would let any caller fabricate
+   * entries for a hosts block and a trust-store CA nothing has evidence for,
+   * which is precisely what `requireReceipt` exists to refuse; taking the name
+   * lets `unreceiptedClusterReceipt` build the one entry that is observed
+   * fact, and every other removal step still skips for want of a record.
+   *
+   * A REAL RECEIPT OUTRANKS IT. When the file is there it is read, and this is
+   * ignored: the record describes more of the machine than an observation can,
+   * and the two can only disagree if the caller set this in a state where the
+   * verdict says it should not have.
+   */
+  unreceiptedCluster?: string;
 }
 
 /**
@@ -1120,13 +1145,16 @@ async function loadGraphFor(kind: GraphKind, opts: SessionOptions): Promise<Grap
 
 async function requireReceipt(opts: SessionOptions): Promise<Receipt> {
   const receipt = await readReceipt(opts.receiptFile);
-  if (!receipt) {
-    throw new Error(
-      `no receipt at ${opts.receiptFile} -- an uninstall removes what an install recorded, ` +
-        `and without that record it would be guessing at the operator's machine`,
-    );
-  }
-  return receipt;
+  if (receipt) return receipt;
+  // THE ONE THING THAT CAN STAND IN FOR A RECEIPT, and it is not a fallback:
+  // the caller has to name a cluster it has SEEN (memql#5118, D8). See
+  // SessionOptions.unreceiptedCluster and unreceiptedClusterReceipt.
+  const observed = opts.unreceiptedCluster ?? "";
+  if (observed !== "") return unreceiptedClusterReceipt(observed);
+  throw new Error(
+    `no receipt at ${opts.receiptFile} -- an uninstall removes what an install recorded, ` +
+      `and without that record it would be guessing at the operator's machine`,
+  );
 }
 
 // ---------------------------------------------------------------------------

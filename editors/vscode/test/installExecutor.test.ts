@@ -621,6 +621,60 @@ test("a refusal on a pre-existing artifact is PRESERVED, not a failure", async (
   // The dependent still ran: preservation is not breakage.
   assert.equal(report.outcomes.find((o) => o.id === "removeToolMkcert")?.status, "ok");
   assert.equal(report.ok, true);
+
+  // TWO PREDICATES, AND THIS RUN SEPARATES THEM (memql#5118, D8). Something IS
+  // still on this machine -- the operator's own mkcert CA -- so the closing
+  // sentence must not claim a complete removal. No CLUSTER is, so the receipt
+  // and the registry row have to go, or `detectPresence` goes on answering
+  // `installed-*` over a cluster that was deleted, permanently and with no
+  // control that can clear it (memql#3544, from the other side).
+  assert.equal(report.kept, true, "a preserved CA is something left behind");
+  assert.equal(report.keptCluster, false, "no stack was preserved -- the records must not be kept");
+});
+
+test("a preserved STACK is the one preservation the records are kept for", async () => {
+  // The other half of the pair above. Same machinery, one artifact kind
+  // different, opposite answer -- which is the whole reason `keptCluster` is
+  // its own field rather than a reading of `kept`.
+  const g = graphOf(
+    [
+      {
+        id: "removeStack",
+        script: "install.removeArtifact",
+        readOnly: false,
+        reverses: "k3dUp",
+        verify: { kind: "resultEquals", field: "result.kind", value: "stack" },
+      },
+    ],
+    "uninstall",
+  );
+  const runner = fakeRunner(() => ({
+    exitCode: 3,
+    envelope: {
+      ok: false,
+      capability: "install.removeArtifact",
+      changed: false,
+      result: {},
+      error: { code: 3, message: "refusing to remove a pre-existing cluster" },
+    },
+  }));
+
+  const report = await executeGraph({
+    graph: g,
+    scriptPath: () => "/bin/true",
+    run: runner.run,
+    // `kind` is what removalParams stamps from the receipt entry, and "stack"
+    // is the word remove-artifact.sh gives the k3d cluster.
+    plan: () => ({
+      action: "run" as const,
+      params: { kind: "stack", cluster: "memql", "pre-existing": "true" },
+      preservedOnRefusal: true,
+    }),
+  });
+
+  assert.equal(report.outcomes[0]?.status, "preserved");
+  assert.equal(report.kept, true);
+  assert.equal(report.keptCluster, true, "the cluster is still here, so both records stay");
 });
 
 test("a refusal NOT explained by pre-existence is still a failure", async () => {

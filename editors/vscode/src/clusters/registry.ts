@@ -209,7 +209,7 @@ export interface UninstallFollowUp {
    */
   deleteReceipt: () => Promise<void>;
   /**
-   * Whether the run KEPT any artifact rather than removing it (memql#5118, D8).
+   * Whether the run kept THE CLUSTER rather than removing it (memql#5118, D8).
    *
    * When it did, the registry entry and the receipt both STAY, and that is the
    * whole point: they name a cluster that is still on this machine. Deleting
@@ -218,8 +218,17 @@ export interface UninstallFollowUp {
    * the operator was told everything had been taken back and then handed their
    * own database back under a fresh receipt. Every step was individually
    * correct.
+   *
+   * THE CLUSTER, not any preserved artifact, and the difference is a bug in
+   * each direction. Both records describe a CLUSTER: clusters.yaml names one to
+   * connect to, and the receipt is what `detectPresence` reads to answer "is
+   * MemQL installed here". A preserved checkout leaves something on the machine
+   * -- which the closing sentence reports, off `ExecutionReport.kept` -- but it
+   * is not a cluster, and keeping the records for it would strand a receipt
+   * describing an install that is gone, exactly the state memql#3544 exists to
+   * prevent and which no control in the extension can clear.
    */
-  keptArtifacts: boolean;
+  keptCluster: boolean;
 }
 
 export async function completeLocalUninstall(follow: UninstallFollowUp): Promise<string> {
@@ -227,7 +236,7 @@ export async function completeLocalUninstall(follow: UninstallFollowUp): Promise
   // NOTHING IS FORGOTTEN ABOUT A CLUSTER THAT IS STILL HERE. Both records
   // describe artifacts the run declined to remove, and dropping them is what
   // turned "we kept your cluster" into "install a fresh one over it".
-  if (follow.keptArtifacts) {
+  if (follow.keptCluster) {
     follow.invalidatePresence();
     follow.refreshTree();
     return "";

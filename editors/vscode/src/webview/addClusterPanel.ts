@@ -39,6 +39,7 @@ import {
 import { addCluster, readClustersFileSafe } from "../clusters/file.js";
 import {
   addClusterMenu,
+  LOCAL_CLUSTER_NAME,
   type AddClusterAction,
   type AddClusterChoice,
   type ClusterPresence,
@@ -1515,11 +1516,24 @@ export class AddClusterPanel {
    * artifact landed, and whether the installer created it or merely found it.
    * That is why this carries no domain, no owner and no tag -- a removal is not
    * configured, it is remembered.
+   *
+   * WITH ONE EXCEPTION, WHICH IS REMEMBERED FROM SOMEWHERE ELSE (memql#5118,
+   * D8). `present-unreceipted` means k3d listed a cluster named `memql` and
+   * nothing here recorded it, and D8 gives that verdict two acts: adopt, or
+   * delete. Without `unreceiptedCluster` the delete card opened a screen
+   * reading "no receipt at ~/.memql/install-receipt.json" -- an act the wizard
+   * offered and could not perform. The name is the observation the verdict was
+   * MADE from, not a guess, and it stands in for exactly one artifact.
    */
   private uninstallOptions(): SessionOptions {
     return {
       root: this.deps.installRoot,
       receiptFile: this.deps.receiptFile,
+      // Set ONLY on the verdict that means "a cluster is here and no record of
+      // it is". On every other verdict there is a receipt, which outranks this
+      // anyway -- but a field that is present when it is not the answer is a
+      // field the next reader has to rule out.
+      ...(this.verdict === "present-unreceipted" ? { unreceiptedCluster: LOCAL_CLUSTER_NAME } : {}),
       // THE SHARED TOOLS THE OPERATOR DID NOT TICK (memql#3566).
       //
       // This used to read "nothing is skipped", reasoning that narrowing an
@@ -1692,7 +1706,7 @@ export class AddClusterPanel {
       );
       this.uninstall.finish(report);
       if (report.ok && report.cancelled !== true) {
-        await this.completeUninstall(report.kept === true);
+        await this.completeUninstall(report.keptCluster === true);
       } else {
         // A partial removal still changed the machine, so the memo describing
         // it has to go. The registry entry does NOT: it still names a cluster
@@ -1726,13 +1740,17 @@ export class AddClusterPanel {
   /**
    * The three things that follow a clean removal. See completeLocalUninstall.
    *
-   * `kept` decides whether the records go with the artifacts: a run that
-   * preserved the operator's own cluster has left something on this machine,
-   * and the receipt and the registry row are what say so (memql#5118, D8).
+   * `keptCluster` decides whether the records go with the artifacts: a run that
+   * preserved the operator's own cluster has left it on this machine, and the
+   * receipt and the registry row are what say so (memql#5118, D8).
+   *
+   * The CLUSTER rather than `report.kept`, which is true of any preserved
+   * artifact. Both records name a cluster, so a run that kept only a checkout
+   * has to let them go -- see ExecutionReport.keptCluster.
    */
-  private async completeUninstall(kept: boolean): Promise<void> {
+  private async completeUninstall(keptCluster: boolean): Promise<void> {
     const problem = await completeLocalUninstall({
-      keptArtifacts: kept,
+      keptCluster,
       clusterName: this.localClusterName,
       removeEntry: (name) => this.deps.removeRegistryEntry(name),
       invalidatePresence: () => this.presence.invalidate(),
@@ -2330,13 +2348,24 @@ ${this.probeHtml()}`,
     // pointing at where they are. The list is still the confirmation and there
     // is still no second prompt; what changed is that an operator who has
     // already read it does not scroll back past it to act.
+    // WHAT THE LIST IS BUILT FROM, SAID ACCURATELY FOR BOTH CASES. The ordinary
+    // sentence rests the operator's confidence on the install receipt -- which
+    // is the right argument and a false one on `present-unreceipted`, where
+    // there is no receipt and the single row comes from k3d having listed the
+    // cluster. Printing "it is built from the install receipt" over a screen
+    // whose whole premise is that nothing recorded this cluster is the kind of
+    // reassurance that is worse than none.
+    const unreceipted = this.verdict === "present-unreceipted";
     return `<div data-escape-act="uninstallBack">${renderScreen({
-      title: "Uninstall the local cluster",
+      title: unreceipted ? "Delete the cluster that is already here" : "Uninstall the local cluster",
       actions: `<button class="primary" type="button" data-act="uninstallStart">Uninstall -- remove the items listed below</button>
   <button class="secondary" type="button" data-act="uninstallBack">Cancel</button>`,
       status: `<p class="lede">${escapeHtml(
-        "This list is the confirmation -- there is no second prompt. It is built from the " +
-          "install receipt, so nothing this machine had before the install is touched.",
+        unreceipted
+          ? "This list is the confirmation -- there is no second prompt. Nothing recorded this " +
+              "cluster, so the one item below is what k3d reports and all this can offer to take."
+          : "This list is the confirmation -- there is no second prompt. It is built from the " +
+              "install receipt, so nothing this machine had before the install is touched.",
       )}</p>`,
       details: `${renderToHtml(renderRemovalPreview(items.filter((item) => !this.isShared(item.id))))}
 ${elevationNote}
@@ -2546,9 +2575,16 @@ ${rows}`;
     // The ARTIFACT KIND, not the step id: `stack` is what remove-artifact.sh
     // calls the k3d cluster and the only kind the phrase is accepted for, so
     // the box is offered for exactly what the script would take.
+    //
+    // ONE PREDICATE, AND IT NOW COVERS `present-unreceipted` TOO. That verdict
+    // used to need a disjunct of its own because the preview REFUSED without a
+    // receipt, so there was no preserved list to read. It plans that one
+    // removal now (session.ts, `unreceiptedCluster`), which puts the cluster in
+    // `preserved` exactly as a receipted pre-existing one is -- and a second
+    // condition that can no longer differ from the first is a branch the next
+    // reader has to rule out.
     const kept = (this.uninstallPreview?.preserved ?? []).some((step) => step.params.kind === "stack");
-    const unreceipted = this.verdict === "present-unreceipted";
-    if (!kept && !unreceipted) return "";
+    if (!kept) return "";
 
     const checked = this.deleteData ? " checked" : "";
     const mismatch = this.deleteData && !this.deleteDataConfirmed();
