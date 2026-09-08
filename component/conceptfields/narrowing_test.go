@@ -139,6 +139,30 @@ func TestAddingAnEnumValueIsNotANarrowing(t *testing.T) {
 	}
 }
 
+func TestAFieldThatStopsBeingAnEnumIsNotANarrowing(t *testing.T) {
+	// The false positive this nearly shipped with. `enum("a","b")` -> `string`
+	// widens: a plain string accepts every value the enum did, so no stored row
+	// is at risk. Compared naively it reports one narrowing PER VALUE, and a
+	// gate that fires a dozen lines on a safe edit is one somebody writes a
+	// blanket waiver for.
+	got := Narrowings(before(), after(func(e *Entry) { e.Enums = nil }))
+	if len(got) != 0 {
+		t.Fatalf("dropping an enum constraint was reported as %d narrowing(s): %v", len(got), got)
+	}
+}
+
+func TestARemovedEnumValueIsStillCaughtWhenTheEnumRemains(t *testing.T) {
+	// The reachable positive for the case above: the exemption must be for a
+	// field that stopped being constrained, not for every enum edit. Without
+	// this, a rule that skipped all enum comparisons would pass that test.
+	got := Narrowings(before(), after(func(e *Entry) {
+		e.Enums = map[string][]string{"provider": {"azure"}}
+	}))
+	if len(got) != 1 || got[0].Kind != KindEnumValue {
+		t.Fatalf("a genuinely removed enum value stopped being reported: %v", got)
+	}
+}
+
 func TestDroppingRequiredIsNotANarrowing(t *testing.T) {
 	got := Narrowings(before(), after(func(e *Entry) { e.Required = nil }))
 	if len(got) != 0 {

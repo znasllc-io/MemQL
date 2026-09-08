@@ -141,9 +141,19 @@ func Narrowings(before, after Snapshot) []Narrowing {
 				// from it.
 				continue
 			}
-			currentValues := set(current.Enums[field])
+			currentValues, stillConstrained := current.Enums[field]
+			if !stillConstrained {
+				// THE FIELD STOPPED BEING AN ENUM, which is a WIDENING and not
+				// a narrowing: a plain `string` accepts every value the enum
+				// did, so no stored row is at risk. Without this the change
+				// reports one false narrowing PER VALUE -- and a gate that
+				// fires a dozen lines on a safe edit is one somebody writes a
+				// blanket waiver for.
+				continue
+			}
+			currentSet := set(currentValues)
 			for _, v := range priorValues {
-				if !currentValues[v] {
+				if !currentSet[v] {
 					out = append(out, Narrowing{Concept: id, Field: field, Kind: KindEnumValue, Value: v})
 				}
 			}
