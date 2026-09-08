@@ -228,6 +228,44 @@ func TestEveryLevelHasAnEntryPerMachineClass(t *testing.T) {
 // a machine label and will never report as missing either.
 func TestSeedsAreValidAgainstTheClosedSets(t *testing.T) {
 	profiles := loadSeededProfiles(t)
+
+	// A NON-DEGENERACY GUARD, before the assertions rather than after.
+	//
+	// Each arm below iterates a LIST field, and a list field can go empty
+	// across the whole corpus one curation decision at a time -- at which point
+	// the arm still runs, still passes, and checks nothing. That is not a
+	// missing test: the assertion is right there and looks correct, which is
+	// exactly why nobody re-reads it.
+	//
+	// The empty case is only the degenerate end of the real problem, which is a
+	// fixture set that has gone UNIFORM on the dimension the code branches on.
+	// So the guard fails FIRST, naming the field, rather than letting a green
+	// run stand for a check that happened.
+	var flagged, levelled, platformed int
+	for _, p := range profiles {
+		if len(p.flags) > 0 {
+			flagged++
+		}
+		if len(p.recommendedFor) > 0 {
+			levelled++
+		}
+		if len(p.offeredOn) > 0 {
+			platformed++
+		}
+	}
+	for _, tc := range []struct {
+		field string
+		n     int
+	}{
+		{"flags", flagged},
+		{"recommendedFor", levelled},
+		{"offeredOn", platformed},
+	} {
+		if tc.n == 0 {
+			t.Fatalf("no seed carries a %s value, so this test's %s arm would pass over nothing", tc.field, tc.field)
+		}
+	}
+
 	for _, p := range profiles {
 		if !catalogCategories[p.category] {
 			t.Errorf("%s: category %q is outside the closed set", p.name, p.category)
