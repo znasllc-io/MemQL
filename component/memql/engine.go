@@ -1020,6 +1020,11 @@ func (e *MemQLEngine) executeWith(ctx context.Context, query string, fns *Functi
 	// as exhaustion. Installing the memo here, above both, is what makes
 	// that structural instead of conventional.
 	ctx = contextWithRankScopeMemo(ctx, e)
+	// The account grant's own memo, installed here for exactly the reason
+	// above: the WHERE clause and the per-row egress gate must answer from
+	// ONE resolution, or a paginated read drops rows its own filter
+	// selected and the cursor reads that as exhaustion.
+	ctx = contextWithAccountScopeMemo(ctx, e)
 
 	effectiveTimestamp := plan.Timestamp
 
@@ -1240,6 +1245,15 @@ func (e *MemQLEngine) planCacheSignature(ctx context.Context, plan *QueryPlan) s
 	// other read's key is byte-identical to what it was before.
 	if treeHasRankScope(plan.Root) {
 		signature = "rank:" + e.rankScopeFor(ctx).fingerprint + "\x1f" + signature
+	}
+	// The account grant's fingerprint, on the same terms: adding somebody to
+	// a group changes what they may see without changing who they are, so a
+	// key built from the actor alone would serve them the plan resolved
+	// before they were a member -- for the rest of the TTL, and stale in the
+	// direction of showing too little. Appended only when the plan carries
+	// an account term, so every other read's key is byte-identical.
+	if treeHasAccountScope(plan.Root) {
+		signature = "account:" + e.accountScopeFor(ctx).fingerprint + "\x1f" + signature
 	}
 	return signature
 }

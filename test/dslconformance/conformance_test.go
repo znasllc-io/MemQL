@@ -473,7 +473,18 @@ var idBearingFieldExemptions = map[string]string{
 	// (docs/internal/design/account-isolation-model.md 3.1). Not declaring
 	// the edge keeps the credential row a leaf, which is the conservative
 	// direction for a field whose whole design note is about isolation.
-	"identity/identity.accountId": "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
+	// v1:identity:groupMembership.ownerUserId is ALWAYS EMPTY by design (epic
+	// memql#5165 D2): the row is the deployment's record of a decision about a
+	// person, not a row that person owns. The field exists because
+	// `@rowAuthz(owner="ownerUserId", ..., unowned="admin")` needs a
+	// PRESENT-and-empty owner key to read the row as cluster-owned at all --
+	// an ABSENT one is denied at every rank. It points at nothing, so there is
+	// no @relationship to declare; annotating it would canonicalize a value
+	// nothing ever writes. Its sibling v1:identity:group.ownerUserId is the
+	// same field for the same reason and does not appear here only because its
+	// @description names no v1: row for the heuristic to catch.
+	"identity/groupMembership.ownerUserId": "plain-fk-by-design: always empty (epic memql#5165 D2); the owned tier needs a present-and-empty owner key, and the field names no target",
+	"identity/identity.accountId":          "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
 	// --- deliberate short-form storage by write-side normalization ---
 	"forge/requestEvent.requestId": "bare-by-contract (#1859): recordRequestEvent/recordMentoredEvent store shortId(args.requestId) so the audit trail unifies whether the caller passes a canonical (automation) or short (tool) id; an @relationship would re-canonicalize on insert and re-split the trail (conf_1859_test asserts zero events under the canonical id)",
 	// --- a MODEL TAG that names a row without being one (epic memql#5146) ---
