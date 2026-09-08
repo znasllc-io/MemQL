@@ -179,6 +179,20 @@ func (c *rbacCatalog) ladder() roleLadder {
 	return roleLadder{ranks: ranks}
 }
 
+// CanonicalSlug resolves a slug or alias to the slug that names its rung, or ""
+// when the catalog carries neither.
+//
+// Exported for the role builtins' holder count: every ordinary principal's user
+// row spells the member tier `writer`, so a count that compared the catalog
+// slug `user` alone would report zero holders and let the rung be retired out
+// from under everybody.
+func (c *rbacCatalog) CanonicalSlug(slug string) string {
+	if c == nil {
+		return ""
+	}
+	return c.resolve(slug)
+}
+
 // Slugs lists every slug the catalog carries, ACTIVE OR NOT, sorted.
 //
 // The role builtins read it for the two "taken" guards: a retired role keeps

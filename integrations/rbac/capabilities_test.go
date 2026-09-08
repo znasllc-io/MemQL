@@ -24,7 +24,7 @@ func allowed(t *testing.T, payload []byte) bool {
 // node. Pins the relational rule + the owner carve-out at the integration
 // boundary.
 func TestGovernPrincipalCapability(t *testing.T) {
-	i := New()
+	i := New(nil, nil)
 	ctx := context.Background()
 
 	// admin (200) updates member (100): allowed.
@@ -70,7 +70,7 @@ func TestGovernPrincipalCapability(t *testing.T) {
 // TestCanCreatePrincipalCapability pins the create != edit split at the
 // integration boundary.
 func TestCanCreatePrincipalCapability(t *testing.T) {
-	i := New()
+	i := New(nil, nil)
 	ctx := context.Background()
 
 	// admin (200) creates a member (100): allowed (strictly below).

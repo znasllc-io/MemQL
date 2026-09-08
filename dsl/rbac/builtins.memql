@@ -28,3 +28,58 @@ builtin rbacCanCreatePrincipal {
   actorIsOwner  bool
   newRank       int!
 }
+
+// ---------------------------------------------------------------------------
+//   Role authoring (epic memql#5166, section D).
+// ---------------------------------------------------------------------------
+//
+// The three builtins that make a custom role real: create it with its grants,
+// edit it, retire it. They are the CLIENT-REACHABLE path -- `createRole` and
+// `createCapability` in mutations.memql are @serverOnly precisely so this one
+// is the only way in -- and they exist as Go rather than as mutations because
+// every guard they apply is relational or set-valued, and a mutation body can
+// express neither: rank strictly below the CALLER'S, a rank no rung already
+// holds, a slug no role or alias already claims, and every grant one the
+// CALLER holds.
+//
+// Each returns one synthetic node whose payload carries { ok, slug, code }.
+// `code` is empty on success and otherwise one of the record's names --
+// role_slug_taken, role_rank_not_below_caller, role_rank_taken,
+// role_grant_not_held, role_predefined_immutable, role_held_above_caller,
+// role_held -- so a client renders the refusal it got rather than parsing a
+// sentence. A builtin carries no @requiresRank (its annotation set is closed),
+// so the capability floor is repeated in the handler.
+
+@description("Create a custom role with its grants, in one internal-origin write. Guards, in order: the caller holds `create` on `role`; the slug matches ^[a-z][a-z0-9-]{1,39}$ and is claimed by no role and no alias (role_slug_taken); the rank is strictly below the caller's (role_rank_not_below_caller) and equal to no existing rung (role_rank_taken); every grant is a pair the caller themselves holds (role_grant_not_held, naming the pair); accountId, if given, scopes the role to that account (D10) and only members of it may then hold the role. Writes the role row (predefined false, active true) and one active capability row per grant. Returns {ok, slug, code}.")
+@sdk
+@args(profile="object")
+@executor("integration.rbac.roleCreate")
+builtin roleCreate {
+  slug         string!   @description("Stable kebab-case identifier, ^[a-z][a-z0-9-]{1,39}$. Never renamed; a rename is a new role. Refused when any role's slug OR alias already claims it, deactivated roles included -- a retired role stays as history and keeps its name.")
+  name         string!   @description("Display name, as a person would say it. This is what MyAccess reports and what every role picker draws.")
+  rank         int!      @description("Numeric privilege rank, HIGHER is more privileged. Strictly below the caller's own, and equal to no rung the cluster already has -- two roles at one rank are peers with nothing to say which is which.")
+  description  string    @description("One or two lines on what this role is for. Shown wherever the role is offered.")
+  accountId    string    @description("Scope the role to one account (D10). Members of that account's groups may hold it; nobody else may be given it. Empty for a global role, which is the common case.")
+  grants       []object! @description("The permissions the role holds: a list of { verb, resource }. Every pair must be one the caller holds themselves -- you cannot hand out what you do not have -- and the vocabulary a client should offer is the distinct set of pairs the seeded roles hold (activeCapabilities), because a pair no role holds is not a permission this cluster has.")
+}
+
+@description("Edit a custom role: its name, description, rank, scope or grants. Guards: the caller holds `update` on `role`; the role is not predefined (role_predefined_immutable); the rank and grant rules of roleCreate; and a RANK CHANGE additionally requires the caller to outrank every current holder (role_held_above_caller), because re-ranking a role re-ranks the people on it. Writes a new role version; grants removed from the list are written active:false rather than deleted, so the history of what a role could do survives. Returns {ok, slug, code}.")
+@sdk
+@args(profile="object")
+@executor("integration.rbac.roleUpdate")
+builtin roleUpdate {
+  slug         string!   @description("The role to edit. Not editable itself: a slug is an identity, and renaming one silently re-points every user row carrying it.")
+  name         string    @description("New display name. Absent leaves it unchanged.")
+  description  string    @description("New description. Absent leaves it unchanged.")
+  rank         int       @description("New rank. Absent leaves it unchanged. Present, it must clear the same bounds a create does AND leave every current holder below the caller.")
+  accountId    string    @description("New account scope. Absent leaves it unchanged; the empty string clears it, making the role global.")
+  grants       []object  @description("The role's grants AS A WHOLE, not a delta: pairs present are kept or added, pairs missing are retired. Absent leaves the grant set unchanged, which is what an edit that only renames should send.")
+}
+
+@description("Retire a custom role. Guards: the caller holds `update` on `role`; the role is not predefined (role_predefined_immutable); and it is held by no active user and named by no pending invitation (role_held, with the count). Deactivate, never delete (D8): the row stays as history, its slug and its rung stay taken, and its holders -- if a cluster owner forces one through the write escape -- resolve to nothing, everywhere, until re-roled. Returns {ok, slug, code}.")
+@sdk
+@args(profile="object")
+@executor("integration.rbac.roleDeactivate")
+builtin roleDeactivate {
+  slug  string!  @description("The role to retire.")
+}

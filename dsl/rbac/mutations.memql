@@ -54,6 +54,11 @@ mutate role createRole {
     description  string
     predefined   bool
     active       bool
+    /// The account this role is scoped to (D10), or empty for a global role.
+    /// Accepted here for the reason `aliases` is: the guarded authoring path
+    /// (`roleCreate`) writes through this mutation, and a field the mutation
+    /// does not accept is a field the write silently drops.
+    accountId    string
     /// Other slugs that resolve to THIS rung. Accepted because the seed
     /// materializer writes base roles through this mutation, and a field the
     /// mutation does not accept is a field the seed silently drops -- which is
@@ -63,7 +68,7 @@ mutate role createRole {
     aliases      []string
   }
   insert {
-    accept { slug, name, rank, description, aliases }
+    accept { slug, name, rank, description, aliases, accountId }
     stamp {
       id: args.roleId ?? args.slug
       predefined: args.predefined ?? false

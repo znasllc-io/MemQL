@@ -17,7 +17,7 @@ import (
 // enforcement stays consistent between "called as a DSL builtin" and "called
 // as the Go primitive E1.5 routed the Can* helpers through".
 func TestGovernanceBuiltinAgreesWithCore(t *testing.T) {
-	i := New()
+	i := New(nil, nil)
 	ctx := context.Background()
 
 	ranks := []struct {
@@ -73,7 +73,7 @@ func TestGovernanceBuiltinAgreesWithCore(t *testing.T) {
 // create != edit split builtin (integration.rbac.canCreatePrincipal vs
 // component/auth.CanCreatePrincipal).
 func TestCreatePrincipalBuiltinAgreesWithCore(t *testing.T) {
-	i := New()
+	i := New(nil, nil)
 	ctx := context.Background()
 	ranks := []int{50, 100, 200, 300, 400}
 	for _, actorRank := range ranks {
