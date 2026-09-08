@@ -556,6 +556,111 @@ Self-serve binding (v1 is cluster-owner/admin only; the v2 shape is a
 request-and-approve queue), registrar API integrations, wildcard client
 domains, certificate export, and local-cluster ACME.
 
+## Per-account front doors: three hosts under a client's reserved name
+
+An account that has proved it owns `acme.com` can reserve a **MemQL name**
+under it — `memql.acme.com` by default — and this cluster then serves three
+hosts beneath that name:
+
+| Host | Reaches | Which is |
+|---|---|---|
+| `app.memql.acme.com` | the edge | MemQL OS, with that account in context |
+| `api.memql.acme.com` | `bff` (h2c) + `bff-http` | the engine's API edge, routing what `api.<domain>` routes |
+| `id.memql.acme.com` | the identity service | sign-in |
+
+Epic memql#5168. It is the custom-domain machinery one level up: same DNS
+checks, same reconciler discipline, same capability scripts, same two
+substrates. Read the section above first — everything here assumes it.
+
+### It does not add a source to the derivation
+
+**This is the load-bearing sentence on the page.** `MEMQL_DOMAIN` remains the
+only input to `component/frontdoor` and to `component/envregistry`'s env
+derivation. A reserved name never enters a rendered overlay, never changes an
+env value, never widens the issuer, and `cmd/frontdoorhosts` does not know
+accounts exist. The count of generated rules is still seven.
+
+What a reserved name does is put **four more Ingresses and one more
+Certificate** into the cluster at runtime, through the reconciler path that
+already serves a client's own domain.
+
+Teaching the generator instead was the alternative, and it was rejected for a
+practical reason before an architectural one: every new client would then be a
+regeneration, a merge and an ArgoCD sync — a release per customer — and a
+build-time artifact with a `--check` gate would be deriving itself from
+runtime rows.
+
+### Why four Ingresses for three hosts
+
+`api.` needs two. An ingress controller's backend protocol is a **per-Service**
+setting, so the bff's gRPC edge (h2c, `:50051`) and its HTTP edge (`:8085`)
+cannot share one object — exactly why `api-front-door` and
+`api-front-door-grpc` are two rules on one host in the generated manifests
+above.
+
+The HTTP half routes the **same generated path block** the cluster's own `api.`
+host routes, from the same generator: `cmd/frontdoorpaths` writes
+`component/frontdoor/paths.generated.go` beside the three Ingress blocks, and
+the provisioner reads that slice. A hand-kept subset here would be the second
+source this page keeps warning about, and its failure mode is the one that
+names nothing — an HTTP/1.1 request handed to an h2c backend.
+
+### One record per host, and one certificate for all three
+
+Ownership is **not** checked again. The account's domain walk already proved
+`acme.com` with a `TXT _memql-verify.acme.com` token, and the reserved name is
+stamped only when that succeeded; `memql.acme.com` is under `acme.com`. So the
+only thing left to prove is pointing:
+
+| Record | Shape |
+|---|---|
+| Pointing (×3) | `CNAME app.memql.acme.com` → `os.<domain>`, and the same for `api.` and `id.` |
+
+**One target for all three**, because one ingress controller terminates them
+all and routes by `Host`.
+
+**The certificate is the activation rule.** One `Certificate` names all three
+hosts, and an HTTP-01 order cannot go Ready unless every `dnsName` in it
+solves — so a front door goes live only when all three names point here, with
+nothing for the reconciler to police. One order, one Let's Encrypt rate-limit
+unit, one Ready condition to promote on. A half-served door is the state worth
+avoiding: sign-in resolving while the API does not reaches a client's employee
+as a broken app rather than as a setup step an operator can see.
+
+### What the engine does with a live door
+
+- **The edge** gains a third resolution step, after the custom-domain alias:
+  `app.<reservedName>` resolves to the **OS site** — the same `os` row every
+  cluster serves — with the account attached. A site's own hostname still wins
+  first and a live custom domain second.
+- **The runtime-config document** gains an `account` block and points
+  `identityUrl` at the door's own `id.` host, which is what keeps a client's
+  employee on their own domain through sign-in.
+- **The identity service** resolves the request Host to a live door row —
+  never trusting the header — and uses the reserved name as the WebAuthn RP id
+  (so one passkey works on `app.` and `id.` alike) and admits exactly one extra
+  redirect URI for the OS client.
+- **The token is unchanged.** One identity service, one keyset, one issuer:
+  `iss` is still `https://identity.<domain>` whatever host minted it, and the
+  per-node verifier is untouched.
+
+### A withdrawn reservation tears the door down
+
+Changing an account's `domain` clears the reserved name, the ownership token
+and the verification. The reconciler notices on its next pass and moves the
+door to `removing`; the three hosts stop resolving at that **row write**, not
+at the Ingress deletion. Serving three names whose ownership proof has just
+been discarded is the state this is designed to end.
+
+### What it deliberately does not do
+
+An identity provider per account; per-account branding on the identity
+service's own pages; a `mcp.<reservedName>` host (the MCP endpoint is a
+cluster fact a machine is configured with once); a certificate-renewal watcher
+of its own — cert-manager owns renewal; and, as for custom domains, self-serve
+binding and local-cluster ACME. A local cluster gets the same typed
+`no_acme_issuer` refusal, every pass, rather than a pretend success.
+
 ## Local versus cloud
 
 The front door is the same shape everywhere. What differs is which

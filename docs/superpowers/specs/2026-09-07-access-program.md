@@ -33,7 +33,7 @@
 | A | Groups and grants (engine) | `2026-09-07-groups-and-grants-design.md` | nothing |
 | B | Roles as data, enforced (engine) | `2026-09-07-roles-as-data-design.md` | nothing (A is convenient: both touch MyAccess) |
 | C | The Users app and the account ties (OS) | `2026-09-07-users-app-and-account-ties-design.md` | A and B for its first PR; A for its second |
-| D | The per-account front door | `2026-09-07-per-account-front-door-scope.md` (scope only; its design is a session of its own) | A; designed after A ships |
+| D | The per-account front door | `2026-09-08-per-account-front-door-design.md` (the scope record `2026-09-07-per-account-front-door-scope.md` is what it was asked to answer) | A; designed after A ships |
 
 A and B run in parallel. C's Users app PR needs both engines because the person page
 edits a role and a group on one screen; C's Accounts PR needs only A. D is deliberately
@@ -60,7 +60,7 @@ and its record section, then its deliverable, acceptance and files.
 | B Roles as data | memql | #5166 | #5177-#5181 | 1 engine PR |
 | B Roles as data, the cockpit's My Access reading | memql-cockpit | (engine epic #5166) | #403 | lands after the engine PR |
 | C The Users app and the account ties | memql | #5167 | #5182-#5188, #5190 | 2 OS PRs |
-| D The per-account front door | memql | #5168 | #5191 (the design session; implementation tasks are filed from its record) | none yet |
+| D The per-account front door | memql | #5168 | #5191 (the design session), #5200-#5207 (filed from its record 2026-09-08) | 1 PR |
 
 memql#5189 is not part of the program; it was filed by another session between two of
 these.
