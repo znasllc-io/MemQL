@@ -127,6 +127,11 @@ func BuildConceptFromDecl(decl *parser.ConceptDecl, conceptName string) (*Concep
 		if err := validateRowAuthz(conceptName, parsed.rowAuthz, parsed.properties); err != nil {
 			return nil, err
 		}
+		// And the account grant, for the same reason plus one more: its
+		// lowering depends on the field's TYPE, not just its existence.
+		if err := validateRowAuthzAccount(conceptName, parsed.rowAuthz, parsed.properties); err != nil {
+			return nil, err
+		}
 	}
 
 	version := parsed.version
@@ -236,6 +241,81 @@ func validateRowAuthz(conceptName string, decl *parser.RowAuthzDecl, props []par
 		"is for a user -- declare owner=%q instead",
 		parser.RowAuthzAnnotation, decl.Owner, conceptName, strings.Join(declared, ", "),
 		parser.RowAuthzSelfOwnedField)
+}
+
+// validateRowAuthzAccount checks the account grant's field, which is the half
+// of `@rowAuthz(..., account="<field>")` that only the property set can answer
+// (epic memql#5165, task memql#5169).
+//
+// TWO CHECKS, AND THE SECOND IS THE LOAD-BEARING ONE.
+//
+// The field must be DECLARED, for the reason `owner=` must be: a typo lowers
+// to a scope that matches nothing, which is a gate that reads like a widening
+// and grants nobody anything. That failure is silent in the direction nobody
+// investigates -- people report "I cannot see my client's work", which reads
+// as a membership problem, and the declaration looks correct.
+//
+// The field must be a STRING or an ARRAY OF STRINGS, and this is not a tidiness
+// rule. The lowering is one jsonb expression for both shapes --
+// `payload->'<field>' ?| array[...]` answers for a jsonb string AND a jsonb
+// array, which is what lets one argument serve `accountId` and `accountIds`
+// without the engine tracking which was declared. But `?|` ALSO matches a
+// top-level KEY of a jsonb OBJECT, so a field declared `object` would admit any
+// row whose map happens to carry an account id as a key -- a widening nobody
+// wrote and nothing else would catch. Refusing the type at load is what makes
+// the one-expression lowering safe.
+//
+// A composite element (`[][]string`, `[]object`) is refused by the same rule:
+// its jsonb elements are not strings, so `?|` never matches and the scope is
+// silently empty.
+func validateRowAuthzAccount(conceptName string, decl *parser.RowAuthzDecl, props []parsedProperty) error {
+	if decl == nil || decl.Tier != parser.RowAuthzOwned {
+		return nil
+	}
+	field := strings.TrimSpace(decl.Account)
+	if field == "" {
+		return nil
+	}
+	for _, p := range props {
+		if p.name != field {
+			continue
+		}
+		switch {
+		case p.typeName == "string":
+			return nil
+		case p.typeName == "array" && p.element != nil && p.element.typeName == "string":
+			return nil
+		}
+		return fmt.Errorf("@%s(account=%q) on concept %q names a field of type %s. The account grant "+
+			"lowers to a jsonb containment test that answers for a string and for an array of "+
+			"strings; on any other type it either never matches (a gate that reads like a "+
+			"widening and grants nobody anything) or matches a map KEY, which would admit rows "+
+			"nobody declared. Declare the field as `string` or `[]string`",
+			parser.RowAuthzAnnotation, field, conceptName, describeAccountFieldType(p))
+	}
+	declared := make([]string, 0, len(props))
+	for _, p := range props {
+		declared = append(declared, p.name)
+	}
+	sort.Strings(declared)
+	return fmt.Errorf("@%s(account=%q) on concept %q references a field the concept does not "+
+		"declare (declared: %s). The account grant names the payload field holding the ACCOUNT "+
+		"this row is for -- `accountId` where a row belongs to one, `accountIds` where it may "+
+		"belong to several",
+		parser.RowAuthzAnnotation, field, conceptName, strings.Join(declared, ", "))
+}
+
+// describeAccountFieldType renders a property's type for the refusal above.
+// The element is named where there is one, because "array" alone does not tell
+// an author whose `[]object` was refused what the rule actually wanted.
+func describeAccountFieldType(p parsedProperty) string {
+	if p.typeName == "array" {
+		if p.element == nil {
+			return "an array with no declared element type"
+		}
+		return "[]" + p.element.typeName
+	}
+	return p.typeName
 }
 
 // validateDisplayCard checks that every slot in the parsed card

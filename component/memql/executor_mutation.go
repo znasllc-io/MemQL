@@ -780,6 +780,11 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 		//     read path uses, which is what keeps "may read" and "may
 		//     write" two rules over one resolution.
 		ctx = contextWithRankScopeMemo(ctx, e)
+		// And the account grant's, which the write guard needs for the same
+		// reason (epic memql#5165, D4): a member may WRITE a tied row when
+		// their role holds the verb, and the guard resolves that from the
+		// same function the read path uses.
+		ctx = contextWithAccountScopeMemo(ctx, e)
 		if err := guardRowAuthzWrite(ctx, conceptMeta.Name, id, priorPayload, existed, requirePrior); err != nil {
 			return nil, meta, err
 		}
@@ -1123,6 +1128,14 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 	// accounts_self_archive_guard.go.
 	if conceptMeta.Name == conceptAccountsAccount {
 		if err := e.validateSelfAccountNotArchived(ctx, mutation.ID, payload); err != nil {
+			return nil, meta, err
+		}
+		// The domain walk's two guards (epic memql#5165, D9 and D10), beside
+		// the one above and for the same reason: neither is expressible in a
+		// mutation body -- one judges a COMBINATION of two fields and the
+		// other reads this cluster's own domain out of the environment.
+		// See component/memql/account_domain_validation.go.
+		if err := e.validateAccountDomainPolicy(ctx, payload); err != nil {
 			return nil, meta, err
 		}
 	}

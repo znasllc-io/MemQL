@@ -119,7 +119,7 @@ func rowAuthzPredicateExpr(decl *langparser.RowAuthzDecl) (ExpressionNode, error
 		rowAuthzPredicateCache.Store(rendered, parsed.Root)
 		base = cloneRowAuthzPredicate(parsed.Root)
 	}
-	return orRankScope(base, decl), nil
+	return orAccountScope(orRankScope(base, decl), decl), nil
 }
 
 // orRankScope ORs the rank branch onto a rendered tier predicate
@@ -150,6 +150,31 @@ func orRankScope(base ExpressionNode, decl *langparser.RowAuthzDecl) ExpressionN
 		return rank
 	}
 	return &LogicalExpression{Op: LogicalOr, Left: base, Right: rank}
+}
+
+// orAccountScope ORs the account branch onto a rendered tier predicate
+// (epic memql#5165, D3).
+//
+// The same shape as orRankScope above and for the same reasons: OR-ed rather
+// than substituted, so the owner comparison keeps "your own rows" true for a
+// caller whose memberships cannot be resolved; and SYMBOLIC rather than
+// rendered through InjectedPredicate, because there is no author spelling for
+// "every account my groups tie me to" and inventing one would bake one
+// caller's account list into a plan every other caller reuses.
+//
+// It composes with the rank branch rather than replacing it. A concept may
+// declare both, and the two answer different questions -- "whose rows may I
+// see by rank" and "whose rows may I see by client" -- so a row admitted by
+// either is admitted.
+func orAccountScope(base ExpressionNode, decl *langparser.RowAuthzDecl) ExpressionNode {
+	if decl == nil || strings.TrimSpace(decl.Account) == "" {
+		return base
+	}
+	account := &AccountScopeExpression{Field: strings.TrimSpace(decl.Account)}
+	if base == nil {
+		return account
+	}
+	return &LogicalExpression{Op: LogicalOr, Left: base, Right: account}
 }
 
 // cloneRowAuthzPredicate copies the cached node so a caller that mutates
@@ -470,6 +495,22 @@ func rowAuthzAdmitsMode(ctx context.Context, conceptName string, id string, payl
 		// which for a paginated read would be indistinguishable from
 		// exhaustion.
 		if rankAdmitsRow(ctx, decl, owner, ok, write) {
+			return rowAuthzAdmit
+		}
+		// THE ACCOUNT BRANCH (epic memql#5165, D3), checked last and, like
+		// the rank branch, never before the owner comparison.
+		//
+		// It reads the ROW's account field rather than its owner, so it is
+		// the one branch here that can admit a row owned by somebody the
+		// caller has never heard of -- which is the point: a client's people
+		// reach the client's work.
+		//
+		// The SAME call for reads and writes (D4). The rank branch takes
+		// `write` because its two rules genuinely differ; this one does not,
+		// because a member who may read a tied row may write it when their
+		// role holds the verb -- and the verb is decided upstream, never
+		// here.
+		if accountAdmitsRow(ctx, decl, payload) {
 			return rowAuthzAdmit
 		}
 		if !ok {
