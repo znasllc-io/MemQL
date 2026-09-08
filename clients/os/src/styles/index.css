@@ -5289,6 +5289,211 @@ a.os-button {
   color: var(--os-muted);
 }
 
+/* ===========================================================================
+ * The MemQL address stop -- an account's reserved name and the three hosts
+ * this cluster serves beneath it (epic memql#5168).
+ *
+ * THE SHAPE IS THE ARGUMENT, and it deliberately differs from .os-record
+ * above. That block renders Type / Name / Value per bound domain, where all
+ * three genuinely vary. Here three hosts share ONE record type and ONE target,
+ * because one ingress controller terminates them all -- so the constant is
+ * stated once in .os-door-shared and the three names carry the vertical
+ * rhythm in .os-door-hosts, each on its own line with what the cluster last
+ * saw at it. Three near-identical strips differing in one of six fields would
+ * bury the only thing a person is looking for.
+ * ======================================================================== */
+
+.os-door {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The name itself, and the one word that says whether it answers. Monospace
+ * because it is a hostname somebody will type, at reading size because it is
+ * the subject of the stop rather than a field in it. */
+.os-door-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--os-line);
+}
+
+.os-door-name code {
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-md);
+  color: var(--os-ink);
+  overflow-wrap: anywhere;
+}
+
+.os-door-state {
+  flex: 0 0 auto;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+
+.os-door-name[data-tone="ok"] .os-door-state {
+  color: var(--os-accent);
+}
+
+.os-door-name[data-tone="error"] .os-door-state {
+  color: var(--os-error);
+}
+
+.os-door-name[data-tone="warn"] .os-door-state {
+  color: var(--os-warn);
+}
+
+.os-door-records {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Stated once: the record type and the one target all three names point at. */
+.os-door-shared {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  background: var(--os-raised);
+}
+
+.os-door-part {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.os-door-part[data-grow="true"] {
+  flex: 1 1 220px;
+}
+
+.os-door-label {
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  /* The registrar's own vocabulary, reading as a field label rather than as
+   * prose -- the same reason .os-record-label carries it. */
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.os-door-kind {
+  padding: 5px 8px;
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-xs);
+  color: var(--os-ink);
+}
+
+.os-door-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  background: var(--os-plate);
+  color: var(--os-ink);
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-xs);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--os-duration-fast) var(--os-ease);
+}
+
+.os-door-value:hover {
+  border-color: var(--os-accent);
+}
+
+.os-door-value:focus-visible {
+  outline: 2px solid var(--os-accent);
+  outline-offset: 1px;
+}
+
+.os-door-value code {
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+
+.os-door-value svg {
+  flex: 0 0 auto;
+  color: var(--os-muted);
+}
+
+/* The three names. A hairline BETWEEN them rather than a box around each: they
+ * are one list of three, not three cards. */
+.os-door-hosts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.os-door-hosts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--os-line);
+}
+
+.os-door-hosts li:last-child {
+  border-bottom: 0;
+}
+
+/* THE ONE STILL WRONG, marked -- .os-record's rule, applied per NAME rather
+ * than per record, because here the name is what varies. */
+.os-door-hosts li[data-state="wrong"] .os-door-saw {
+  color: var(--os-error);
+}
+
+.os-door-hosts li[data-state="pending"] .os-door-saw {
+  opacity: 0.72;
+}
+
+.os-door-saw {
+  flex: 0 1 auto;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Once it is serving, the hosts stop being records to create and become
+ * addresses to open. */
+.os-door-hosts[data-serving="true"] li a {
+  color: var(--os-ink);
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-xs);
+  text-decoration: none;
+  border-bottom: 1px solid var(--os-line);
+  transition: border-color var(--os-duration-fast) var(--os-ease);
+}
+
+.os-door-hosts[data-serving="true"] li a:hover,
+.os-door-hosts[data-serving="true"] li a:focus-visible {
+  border-color: var(--os-accent);
+}
+
+/* cert-manager's own condition message, verbatim. Its wording names which
+ * challenge is outstanding, which is what an operator with one CNAME still
+ * missing needs to read. */
+.os-door-detail {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  overflow-wrap: anywhere;
+}
+
 /* ---- terminal states and the footer ---- */
 
 .os-domain-terminal {

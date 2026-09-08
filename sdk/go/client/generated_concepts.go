@@ -242,6 +242,7 @@ var BoundConcepts = map[string]string{
 	"accountFrontDoorById":                             "v1:platform:accountFrontDoor",
 	"accountFrontDoorsAll":                             "v1:platform:accountFrontDoor",
 	"accountFrontDoorsForAccount":                      "v1:platform:accountFrontDoor",
+	"accountFrontDoorsOpen":                            "v1:platform:accountFrontDoor",
 	"accountFrontDoorsToReconcile":                     "v1:platform:accountFrontDoor",
 	"accountTokenById":                                 "v1:identity:identity",
 	"accountTokensForAccount":                          "v1:identity:identity",

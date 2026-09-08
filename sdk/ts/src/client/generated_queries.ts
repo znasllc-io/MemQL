@@ -161,6 +161,29 @@ QueryClient.prototype.accountFrontDoorsForAccount = function (this: QueryClient,
   return this.executeNamed("accountFrontDoorsForAccount", buildAccountFrontDoorsForAccount(args), opts);
 };
 
+/** Every front door that is not `removed` -- what the sweep compares against the accounts holding a reservation, in both directions (design D9).
+INCLUDES `live`, which is the whole point and is what `accountFrontDoorsToReconcile` deliberately leaves out. A door only ever leaves `live` because the RESERVATION behind it went away, and noticing that is a question about the account rather than about the door -- so the sweep reads the reservations, reads this, and takes the difference. Re-checking every live door's DNS on every tick would make the steady state of a healthy cluster the most expensive one; reading this costs a row per account an operator typed.
+Includes `removing` too, so a door already coming down is not asked to come down again on every pass.
+UNPAGINATED for accountFrontDoorsToReconcile's reason: a sweep that read a page would silently never notice the withdrawn reservations past it, and the symptom is a cluster still answering on a client's name after their domain changed. NO `sort`, and the parser is right to insist: a sorted query is a bounded one. */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsOpen"] in generated_concepts.ts).
+export interface AccountFrontDoorsOpenArgs {
+}
+
+export function buildAccountFrontDoorsOpen(args: AccountFrontDoorsOpenArgs): string {
+  void args;
+  return "query accountFrontDoorsOpen()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    accountFrontDoorsOpen(args?: AccountFrontDoorsOpenArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.accountFrontDoorsOpen = function (this: QueryClient, args: AccountFrontDoorsOpenArgs = {} as AccountFrontDoorsOpenArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("accountFrontDoorsOpen", buildAccountFrontDoorsOpen(args), opts);
+};
+
 /** Every front door the reconciliation sweep still has work for: everything but `live` and `removed`.
 UNPAGINATED for customDomainsToReconcile's reason -- a sweep that read a page would silently never reconcile the doors past it, and the symptom is a client's name that verifies for nobody with nothing in any log to say why. Bounded by how many doors are in flight at once, not by how many the cluster has ever served.
 `live` IS EXCLUDED, and the teardown still works, because the sweep does not discover a cleared reservation by walking live doors -- it walks accounts, and a reservation that has gone missing moves its door to `removing` through the account side of the pass. Reading every live door on every tick to ask whether its account still wants it would make the steady state of a healthy cluster the most expensive one. NO `sort`, and the parser is right to insist: a sorted query is a bounded one. Order costs nothing here -- each door advances independently of the others. */
