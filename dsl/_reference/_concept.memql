@@ -168,6 +168,53 @@ use identity.concepts.{ user }
 //                                unresolvable floor refuses boot, because it
 //                                would rank 0 and every rank clears 0.
 //
+//   @rowAuthz(owner="<field>", account="<field>")
+//                                THE ACCOUNT GRANT (epic memql#5165 D3): the
+//                                named field holds the ACCOUNT a row belongs
+//                                to, and reads AND writes widen to "the owner,
+//                                OR anyone whose group ties them to this row's
+//                                account".
+//
+//                                A client's people are on the cluster to work
+//                                on the client's things. Under a plain owner
+//                                tier a client-rank member sees only rows they
+//                                made themselves -- never the deployable a
+//                                developer stood up for them -- and the
+//                                account tie decides nothing. This is what
+//                                turns the tie into scope.
+//
+//                                THE FIELD MAY BE A LIST. `account="accountId"`
+//                                and `account="accountIds"` are ONE argument
+//                                because they are one QUESTION -- which
+//                                accounts is this row for -- and the lowering
+//                                answers both with a single jsonb containment
+//                                test. The field's TYPE is checked at load:
+//                                `string` or `[]string`, and nothing else,
+//                                because that containment test also matches a
+//                                map KEY and an `object` field would admit any
+//                                row whose map happened to carry an account id.
+//
+//                                IT WIDENS WRITES TOO, which is the one place
+//                                this program widens rankStrict's read-only
+//                                peer rule (D4). A member may write a tied row
+//                                whatever the owner's rank, if their ROLE holds
+//                                the verb -- decided upstream by the data-plane
+//                                gate and the mutation's own annotations, never
+//                                here. This gate answers WHICH ROWS, never
+//                                whether the actor may write at all.
+//
+//                                STAFF ARE A RULE, NOT ROWS (D6). Developer
+//                                rank and above are standing members of every
+//                                account-kind group, so their scope lowers to
+//                                "any TIED row" rather than to a list -- and to
+//                                no untied row, because a row belonging to no
+//                                client is somebody's own work.
+//
+//                                A row whose account field is absent or empty
+//                                is not admitted by this branch at all. It is
+//                                untied, and the owner and cluster-owner
+//                                branches still decide it.
+//
 // THE TIER IS ENFORCED (memql#3172), so declaring one CHANGES WHAT READS
 // RETURN: its predicate is ANDed into the plan of every read with a bound
 // concept, every emitted row is separately admitted against the tier its own

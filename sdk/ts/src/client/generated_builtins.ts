@@ -961,6 +961,128 @@ QueryClient.prototype.githubConnectBegin = function (this: QueryClient, args: Gi
   return this.executeNamed("githubConnectBegin", buildGithubConnectBegin(args), opts);
 };
 
+/** Archive a group and remove its memberships. Requires `update` on `group`. Refuses `group_account_active` on an account-kind group whose account is still active (D5) -- that group is the account's, and archiving it alone would leave the account with no way for its people to reach its work while still looking configured. Archive the ACCOUNT instead, and the cascade takes the group with it. Returns {groupId, status, membershipsRemoved}. */
+export interface GroupArchiveArgs {
+  groupId: string;
+}
+
+export function buildGroupArchive(args: GroupArchiveArgs): string {
+  const parts: string[] = [];
+  parts.push("groupId: " + renderMemQLValue(args.groupId));
+  return "builtin groupArchive(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupArchive(args: GroupArchiveArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupArchive = function (this: QueryClient, args: GroupArchiveArgs = {} as GroupArchiveArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupArchive", buildGroupArchive(args), opts);
+};
+
+/** Create a custom group, optionally tied to an account. Requires `create` on `group`; a named account must exist and be active. Returns {groupId, name, accountId, kind, status}. The group's KIND is always \"custom\" -- the account-kind group is written by the ensureAccountGroup automation and never by a caller, so a person cannot mint a second one and split an account's membership across two rows. */
+export interface GroupCreateArgs {
+  /** Display name, as a person would say it. */
+  name: string;
+  /** What the group is for. Optional; group pickers fall back to the name. */
+  description?: string;
+  /** The v1:accounts:account this group grants. Omit for a group that grants nothing and exists to organize (D8). */
+  accountId?: string;
+}
+
+export function buildGroupCreate(args: GroupCreateArgs): string {
+  const parts: string[] = [];
+  parts.push("name: " + renderMemQLValue(args.name));
+  if (args.description !== undefined) parts.push("description: " + renderMemQLValue(args.description));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
+  return "builtin groupCreate(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupCreate(args: GroupCreateArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupCreate = function (this: QueryClient, args: GroupCreateArgs = {} as GroupCreateArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupCreate", buildGroupCreate(args), opts);
+};
+
+/** Place a person in a group. Requires `update` on `group`, refuses `group_self_add_refused` when the target is the caller (nobody adds themselves -- D7), and refuses `group_member_rank_not_below_caller` unless the target ranks STRICTLY below the caller. Re-adding somebody who was removed writes a new version at the same derived id rather than a second row. Returns {membershipId, groupId, userId, origin, status}. */
+export interface GroupMemberAddArgs {
+  groupId: string;
+  userId: string;
+}
+
+export function buildGroupMemberAdd(args: GroupMemberAddArgs): string {
+  const parts: string[] = [];
+  parts.push("groupId: " + renderMemQLValue(args.groupId));
+  parts.push("userId: " + renderMemQLValue(args.userId));
+  return "builtin groupMemberAdd(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupMemberAdd(args: GroupMemberAddArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupMemberAdd = function (this: QueryClient, args: GroupMemberAddArgs = {} as GroupMemberAddArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupMemberAdd", buildGroupMemberAdd(args), opts);
+};
+
+/** Remove a person from a group. Requires `update` on `group` OR that the target IS the caller -- a person may always take themselves out, which is the one asymmetry with groupMemberAdd and is deliberate (D7). Otherwise the same rank rule applies. Returns {membershipId, groupId, userId, status}. */
+export interface GroupMemberRemoveArgs {
+  groupId: string;
+  userId: string;
+}
+
+export function buildGroupMemberRemove(args: GroupMemberRemoveArgs): string {
+  const parts: string[] = [];
+  parts.push("groupId: " + renderMemQLValue(args.groupId));
+  parts.push("userId: " + renderMemQLValue(args.userId));
+  return "builtin groupMemberRemove(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupMemberRemove(args: GroupMemberRemoveArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupMemberRemove = function (this: QueryClient, args: GroupMemberRemoveArgs = {} as GroupMemberRemoveArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupMemberRemove", buildGroupMemberRemove(args), opts);
+};
+
+/** Rename a group or change its description. Requires `update` on `group`. Refuses `group_not_active` on an archived group -- an archived group grants nothing, and editing one reads as reviving it. Returns {groupId, name, description}. */
+export interface GroupUpdateArgs {
+  groupId: string;
+  /** New display name. Omit to leave it. */
+  name?: string;
+  /** New description. Omit to leave it. */
+  description?: string;
+}
+
+export function buildGroupUpdate(args: GroupUpdateArgs): string {
+  const parts: string[] = [];
+  parts.push("groupId: " + renderMemQLValue(args.groupId));
+  if (args.name !== undefined) parts.push("name: " + renderMemQLValue(args.name));
+  if (args.description !== undefined) parts.push("description: " + renderMemQLValue(args.description));
+  return "builtin groupUpdate(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    groupUpdate(args: GroupUpdateArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.groupUpdate = function (this: QueryClient, args: GroupUpdateArgs = {} as GroupUpdateArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("groupUpdate", buildGroupUpdate(args), opts);
+};
+
 /** Answer, in one row, whether this caller can get inference at all and through which of the three doors: a local model on their fleet, the Anthropic workload-identity federation, or a configured API key. Read from the SAME catalog and provider registry the router reads, so eligibility has exactly one implementation -- a second one drifts, and the drift lets a user through to a console whose features all refuse. Backs the shell's first-run gate. */
 export interface InferenceStatusArgs {
 }
