@@ -7,7 +7,12 @@ import {
   originBadgeFor,
   originBadgeLabel,
 } from "../../src/apps/concepts/registry";
-import { readSchema, standingSentence } from "../../src/apps/concepts/schema";
+import {
+  readSchema,
+  standingSentence,
+  undeclaredFinding,
+  unwrittenSentence,
+} from "../../src/apps/concepts/schema";
 import { cardFor } from "../../src/apps/concepts/displayCard";
 import {
   captureConceptOpen,
@@ -124,6 +129,84 @@ describe("declared against observed", () => {
   it("orders required fields first", () => {
     const reading = readSchema(concept, []);
     expect(reading.fields.map((f) => f.name)).toEqual(["name", "retiredAt"]);
+  });
+});
+
+describe("an undeclared key is a fault, and the surface says what it costs", () => {
+  const concept = conceptOf({
+    id: "v1:test:thing",
+    fields: [{ name: "name", kind: "string", required: true, enumValues: [], description: "" }],
+  });
+
+  it("says nothing when there is nothing to say", () => {
+    // The control. A finding object with count 0 would invite a caller to
+    // render an empty warning on every clean concept in the tree.
+    const reading = readSchema(concept, [nodeOf("a", { name: "one" })]);
+    expect(undeclaredFinding(reading, true)).toBeNull();
+  });
+
+  it("names the consequence, not just the standing", () => {
+    // The whole point. `undeclared` describes the schema; what a reader needs
+    // is that the row cannot be written again -- which is what the chip could
+    // never carry and what memql#5199 and memql#5210 are both about.
+    const reading = readSchema(concept, [nodeOf("a", { name: "one", gender: "x" })]);
+    const finding = undeclaredFinding(reading, true)!;
+    expect(finding.count).toBe(1);
+    expect(finding.sentence).toContain("cannot be written again");
+    expect(finding.next).toContain("migration");
+  });
+
+  it("a census and a page are different claims", () => {
+    // The honesty constraint this file's header states, applied to the count.
+    // While the walk has more to give, the number is a FLOOR -- and a floor
+    // reported as a total is the failure campaignStats refuses by name.
+    const reading = readSchema(concept, [nodeOf("a", { name: "one", gender: "x" })]);
+    // Asserted as the DISTINCTION rather than as the exact wording: the census
+    // claims nothing about a sample, and the page says both that it is one and
+    // that reading further may find more.
+    const census = undeclaredFinding(reading, true)!.sentence;
+    expect(census).not.toContain("loaded so far");
+    expect(census).not.toContain("Loading more");
+    const sampled = undeclaredFinding(reading, false)!.sentence;
+    expect(sampled).toContain("loaded so far");
+    expect(sampled).toContain("Loading more may find others");
+  });
+
+  it("counts the keys and leaves the naming to the list", () => {
+    // Rule 7: a scope is named in one place. Listing the keys here would
+    // repeat the lines directly above it.
+    const reading = readSchema(concept, [nodeOf("a", { name: "one", gender: "x", planId: "p" })]);
+    const finding = undeclaredFinding(reading, true)!;
+    expect(finding.count).toBe(2);
+    expect(finding.sentence).toContain("2 keys");
+    expect(finding.sentence).not.toContain("gender");
+  });
+
+  it("the other finding is a separate sentence, not a clause of this one", () => {
+    // They were one caption, which gave a fault and a curiosity the same
+    // weight and the same voice.
+    const withBoth = conceptOf({
+      id: "v1:test:thing",
+      fields: [
+        { name: "name", kind: "string", required: true, enumValues: [], description: "" },
+        { name: "unwritten", kind: "string", required: false, enumValues: [], description: "" },
+      ],
+    });
+    const reading = readSchema(withBoth, [nodeOf("a", { name: "one", gender: "x" })]);
+    // The fault's sentence is about the fault and carries none of the other
+    // finding's words -- no count of unwritten fields, no "carried by none".
+    expect(undeclaredFinding(reading, true)!.sentence).not.toContain("carried by none");
+    expect(unwrittenSentence(reading, true)).toBe(
+      "1 declared field is carried by none of this concept's 1 rows.",
+    );
+  });
+
+  it("says nothing about unwritten fields when nothing has been loaded", () => {
+    // With no rows, EVERY declared field is unseen -- which is a fact about
+    // the walk rather than about the concept, and reporting it would fire on
+    // every page before its first read returns.
+    const reading = readSchema(concept, []);
+    expect(unwrittenSentence(reading, false)).toBe("");
   });
 });
 

@@ -2,7 +2,13 @@ import { useMemo } from "react";
 import type { Concept, Row } from "@znasllc-io/memql-sdk-core/client";
 
 import { Caption, Chip, Notice, Panel, Subhead } from "../../kit";
-import { readSchema, standingSentence, type SchemaField } from "./schema";
+import {
+  readSchema,
+  standingSentence,
+  undeclaredFinding,
+  unwrittenSentence,
+  type SchemaField,
+} from "./schema";
 
 // What the concept declares, joined against what its rows carry.
 //
@@ -14,18 +20,23 @@ export function SchemaPanel({
   concept,
   rows,
   showUndeclared,
+  /** True when the walk has reached the end, so the reading is a census
+   *  rather than a page. See `undeclaredFinding`: a floor reported as a total
+   *  is the failure campaignStats refuses by name. */
+  complete,
 }: {
   concept: Concept;
   rows: readonly Row[];
   showUndeclared: boolean;
+  complete: boolean;
 }) {
   const reading = useMemo(() => readSchema(concept, rows), [concept, rows]);
   const fields = showUndeclared
     ? reading.fields
     : reading.fields.filter((f) => f.standing !== "undeclared");
 
-  const unwritten = reading.fields.filter((f) => f.standing === "declared-not-seen").length;
-  const undeclared = reading.fields.filter((f) => f.standing === "undeclared").length;
+  const finding = undeclaredFinding(reading, complete);
+  const unwritten = unwrittenSentence(reading, complete);
 
   return (
     <Panel label="Schema">
@@ -60,18 +71,39 @@ export function SchemaPanel({
         </ul>
       )}
 
-      {/* The two findings, said once, under the list rather than repeated
-          against every row that has them. */}
-      {unwritten > 0 || (showUndeclared && undeclared > 0) ? (
-        <Caption>
-          {unwritten > 0
-            ? `${unwritten} declared ${unwritten === 1 ? "field is" : "fields are"} not carried by any of the ${reading.sampleSize} rows loaded. `
-            : ""}
-          {showUndeclared && undeclared > 0
-            ? `${undeclared} ${undeclared === 1 ? "key is" : "keys are"} carried by rows and declared by nothing.`
-            : ""}
-        </Caption>
-      ) : null}
+      {/* THE TWO FINDINGS ARE NOT ONE REMARK, and they used to be: a single
+          caption ran them together, which gave a fault and a curiosity the
+          same weight and the same voice.
+
+          The undeclared half is a FAULT -- those rows cannot be written
+          again -- so it takes the shape this page already uses for "this
+          changes what a caller may do": a Notice that names the consequence
+          and the repair. The unwritten half stays a caption, because a
+          declared field nothing carries is worth knowing and costs nothing.
+
+          THE CAPTION COMES FIRST and the fault LAST, which is the opposite of
+          the order they were written in. Read at real size the panel ended on
+          a quiet grey line floating under a bordered block, so the last thing
+          the eye left was the finding that costs nothing.
+
+          IT IS STATED EVEN WHEN THE PREFERENCE HIDES THE LINES (rule 4). The
+          setting decides what the LIST shows; it cannot decide whether a
+          fault is announced, or the one reader who turned it off is the one
+          reader who never learns. Rule 4's own remedy applies -- the state
+          points at the setting that produced it. */}
+      {unwritten === "" ? null : <Caption>{unwritten}</Caption>}
+
+      {finding === null ? null : (
+        <Notice
+          tone="warn"
+          sentence={finding.sentence}
+          next={
+            showUndeclared
+              ? finding.next
+              : `${finding.next} The list above is hiding them; turn on "Show undeclared fields" in this app's Settings to see which.`
+          }
+        />
+      )}
     </Panel>
   );
 }

@@ -171,3 +171,86 @@ export function standingSentence(field: SchemaField, sampleSize: number): string
   }
   return `Not declared by the concept. Carried by ${field.presentIn} of the ${sampleSize} rows loaded.`;
 }
+
+// ===========================================================================
+// AN UNDECLARED KEY IS A FAULT WITH A KNOWN CONSEQUENCE (memql#5210)
+// ===========================================================================
+// The list above marks the standing and stops there, which was right while
+// "undeclared" meant "somebody is writing something extra". It does not mean
+// that. Every concept builds its JSON schema with `additionalProperties:
+// false`, and a mutation's read-merge validates the MERGED payload -- stored
+// keys included -- so a row carrying a key its concept does not declare is
+// REFUSED ON ITS NEXT WRITE, with a message naming the schema rather than the
+// row's history.
+//
+// That is a fault, and a fault a chip cannot carry. The precedent is on this
+// very page: the mirror badge became a Notice because "a mirror CHANGES WHAT A
+// CALLER MAY DO, so it is stated rather than badged and left". The same
+// sentence applies here, one rung sharper -- a mirror refuses writes an author
+// can anticipate, and this refuses writes that look perfectly ordinary right
+// up until they fail.
+//
+// THE COUNT IS A CENSUS OR A FLOOR, NEVER SILENTLY EITHER. The reading rests
+// on the rows this browser loaded. When the walk is exhausted that is every
+// row of the concept and the count is exact; while more remain it is a page,
+// and a floor reported as a total is the failure `campaignStats` refuses by
+// name. So `complete` is a required argument rather than an optional one: a
+// caller that does not know cannot ask.
+
+export interface UndeclaredFinding {
+  /** How many undeclared keys the reading found. Never zero -- see below. */
+  count: number;
+  /** What happened, in the surface's voice. */
+  sentence: string;
+  /** What is true now, and the repair. */
+  next: string;
+}
+
+/**
+ * The undeclared-key finding, or null when there is nothing to say.
+ *
+ * Null rather than a zero-count object: an absence and a finding of none are
+ * the same answer here, and returning a shape for both invites a caller to
+ * render an empty warning.
+ */
+export function undeclaredFinding(
+  reading: SchemaReading,
+  complete: boolean,
+): UndeclaredFinding | null {
+  const count = reading.fields.filter((f) => f.standing === "undeclared").length;
+  if (count === 0) return null;
+  const subject = count === 1 ? "One key" : `${count} keys`;
+  const verb = count === 1 ? "is" : "are";
+  const carries = count === 1 ? "carries it" : "carries one";
+  const where = complete ? "on these rows" : `in the ${reading.sampleSize} rows loaded so far`;
+  // The consequence rides in the SAME sentence as the count rather than
+  // trailing it, because the count alone is a curiosity and the consequence is
+  // the whole finding. The sample's caveat is a short sentence of its own: as a
+  // mid-clause it pushed "cannot be written again" onto a third line, which is
+  // the one part a reader must not skim past.
+  const caveat = complete ? "" : " Loading more may find others.";
+  return {
+    count,
+    sentence: `${subject} ${where} ${verb} declared by nothing, and a row that ${carries} cannot be written again.${caveat}`,
+    next:
+      "A concept's schema refuses any key it does not declare, and a write re-validates the " +
+      "whole stored payload, so the next update to one of these rows fails. The repair is a " +
+      "migration that strips the key from this concept's rows.",
+  };
+}
+
+/**
+ * The other finding, kept separate.
+ *
+ * It was glued to the one above in a single caption, which made a fault and a
+ * curiosity read as one remark. They are different findings with different
+ * consequences and they now have different places.
+ */
+export function unwrittenSentence(reading: SchemaReading, complete: boolean): string {
+  const count = reading.fields.filter((f) => f.standing === "declared-not-seen").length;
+  if (count === 0 || reading.sampleSize === 0) return "";
+  const fields = count === 1 ? "field is" : "fields are";
+  return complete
+    ? `${count} declared ${fields} carried by none of this concept's ${reading.sampleSize} rows.`
+    : `${count} declared ${fields} carried by none of the ${reading.sampleSize} rows loaded so far.`;
+}

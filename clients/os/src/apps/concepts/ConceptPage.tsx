@@ -154,6 +154,11 @@ function ConceptBody({
             concept={concept}
             rows={walk.rows}
             showUndeclared={settings.showUndeclaredFields}
+            /* Whether the reading is a census or a page. The walk already
+               knows -- it is the same fact the rows column renders as
+               "N rows loaded, more available" -- and without it the schema
+               would report a floor as a total. */
+            complete={walk.status === "exhausted"}
           />
         </div>
         <div className="os-concept-rows">
