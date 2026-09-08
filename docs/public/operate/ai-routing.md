@@ -243,8 +243,11 @@ the tokens, cost and latency the row already carried, a decision carries:
 | `touches` | the call's footprint |
 | `minContextTokens` | the context floor this resolution was made against |
 
-Read them with `routerDecisionsRecent` (owner or developer), filtering by `limit`,
-`since`, `level`, `door`, `rule` and `outcome`.
+Read them with `routerDecisionsRecent`, filtering by `since`, `level`, `door`,
+`rule` and `outcome`. Floored at **admin**, which on this ladder admits admin,
+developer and owner: a decision record carries no prompt content and no error
+message -- both are deliberately left out of the projection -- and an admin
+answering "why did this go to a vendor" needs it.
 
 `considered` being kept on success is the part that makes a rule falsifiable. What
 a chain did *not* pick is half the decision, and before this the report was

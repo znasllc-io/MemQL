@@ -360,8 +360,13 @@ says in a comment why the other two are absent.
   their slice of it. The right shape -- an unowned row with a rank floor
   deciding who reads it -- is not expressible, because `unowned=` requires
   `rankVisible` which requires `owner=`. Filed as memql#5162; the read is gated
-  by `@requiresRank("developer")` on the query meanwhile, and the construct is
-  listed in the undeclared-population gate naming that issue.
+  by `@requiresRank("admin")` on the query meanwhile -- which on this ladder
+  admits admin, developer and owner, so it is the WIDER of the two recorded
+  readings and satisfies #5132's "owner or developer" rather than contradicting
+  it -- and the construct is listed in the undeclared-population gate naming
+  that issue. The width is the AI-settings record's D7, and it agrees with the
+  shape this query projects, which deliberately omits the prompt and the error
+  message so that an admin CAN read the list.
 
 **One thing the epic deleted that section 4 did not name.**
 `integrations/agents/factory.go` stamped `providerConfig.llm.policyName =

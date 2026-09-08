@@ -172,7 +172,7 @@ const undeclared3322AccountTokenReason = "memql#3349 -- account-token reads; v1:
 // floor deciding who reads it, is not expressible today: `unowned=` requires
 // `rankVisible`, which requires `owner=`. memql#5162 is that gap.
 //
-// What narrows the read meanwhile is `@requiresRank("developer")` on the query
+// What narrows the read meanwhile is `@requiresRank("admin")` on the query
 // itself, which gates WHO MAY CALL -- and it is listed here anyway, because a
 // surface gate is exactly the author-enforced thing the tier exists to stop
 // depending on, and the next read over this concept starts from zero again.
