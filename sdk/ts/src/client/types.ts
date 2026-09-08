@@ -77,6 +77,33 @@ export interface AccessSummary {
   // insert, a PAT with no provisioned user). Render the email instead; a
   // caller holds that already.
   displayName: string;
+  // groups are the client groups this caller belongs to (epic memql#5165) --
+  // membership ROWS, so a person placed in none has an empty list.
+  groups: AccessGroup[];
+  // accountIds is the resolved scope: which accounts' rows this caller may
+  // reach.
+  //
+  // READ everyAccount FIRST. It is the staff rule -- developer rank and above
+  // are standing members of every account-kind group, applied by the engine
+  // rather than written as rows -- and when it is set this list is EMPTY and
+  // empty means ALL. A client that reads the list alone shows a developer as
+  // belonging to nothing, which is the opposite of the truth.
+  accountIds: string[];
+  everyAccount: boolean;
+}
+
+// AccessGroup is one group the caller belongs to.
+export interface AccessGroup {
+  id: string;
+  name: string;
+  // kind is "account" for the group an account gets by default, "custom" for
+  // any other. They render differently: the account group IS the client
+  // relationship, a custom group is an arrangement somebody made.
+  kind: string;
+  accountId: string;
+  // accountName is resolved server-side so a list renders without a round
+  // trip per group.
+  accountName: string;
 }
 
 // DisplayCard carries the per-concept rendering hints declared via
@@ -561,6 +588,18 @@ export function accessSummaryFromWire(p: MyAccessResultPayload | undefined): Acc
     rank: p.rank ?? 0,
     sessionId: p.sessionId ?? "",
     displayName: p.displayName ?? "",
+    groups: (p.groups ?? []).map((g) => ({
+      id: g.id ?? "",
+      name: g.name ?? "",
+      kind: g.kind ?? "",
+      accountId: g.accountId ?? "",
+      accountName: g.accountName ?? "",
+    })),
+    accountIds: (p.accountIds ?? []).filter((a): a is string => typeof a === "string"),
+    // Normalised to a real boolean: protojson omits a false bool, so the wire
+    // field is absent for every non-staff caller and a consumer reading it
+    // raw would see undefined rather than false.
+    everyAccount: p.everyAccount === true,
   };
 }
 

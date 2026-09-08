@@ -54,6 +54,21 @@ type Verifier struct {
 	Store  *identity.Store
 	Audit  identity.AuditLogger
 	Logger *slog.Logger
+
+	// OnUserProvisioned fires once, immediately after a user row is created
+	// on FIRST sign-in (epic memql#5165, section G). It is what places an
+	// arriving person into the group of the account whose verified domain
+	// matches their address.
+	//
+	// `emailVerified` is passed by THIS seam because only this seam knows.
+	// There is deliberately no default and no inference: a guessed `true`
+	// joins people on claims nobody checked, and a guessed `false` silently
+	// joins nobody while every screen looks configured.
+	//
+	// Nil is the ordinary state on a node with no groups plug-in wired, and
+	// it returns nothing -- it must never fail a sign-in that has already
+	// succeeded.
+	OnUserProvisioned func(ctx context.Context, userId, email string, emailVerified bool)
 }
 
 // VerifyInput is the per-request payload from GET /auth/complete.
@@ -315,6 +330,14 @@ func (v *Verifier) Finish(ctx context.Context, fin FinishInput) (*VerifyResult, 
 		}
 		if err := v.Store.CreateUserOnFirstLogin(ctx, userId, displayName, row.Email, role, internal, seed); err != nil {
 			return nil, fmt.Errorf("magiclink: create user: %w", err)
+		}
+		// VERIFIED, and the proof is the flow itself: the link was mailed to
+		// this address and the person holding it just followed it. That is
+		// the same evidence an accepted invitation rests on, and stronger
+		// than a provider claim -- which is why the OIDC path has to gate on
+		// its own EmailVerified and this one does not.
+		if v.OnUserProvisioned != nil {
+			v.OnUserProvisioned(ctx, userId, row.Email, true)
 		}
 		effectiveRole = role
 		v.audit(ctx, identity.AuditEvent{

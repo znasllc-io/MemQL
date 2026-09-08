@@ -15,9 +15,9 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/znasllc-io/memql/component/database/dbtest"
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
-	"github.com/znasllc-io/memql/component/database/dbtest"
 )
 
 // mint_singleflight_db_test.go -- memql#3965's headline acceptance criterion:

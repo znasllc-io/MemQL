@@ -68,8 +68,12 @@ func TestExtractTokenHTTP_Precedence(t *testing.T) {
 			wantSource: "query",
 		},
 		{
-			name:    "guest subprotocol is NOT a bearer credential",
-			req:     func() *http.Request { r := httptest.NewRequest(http.MethodGet, "/memql/ws", nil); r.Header.Set("Sec-WebSocket-Protocol", "guest, invite"); return r }(),
+			name: "guest subprotocol is NOT a bearer credential",
+			req: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/memql/ws", nil)
+				r.Header.Set("Sec-WebSocket-Protocol", "guest, invite")
+				return r
+			}(),
 			wantErr: true,
 		},
 		{

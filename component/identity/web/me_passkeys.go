@@ -38,8 +38,8 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/identity"
-	"github.com/znasllc-io/memql/component/identity/webauthn"
 	webtempl "github.com/znasllc-io/memql/component/identity/web/templ"
+	"github.com/znasllc-io/memql/component/identity/webauthn"
 )
 
 // maxPasskeyLabel bounds a user-supplied label. Matches the ceremony's
