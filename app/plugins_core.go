@@ -38,6 +38,11 @@ import (
 	_ "github.com/znasllc-io/memql/integrations/email"
 	_ "github.com/znasllc-io/memql/integrations/embedding"
 	_ "github.com/znasllc-io/memql/integrations/fileprocessor"
+	// Groups (epic memql#5165). On every node type for customdomain's
+	// reason: the five caller-facing verbs are reached from whichever node
+	// serves the OS shell's connection, and gating by build tag would make a
+	// verb's availability a coin flip at two replicas.
+	_ "github.com/znasllc-io/memql/integrations/groups"
 	_ "github.com/znasllc-io/memql/integrations/harnessrecall"
 	_ "github.com/znasllc-io/memql/integrations/identity"
 	_ "github.com/znasllc-io/memql/integrations/knowledge"
