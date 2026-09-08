@@ -133,3 +133,68 @@ func validateAccountMemqlDomain(payload map[string]any) error {
 	}
 	return nil
 }
+
+// resetAccountDomainOnChange clears the ownership walk when a client's domain
+// changes, and fills the reserved name when it is empty (epic memql#5165,
+// section F).
+//
+// PROOF OF ONE NAME IS NOT PROOF OF ANOTHER. An account verified for acme.com
+// that is re-pointed at acme.co.uk has proven nothing about the second, so the
+// status, the token, the failure text, the verification date and the
+// reservation all go -- and `joinOnDomain` goes with them, because the flag
+// says "a person on this domain joins this group" and the domain it named is
+// gone.
+//
+// A NORMALIZER RATHER THAN A REFUSAL, and that is the deliberate half. The
+// alternative was refusing a write that changes a verified domain and making
+// an operator clear the fields themselves; that turns a legitimate correction
+// -- a client rebranded, somebody typed it wrong -- into a support question,
+// and every field it would ask them to clear is one the walk sets again on its
+// own within two minutes.
+//
+// It reads the PRIOR value, which is why it cannot live in a mutation body: a
+// mutation sees the merged payload, where the new domain has already replaced
+// the old one and nothing records that a change happened at all.
+func resetAccountDomainOnChange(payload map[string]any, priorDomain string, priorExisted bool) {
+	if payload == nil {
+		return
+	}
+	incoming := normalizeDomainValue(stringFromAny(payload["domain"]))
+
+	if priorExisted && incoming != normalizeDomainValue(priorDomain) {
+		payload["domainStatus"] = AccountDomainStatusUnverified
+		payload["domainToken"] = ""
+		payload["domainFailureReason"] = ""
+		payload["domainFailureDetail"] = ""
+		payload["domainVerifiedAt"] = ""
+		payload["memqlReservedAt"] = ""
+		payload["joinOnDomain"] = false
+		// The RESERVED NAME is cleared too, and then refilled below from
+		// the new domain. Keeping `memql.acme.com` on an account that now
+		// says acme.co.uk would reserve a name derived from a domain the
+		// row no longer claims.
+		payload["memqlDomain"] = ""
+	}
+
+	// Fill the default reserved name when the account has a domain and no
+	// name yet. `memql.<domain>` is a starting point an operator may edit,
+	// not a claim: nothing is reserved until the walk verifies ownership
+	// and stamps memqlReservedAt.
+	if incoming != "" && strings.TrimSpace(stringFromAny(payload["memqlDomain"])) == "" {
+		payload["memqlDomain"] = "memql." + incoming
+	}
+}
+
+// AccountDomainStatusUnverified is the state a changed domain returns to.
+// Exported so integrations/customdomain's walk and this reset cannot disagree
+// about the spelling of the state one of them writes and the other reads.
+const AccountDomainStatusUnverified = "unverified"
+
+// normalizeDomainValue lowercases and trims a domain for comparison.
+//
+// COMPARED NORMALIZED, because `Acme.com` and `acme.com` are the same name to
+// DNS and to every person, and treating a case change as a domain change would
+// throw away a verification for nothing.
+func normalizeDomainValue(v string) string {
+	return strings.ToLower(strings.TrimSpace(v))
+}

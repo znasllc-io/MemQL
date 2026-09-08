@@ -24,6 +24,7 @@
 // startup-triggered, absence-gated create (dsl/cluster/automations.memql).
 // Same machinery, opposite gate -- see dsl/accounts/logic.memql.
 use identity.builtins.{ groupEnsureForAccount, groupArchiveForAccount }
+use platform.builtins.{ accountDomainReconcile }
 
 /// Materialize the owner's own company on first startup
 @trigger(event="system.startup")
@@ -58,6 +59,32 @@ automation seedSelfAccount {
         accountId: "v1:accounts:account:self",
         name:      "My company",
         domain:    domain ?? ""
+      )
+    }
+  }
+
+  // THE SELF ACCOUNT'S DOMAIN IS VERIFIED BY THE FACT OF THE DEPLOYMENT
+  // (epic memql#5165, section B). This cluster SERVES that domain -- its
+  // front door answers on it, its certificate names it -- so asking the
+  // owner to publish a TXT record proving they own it would be the cluster
+  // asking itself for evidence it already is.
+  //
+  // A SECOND STEP rather than arguments on createClientAccount, because
+  // that mutation is client-reachable and @requiresRank("admin"): letting a
+  // caller pass domainStatus would let any admin declare any client's domain
+  // verified, which is the one thing the walk exists to decide.
+  //
+  // Gated on the same absence check as the create, so a re-boot writes no
+  // version. Changing the self account's domain afterwards puts it through
+  // the ordinary walk like anybody else's -- the reset in
+  // component/memql/account_domain_validation.go does not exempt it.
+  step selfAccountDomain {
+    if steps.decide.result == true {
+      mutation recordAccountDomainCheck (
+        accountId:        "v1:accounts:account:self",
+        domainStatus:     "verified",
+        domainVerifiedAt: now,
+        memqlReservedAt:  now
       )
     }
   }
@@ -106,5 +133,20 @@ automation archiveAccountGroup {
     builtin groupArchiveForAccount (
       accountId: id
     )
+  }
+}
+
+/// Walk every client's own domain: mint its ownership token, check the TXT
+/// record, and stamp verification and the reserved MemQL name on success.
+///
+/// THE SAME TWO MINUTES reconcileCustomDomains uses, and for the same reason:
+/// somebody has just pasted a record into a registrar and is watching the
+/// panel. The cost is bounded by the population of UNVERIFIED accounts rather
+/// than by all of them -- accountsForDomainWalk excludes the verified -- so a
+/// cluster whose clients are all set up pays one query per tick.
+@trigger(schedule="0 */2 * * * *")
+automation reconcileAccountDomains {
+  step walk {
+    builtin accountDomainReconcile ()
   }
 }

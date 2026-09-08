@@ -26,15 +26,20 @@ type stubEngine struct {
 	accounts map[string]map[string]any
 	users    map[string]map[string]any
 	members  map[string][]any
-	writes   []string
+	// joinDomains maps a domain to the account that has proven it and
+	// switched joining on -- the three conditions accountForDomainJoin
+	// tests, held here as the answer the query would give.
+	joinDomains map[string]string
+	writes      []string
 }
 
 func newStub() *stubEngine {
 	return &stubEngine{
-		groups:   map[string]map[string]any{},
-		accounts: map[string]map[string]any{},
-		users:    map[string]map[string]any{},
-		members:  map[string][]any{},
+		groups:      map[string]map[string]any{},
+		accounts:    map[string]map[string]any{},
+		users:       map[string]map[string]any{},
+		members:     map[string][]any{},
+		joinDomains: map[string]string{},
 	}
 }
 
@@ -48,6 +53,12 @@ func (s *stubEngine) Execute(_ context.Context, query string) (any, error) {
 		return rowsFor(s.users[argOf(query, "userId")]), nil
 	case strings.HasPrefix(query, "query membersOfGroup("):
 		return map[string]any{"rows": s.members[argOf(query, "groupId")]}, nil
+	case strings.HasPrefix(query, "query accountForDomainJoin("):
+		account := s.joinDomains[argOf(query, "domain")]
+		if account == "" {
+			return map[string]any{"rows": []any{}}, nil
+		}
+		return map[string]any{"rows": []any{map[string]any{"id": account}}}, nil
 	case strings.HasPrefix(query, "query groupsForAccount("):
 		var out []any
 		for _, g := range s.groups {

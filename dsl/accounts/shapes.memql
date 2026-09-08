@@ -58,3 +58,15 @@ shape account clientAccountFull {
 shape account accountIdRef {
   row.id
 }
+
+/// The slice of an account the domain walk reads: the name to check, the token
+/// to check it with, and the reservation fields it stamps on success.
+@row
+shape account accountDomainWalk {
+  row.id
+  domain
+  domainToken
+  domainStatus
+  memqlDomain
+  memqlReservedAt
+}
