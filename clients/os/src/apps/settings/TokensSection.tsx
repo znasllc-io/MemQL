@@ -9,7 +9,7 @@ import { useSettingsWrites } from "./settingsWrites";
 // Tokens (epic memql#4984): every credential in this cluster that is not a
 // person's browser session, and the one act that can be taken on one.
 //
-// ADMIN. The reads gate themselves on `requiresOwnerOrAdmin` and adminops
+// ADMIN. The reads gate themselves on `@requiresCapability("update", "principal")` and adminops
 // refuses the revokes below that, so the floor here matches what the cluster
 // will actually do.
 //
@@ -71,7 +71,7 @@ export function TokensSection() {
       {facts.error ? (
         <Notice
           tone="warn"
-          sentence={`The cluster declined this read for ${access?.clusterRole || "your role"}.`}
+          sentence={`The cluster declined this read for ${access?.role || "your role"}.`}
           detail={facts.error}
         />
       ) : null}

@@ -206,7 +206,6 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// stamps internal origin, which is what @serverOnly admits.
 		{Path: "rbac/mutations.memql", Name: "createRole"}:       true,
 		{Path: "rbac/mutations.memql", Name: "createCapability"}: true,
-
 		// epic memql#5165. The boot backfill's sweep set. It runs from the
 		// seed materializer at startup under the system actor -- the same
 		// position usersForSeedSweep is in -- so actor.userId names nobody,

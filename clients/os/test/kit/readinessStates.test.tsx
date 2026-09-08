@@ -37,11 +37,11 @@ function withOs(node: ReactNode, role: string) {
   );
 }
 
-function withSession(node: ReactNode, clusterRole: string) {
+function withSession(node: ReactNode, role: string) {
   return (
     <SessionProvider
       value={{
-        access: { userId: "u", primaryEmail: "u@example.com", clusterRole },
+        access: { userId: "u", primaryEmail: "u@example.com", role, roleName: "", rank: 0 },
         config: UNKNOWN_RUNTIME_CONFIG,
         ladderLoaded: true,
       }}

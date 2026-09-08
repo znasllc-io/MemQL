@@ -104,6 +104,75 @@ func loadedTreeRegistry(t *testing.T) *FunctionRegistry {
 	return registry
 }
 
+// tierDecidesTheRead names the constructs whose filter deliberately carries NO
+// caller-scope conjunct because the concept's tier is the whole answer.
+//
+// AN ADJUDICATION, WHICH IS WHAT THIS GATE ASKS FOR ON A FAILURE ("make the
+// broader read deliberate"), and it is not a widening: the entries below are
+// checked for a positive property no other construct in the tree has, and a
+// stale entry is an error.
+//
+// THE PROPERTY. Both constructs declare `@requiresRank("admin")`, so their
+// CALLER SET is admin and above. Their filter used to carry
+// `(ownerUserId==actor.userId || actor.isClusterOwner==true ||
+// requiresDeveloperOrAbove)`, and for every caller that annotation admits the
+// third arm was TRUE -- so the disjunction was a pass-through and the tier
+// (`owner="ownerUserId", rankVisible, unowned="admin", clusterOwner`) decided
+// the row set by itself. Epic memql#5166 deleted the spec that third arm named,
+// and keeping the other two arms would have been a REGRESSION rather than a
+// conservative choice: `own || clusterOwner` is false for every row an admin
+// does not own, so an admin would have stopped seeing the client list they
+// manage.
+//
+// WHAT THE GATE CANNOT SEE, and why the entry is here rather than in the
+// analyzer: `@requiresRank` bounds who may CALL, which is not a filter term, so
+// no amount of reading the filter recovers the argument above. The gate's
+// structural complaint is accurate and its behavioural conclusion -- "this
+// construct's result set CHANGES for its callers" -- is false for these two.
+//
+// A THIRD ENTRY IS A DESIGN DECISION, not a fix. The right question for a new
+// candidate is whether every caller the construct admits is one for whom the
+// tier ALREADY decides the whole row set; if the answer needs a paragraph about
+// what a particular caller sees, the answer is no.
+var tierDecidesTheRead = map[string]string{
+	"clientAccountsAll": "epic memql#5166. @requiresRank(\"admin\") bounds the callers to admin " +
+		"and above, for whom the deleted requiresDeveloperOrAbove arm was always true -- so the " +
+		"disjunction was a pass-through and the concept's tier already decided the row set. " +
+		"Keeping `own || clusterOwner` alone would have hidden every client an admin does not " +
+		"personally own.",
+	"clientAccountById": "epic memql#5166, as clientAccountsAll -- the same filter, the same " +
+		"annotation, the same tier.",
+
+	// The five group reads (epic memql#5165), and the argument is STRONGER
+	// here than for the two above rather than merely analogous.
+	//
+	// v1:identity:group and v1:identity:groupMembership carry an ownerUserId
+	// that is ALWAYS EMPTY -- they are the deployment's rows, not a
+	// principal's (D2). So the tier's owner arm matches nobody at all, and
+	// `unowned="admin"` is the entire branch: it admits exactly admin and
+	// above, which is exactly the caller set `@requiresRank("admin")` already
+	// bounds. The tier does not merely decide the row set for these callers,
+	// it decides it identically for all of them.
+	//
+	// WHAT A CONJUNCT WOULD COST. `own || clusterOwner` is false for every
+	// admin these reads exist to serve, because nobody owns the rows -- so
+	// adding one is a REGRESSION, not a tightening, and it would empty the
+	// Users app's Groups section for every caller but a cluster owner. The
+	// slug specs that could have spelled a third arm are deleted by
+	// memql#5166, for reasons that apply here too.
+	//
+	// THIS IS THE THIRD ENTRY the note above calls a design decision, and the
+	// test it asks for is the one that would fail if the reasoning were wrong:
+	// TestGroupQueriesAnswerForTheSystemActorAndRefuseBelowTheFloor drives all
+	// five against a real database and asserts BOTH halves -- rows for the
+	// caller set the annotation admits, and none for a writer.
+	"groupsAll":        "epic memql#5165. ownerUserId is always empty on this concept, so the tier's owner arm matches nobody and unowned=\"admin\" admits exactly the caller set @requiresRank(\"admin\") already bounds. A conjunct would be false for every admin the read serves.",
+	"groupById":        "epic memql#5165, as groupsAll -- the same tier, the same annotation, the same always-empty owner.",
+	"groupsForAccount": "epic memql#5165, as groupsAll.",
+	"membersOfGroup":   "epic memql#5165, as groupsAll, over v1:identity:groupMembership -- whose ownerUserId is empty for the sharper reason that the natural owner field would be `userId`, and an owned row admits its owner's inserts.",
+	"groupsForUser":    "epic memql#5165, as membersOfGroup.",
+}
+
 func TestRowAuthzEnforcementLandGate(t *testing.T) {
 	registry := loadedTreeRegistry(t)
 	measured, undeclared, queries := measureDeclaredReads(registry)
@@ -129,8 +198,13 @@ func TestRowAuthzEnforcementLandGate(t *testing.T) {
 			"and a gate that measures nothing passes forever")
 	}
 
+	adjudicated := map[string]bool{}
 	for _, r := range measured {
 		if r.verdict == ShadowAlreadyImplied {
+			continue
+		}
+		if _, ok := tierDecidesTheRead[r.construct]; ok {
+			adjudicated[r.construct] = true
 			continue
 		}
 		// A RANK-DECLARING TIER IS NOT DECIDABLE BY INSPECTION, and this is
@@ -173,6 +247,18 @@ func TestRowAuthzEnforcementLandGate(t *testing.T) {
 			"not bind it). Do NOT widen this gate: it is the only thing standing between a new "+
 			"query and a silent result-set change (memql#3172).",
 			r.construct, r.concept, r.tier, r.verdict, r.reason, r.predicate)
+	}
+
+	// A STALE ADJUDICATION IS WORSE THAN A MISSING ONE: it reports that a
+	// broader read was considered and accepted, for a construct that has since
+	// been scoped, renamed or deleted -- so the next reader trusts a line that
+	// measures nothing. The same rule callerArgSelectionExemptions follows.
+	for construct, reason := range tierDecidesTheRead {
+		if !adjudicated[construct] {
+			t.Errorf("tierDecidesTheRead names %q (%s), but the gate did not flag it.\n"+
+				"Either the construct now carries a caller-scope conjunct -- in which case remove "+
+				"the entry -- or it no longer exists under that name.", construct, reason)
+		}
 	}
 }
 

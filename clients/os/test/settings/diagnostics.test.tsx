@@ -48,7 +48,7 @@ const { SettingsApp } = await import("../../src/apps/settings/SettingsApp");
 const { LocalDesktopStore } = await import("../../src/system/store");
 const { UNKNOWN_RUNTIME_CONFIG } = await import("../../src/cluster/config");
 
-const ACCESS = { userId: "u-1", primaryEmail: "owner@example.com", clusterRole: "owner" };
+const ACCESS = { userId: "u-1", primaryEmail: "owner@example.com", role: "owner", roleName: "", rank: 0 };
 
 function memStorage(): Pick<Storage, "getItem" | "setItem"> {
   const data = new Map<string, string>();
@@ -59,7 +59,7 @@ function wrap(children: ReactNode, role = "owner") {
   return (
     <SessionProvider
       value={{
-        access: { ...ACCESS, clusterRole: role },
+        access: { ...ACCESS, role: role },
         config: { ...UNKNOWN_RUNTIME_CONFIG, domain: "example.com" },
       }}
     >

@@ -41,7 +41,7 @@ function gate(role: string, feed: Readiness, ladderLoaded = true): ReactNode {
     <SetupFactsScope>
       {withOs(<CoreGate onSignOut={() => {}}>{DESK}</CoreGate>, role)}
     </SetupFactsScope>,
-    { clusterRole: role, readiness: feed, ladderLoaded },
+    { role: role, readiness: feed, ladderLoaded },
   );
 }
 
@@ -212,7 +212,7 @@ describe("the two role variants", () => {
             "owner",
           )}
         </SetupFactsScope>,
-        { clusterRole: "owner", readiness: UNCONFIGURED() },
+        { role: "owner", readiness: UNCONFIGURED() },
       ),
     );
     expect(await screen.findByRole("list", { name: "Set up this cluster" })).toBeTruthy();

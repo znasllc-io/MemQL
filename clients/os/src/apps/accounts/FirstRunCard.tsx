@@ -51,7 +51,7 @@ export function FirstRunCard({
   const { access } = useSession();
   const [name, setName] = useState(() => (account.name.trim() === "My company" ? "" : account.name));
   // NO NAME PREFILL, and it is not an oversight. `ProfileAccess` carries
-  // userId, primaryEmail and clusterRole -- there is no display name on it, so
+  // userId, primaryEmail and role -- there is no display name on it, so
   // there is nothing here to prefill FROM. Deriving one from the local part of
   // the email would be a guess rendered as an answer, in the field that names
   // a person.

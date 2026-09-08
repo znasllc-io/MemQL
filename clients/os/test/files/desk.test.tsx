@@ -29,7 +29,7 @@ const CONFIG: OsRuntimeConfig = {
   authEnabled: true,
   domain: "example.test",
 };
-const OWNER = { userId: "u-1", primaryEmail: "owner@example.test", clusterRole: "owner" };
+const OWNER = { userId: "u-1", primaryEmail: "owner@example.test", role: "owner", roleName: "", rank: 0 };
 
 function storageWithFolderShortcut() {
   const data = new Map<string, string>();

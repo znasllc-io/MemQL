@@ -88,7 +88,7 @@ export function DecisionsSection() {
       {decisions.error ? (
         <Notice
           tone="warn"
-          sentence={`The cluster declined this read for ${access?.clusterRole || "your role"}.`}
+          sentence={`The cluster declined this read for ${access?.role || "your role"}.`}
           detail={decisions.error}
         />
       ) : null}

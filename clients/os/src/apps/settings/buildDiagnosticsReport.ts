@@ -36,7 +36,12 @@ export interface DiagnosticsInput {
   endpoint: string;
   userId: string;
   primaryEmail: string;
-  clusterRole: string;
+  /** The cluster role's slug -- the machine-readable half. */
+  role: string;
+  /** Its display name off the catalog. Empty when the slug ranks nowhere. */
+  roleName: string;
+  /** Its rung, HIGHER == more privileged. Zero when the slug ranks nowhere. */
+  rank: number;
   connection: ConnectionHistory;
   /** Live status from the shell's own context; authoritative over the buffer. */
   connectionStatus: string;
@@ -51,6 +56,18 @@ export interface DiagnosticsInput {
 
 const UNKNOWN = "unknown";
 
+// describeRole renders the role for a report a stranger will read: "Support
+// Lead (support-lead, rank 150)". Falls back through what it has -- a slug with
+// no name prints alone, and no slug at all prints `unknown`, which is what the
+// reader needs to know rather than a blank.
+function describeRole(input: DiagnosticsInput): string {
+  const slug = input.role.trim();
+  if (slug === "") return UNKNOWN;
+  const name = input.roleName.trim();
+  const detail = input.rank > 0 ? `${slug}, rank ${input.rank}` : slug;
+  return name === "" ? detail : `${name} (${detail})`;
+}
+
 export function buildDiagnosticsReport(input: DiagnosticsInput): string {
   const out: string[] = [];
 
@@ -63,7 +80,11 @@ export function buildDiagnosticsReport(input: DiagnosticsInput): string {
   out.push(`  Shell build:      ${orUnknown(input.build)}`);
   out.push(`  Signed in as:     ${orUnknown(input.primaryEmail)}`);
   out.push(`  User id:          ${orUnknown(input.userId)}`);
-  out.push(`  Cluster role:     ${orUnknown(input.clusterRole)}`);
+  // THE REPORT IS PASTED INTO A SUPPORT THREAD, so it carries all three facts
+  // rather than the one a screen shows (epic memql#5166): the name is what the
+  // person calls it, the slug is what somebody greps for, and the rank is what
+  // places it among roles the reader may never have heard of.
+  out.push(`  Cluster role:     ${describeRole(input)}`);
   out.push("");
 
   out.push("Connection");

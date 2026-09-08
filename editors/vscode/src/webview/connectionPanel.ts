@@ -214,7 +214,7 @@ export class ConnectionPanel {
     this.identity =
       access === null
         ? undefined
-        : { email: access.primaryEmail ?? "", role: access.clusterRole ?? "" };
+        : { email: access.primaryEmail ?? "", role: access.role ?? "" };
     this.render();
   }
 

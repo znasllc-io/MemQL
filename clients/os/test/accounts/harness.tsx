@@ -183,7 +183,9 @@ export function withSession(
         access: {
           userId: "v1:identity:user:me",
           primaryEmail: "owner@example.com",
-          clusterRole: overrides.role ?? "owner",
+          role: overrides.role ?? "owner",
+          roleName: "",
+          rank: 0,
           // ABSENT rather than empty by default, which is the difference the
           // type states: a harness constructing a session by hand is not
           // making a claim about anybody's groups.

@@ -969,13 +969,13 @@ between an audit trail an operator can read and one they scroll past
 | **`action`** | an unconstrained string. Many writers across the service; a closed enum here would refuse a new decision at insert time | a CLOSED enum of four values. Four writers, and it will not grow by convention |
 | **Volume** | one row per lifecycle moment | one row per rotation (~every 10.5 minutes per open tab) and one per PAT-authenticated request |
 | **Retention** | `MEMQL_IDENTITY_AUDIT_LOG_RETENTION_DAYS`, default 365. The daily sweep only COUNTS -- MemQL has no `delete()` | `MEMQL_IDENTITY_AUTH_ACTIVITY_RETENTION_DAYS`, default 30, HARD-DELETED daily by a Go job on the identity node |
-| **Who can read it** | cluster owner or admin (`recentAuditEvents` carries `requiresOwnerOrAdmin`) | the cluster owner sees everything (`recentAuthActivity`); **every user sees their own** (`authActivityForSelf`) |
+| **Who can read it** | the cluster owner (`recentAuditEvents` is `clusterOwner`-tiered) | the cluster owner sees everything (`recentAuthActivity`); **every user sees their own** (`authActivityForSelf`) |
 | **Where it renders** | no console surface today (epic memql#4984 retired the portal's Audit Trail; a replacement is filed) | the concept browser, like any concept |
 
 **Why the reads split that way.** `authActivity` declares
 `@rowAuthz(owner="actorUserId", clusterOwner)` -- the owner, or a cluster owner.
 The escape is the `owner` ROLE specifically, so a read gated
-`requiresOwnerOrAdmin` would pass for an admin and then be narrowed by the tier
+An owner-or-admin gate would pass for an admin and then be narrowed by the tier
 to that admin's own rows: a confidently wrong answer dressed as a roll-up. So
 the operator roll-up is cluster-owner-only and the per-user read is available to
 everyone. A non-owner admin uses the second one and sees exactly what it says.

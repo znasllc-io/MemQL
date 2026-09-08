@@ -103,7 +103,7 @@ function InferenceLine({
 }) {
   const row = reading.value;
   const { access } = useSession();
-  const fleet = useAppReach("fleet", access?.clusterRole ?? "");
+  const fleet = useAppReach("fleet", access?.role ?? "");
 
   const facts = useMemo(() => {
     if (row === null) return null;

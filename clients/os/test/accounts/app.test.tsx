@@ -244,7 +244,7 @@ describe("the ledger", () => {
   });
 
   it("A REFUSAL IS NOT A ZERO -- the gated band says so verbatim", async () => {
-    // The guest-invitation rollup carries `requiresOwnerOrAdmin`, so below
+    // The guest-invitation rollup carries `@requiresRank("developer")`, so below
     // that floor the engine refuses. Rendering it as "0 invitations" would be
     // this window inventing a fact about a client.
     const conn = fakeConnection({

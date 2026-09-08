@@ -77,7 +77,7 @@ function mounted(role: string, feed: Readiness) {
         role,
       )}
     </SetupFactsScope>,
-    { clusterRole: role, readiness: feed },
+    { role: role, readiness: feed },
   );
 }
 
@@ -170,7 +170,7 @@ describe("the widget's presence follows the feed and the ladder", () => {
             "owner",
           )}
         </SetupFactsScope>,
-        { clusterRole: "owner", readiness: coreAt("unconfigured", "configured", "configured") },
+        { role: "owner", readiness: coreAt("unconfigured", "configured", "configured") },
       ),
     );
     await waitFor(() => expect(roster()).toContain("setup"));
@@ -199,7 +199,7 @@ describe("the widget's presence follows the feed and the ladder", () => {
             "owner",
           )}
         </SetupFactsScope>,
-        { clusterRole: "owner", readiness: feed },
+        { role: "owner", readiness: feed },
       );
     const view = render(tree(coreAt("unconfigured", "configured", "configured")));
     await waitFor(() => expect(roster()).toContain("setup"));

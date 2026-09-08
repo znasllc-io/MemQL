@@ -295,7 +295,7 @@ function useRequestReply<T>(
  */
 export function useClusterReport(): ClusterReport {
   const { access } = useSession();
-  const admitted = roleAdmits(access?.clusterRole ?? "", CLUSTER_SECTION_ROLE);
+  const admitted = roleAdmits(access?.role ?? "", CLUSTER_SECTION_ROLE);
   const identity = useClusterIdentity();
   const deployment = useDeploymentFacts(admitted ? (identity.cluster?.id ?? "") : "");
   const mail = useMailStatus(admitted);

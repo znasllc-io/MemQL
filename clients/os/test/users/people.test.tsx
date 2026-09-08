@@ -162,6 +162,18 @@ describe("the roster", () => {
     await waitFor(() => expect(document.querySelector('[data-arrival="updated"]')).toBeTruthy());
   });
 
+  it("renders a refused read in surface, with the engine's own words", async () => {
+    // Not a toast, and not an empty list: somebody who reached this surface
+    // out-of-band has to read WHY rather than conclude the cluster is empty.
+    const connection = seed();
+    connection.query.searchUsers = vi.fn(async () => {
+      throw new Error("searchUsers: reading the directory is admin and above");
+    });
+    mount(connection);
+    expect(await screen.findByText(/did not return its people/i)).toBeTruthy();
+    expect(screen.getByText(/reading the directory is admin and above/)).toBeTruthy();
+  });
+
   it("hides deactivated people and says the setting is why", async () => {
     mount(
       seed({

@@ -1339,7 +1339,7 @@ export interface CreateAuditEventArgs {
   actorEmail?: string;
   actorRole?: string;
   actorIdentityId?: string;
-  // Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant | group | groupMembership
+  // Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant | role | group | groupMembership
   targetType?: string;
   targetId?: string;
   targetEmail?: string;
@@ -3427,7 +3427,7 @@ export interface CreateUserArgs {
   userId: string;
   displayName: string;
   primaryEmail: string;
-  // Enum: owner | admin | developer | writer | reader
+  /** A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole. */
   role?: string;
   preferences?: Record<string, unknown>;
 }
@@ -3464,7 +3464,7 @@ export interface CreateUserOnFirstLoginArgs {
   primaryRole?: string;
   gender?: string;
   birthdate?: string;
-  // Enum: owner | admin | developer | writer | reader
+  /** A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole. */
   role?: string;
   internal: boolean;
   sharedMailbox?: boolean;

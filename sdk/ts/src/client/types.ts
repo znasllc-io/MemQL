@@ -12,25 +12,48 @@ import type {
   QueryResultPayload,
   ResultMetaWire,
   SubscriptionKindWire,
-  UserRoleWire,
 } from "./wire.js";
 
-// `developer` is engineering power (authoring + inline DSL + deploy /
-// cut-version) WITHOUT user management. It sits in the privileged tier
-// alongside admin rather than above or below it -- the two hold different
-// powers, so the spectrum is not a strict ordering. Mirrors
-// component/auth/rbac.go's AllRoles() and memql.proto's UserRole.
+// A ROLE SLUG, AS A PLAIN STRING (epic memql#5166).
 //
-// "" is not a role. It is "no role resolved" -- an unauthenticated caller, a
-// failed access read, or (until memql#3331) a role the wire union could not
-// name. Consumers must treat it as "unknown", never as "least privileged".
-export type Role = "" | "owner" | "admin" | "developer" | "writer" | "reader";
+// It was a closed union -- "" | owner | admin | developer | writer | reader --
+// mirroring memql.proto's UserRole enum. Both are deleted, because the set of
+// roles is CLUSTER STATE: an operator authors a role from the permissions that
+// exist, and a union could only ever name the five this repo shipped. A custom
+// role arrived as "", the same value an unauthenticated caller gets, so a
+// consumer could not tell "you hold a role I do not know" from "you hold none".
+//
+// "" is still not a role. It is "no role resolved" -- an unauthenticated
+// caller, or a failed access read. Consumers must treat it as UNKNOWN, never as
+// "least privileged".
+//
+// THERE IS NO ORDERING HERE, deliberately. A consumer that needs to compare
+// roles reads the ladder from `activeRoles` and resolves through it, which is
+// what MemQL OS does; a rank table in this file would be a second
+// hand-maintained ladder, and two of those disagree without anything noticing
+// (epic memql#4832).
+export type Role = string;
 
 export interface AccessSummary {
   requestId: string;
   userId: string;
   primaryEmail: string;
-  clusterRole: Role;
+  // role is the caller's cluster role, as the SLUG their v1:identity:user row
+  // carries (epic memql#5166). It was `clusterRole` and it was a closed union
+  // mapped from the UserRole proto enum -- which meant a role the cluster
+  // authored for itself arrived as "", the same value an unauthenticated
+  // caller gets, so a shell could not tell "you hold a custom role" from "you
+  // hold none".
+  role: Role;
+  // roleName is the role's display name off the catalog ("Owner", "Support
+  // Lead"). EMPTY when the slug ranks nowhere, and that is a real answer:
+  // render the slug rather than inventing a title for a role the cluster does
+  // not recognise.
+  roleName: string;
+  // rank is the role's rung, HIGHER == more privileged. Zero when the slug
+  // ranks nowhere -- the answer, not "unknown", because an unrankable role
+  // admits nothing.
+  rank: number;
   // sessionId names the v1:identity:authSession row backing THIS connection,
   // read by the server off the verified token (memql#4306).
   //
@@ -471,25 +494,22 @@ export function graphActionWire(a: GraphAction): GraphNodeActionWire {
   return graphActionToWire[a] ?? "GRAPH_NODE_ACTION_UNSPECIFIED";
 }
 
-// Typed `Record<UserRoleWire, Role>` deliberately: the compiler then REQUIRES
-// an entry for every member of the union, so widening UserRoleWire without
-// mapping the new value is a build error rather than another silent "".
-// That half of memql#3331 is structural; the half that is not -- the proto
-// declaring a role the union never listed -- is covered by
-// scripts/ci/user_role_wire_parity_test.go.
-const userRoleFromWire: Record<UserRoleWire, Role> = {
-  USER_ROLE_UNSPECIFIED: "",
-  USER_ROLE_OWNER: "owner",
-  USER_ROLE_ADMIN: "admin",
-  USER_ROLE_WRITER: "writer",
-  USER_ROLE_READER: "reader",
-  USER_ROLE_DEVELOPER: "developer",
-};
-
-export function roleFromWire(r: UserRoleWire | null | undefined): Role {
-  if (!r) return "";
-  return userRoleFromWire[r] ?? "";
-}
+// THE WIRE MAPPING IS GONE, AND SO IS THE PROBLEM IT SOLVED (epic memql#5166).
+//
+// `userRoleFromWire` was a `Record<UserRoleWire, Role>` translating the proto's
+// UserRole enum into this SDK's union, and its whole design was defensive:
+// memql#3331 found USER_ROLE_DEVELOPER missing from the union, which resolved a
+// developer to "" -- the same value an unauthenticated caller gets -- so every
+// consumer branching on the role branched wrong. The typed Record made the
+// TypeScript half structural, and scripts/ci/user_role_wire_parity_test.go
+// covered the other half by comparing the proto against this file's text.
+//
+// The enum is deleted. A role arrives as the SLUG the cluster wrote, passes
+// through unchanged, and a role added tomorrow needs no entry in any table --
+// which is what makes a custom role work with no client release. The parity
+// test is deleted with it: it compared a proto enum against a TS union, and
+// with neither in existence it would have compared two absences and reported
+// success.
 
 export function conceptsFromWire(in_: ConceptInfoWire[] | undefined): Concept[] {
   if (!in_) return [];
@@ -563,7 +583,9 @@ export function accessSummaryFromWire(p: MyAccessResultPayload | undefined): Acc
     requestId: p.requestId ?? "",
     userId: p.userId ?? "",
     primaryEmail: p.primaryEmail ?? "",
-    clusterRole: roleFromWire(p.clusterRole),
+    role: p.role ?? "",
+    roleName: p.roleName ?? "",
+    rank: p.rank ?? 0,
     sessionId: p.sessionId ?? "",
     displayName: p.displayName ?? "",
     groups: (p.groups ?? []).map((g) => ({

@@ -251,6 +251,25 @@ func TestOnlyAllowlistedPackagesStampInternalOrigin(t *testing.T) {
 		// createAuditEvent is not @serverOnly and the actor it records is this
 		// caller, so the ordinary path admits it.
 		"integrations/identity": "ownership transfer (memql#4838) -- one inline stamp, downstream of a cluster-owner gate; rank-strict withdraws the cluster-owner escape it would otherwise use",
+		// REQUEST-DERIVED, and the same shape as the two above. The three role
+		// builtins (epic memql#5166) write through `createRole` and
+		// `createCapability`, which became @serverOnly in the same epic
+		// precisely so these guarded handlers are the only way in -- so the
+		// stamp is not a widening, it is what makes the narrowing possible.
+		//
+		// WHY IT IS SAFE HERE, on the same terms: every path that reaches a
+		// stamp is downstream of a capability check in the SAME function
+		// (handleRoleCreate refuses a caller without `create` on `role` before
+		// anything is read), the stamp is applied INLINE as the argument to one
+		// Execute, and it dies at that call. The guards it is downstream of are
+		// the whole product of the file -- rank strictly below the creator, a
+		// rank no rung holds, a slug no role or alias claims, every grant one
+		// the caller holds -- and each has a test asserting its refusal code.
+		//
+		// The audit write beside them is deliberately NOT stamped, for the
+		// reason integrations/identity gives: createAuditEvent is not
+		// @serverOnly and the actor it records is this caller.
+		"integrations/rbac": "role authoring (epic memql#5166) -- inline stamps on the three role builtins, each downstream of a create/update-on-role capability check in the same function; createRole and createCapability are @serverOnly so this IS the guarded path",
 		// REQUEST-DERIVED, and the THIRD exception. The redeem path
 		// (component/identity/http/webauthn_recovery.go) calls Store.Resolve on
 		// an UNAUTHENTICATED request context -- the shape call_origin.go warns

@@ -1998,6 +1998,102 @@ QueryClient.prototype.restoreDocumentVersion = function (this: QueryClient, args
   return this.executeNamed("restoreDocumentVersion", buildRestoreDocumentVersion(args), opts);
 };
 
+/** Create a custom role with its grants, in one internal-origin write. Guards, in order: the caller holds `create` on `role`; the slug matches ^[a-z][a-z0-9-]{1,39}$ and is claimed by no role and no alias (role_slug_taken); the rank is strictly below the caller's (role_rank_not_below_caller) and equal to no existing rung (role_rank_taken); every grant is a pair the caller themselves holds (role_grant_not_held, naming the pair); accountId, if given, scopes the role to that account (D10) and only members of it may then hold the role. Writes the role row (predefined false, active true) and one active capability row per grant. Returns {ok, slug, code}. */
+export interface RoleCreateArgs {
+  /** Stable kebab-case identifier, ^[a-z][a-z0-9-]{1,39}$. Never renamed; a rename is a new role. Refused when any role's slug OR alias already claims it, deactivated roles included -- a retired role stays as history and keeps its name. */
+  slug: string;
+  /** Display name, as a person would say it. This is what MyAccess reports and what every role picker draws. */
+  name: string;
+  /** Numeric privilege rank, HIGHER is more privileged. Strictly below the caller's own, and equal to no rung the cluster already has -- two roles at one rank are peers with nothing to say which is which. */
+  rank: number;
+  /** One or two lines on what this role is for. Shown wherever the role is offered. */
+  description?: string;
+  /** Scope the role to one account (D10). Members of that account's groups may hold it; nobody else may be given it. Empty for a global role, which is the common case. */
+  accountId?: string;
+  /** The permissions the role holds: a list of { verb, resource }. Every pair must be one the caller holds themselves -- you cannot hand out what you do not have -- and the vocabulary a client should offer is the distinct set of pairs the seeded roles hold (activeCapabilities), because a pair no role holds is not a permission this cluster has. */
+  grants: Record<string, unknown>[];
+}
+
+export function buildRoleCreate(args: RoleCreateArgs): string {
+  const parts: string[] = [];
+  parts.push("slug: " + renderMemQLValue(args.slug));
+  parts.push("name: " + renderMemQLValue(args.name));
+  parts.push("rank: " + renderMemQLValue(args.rank));
+  if (args.description !== undefined) parts.push("description: " + renderMemQLValue(args.description));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
+  parts.push("grants: " + renderMemQLValue(args.grants));
+  return "builtin roleCreate(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    roleCreate(args: RoleCreateArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.roleCreate = function (this: QueryClient, args: RoleCreateArgs = {} as RoleCreateArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("roleCreate", buildRoleCreate(args), opts);
+};
+
+/** Retire a custom role. Guards: the caller holds `update` on `role`; the role is not predefined (role_predefined_immutable); and it is held by no active user and named by no pending invitation (role_held, with the count). Deactivate, never delete (D8): the row stays as history, its slug and its rung stay taken, and its holders -- if a cluster owner forces one through the write escape -- resolve to nothing, everywhere, until re-roled. Returns {ok, slug, code}. */
+export interface RoleDeactivateArgs {
+  /** The role to retire. */
+  slug: string;
+}
+
+export function buildRoleDeactivate(args: RoleDeactivateArgs): string {
+  const parts: string[] = [];
+  parts.push("slug: " + renderMemQLValue(args.slug));
+  return "builtin roleDeactivate(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    roleDeactivate(args: RoleDeactivateArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.roleDeactivate = function (this: QueryClient, args: RoleDeactivateArgs = {} as RoleDeactivateArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("roleDeactivate", buildRoleDeactivate(args), opts);
+};
+
+/** Edit a custom role: its name, description, rank, scope or grants. Guards: the caller holds `update` on `role`; the role is not predefined (role_predefined_immutable); the rank and grant rules of roleCreate; and a RANK CHANGE additionally requires the caller to outrank every current holder (role_held_above_caller), because re-ranking a role re-ranks the people on it. Writes a new role version; grants removed from the list are written active:false rather than deleted, so the history of what a role could do survives. Returns {ok, slug, code}. */
+export interface RoleUpdateArgs {
+  /** The role to edit. Not editable itself: a slug is an identity, and renaming one silently re-points every user row carrying it. */
+  slug: string;
+  /** New display name. Absent leaves it unchanged. */
+  name?: string;
+  /** New description. Absent leaves it unchanged. */
+  description?: string;
+  /** New rank. Absent leaves it unchanged. Present, it must clear the same bounds a create does AND leave every current holder below the caller. */
+  rank?: number;
+  /** New account scope. Absent leaves it unchanged; the empty string clears it, making the role global. */
+  accountId?: string;
+  /** The role's grants AS A WHOLE, not a delta: pairs present are kept or added, pairs missing are retired. Absent leaves the grant set unchanged, which is what an edit that only renames should send. */
+  grants?: Record<string, unknown>[];
+}
+
+export function buildRoleUpdate(args: RoleUpdateArgs): string {
+  const parts: string[] = [];
+  parts.push("slug: " + renderMemQLValue(args.slug));
+  if (args.name !== undefined) parts.push("name: " + renderMemQLValue(args.name));
+  if (args.description !== undefined) parts.push("description: " + renderMemQLValue(args.description));
+  if (args.rank !== undefined) parts.push("rank: " + renderMemQLValue(args.rank));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
+  if (args.grants !== undefined) parts.push("grants: " + renderMemQLValue(args.grants));
+  return "builtin roleUpdate(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    roleUpdate(args: RoleUpdateArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.roleUpdate = function (this: QueryClient, args: RoleUpdateArgs = {} as RoleUpdateArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("roleUpdate", buildRoleUpdate(args), opts);
+};
+
 /** Register every mirrored webhook topic for every ingesting store at the pinned API version, update the ones whose URL, version or includeFields have drifted, and remove ours the allowlist no longer wants. Shopify deletes a subscription after eight consecutive delivery failures, so this is what brings a store back after an outage. Records the outcome on each store's health. */
 export interface ShopifyEnsureSubscriptionsArgs {
 }

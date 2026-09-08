@@ -52,7 +52,7 @@ export function ModuleDetail({
   // READ this page cannot flip a pack. A greyed-out switch would be a control
   // they have to read past to learn it is not for them, and an enabled one
   // would be a refusal they find out about by being told no.
-  const isOwner = roleAdmits(session.access?.clusterRole ?? "", { min: "owner" });
+  const isOwner = roleAdmits(session.access?.role ?? "", { min: "owner" });
 
   const read = useCallback(
     (signal: AbortSignal): Promise<ModuleDetailWire> =>

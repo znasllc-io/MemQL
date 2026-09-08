@@ -336,6 +336,17 @@ no filter.
 	// the analyzer was reading the shape/paginate/sort wrapper instead
 	// of the filter underneath.
 	for _, r := range measured {
+		// The land gate's adjudicated entries (epic memql#5166): constructs
+		// whose filter deliberately carries no caller-scope conjunct because
+		// their `@requiresRank` floor bounds the callers to a set the tier
+		// already decides the whole row set for. The reasoning, and the
+		// staleness check that keeps an entry from outliving its construct,
+		// live beside the map in rowauthz_enforce_gate_test.go -- one place,
+		// because two gates measuring the same thing must not adjudicate it
+		// differently.
+		if _, ok := tierDecidesTheRead[r.construct]; ok {
+			continue
+		}
 		if r.verdict == ShadowWouldNarrow {
 			t.Errorf("%s (%s, tier %s) reports would-narrow, but Phase 1 only declared this concept "+
 				"because every query over it already carried %q as a top-level conjunct.\n"+

@@ -88,7 +88,7 @@ export function UsersApp({
   // An UNRESOLVED session is not an owner. `roleAdmits` refuses an unrankable
   // role, so "" admits only ungated controls -- the right answer while access
   // is still resolving, and the safe one if it never does.
-  const viewerRole = access?.clusterRole ?? "";
+  const viewerRole = access?.role ?? "";
   const viewerUserId = access?.userId ?? "";
 
   const users = usePeople();

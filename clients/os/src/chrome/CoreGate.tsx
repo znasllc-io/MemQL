@@ -62,7 +62,7 @@ export function CoreGate({ onSignOut, children }: { onSignOut: () => void; child
   const { access, ladderLoaded, readiness } = useSession();
   const { state } = useOs();
   const facts = useSetupFacts();
-  const role = access?.clusterRole ?? "";
+  const role = access?.role ?? "";
   const [override, setOverride] = useState<string | null>(null);
 
   // ONLY POSITIVE EVIDENCE HOLDS ANYBODY, and this one line is every silence
@@ -101,7 +101,7 @@ export function CoreGate({ onSignOut, children }: { onSignOut: () => void; child
   //
   // `ladderLoaded` and `access` are two INDEPENDENT reads, fired from separate
   // effects in Shell.tsx with no ordering between them, so the ladder landing
-  // says nothing about whether the identity has. Reading `access?.clusterRole
+  // says nothing about whether the identity has. Reading `access?.role
   // ?? ""` while it is still null hands an OWNER the reader variant -- "an
   // owner or developer has to set up inference", to the owner, with Sign out
   // as the only control. Both reads, or neither variant.

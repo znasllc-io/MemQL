@@ -32,10 +32,12 @@ export const INVITATION_CONCEPT = "v1:identity:invitation";
  * Every outstanding user invitation, live.
  *
  * The gate is the query's own: `pendingUserInvitations` carries
- * `requiresDeveloperOrAbove` as a top-level conjunct, so the engine empties
- * the result below that whatever this code renders. Developer is included
- * because it can ISSUE an invitation, and a caller who can send one but not
- * see the outstanding ones cannot revoke a link sent to the wrong address.
+ * `@requiresRank("developer")`, so the engine REFUSES the read below that
+ * whatever this code renders -- it was a spec conjunct that emptied the result,
+ * and an empty list reads as "nobody is waiting" to a caller who is simply not
+ * allowed to look (epic memql#5166). Developer is included because it can ISSUE
+ * an invitation, and a caller who can send one but not see the outstanding ones
+ * cannot revoke a link sent to the wrong address.
  *
  * Its projection is `invitationAdminSummary` (memql#4735), which is what makes
  * this read safe to run from a browser at all: the query used to declare no

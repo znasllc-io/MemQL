@@ -741,7 +741,12 @@ export interface MyAccessResultPayload {
   requestId?: string;
   userId?: string;
   primaryEmail?: string;
-  clusterRole?: UserRoleWire | null;
+  // The role SLUG (epic memql#5166). It was `clusterRole?: UserRoleWire`, the
+  // proto's UserRole enum, which is deleted -- an enum can only name the roles
+  // the engine shipped, and the set of roles is cluster state.
+  role?: string;
+  roleName?: string;
+  rank?: number;
   sessionId?: string;
   displayName?: string;
   // The caller's GRANT (epic memql#5165). `everyAccount` is the staff rule:
@@ -1378,23 +1383,23 @@ export type SubscriptionKindWire =
   | "SUBSCRIPTION_KIND_AUTOMATION_EVENTS"
   | "SUBSCRIPTION_KIND_ALL";
 
-// Every value `UserRole` declares in component/grpc/memql.proto, in proto
-// order. This file is the hand-mirrored TS view of the wire (see the header),
-// so an enum value added there does NOT appear here on its own -- and the
-// omission is silent: roleFromWire's `?? ""` turns an unlisted role into an
-// indeterminate one rather than an error.
+// THE ROLE ENUM IS GONE (epic memql#5166), and with it the whole class of bug
+// it kept producing.
 //
-// USER_ROLE_DEVELOPER was missing for exactly that reason (memql#3331), which
-// left the VS Code deploy panel unable to tell a developer from an unknown
-// caller and unable to gate cut/deploy. scripts/ci/user_role_wire_parity_test.go
-// now fails when the proto declares a role this union does not.
-export type UserRoleWire =
-  | "USER_ROLE_UNSPECIFIED"
-  | "USER_ROLE_OWNER"
-  | "USER_ROLE_ADMIN"
-  | "USER_ROLE_WRITER"
-  | "USER_ROLE_READER"
-  | "USER_ROLE_DEVELOPER";
+// `UserRoleWire` mirrored `UserRole` in component/grpc/memql.proto, by hand --
+// this file is the hand-mirrored TS view of the wire, so a value added to the
+// proto did not appear here on its own, and the omission was SILENT:
+// roleFromWire's `?? ""` turned an unlisted role into an indeterminate one.
+// USER_ROLE_DEVELOPER went missing for exactly that reason (memql#3331),
+// leaving the VS Code deploy panel unable to tell a developer from an
+// unauthenticated caller.
+//
+// The enum is deleted from the proto: the set of roles is cluster state, so a
+// role arrives as the SLUG the cluster wrote and is carried as a plain string.
+// A rung added tomorrow needs no entry in any union, and there is nothing left
+// to fall out of step. scripts/ci/user_role_wire_parity_test.go, which compared
+// the two, is deleted with them -- it would otherwise have compared two
+// absences and reported success.
 
 // ---------------------------------------------------------------------------
 // Module registry (epic memql#4183). Reads are owner/admin-gated;

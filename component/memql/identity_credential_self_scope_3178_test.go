@@ -172,11 +172,28 @@ func TestPatAdminQueryStillServesTheOperatorCLI(t *testing.T) {
 		"the operator CLI (`memql pat list --user-id ...`) got ZERO rows -- the admin arm of "+
 			"the split must still serve it (memql#3178)")
 
-	// The gate is real: an ordinary authenticated user gets nothing from it.
-	strangerFilter := evaluableFilter(t, eng, selfScopeUserCtx(selfScopeAlice), q)
-	assert.False(t, matchesFilter(t, bobPAT, strangerFilter),
-		"a NON-admin caller read a stranger's PAT rows through the admin-gated query -- "+
-			"requiresOwnerOrAdmin is not holding (memql#3178)")
+	// THE GATE IS REAL, AND IT MOVED (epic memql#5166). It was
+	// `requiresOwnerOrAdmin` as a top-level conjunct, so the assertion here was
+	// that a stranger's resolved FILTER excluded Bob's row. The gate is now
+	// `@requiresCapability("update", "principal")`, which refuses the CALL --
+	// so the filter is the same for everybody and the question is asked one
+	// layer earlier.
+	//
+	// THAT IS A STRONGER ANSWER, not a weaker one. An emptied result is
+	// indistinguishable from "this person has no tokens", which is the wrong
+	// thing to tell somebody who is simply not allowed to look; and a filter
+	// gate is only as good as its position in the boolean tree, while an
+	// annotation has no position to get wrong.
+	fn, err := eng.functions.Get("patIdentitiesForUser")
+	require.NoError(t, err)
+
+	if err := eng.refuseBelowRequiredCapability(selfScopeUserCtx(selfScopeAlice), fn, "patIdentitiesForUser"); err == nil {
+		t.Error("a NON-admin caller was ADMITTED to the admin-gated PAT query -- " +
+			"@requiresCapability(\"update\", \"principal\") is not holding (memql#3178, memql#5166)")
+	}
+	if err := eng.refuseBelowRequiredCapability(selfScopeOperatorCtx("system:identity-svc"), fn, "patIdentitiesForUser"); err != nil {
+		t.Errorf("the operator CLI was refused by the capability gate: %v", err)
+	}
 }
 
 // Badges follow the PAT self half. Evidence (recorded on memql#3178): the

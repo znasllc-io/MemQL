@@ -61,7 +61,14 @@ const MINTING_ROLES = new Set(["owner", "admin"]);
 /** Who the caller is, as the authenticated stream reports them. */
 export interface CallerIdentity {
   userId: string;
-  clusterRole: string;
+  /**
+   * The cluster role's SLUG, as the person's user row carries it (epic
+   * memql#5166). It was `clusterRole` and it was a closed union mapped from a
+   * proto enum; both are deleted, because the set of roles is cluster state and
+   * a role the cluster authored for itself arrived as "" -- the value an
+   * unauthenticated caller gets.
+   */
+  role: string;
 }
 
 export interface PasskeyOfferDeps {
@@ -183,7 +190,7 @@ export async function decidePasskeyOffer(
   // ahead of time. Offering a mint that will come back PERMISSION_DENIED puts
   // a refusal in front of somebody who did nothing wrong, and writes an audit
   // event for a call that should never have been made.
-  if (!MINTING_ROLES.has(caller.clusterRole.trim().toLowerCase())) {
+  if (!MINTING_ROLES.has(caller.role.trim().toLowerCase())) {
     return { offer: false, reason: "cannotMint" };
   }
 

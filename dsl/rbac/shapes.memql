@@ -1,8 +1,13 @@
 // rbac domain -- row projections for the role + capability catalog.
 
-/// Full projection of a role row: its stable slug, display name, numeric rank, and
-/// provenance/lifecycle flags. The canonical shape every role query returns. Higher rank == more
-/// privileged.
+/// Full projection of a role row: its stable slug, display name, numeric rank, its account scope,
+/// and provenance/lifecycle flags. The canonical shape every role query returns. Higher rank ==
+/// more privileged.
+///
+/// `row.createdBy` is the AUTHOR (epic memql#5166), and it is the row intrinsic rather than a
+/// payload field: the engine stamps it from the acting caller, so it answers "who made this role"
+/// with no second copy to drift. Predefined roles carry the seed materializer's system actor,
+/// which is the honest answer for a row nobody authored.
 @row
 shape role roleFull {
   row.id
@@ -13,6 +18,8 @@ shape role roleFull {
   predefined
   active
   aliases
+  accountId
+  row.createdBy
   row.createdAt
 }
 

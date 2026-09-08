@@ -1904,7 +1904,8 @@ func ClientAccountByIdBuild(args ClientAccountByIdArgs) string {
 // The caller term is the composite tier's own predicate written out, which is what TestRowAuthzEnforcementLandGate requires of an authored query over a tier-declaring concept.
 // IT CARRIES A THIRD DISJUNCT NOW, and the reason is worth stating because the term looks wider than it is. The concept declares `rankVisible` plus an `unowned="admin"` floor (epic memql#4832), so the tier admits more than owner-or-cluster-owner -- and an authored conjunct narrower than the tier would silently re-close what the declaration opened, leaving an admin the zero rows memql#4837 exists to end.
 // The WIDTH is not where the narrowing was lost: the engine ANDs the tier's own predicate at the root, and that term carries the rank membership as a pushed-down `in` list. So for an admin this conjunct folds to a constant and the injected term does the real work IN SQL -- which is what keeps a page of peer-owned rows from reading as exhaustion to the cursor.
-// `requiresDeveloperOrAbove` is `developer || admin || owner`, i.e. rank >= 200 -- the same set as the concept's `unowned="admin"` floor. Its NAME predates the ladder flip and reads a rung too high; the set is right, and dslgate.AdminGateRe recognises it, so every arm of this disjunction is caller-scoped and ClauseGuarantees still holds.
+// THE OWNER-CHECK CONJUNCT IS GONE (epic memql#5166), and what replaced it is nothing -- the concept's tier decides. That disjunction read `ownerUserId==actor.userId || actor.isClusterOwner==true || requiresDeveloperOrAbove`, and its third arm admitted a set the tier already admitted: `unowned="admin"` plus `rankVisible` is enforced BESIDE this filter, so the branch narrowed nothing the tier would have widened. Accounts are created at admin rank, so there is no Member-owned row for the owner arm to have narrowed either.
+// The `@requiresRank("admin")` floor above is what gates the CALL, and it is unchanged. Deleting the conjunct removes a caller-scoping term that was doing no work, not a gate.
 //
 // Bound concept: v1:accounts:account (machine-readable: BoundConcepts["clientAccountsAll"] in generated_concepts.go).
 type ClientAccountsAllArgs struct {
@@ -3606,7 +3607,7 @@ func InvitationByIdBuild(args InvitationByIdArgs) string {
 
 // InvitationsForAccount -- The guest invitations sent on behalf of one account.
 // `invitationAdminSummary`, NEVER `invitationFull`, and this is the rule the Users app's own review wrote (memql#4735): `invitationFull` projects `tokenHash`, `previousTokenHash` and `bindingHash` -- not the plaintext token, but the key the resolve path looks an invitation up BY -- and a rollup that says how many guests a client has has never needed them.
-// `requiresDeveloperOrAbove` is `pendingUserInvitations`' own gate, carried here for the same reason: the invitation concept declares no row tier, so the spec IS the authorization on this read, and a rollup that dropped it would be the shortest path in the product to reading every invitation in the cluster. It FOLLOWS that gate rather than restating one, which is what keeps the two in step -- the pair widened together when developers gained the admission capability. Below the floor this section renders empty -- which is the engine's answer, rendered.
+// `@requiresRank("developer")` is `pendingUserInvitations`' own gate, carried here for the same reason: the invitation concept declares no row tier, so this floor IS the authorization on this read, and a rollup that dropped it would be the shortest path in the product to reading every invitation in the cluster. It FOLLOWS that gate rather than restating one, which is what keeps the two in step -- the pair widened together when developers gained the admission capability, and moved together from a spec conjunct to the annotation in epic memql#5166. Below the floor the CALL is now refused rather than the result emptied, which is the more honest answer: an empty list is indistinguishable from "nobody is waiting".
 //
 // Bound concept: v1:identity:invitation (machine-readable: BoundConcepts["invitationsForAccount"] in generated_concepts.go).
 type InvitationsForAccountArgs struct {
@@ -5561,7 +5562,7 @@ func PendingAccessRequestsBuild(args PendingAccessRequestsArgs) string {
 }
 
 // PendingUserInvitations -- Every pending user invitation on this cluster -- who was invited, by whom, and until when.
-// The console's "who is still outstanding" read, and the list a revoke acts on. Developer and above: an invitation names an address somebody chose to invite, which is not a fact every authenticated reader is owed -- but it is one every caller who can ISSUE an invitation needs, and developer can (auth.CanAdmitPeople). A caller able to send invitations and unable to see the outstanding ones cannot revoke a link sent to the wrong address, which is the one repair this list exists for.
+// The console's "who is still outstanding" read, and the list a revoke acts on. Developer and above: an invitation names an address somebody chose to invite, which is not a fact every authenticated reader is owed -- but it is one every caller who can ISSUE an invitation needs, and developer can (auth.CanAdmitPeople). A FLOOR rather than a grant (epic memql#5166): the three roles that can issue are a contiguous top of the ladder, which is what `@requiresRank` says and what the deleted `requiresDeveloperOrAbove` spec was approximating with a three-value list that no custom role could ever match. A caller able to send invitations and unable to see the outstanding ones cannot revoke a link sent to the wrong address, which is the one repair this list exists for.
 // kind=="user" is load-bearing rather than decorative: guest invitations live in the same concept, belong to a space rather than to the cluster, and have their own product-side surface.
 //
 // Bound concept: v1:identity:invitation (machine-readable: BoundConcepts["pendingUserInvitations"] in generated_concepts.go).
@@ -6619,7 +6620,9 @@ func ScheduledSendJobsBuild(args ScheduledSendJobsArgs) string {
 // SearchUsers -- Search users, optionally gated by active status. Omit `active` to list active and deactivated users alike; pass true to return only active users or false for only deactivated ones. Developer-or-above only. Backs the searchUsers tool.
 // memql#2883: `when(args.active)` is DROPPED when the arg is absent (authoring rules), so before this gate `searchUsers()` with no arguments applied no predicate at all and returned every user in the cluster in userFull -- every @pii field plus the cluster-wide auth role. It is also on the agent tool surface (dsl/memql/tools.memql), so a prompt-injected or over-eager agent could pull the whole user table.
 // A ROLE GATE rather than @serverOnly, because unlike its three siblings this one has a genuine client caller: the MCP tool. Gating by origin would delete the tool; gating by role keeps it working for the administrators it was built for.
-// WIDENED FROM requiresOwnerOrAdmin TO requiresDeveloperOrAbove (memql#4917), which restores what the capability catalog already said: dsl/rbac/seeds.memql grants developer `read` on `principal`, described as "see the user list; no management". The narrower spec contradicted that seed -- and once developers could invite people (auth.CanAdmitPeople) they would have been inviting them into a cluster whose roster they could not see.
+// WIDENED FROM owner-or-admin to developer-and-above (memql#4917), which restores what the capability catalog already said: dsl/rbac/seeds.memql grants developer `read` on `principal`, described as "see the user list; no management". The narrower gate contradicted that seed -- and once developers could invite people (auth.CanAdmitPeople) they would have been inviting them into a cluster whose roster they could not see.
+// A FLOOR RATHER THAN A GRANT (epic memql#5166). This is `@requiresRank("developer")` and not `@requiresCapability("read", "principal")`, and the two are genuinely different questions here: the read is bounded by "who works on this cluster", which is a rung, rather than by a permission a role was given. The three credential-adjacent siblings below go the other way, because what excludes a developer from those is a GRANT it does not hold.
+// It replaced the `requiresDeveloperOrAbove` spec, which could not see a custom role at all -- `role == "developer" || role == "admin" || role == "owner"` is false for a rank-350 role a cluster authored for itself, whatever that role holds.
 // The MANAGEMENT verbs are untouched: a developer reading this list still cannot edit, re-role, suspend or delete anybody on it.
 //
 // Bound concept: v1:identity:user (machine-readable: BoundConcepts["searchUsers"] in generated_concepts.go).
@@ -11218,8 +11221,9 @@ func UsableRecordsBuild(args UsableRecordsArgs) string {
 	return b.String()
 }
 
-// UserById -- Get a user by id -- FULL row, owner-or-admin only.
-// memql#2800: the filter keys on a caller-supplied id, so it is not a caller check. Reading someone else's full row now requires being them or holding admin/owner.
+// UserById -- Get a user by id -- FULL row, for a caller holding `read` on `principal`.
+// memql#2800: the filter keys on a caller-supplied id, so it is not a caller check. Reading someone else's full row requires the grant.
+// WIDENED FROM owner-or-admin (epic memql#5166), deliberately and to what the catalog already said. dsl/rbac/seeds.memql grants developer `read` on `principal` -- developers read the user list through searchUsers and reach the Users app -- so a gate that named two slugs was refusing them a row they could already see in a list. The MANAGEMENT verbs are untouched: reading somebody is not editing them, and the three credential-adjacent reads carry `update` on `principal` precisely to keep that line.
 //
 // Bound concept: v1:identity:user (machine-readable: BoundConcepts["userById"] in generated_concepts.go).
 type UserByIdArgs struct {

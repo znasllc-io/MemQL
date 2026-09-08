@@ -992,12 +992,12 @@ func (s *streamSession) authoredSessionRegistryIfAny() *memqlengine.AuthoredRunt
 
 func newStreamSession(svc *service, stream memqlv1.MemqlService_StreamServer, identity auth.UserIdentity) *streamSession {
 	sess := &streamSession{
-		service:    svc,
-		stream:     stream,
-		logger:     svc.logger,
-		identity:   identity,
-		eventChan:  make(chan events.Event, 256),
-		closeChan:  make(chan struct{}),
+		service:   svc,
+		stream:    stream,
+		logger:    svc.logger,
+		identity:  identity,
+		eventChan: make(chan events.Event, 256),
+		closeChan: make(chan struct{}),
 	}
 
 	// Start event forwarding goroutine
@@ -2283,10 +2283,10 @@ func (s *streamSession) handleListTools(envelope *memqlv1.MemqlClientMessage, ms
 				continue
 			}
 			toolDefs = append(toolDefs, &memqlv1.ToolDefinition{
-				Name:            tool.Name,
-				Description:     tool.Description,
-				InputSchema:     string(tool.InputSchema),
-				Scopes:          append([]string(nil), tool.Scopes...),
+				Name:        tool.Name,
+				Description: tool.Description,
+				InputSchema: string(tool.InputSchema),
+				Scopes:      append([]string(nil), tool.Scopes...),
 			})
 		}
 	}
@@ -2644,26 +2644,6 @@ func classifyEngineError(err error) codes.Code {
 		return codes.FailedPrecondition
 	default:
 		return codes.Internal
-	}
-}
-
-func isAtLeastAdmin(role string) bool {
-	r := userRoleFromString(role)
-	return r == memqlv1.UserRole_USER_ROLE_OWNER || r == memqlv1.UserRole_USER_ROLE_ADMIN
-}
-
-func userRoleFromString(role string) memqlv1.UserRole {
-	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "owner":
-		return memqlv1.UserRole_USER_ROLE_OWNER
-	case "admin":
-		return memqlv1.UserRole_USER_ROLE_ADMIN
-	case "writer":
-		return memqlv1.UserRole_USER_ROLE_WRITER
-	case "reader":
-		return memqlv1.UserRole_USER_ROLE_READER
-	default:
-		return memqlv1.UserRole_USER_ROLE_UNSPECIFIED
 	}
 }
 

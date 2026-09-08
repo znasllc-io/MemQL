@@ -185,14 +185,17 @@ export function roleAdmits(actorRole: string, requirement?: RoleRequirement): bo
  * The slug to GRANT for a rung -- the spelling a `v1:identity:user.role` row
  * actually carries, which is not always the catalog's own slug.
  *
- * THE TWO VOCABULARIES ARE NOT THE SAME SET, and a picker that offers the
- * wrong one is refused server-side. The catalog seeds
+ * THE TWO VOCABULARIES ARE NOT THE SAME SET. The catalog seeds
  * owner/developer/admin/user/viewer; a user row carries
- * owner/admin/developer/writer/reader, and `auth.ValidRoles()` -- what
- * setUserRole and the invitation path validate against -- is the second list.
- * Offering `user` or `viewer` is a write the engine rejects, and dropping
- * `writer` and `reader` means the CURRENT role of every ordinary principal
- * matches no option at all, so the select mis-renders them.
+ * owner/admin/developer/writer/reader.
+ *
+ * THE ENGINE ACCEPTS EITHER NOW (epic memql#5166): `auth.IsValidRole` resolves
+ * an active catalog slug OR one of its aliases, so `user` is no longer a write
+ * the engine rejects. This function stays anyway, and the reason is
+ * consistency rather than validity: every ordinary principal's row already
+ * spells the member tier `writer`, and a picker that granted `user` would leave
+ * two spellings of one rung in the user table -- both correct, both resolving
+ * to the same rank, and neither matching the other in a list somebody scans.
  *
  * The alias is the bridge, and it is the FIRST one deliberately: a rung
  * carries its legacy user-row spelling there, and a custom role -- which has

@@ -16,7 +16,9 @@ import { useOsConnection } from "../../live/connection";
 // somebody else.
 //
 // This panel passes an id the reader clicked, from a browser. So it uses
-// `sessionsForSubjectAdmin` (memql#4734), which carries `requiresOwnerOrAdmin`
+// `sessionsForSubjectAdmin` (memql#4734), which carries
+// `@requiresCapability("update", "principal")` -- owner and admin hold it,
+// developer does not (epic memql#5166)
 // as a top-level conjunct and projects `authSessionAdminSummary` -- no token
 // digests at all. Rendering a COUNT never needed the keys the auth hot path
 // looks rows up by.

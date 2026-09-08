@@ -14,7 +14,9 @@ import type { OsRuntimeConfig } from "../src/cluster/config";
 const ACCESS = {
   userId: "v1:identity:user:u-42",
   primaryEmail: "ada@example.test",
-  clusterRole: "owner",
+  role: "owner",
+  roleName: "Owner",
+  rank: 400,
 };
 
 const CONFIG: OsRuntimeConfig = {
@@ -28,7 +30,7 @@ const CONFIG: OsRuntimeConfig = {
 describe("accessFromSummary", () => {
   const summary = { requestId: "r", sessionId: "s", ...ACCESS } as never;
 
-  it("reads MyAccess data only -- user id, primaryEmail, clusterRole, groups", () => {
+  it("reads MyAccess data only -- user id, primaryEmail, role, groups", () => {
     // `groups` rides through unchanged (epic memql#5165, section H): an empty
     // list is "not reported" as well as "none", and this layer must not turn
     // either into a claim of its own.
@@ -41,15 +43,36 @@ describe("accessFromSummary", () => {
     // key, a service account: the SDK's own type says they exist) erased a
     // perfectly good role and the shell rendered "You are unknown" to an
     // owner. An email is what Diagnostics prints, not what any decision reads.
-    const noEmail = { requestId: "r", sessionId: "", userId: "u-1", primaryEmail: "", clusterRole: "owner" } as never;
+    const noEmail = {
+      requestId: "r", sessionId: "", userId: "u-1", primaryEmail: "",
+      role: "owner", roleName: "Owner", rank: 400,
+    } as never;
     expect(accessFromSummary(noEmail)).toEqual({
       userId: "u-1",
       primaryEmail: "",
-      clusterRole: "owner",
-      // The groups MyAccess reports (epic memql#5165, section H). EMPTY here
-      // is "not reported": this summary predates the field, and a reader that
-      // took absence for "belongs to nobody" would tell a member of Acme they
-      // have no client.
+      role: "owner",
+      roleName: "Owner",
+      rank: 400,
+      groups: [],
+    });
+  });
+
+  it("KEEPS THE SLUG when the cluster could not name or rank it", () => {
+    // A role deactivated under its holder, or a node whose catalog has not
+    // loaded: the engine sends the slug it has and leaves role_name empty and
+    // rank 0 (epic memql#5166). Narrowing on the name here would throw away a
+    // perfectly good role for the second time in this function's history --
+    // the parser it replaced did exactly that with the email.
+    const unnamed = {
+      requestId: "r", sessionId: "", userId: "u-1", primaryEmail: "a@b.c",
+      role: "retired-lead",
+    } as never;
+    expect(accessFromSummary(unnamed)).toEqual({
+      userId: "u-1",
+      primaryEmail: "a@b.c",
+      role: "retired-lead",
+      roleName: "",
+      rank: 0,
       groups: [],
     });
   });
@@ -58,14 +81,14 @@ describe("accessFromSummary", () => {
     // Fail-closed rather than null: "" ranks nowhere, so no gated surface
     // opens -- but the user id survives, and owner-scoped client filters
     // depend on it.
-    const noRole = { requestId: "r", sessionId: "", userId: "u-1", primaryEmail: "a@b.c", clusterRole: "" } as never;
+    const noRole = { requestId: "r", sessionId: "", userId: "u-1", primaryEmail: "a@b.c", role: "" } as never;
     expect(accessFromSummary(noRole)?.userId).toBe("u-1");
-    expect(accessFromSummary(noRole)?.clusterRole).toBe("");
+    expect(accessFromSummary(noRole)?.role).toBe("");
   });
 
   it("is null only when there is nothing usable", () => {
     expect(accessFromSummary(null)).toBeNull();
-    const empty = { requestId: "r", sessionId: "", userId: "", primaryEmail: "a@b.c", clusterRole: "" } as never;
+    const empty = { requestId: "r", sessionId: "", userId: "", primaryEmail: "a@b.c", role: "" } as never;
     expect(accessFromSummary(empty)).toBeNull();
   });
 });

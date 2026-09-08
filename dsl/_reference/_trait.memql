@@ -97,10 +97,15 @@ trait isSeedRow {
 //
 //     use common.shapes.{ actorEnvelope }
 //
-//     @description("Caller must hold an admin or owner role.")
-//     spec actorEnvelope requiresAdmin {
-//       return role == "admin" || role == "owner"
+//     @description("Caller is acting on their own behalf, not through a delegation.")
+//     spec actorEnvelope isSelfActing {
+//       return identityId == userId
 //     }
+//
+// A ROLE comparison is deliberately not the example (epic memql#5166): a slug
+// comparison cannot see a custom role, so a role question is
+// `@requiresRank("x")` (a floor on the ladder) or
+// `@requiresCapability("verb", "resource")` (a grant), never a spec.
 //
 // =============================================================================
 //   5. Annotations / forms REJECTED on traits

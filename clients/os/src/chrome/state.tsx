@@ -268,7 +268,7 @@ export function gridForViewport(width: number, height: number): GridSize {
  *
  * This runs in a React state initializer: before the connection exists, before
  * the role ladder lands, before the readiness feed has said anything.
- * `Shell.tsx` passes `access?.clusterRole ?? ""`, which in production is "",
+ * `Shell.tsx` passes `access?.role ?? ""`, which in production is "",
  * and `roleAdmits` refuses an unknown role against a requirement -- so the
  * seeded wizard was placed for NOBODY, on every production boot. This header
  * used to say a desk seeded before the ladder lands carries no wizard, as

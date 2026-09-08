@@ -72,16 +72,22 @@ spec actorEnvelope specWithMisplacedAnnotation {
 }
 
 // TestUnifiedSpecs_RegistersShapeAnnotatedSpec is the end-to-end regression
-// for #1031: the real dsl/deployment/specs.memql requiresOwnerOrAdmin (which
-// carries @enabled + @shape) must register, not be silently skipped by the
-// load gate.
+// for #1031: a real annotated context-spec from the tree must register, not be
+// silently skipped by the load gate.
+//
+// IT NAMED `requiresOwnerOrAdmin` UNTIL EPIC memql#5166, which deleted that
+// spec along with the two other role-comparing ones -- a slug comparison cannot
+// see a custom role, so a role question is `@requiresRank` or
+// `@requiresCapability` now. `requiresOwner` is its surviving sibling in the
+// same file, carries the same annotation shape, and asks about the ACTOR rather
+// than about a rung, which is what a context-spec is still for.
 func TestUnifiedSpecs_RegistersShapeAnnotatedSpec(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	reg := newSpecRegistry()
 	if _, err := LoadUnifiedSpecs(logger, reg); err != nil {
 		t.Fatalf("LoadUnifiedSpecs: %v", err)
 	}
-	if !reg.Has("requiresOwnerOrAdmin") {
-		t.Error("requiresOwnerOrAdmin not registered: a @shape/@enabled-bearing spec was silently dropped at load (#1031)")
+	if !reg.Has("requiresOwner") {
+		t.Error("requiresOwner not registered: a @shape/@enabled-bearing spec was silently dropped at load (#1031)")
 	}
 }

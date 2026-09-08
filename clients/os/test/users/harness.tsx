@@ -364,7 +364,9 @@ export function withSession(
         access: {
           userId: overrides.userId ?? "v1:identity:user:me",
           primaryEmail: "owner@example.com",
-          clusterRole: overrides.role ?? "owner",
+          role: overrides.role ?? "owner",
+          roleName: "",
+          rank: 0,
         },
         config,
         // The shared fixture rather than a shape spelled here: one place says

@@ -13,7 +13,7 @@ import type { Connection, Row } from "@znasllc-io/memql-sdk-core/client";
 // read by role -- a reader would get every credential row in the cluster.
 //
 // Each read below names a query whose own filter carries
-// `requiresOwnerOrAdmin` as a top-level conjunct, evaluated in-process
+// `@requiresCapability("update", "principal")`, enforced at the call
 // against the auth envelope (dsl/identity/queries.memql). A reader who calls
 // them gets zero rows FROM THE ENGINE, not from this file. That is the whole
 // reason these are functions here rather than `useLiveCollection` calls in a
@@ -71,7 +71,7 @@ export async function readTokensForUser(
  *
  * `nodeTokenIdentitiesAdmin`, not `nodeTokenIdentities`: the original is
  * @serverOnly AND projects identityFull, which carries the credentials object
- * keyHash and all. The admin twin gates itself on `requiresOwnerOrAdmin` and
+ * keyHash and all. The admin twin gates itself on update-on-principal and
  * projects the credential-free `nodeTokenSummary`, so the row that reaches a
  * browser cannot carry a secret whatever the caller's role. The @serverOnly
  * original stays for the verifier, which genuinely needs the hash.

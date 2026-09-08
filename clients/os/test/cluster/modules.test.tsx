@@ -20,11 +20,11 @@ type Conn = ReturnType<typeof fakeConnection>;
 
 function mount(
   connection: Conn,
-  clusterRole = "owner",
+  role = "owner",
   readiness?: SessionFacts["readiness"],
 ) {
   h.connection = connection;
-  return render(withSession(<ModulesSection />, { clusterRole, readiness }));
+  return render(withSession(<ModulesSection />, { role, readiness }));
 }
 
 async function click(el: Element) {

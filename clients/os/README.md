@@ -23,8 +23,10 @@ Design: `docs/superpowers/specs/2026-08-26-memql-os-desktop-shell-design.md`.
   title bar open the same streaming surface. It takes dictation (#4747):
   hold the mic to talk, tap it to keep listening.
 - **Roles**: one predicate (`system/roles.ts`) gates apps and app sections
-  from `MyAccess.clusterRole`. Presentation only — row authz stays the
-  engine's. A requirement is a LADDER MINIMUM (`{ min }`) or an explicit SET
+  from `MyAccess.role` — the SLUG the person's user row carries, resolved
+  against the ladder read from `activeRoles`, so a role this cluster authored
+  for itself gates exactly like a seeded one (epic memql#5166). Presentation
+  only — row authz stays the engine's. A requirement is a LADDER MINIMUM (`{ min }`) or an explicit SET
   (`{ any }`), and the set form exists for exactly one reason: Settings ->
   Integrations is owner-or-developer and the ladder puts `admin` between the
   two, so `{ min: "developer" }` cannot leave it out (epic memql#4819).
@@ -997,7 +999,7 @@ rules rather than repetitions of the five before it.
   part of it.
 
 - **A REFUSAL IS NOT A ZERO.** `invitationsForAccount` carries
-  `requiresOwnerOrAdmin`, so below that floor the engine refuses the read.
+  `@requiresRank("developer")`, so below that floor the engine refuses the read.
   The band renders "Not yours to read" plus the server's own sentence, and
   never a count -- a `0` there would be this window inventing a fact about a
   client. Each band settles on its own for the same reason: one

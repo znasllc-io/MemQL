@@ -2592,6 +2592,153 @@ func RestoreDocumentVersionBuild(args RestoreDocumentVersionArgs) string {
 	return b.String()
 }
 
+// RoleCreate -- Create a custom role with its grants, in one internal-origin write. Guards, in order: the caller holds `create` on `role`; the slug matches ^[a-z][a-z0-9-]{1,39}$ and is claimed by no role and no alias (role_slug_taken); the rank is strictly below the caller's (role_rank_not_below_caller) and equal to no existing rung (role_rank_taken); every grant is a pair the caller themselves holds (role_grant_not_held, naming the pair); accountId, if given, scopes the role to that account (D10) and only members of it may then hold the role. Writes the role row (predefined false, active true) and one active capability row per grant. Returns {ok, slug, code}.
+type RoleCreateArgs struct {
+	// Stable kebab-case identifier, ^[a-z][a-z0-9-]{1,39}$. Never renamed; a rename is a new role. Refused when any role's slug OR alias already claims it, deactivated roles included -- a retired role stays as history and keeps its name.
+	Slug string
+	// Display name, as a person would say it. This is what MyAccess reports and what every role picker draws.
+	Name string
+	// Numeric privilege rank, HIGHER is more privileged. Strictly below the caller's own, and equal to no rung the cluster already has -- two roles at one rank are peers with nothing to say which is which.
+	Rank int
+	// One or two lines on what this role is for. Shown wherever the role is offered.
+	Description string
+	// Scope the role to one account (D10). Members of that account's groups may hold it; nobody else may be given it. Empty for a global role, which is the common case.
+	AccountId string
+	// The permissions the role holds: a list of { verb, resource }. Every pair must be one the caller holds themselves -- you cannot hand out what you do not have -- and the vocabulary a client should offer is the distinct set of pairs the seeded roles hold (activeCapabilities), because a pair no role holds is not a permission this cluster has.
+	Grants []map[string]any
+}
+
+// RoleCreate calls the engine builtin roleCreate.
+func (qc *QueryClient) RoleCreate(ctx context.Context, args RoleCreateArgs) (*Result, error) {
+	call := RoleCreateBuild(args)
+	return qc.executeNamed(ctx, "roleCreate", call)
+}
+
+func RoleCreateBuild(args RoleCreateArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin roleCreate(")
+	b.WriteString("slug: ")
+	b.WriteString(quoteMemQL(args.Slug))
+	if b.Len() > 19 {
+		b.WriteString(", ")
+	}
+	b.WriteString("name: ")
+	b.WriteString(quoteMemQL(args.Name))
+	if b.Len() > 19 {
+		b.WriteString(", ")
+	}
+	b.WriteString("rank: ")
+	b.WriteString(fmt.Sprintf("%v", args.Rank))
+	if args.Description != "" {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("description: ")
+		b.WriteString(quoteMemQL(args.Description))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
+	if b.Len() > 19 {
+		b.WriteString(", ")
+	}
+	b.WriteString("grants: ")
+	b.WriteString(renderMemQLValue(args.Grants))
+	b.WriteString(")")
+	return b.String()
+}
+
+// RoleDeactivate -- Retire a custom role. Guards: the caller holds `update` on `role`; the role is not predefined (role_predefined_immutable); and it is held by no active user and named by no pending invitation (role_held, with the count). Deactivate, never delete (D8): the row stays as history, its slug and its rung stay taken, and its holders -- if a cluster owner forces one through the write escape -- resolve to nothing, everywhere, until re-roled. Returns {ok, slug, code}.
+type RoleDeactivateArgs struct {
+	// The role to retire.
+	Slug string
+}
+
+// RoleDeactivate calls the engine builtin roleDeactivate.
+func (qc *QueryClient) RoleDeactivate(ctx context.Context, args RoleDeactivateArgs) (*Result, error) {
+	call := RoleDeactivateBuild(args)
+	return qc.executeNamed(ctx, "roleDeactivate", call)
+}
+
+func RoleDeactivateBuild(args RoleDeactivateArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin roleDeactivate(")
+	b.WriteString("slug: ")
+	b.WriteString(quoteMemQL(args.Slug))
+	b.WriteString(")")
+	return b.String()
+}
+
+// RoleUpdate -- Edit a custom role: its name, description, rank, scope or grants. Guards: the caller holds `update` on `role`; the role is not predefined (role_predefined_immutable); the rank and grant rules of roleCreate; and a RANK CHANGE additionally requires the caller to outrank every current holder (role_held_above_caller), because re-ranking a role re-ranks the people on it. Writes a new role version; grants removed from the list are written active:false rather than deleted, so the history of what a role could do survives. Returns {ok, slug, code}.
+type RoleUpdateArgs struct {
+	// The role to edit. Not editable itself: a slug is an identity, and renaming one silently re-points every user row carrying it.
+	Slug string
+	// New display name. Absent leaves it unchanged.
+	Name string
+	// New description. Absent leaves it unchanged.
+	Description string
+	// New rank. Absent leaves it unchanged. Present, it must clear the same bounds a create does AND leave every current holder below the caller.
+	Rank int
+	// New account scope. Absent leaves it unchanged; the empty string clears it, making the role global.
+	AccountId string
+	// The role's grants AS A WHOLE, not a delta: pairs present are kept or added, pairs missing are retired. Absent leaves the grant set unchanged, which is what an edit that only renames should send.
+	Grants []map[string]any
+}
+
+// RoleUpdate calls the engine builtin roleUpdate.
+func (qc *QueryClient) RoleUpdate(ctx context.Context, args RoleUpdateArgs) (*Result, error) {
+	call := RoleUpdateBuild(args)
+	return qc.executeNamed(ctx, "roleUpdate", call)
+}
+
+func RoleUpdateBuild(args RoleUpdateArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin roleUpdate(")
+	b.WriteString("slug: ")
+	b.WriteString(quoteMemQL(args.Slug))
+	if args.Name != "" {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("name: ")
+		b.WriteString(quoteMemQL(args.Name))
+	}
+	if args.Description != "" {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("description: ")
+		b.WriteString(quoteMemQL(args.Description))
+	}
+	if args.Rank != 0 {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("rank: ")
+		b.WriteString(fmt.Sprintf("%v", args.Rank))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
+	if args.Grants != nil {
+		if b.Len() > 19 {
+			b.WriteString(", ")
+		}
+		b.WriteString("grants: ")
+		b.WriteString(renderMemQLValue(args.Grants))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // ShopifyEnsureSubscriptions -- Register every mirrored webhook topic for every ingesting store at the pinned API version, update the ones whose URL, version or includeFields have drifted, and remove ours the allowlist no longer wants. Shopify deletes a subscription after eight consecutive delivery failures, so this is what brings a store back after an outage. Records the outcome on each store's health.
 type ShopifyEnsureSubscriptionsArgs struct {
 }
