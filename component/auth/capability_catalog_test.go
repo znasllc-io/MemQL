@@ -141,7 +141,18 @@ func TestDenyIsResolvedByTheCatalog(t *testing.T) {
 	}
 }
 
-func TestADeactivatedRoleHoldsNothingAndStillRanks(t *testing.T) {
+// TestADeactivatedRoleAnswersNothingEverywhere is the design record's
+// failure-mode sentence, asserted: a role deactivated under a holder leaves the
+// resolver treating that holder "as unknown: nothing, everywhere, until
+// re-roled".
+//
+// RANK IS PART OF "EVERYWHERE", and that is the half worth a test. A rung that
+// survived retirement would keep clearing every @requiresRank floor and keep
+// the holder visible to their old peers under rankVisible, while Holds answered
+// false for every pair -- half-retired, which is the one state this must not
+// produce. The catalog still CARRIES the role (D8: deactivate, never delete),
+// which is what keeps its slug and rung taken against a later create.
+func TestADeactivatedRoleAnswersNothingEverywhere(t *testing.T) {
 	installFake(t, &fakeCatalog{
 		ranks:  map[string]int{"retired": 120},
 		grants: map[string]map[VerbResource]bool{"retired": {{Verb: VerbRead, Resource: ResourceData}: true}},
@@ -151,11 +162,12 @@ func TestADeactivatedRoleHoldsNothingAndStillRanks(t *testing.T) {
 	if Capable(Role("retired"), VerbRead, ResourceData) {
 		t.Fatal("a deactivated role must hold nothing (D8: deactivate, never delete)")
 	}
-	// STILL RANKS, deliberately. A holder of a deactivated role keeps a rung,
-	// so the rows they own stay attributed rather than reading as unowned to
-	// every rank-visible gate in the cluster.
-	if got := RoleRank(Role("retired")); got != 120 {
-		t.Fatalf("RoleRank(retired) = %d, want 120 -- a deactivated role still ranks its holders", got)
+	if got := RoleRank(Role("retired")); got != 0 {
+		t.Fatalf("RoleRank(retired) = %d, want 0 -- a rung that outlives retirement clears "+
+			"every rank floor while the role holds nothing, which is half-retired", got)
+	}
+	if IsValidRole(Role("retired")) {
+		t.Fatal("a deactivated role must not be assignable")
 	}
 }
 

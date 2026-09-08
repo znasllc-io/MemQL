@@ -340,7 +340,6 @@ func fingerprintOwnerSet(actorRank int, set map[string]struct{}, ladder roleLadd
 	return hex.EncodeToString(h.Sum(nil))[:16] + ":" + strconv.Itoa(actorRank)
 }
 
-
 // roleLadder is the resolved slug -> rank mapping.
 type roleLadder struct {
 	ranks map[string]int
@@ -386,88 +385,49 @@ func (l roleLadder) rankOf(slug string) int {
 // public reference data); it only breaks the ordering that decides who may see
 // what. MUST-NOT-GATE on functionality, not on security.
 func (e *MemQLEngine) rankLadder(ctx context.Context) roleLadder {
-	ladder := roleLadder{ranks: map[string]int{}}
-	db := e.database()
-	if db == nil {
-		return ladder
+	// ONE RESOLUTION, TWO GATES (epic memql#5166, D1). The capability catalog
+	// resolves these same rows for the data gate; two independent resolutions
+	// could disagree -- about an alias, about which version of a re-ranked role
+	// is current, about whether a deactivated role still ranks -- and the
+	// disagreement presents as one request admitted by the row gate and refused
+	// by the data gate, on the same row, for the same caller.
+	//
+	// The database read below is what answers BEFORE the catalog is installed,
+	// which is not a rare corner: validateRequiresRankSlugs and
+	// validateRowAuthzUnownedSlugs both call this during Init, and
+	// StartCapabilityCatalog does not run until the engine's Start. The two are
+	// one implementation of the collapse in two lifecycles, not two ladders.
+	if cat := e.rbacCatalog.Load(); cat != nil {
+		return cat.ladder()
 	}
-	// Same collapse as principalRoles below. The role catalog is small and
-	// re-seeded on every boot, so its version count grows with UPTIME rather
-	// than with usage -- which is exactly the kind of growth nobody notices
-	// until a long-lived cluster gets slow.
-	var nodes []memorynodes.MemoryNode
-	if err := db.NewSelect().
-		Model(&nodes).
-		DistinctOn("id").
-		Where("concept = ?", conceptRbacRole).
-		OrderExpr(`id ASC, "createdAt" DESC`).
-		Scan(ctx); err != nil {
-		return ladder
+	return e.loadRankLadderFromDatabase(ctx)
+}
+
+// loadRankLadderFromDatabase is rankLadder's boot-time half: the direct read,
+// used until the catalog snapshot exists.
+//
+// IT BUILDS THE CATALOG AND PROJECTS ITS LADDER rather than resolving the rows
+// a second way, and that is not a tidiness argument. The collapse, the
+// active-flag default and the alias pass are each a place two implementations
+// could differ, and one of them is load-bearing: an alias claim is what decides
+// whether `reader` names the seeded viewer rung or a role somebody authored at
+// 299. A second copy of that rule would be a second answer to it, live during
+// exactly the window -- Init, before any catalog is installed -- where
+// @requiresRank floors and @rowAuthz unowned floors are validated.
+//
+// staged-data: MUST-NOT-GATE -- a staged v1:rbac:role row excluded here does
+// not resolve, rankOf answers 0, and every principal holding that role is
+// ranked BELOW everyone, so their own colleagues stop seeing their rows and
+// every rank floor refuses them. Withholding a staged role from the LADDER
+// hides nothing (the catalog is public reference data); it only breaks the
+// ordering that decides who may see what. MUST-NOT-GATE on functionality, not
+// on security.
+func (e *MemQLEngine) loadRankLadderFromDatabase(ctx context.Context) roleLadder {
+	cat, err := e.loadRbacCatalog(ctx)
+	if err != nil {
+		return roleLadder{ranks: map[string]int{}}
 	}
-	seen := map[string]struct{}{}
-	// Alias claims, applied only after every SLUG is resolved -- see below.
-	type aliasClaim struct {
-		names []string
-		rank  int
-	}
-	var pendingAliases []aliasClaim
-	for i := range nodes {
-		payload := rankRowPayload(nodes[i])
-		if payload == nil {
-			continue
-		}
-		slug := strings.TrimSpace(stringFromAny(payload["slug"]))
-		if slug == "" {
-			continue
-		}
-		// Rows are append-only, newest first: the first sighting of a slug
-		// is its current definition.
-		if _, dup := seen[slug]; dup {
-			continue
-		}
-		seen[slug] = struct{}{}
-		if active, ok := payload["active"].(bool); ok && !active {
-			continue
-		}
-		rank, ok := intWithOkFromAny(payload["rank"])
-		if !ok {
-			continue
-		}
-		ladder.ranks[slug] = rank
-		// ALIASES are what let the shell and the engine speak one
-		// vocabulary. The user row's role enum is the legacy five
-		// (owner/admin/developer/writer/reader) while the catalog seeds
-		// owner/developer/admin/user/viewer, and without the aliases as
-		// DATA every consumer needs its own translation table -- which is
-		// how the two ladders diverged in the first place.
-		//
-		// DEFERRED TO A SECOND PASS, and that is the security-relevant part.
-		// Applying them inline made "a slug already taken by a base role wins"
-		// depend on ITERATION ORDER: rows come back newest-first, so a custom
-		// role created today could claim an alias whose base role had not been
-		// read yet. `writer` and `reader` are alias-only rungs -- no row
-		// carries them as a slug -- so nothing would ever reclaim them, and a
-		// developer minting a rank-299 role aliased `reader` would promote
-		// every reader in the cluster to 299. The rank-bound guard bounds only
-		// the `rank` field and never looks at `aliases`.
-		//
-		// With slugs resolved first, a slug ALWAYS wins over any alias, and
-		// the claim the concept makes is true by construction rather than by
-		// the order rows happen to come back in.
-		pendingAliases = append(pendingAliases, aliasClaim{names: rankAliasList(payload["aliases"]), rank: rank})
-	}
-	for _, claim := range pendingAliases {
-		for _, alias := range claim.names {
-			alias = strings.TrimSpace(alias)
-			if alias == "" {
-				continue
-			}
-			if _, taken := ladder.ranks[alias]; !taken {
-				ladder.ranks[alias] = claim.rank
-			}
-		}
-	}
-	return ladder
+	return cat.ladder()
 }
 
 // principalRoles reads every principal's current role slug, keyed by user

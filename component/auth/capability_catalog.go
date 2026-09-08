@@ -32,8 +32,9 @@ package auth
 // The mirror answers only when NO catalog is installed at all, which is a
 // lifecycle state rather than a lookup miss: a node between boot and its first
 // successful load, or one whose database is unreachable. Distinguishing the two
-// is what catalogInstalled() is for, and it is why every resolver here returns
-// a (answer, answered) pair rather than a bare bool.
+// is why every resolver here returns a (answer, answered) pair rather than a
+// bare bool: "the catalog says no" and "there is no catalog to ask" are
+// different facts, and only one of them may reach the compiled map.
 //
 // ===========================================================================
 // WHY A PACKAGE-LEVEL HOLDER RATHER THAN A PARAMETER
@@ -110,10 +111,13 @@ type CapabilityCatalog interface {
 	// Scope governs who may HOLD the role, never who may see it exists.
 	Scope(slug string) (accountId string)
 
-	// Active reports the role's lifecycle flag. A deactivated role holds
-	// nothing and STILL RANKS: its holders keep a rung, so the rows they own
-	// stay attributed rather than reading as unowned to every rank-visible
-	// gate in the cluster.
+	// Active reports the role's lifecycle flag.
+	//
+	// A DEACTIVATED ROLE ANSWERS "NOTHING, EVERYWHERE" -- no capability and,
+	// through catalogRank below, no rank either. The catalog still CARRIES it,
+	// because D8 is deactivate-never-delete and its slug and rung stay taken;
+	// Rank is the catalog FACT and this is the lifecycle question, and the two
+	// part company exactly here.
 	Active(slug string) bool
 }
 
@@ -147,13 +151,6 @@ func InstalledCapabilityCatalog() CapabilityCatalog {
 	return nil
 }
 
-// catalogInstalled reports whether the rows are answering.
-//
-// The distinction this draws is the whole design: with a catalog installed, a
-// slug it does not carry is a STATEMENT that no such role exists; with none, it
-// is an absence of information and the compiled mirror speaks.
-func catalogInstalled() bool { return installed.Load() != nil }
-
 // catalogHolds answers a (slug, verb, resource) question, reporting whether it
 // answered at all.
 func catalogHolds(slug, verb, resource string) (held bool, answered bool) {
@@ -164,17 +161,30 @@ func catalogHolds(slug, verb, resource string) (held bool, answered bool) {
 	return cat.Holds(normalizeSlug(slug), verb, resource), true
 }
 
-// catalogRank resolves a slug's rung, reporting whether it answered.
+// catalogRank resolves a slug's rung for AUTHORIZATION, reporting whether it
+// answered.
 //
 // An installed catalog that does not carry the slug ANSWERS -- with rank 0 --
 // rather than declining, for the reason in the header. The two returns are
 // therefore "did the catalog speak", not "did it recognise the slug".
+//
+// A DEACTIVATED ROLE RANKS 0 HERE even though the catalog knows its rung. The
+// design record's failure-mode section says a holder of a retired role is
+// treated "as unknown: nothing, everywhere, until re-roled", and a rank is not
+// exempt from "everywhere": a rung that survived retirement would keep clearing
+// every @requiresRank floor and keep the holder visible to their old peers
+// under rankVisible, while Holds answered false for every pair. Half-retired is
+// the one state this must not produce.
 func catalogRank(slug string) (rank int, answered bool) {
 	cat := InstalledCapabilityCatalog()
 	if cat == nil {
 		return 0, false
 	}
-	if r, ok := cat.Rank(normalizeSlug(slug)); ok {
+	slug = normalizeSlug(slug)
+	if !cat.Active(slug) {
+		return 0, true
+	}
+	if r, ok := cat.Rank(slug); ok {
 		return r, true
 	}
 	return 0, true
