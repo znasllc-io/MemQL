@@ -57,9 +57,9 @@ const (
 //
 // `targetCurrentSlug` is EMPTY for an invitation -- there is no principal yet,
 // so there is no current rung to outrank, and the target half of the rule
-// passes trivially. That is deliberate rather than a special case: what stops
-// an admin inviting an owner is the NEW-rank bound, which applies identically
-// to an invitation and to a re-role.
+// passes trivially. What stops an admin inviting an owner is the NEW-rank
+// bound, which applies identically to an invitation and to a re-role. The
+// emptiness also selects which CAPABILITY is required; see below.
 //
 // `targetIsMember` answers "is this person in that account's groups", and is
 // consulted only for a scoped role. A NIL function REFUSES a scoped role: a
@@ -76,9 +76,23 @@ func MayAssignRole(
 
 	// THE CAPABILITY, FIRST. Everything below is relational narrowing on top of
 	// a grant the caller must hold at all; asking the relational questions of a
-	// caller who holds no user-management authority would let the refusal
-	// name a rank when the real answer is "this is not your job".
-	if !Capable(actor.Role, VerbUpdate, ResourcePrincipal) {
+	// caller who holds no people-authority would let the refusal name a rank
+	// when the real answer is "this is not your job".
+	//
+	// WHICH GRANT DEPENDS ON WHETHER A PRINCIPAL ALREADY EXISTS, and that is
+	// the model's own create-versus-update split rather than a convenience.
+	// Re-roling somebody is `update` on `principal` (D4). Naming the role on an
+	// INVITATION is not: there is no principal yet, and a developer holds
+	// create-on-admission and no update-on-principal precisely so it can invite
+	// people and cannot re-role them (memql#4917). Requiring update here would
+	// take invitations away from every developer in every cluster, through the
+	// one function whose job is deciding which ROLE they may name.
+	if targetCurrentSlug == "" {
+		if !Capable(actor.Role, VerbCreate, ResourceAdmission) &&
+			!Capable(actor.Role, VerbCreate, ResourcePrincipal) {
+			return AssignNotAUserManager
+		}
+	} else if !Capable(actor.Role, VerbUpdate, ResourcePrincipal) {
 		return AssignNotAUserManager
 	}
 

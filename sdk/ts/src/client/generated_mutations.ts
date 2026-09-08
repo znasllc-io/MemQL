@@ -1678,44 +1678,6 @@ QueryClient.prototype.createCampaign = function (this: QueryClient, args: Create
   return this.executeNamed("createCampaign", buildCreateCampaign(args), opts);
 };
 
-/** Insert a v1:rbac:capability catalog row -- one (verb x resourceType) grant for a role. Called by the SeedMaterializer when it walks the capability seed declarations under dsl/rbac/*.memql (the materializer stamps the seed body's `id` into `capabilityId`). Also the write surface the E1.4 (memql#2074) rank-bounded custom-role authoring path layers on top of -- predefined defaults false there so the grant stays editable within the creator's rank bound; base-role seeds pass predefined=true to mark the row immutable at runtime (enforced by E1.2). Partition-agnostic: the engine stamps every v1:rbac:capability insert into the _system slot regardless of the envelope, exactly like createAgentRole / createSkill. */
-// Bound concept: v1:rbac:capability (machine-readable: BoundConcepts["createCapability"] in generated_concepts.ts).
-export interface CreateCapabilityArgs {
-  capabilityId?: string;
-  roleSlug: string;
-  // Enum: read | create | update | delete | execute
-  verb: string;
-  resourceType: string;
-  // Enum: allow | deny
-  effect?: string;
-  description?: string;
-  predefined?: boolean;
-  active?: boolean;
-}
-
-export function buildCreateCapability(args: CreateCapabilityArgs): string {
-  const parts: string[] = [];
-  if (args.capabilityId !== undefined) parts.push("capabilityId: " + renderMemQLValue(args.capabilityId));
-  parts.push("roleSlug: " + renderMemQLValue(args.roleSlug));
-  parts.push("verb: " + renderMemQLValue(args.verb));
-  parts.push("resourceType: " + renderMemQLValue(args.resourceType));
-  if (args.effect !== undefined) parts.push("effect: " + renderMemQLValue(args.effect));
-  if (args.description !== undefined) parts.push("description: " + renderMemQLValue(args.description));
-  if (args.predefined !== undefined) parts.push("predefined: " + renderMemQLValue(args.predefined));
-  if (args.active !== undefined) parts.push("active: " + renderMemQLValue(args.active));
-  return "mutation createCapability(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createCapability(args: CreateCapabilityArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createCapability = function (this: QueryClient, args: CreateCapabilityArgs = {} as CreateCapabilityArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createCapability", buildCreateCapability(args), opts);
-};
-
 /** Add a client to the registry -- and, once per cluster lifetime, materialize the owner's own company as `v1:accounts:account:self`.
 =========================================================================== WHY THIS IS NOT NAMED createAccount =========================================================================== `createAccount` is TAKEN. `dsl/identity/mutations.memql` has declared it, with `updateAccount`, `archiveAccount` and the query `accountById`, since long before this domain existed -- they write `v1:identity:account`, the PAYING account of the isolation model, which shares a word with this concept and nothing else. Function names resolve in one flat registry and the first registration wins, so a second `createAccount` does not conflict loudly: it simply never registers, and every call in this domain reaches identity's mutation instead. Measured, not assumed -- memqllint reported all four of this domain's constructs as tools whose handler named no registered function, which is what an unregistered mutation looks like from the outside.
 So the four names carry `client`, which is the word for what this concept is (see the disambiguation note in concepts.memql). The CONCEPT keeps its name -- `v1:accounts:account`, and the singleton `v1:accounts:account:self` -- because that id is what the OS, the design record and the custom-domains epic all key on, and because a concept id is namespaced where a function name is not.
@@ -3108,43 +3070,6 @@ QueryClient.prototype.createResponsibility = function (this: QueryClient, args: 
   return this.executeNamed("createResponsibility", buildCreateResponsibility(args), opts);
 };
 
-/** Insert a v1:rbac:role catalog row -- a named, ranked capability bundle. Called by the SeedMaterializer when it walks the base-role seed declarations under dsl/rbac/seeds.memql (the materializer stamps the seed body's `id` into `roleId`). Also the write surface the E1.4 (memql#2072) rank-bounded custom-role authoring path layers on top of -- predefined defaults false there so the role stays editable within the creator's rank bound, and the creator's own rank caps the `rank` arg. Base-role seeds pass predefined=true to mark the row IMMUTABLE at runtime: the validateRbacRoleImmutable Go guard (E1.2) rejects any non-system-actor write to a predefined role, so a base role can never be redefined / re-ranked as data to escalate privilege. Partition-agnostic: the engine stamps every v1:rbac:role insert into the _system slot regardless of the envelope, exactly like createAgentRole / createCapability. */
-// Bound concept: v1:rbac:role (machine-readable: BoundConcepts["createRole"] in generated_concepts.ts).
-export interface CreateRoleArgs {
-  roleId?: string;
-  slug: string;
-  name: string;
-  rank: number;
-  description?: string;
-  predefined?: boolean;
-  active?: boolean;
-  /** Other slugs that resolve to THIS rung. Accepted because the seed materializer writes base roles through this mutation, and a field the mutation does not accept is a field the seed silently drops -- which is exactly what happened to `aliases` on its first attempt: every seeded row landed with it null, the engine kept working through its compiled fallback, and MemQL OS could not rank `writer` or `reader` at all. */
-  aliases?: string[];
-}
-
-export function buildCreateRole(args: CreateRoleArgs): string {
-  const parts: string[] = [];
-  if (args.roleId !== undefined) parts.push("roleId: " + renderMemQLValue(args.roleId));
-  parts.push("slug: " + renderMemQLValue(args.slug));
-  parts.push("name: " + renderMemQLValue(args.name));
-  parts.push("rank: " + renderMemQLValue(args.rank));
-  if (args.description !== undefined) parts.push("description: " + renderMemQLValue(args.description));
-  if (args.predefined !== undefined) parts.push("predefined: " + renderMemQLValue(args.predefined));
-  if (args.active !== undefined) parts.push("active: " + renderMemQLValue(args.active));
-  if (args.aliases !== undefined) parts.push("aliases: " + renderMemQLValue(args.aliases));
-  return "mutation createRole(" + parts.join(", ") + ")";
-}
-
-declare module "./query.js" {
-  interface QueryClient {
-    createRole(args: CreateRoleArgs, opts?: QueryCallOptions): Promise<Result>;
-  }
-}
-
-QueryClient.prototype.createRole = function (this: QueryClient, args: CreateRoleArgs = {} as CreateRoleArgs, opts?: QueryCallOptions): Promise<Result> {
-  return this.executeNamed("createRole", buildCreateRole(args), opts);
-};
-
 /** Create the caller's routing policy. Run once, for a user who has none; edits go through updateRoutingPolicy. */
 // Bound concept: v1:worker:routingPolicy (machine-readable: BoundConcepts["createRoutingPolicy"] in generated_concepts.ts).
 export interface CreateRoutingPolicyArgs {
@@ -3500,7 +3425,7 @@ export interface CreateUserArgs {
   userId: string;
   displayName: string;
   primaryEmail: string;
-  // Enum: owner | admin | developer | writer | reader
+  /** A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole. */
   role?: string;
   groupIds?: Record<string, unknown>;
   preferences?: Record<string, unknown>;
@@ -3539,7 +3464,7 @@ export interface CreateUserOnFirstLoginArgs {
   primaryRole?: string;
   gender?: string;
   birthdate?: string;
-  // Enum: owner | admin | developer | writer | reader
+  /** A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole. */
   role?: string;
   internal: boolean;
   sharedMailbox?: boolean;
