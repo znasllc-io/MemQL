@@ -1,4 +1,19 @@
-# RBAC for custom domains (epic memql#4805, design D6).
+# RBAC for custom domains (epic memql#4805, design D6) AND for account front
+# doors (epic memql#5168, design E), which need no grant of their own.
+#
+# TWO FEATURES, ONE ROLE, AND THAT IS DELIBERATE. A reserved MemQL name is
+# provisioned by the same reconciler package, as the same ServiceAccount, in the
+# same namespace, writing the same two kinds -- it just writes five objects
+# instead of two (one Certificate naming three hosts, and four Ingresses,
+# because api. needs one per backend protocol). A second Role would grant
+# exactly this set again under another name, so the only thing it would add is
+# a second place to forget when the set changes.
+#
+# The object names differ (`account-front-door-<accountId>` rather than
+# `custom-domain-<domainId>`) and the field manager differs
+# (`memql-account-front-door`), which is what lets `kubectl get -o yaml` say
+# which of the two reconcilers owns a field. Neither is a permission boundary,
+# and the paragraph on resourceNames below explains why there could not be one.
 #
 # WHAT THIS GRANTS, AND WHY IT IS THIS NARROW
 #
