@@ -48,16 +48,22 @@ deletes the plan in the merge (docs/CLAUDE.md).
 
 ## Issues
 
-Epics and tasks are filed from these records after this PR merges, one epic per
-sub-project, with the PR grouping each record names. The epic numbers are added to this
-table in the filing PR, so that a reader of this file can find the work from here.
+Filed 2026-09-08 from these records, one epic per sub-project, every task a GitHub
+sub-issue of its epic, all `claude`-labeled and carrying the epic's `epic:<slug>` label so
+another session can pick the work up from the label alone. Every epic body names its PR
+grouping, its record and its branch; every task body opens with its epic, its PR number
+and its record section, then its deliverable, acceptance and files.
 
-| Sub-project | Epic issue | PR grouping |
-|---|---|---|
-| A Groups and grants | filed after merge | 1 engine PR |
-| B Roles as data | filed after merge | 1 engine PR |
-| C The Users app and the account ties | filed after merge | 2 OS PRs |
-| D The per-account front door | filed after its design session | none yet |
+| Sub-project | Repository | Epic issue | Task issues | PR grouping |
+|---|---|---|---|---|
+| A Groups and grants | memql | #5165 | #5169-#5176 | 1 engine PR |
+| B Roles as data | memql | #5166 | #5177-#5181 | 1 engine PR |
+| B Roles as data, the cockpit's My Access reading | memql-cockpit | (engine epic #5166) | #403 | lands after the engine PR |
+| C The Users app and the account ties | memql | #5167 | #5182-#5188, #5190 | 2 OS PRs |
+| D The per-account front door | memql | #5168 | #5191 (the design session; implementation tasks are filed from its record) | none yet |
+
+memql#5189 is not part of the program; it was filed by another session between two of
+these.
 
 ## The decisions that cut across sub-projects
 
