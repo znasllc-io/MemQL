@@ -1,0 +1,228 @@
+package auth
+
+import "testing"
+
+// THE ASSIGNMENT MATRIX (epic memql#5166, D4).
+//
+// One cell per row, because "who may give whom which role" is the decision this
+// epic exists to make expressible for a custom role, and a rule asserted only
+// on its happy path is a rule with an untested refusal.
+
+// assignmentCatalog is the ladder every case below is decided against: the five
+// seeded rungs plus a custom `support-lead` at 150 and a scoped `acct-lead`.
+func assignmentCatalog() *fakeCatalog {
+	principal := func(verbs ...string) map[VerbResource]bool {
+		out := map[VerbResource]bool{}
+		for _, v := range verbs {
+			out[VerbResource{Verb: v, Resource: ResourcePrincipal}] = true
+		}
+		return out
+	}
+	return &fakeCatalog{
+		ranks: map[string]int{
+			"owner": 400, "developer": 300, "admin": 200,
+			"user": 100, "writer": 100, "viewer": 50, "reader": 50,
+			"support-lead": 150, "acct-lead": 140,
+		},
+		names: map[string]string{
+			"owner": "Owner", "developer": "Developer", "admin": "Admin",
+			"user": "Member", "viewer": "Viewer",
+			"support-lead": "Support Lead", "acct-lead": "Account Lead",
+		},
+		scopes: map[string]string{"acct-lead": "acct-1"},
+		grants: map[string]map[VerbResource]bool{
+			"owner":     principal(VerbRead, VerbCreate, VerbUpdate, VerbDelete),
+			"admin":     principal(VerbRead, VerbCreate, VerbUpdate, VerbDelete),
+			"developer": principal(VerbRead),
+			// support-lead manages people below it but cannot delete them.
+			"support-lead": principal(VerbRead, VerbCreate, VerbUpdate),
+			"acct-lead":    principal(VerbRead, VerbUpdate),
+			"user":         {},
+			"viewer":       {},
+		},
+	}
+}
+
+func TestMayAssignRole(t *testing.T) {
+	installFake(t, assignmentCatalog())
+
+	member := func(string) bool { return true }
+	notMember := func(string) bool { return false }
+
+	cases := []struct {
+		name          string
+		callerRole    Role
+		callerId      string
+		targetId      string
+		targetCurrent string
+		newRole       string
+		isMember      func(string) bool
+		want          AssignRefusal
+	}{
+		{
+			name:       "owner may re-role an admin to developer",
+			callerRole: RoleOwner, callerId: "u-owner", targetId: "u-a", targetCurrent: "admin",
+			newRole: "developer", want: AssignAllowed,
+		},
+		{
+			// THE OWNER CARVE-OUT. The bare rank rule (`new < caller`) refuses
+			// 400 < 400 and would make a second owner unmakeable through every
+			// path in the product -- a cluster with one owner and no way to
+			// name another. GovernPrincipal already carries the same carve-out
+			// on the target half, for the identical reason.
+			name:       "owner may name another owner",
+			callerRole: RoleOwner, callerId: "u-owner", targetId: "u-b", targetCurrent: "user",
+			newRole: "owner", want: AssignAllowed,
+		},
+		{
+			name:       "admin may not mint a developer -- 300 is not below 200",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "developer", want: AssignAboveCaller,
+		},
+		{
+			name:       "admin may not mint a peer admin",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "admin", want: AssignAboveCaller,
+		},
+		{
+			name:       "admin may not touch a developer -- the target outranks them",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-d", targetCurrent: "developer",
+			newRole: "writer", want: AssignTargetOutranks,
+		},
+		{
+			name:       "admin may demote a member to viewer",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "reader", want: AssignAllowed,
+		},
+		{
+			// RANK IS NOT AUTHORITY. developer (300) outranks admin (200) and
+			// holds strictly fewer principal verbs, so the rank test alone lets
+			// a developer mint an admin -- who then holds the user management
+			// the developer does not, including the role changes this function
+			// governs. Two moves to owner, with a paper trail that looks
+			// ordinary.
+			name:       "developer may not mint an admin whose people-authority exceeds theirs",
+			callerRole: RoleDeveloper, callerId: "u-dev", targetId: "u-c", targetCurrent: "writer",
+			newRole: "admin", want: AssignNotAUserManager,
+		},
+		{
+			name:       "a member may not assign anything",
+			callerRole: RoleWriter, callerId: "u-c", targetId: "u-e", targetCurrent: "reader",
+			newRole: "reader", want: AssignNotAUserManager,
+		},
+		{
+			name:       "an unknown slug is refused before anything else is asked",
+			callerRole: RoleOwner, callerId: "u-owner", targetId: "u-c", targetCurrent: "writer",
+			newRole: "ghost", want: AssignUnknownRole,
+		},
+		{
+			name:       "a custom rung below the caller is assignable",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "support-lead", want: AssignAllowed,
+		},
+		{
+			name:       "a scoped role needs the target to be a member",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "acct-lead", isMember: member, want: AssignAllowed,
+		},
+		{
+			name:       "a scoped role is refused for a non-member",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "acct-lead", isMember: notMember, want: AssignNotAMember,
+		},
+		{
+			// FAIL-CLOSED ON A MISSING MEMBERSHIP READER. A caller that cannot
+			// answer the question is not a caller whose answer is yes.
+			name:       "a scoped role is refused when membership cannot be resolved",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "acct-lead", isMember: nil, want: AssignNotAMember,
+		},
+		{
+			name:       "an alias resolves on both sides",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-c", targetCurrent: "writer",
+			newRole: "user", want: AssignAllowed,
+		},
+		{
+			// SELF. GovernPrincipal admits a self-edit, and the new-rank bound
+			// still applies -- an admin cannot re-name themselves admin,
+			// because 200 is not below 200. That reads oddly until you notice
+			// it is a no-op nobody needs and a step nobody should be able to
+			// take toward a higher rung.
+			name:       "an admin cannot re-assign their own rung",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-adm", targetCurrent: "admin",
+			newRole: "admin", want: AssignAboveCaller,
+		},
+		{
+			name:       "an admin may demote themselves",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-adm", targetCurrent: "admin",
+			newRole: "writer", want: AssignAllowed,
+		},
+		{
+			name:       "nobody but an owner may re-role an owner",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "u-owner", targetCurrent: "owner",
+			newRole: "writer", want: AssignTargetOutranks,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MayAssignRole(
+				UserContext{ID: tc.callerId, Role: tc.callerRole},
+				tc.targetId, tc.targetCurrent, tc.newRole, tc.isMember,
+			)
+			if got != tc.want {
+				t.Fatalf("MayAssignRole(caller=%s, targetNow=%s, new=%s) = %q, want %q",
+					tc.callerRole, tc.targetCurrent, tc.newRole, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMayAssignRoleWithNoCatalogUsesTheCompiledLadder covers the boot window:
+// the identity service issues invitations before the catalog is readable, and a
+// rule that refused everything there would make a fresh cluster unusable.
+func TestMayAssignRoleWithNoCatalogUsesTheCompiledLadder(t *testing.T) {
+	SetCapabilityCatalog(nil)
+
+	if got := MayAssignRole(UserContext{ID: "u-owner", Role: RoleOwner}, "u-a", "", "admin", nil); got != AssignAllowed {
+		t.Fatalf("owner inviting an admin on a catalog-less node = %q, want allowed", got)
+	}
+	if got := MayAssignRole(UserContext{ID: "u-adm", Role: RoleAdmin}, "u-a", "", "developer", nil); got != AssignAboveCaller {
+		t.Fatalf("admin inviting a developer on a catalog-less node = %q, want %q", got, AssignAboveCaller)
+	}
+}
+
+// TestRoleAtMostCapsByRankAndNeverWidensPeopleAuthority.
+//
+// RoleAtMost caps an agent's effective role at the delegation ceiling, and the
+// naive rank comparison ESCALATES on one pair. developer (300) with a ceiling of
+// admin (200) reads as "admin is more restrictive" by rank alone -- and admin
+// holds create, update and delete on `principal` while developer holds only
+// read, so capping there would GRANT user management to an agent whose
+// delegator has none.
+func TestRoleAtMostCapsByRankAndNeverWidensPeopleAuthority(t *testing.T) {
+	installFake(t, assignmentCatalog())
+
+	cases := []struct {
+		identity, ceiling, want Role
+	}{
+		{RoleOwner, RoleReader, RoleReader},
+		{RoleReader, RoleOwner, RoleReader},
+		{RoleWriter, RoleReader, RoleReader},
+		{RoleAdmin, RoleWriter, RoleWriter},
+		// The pair that matters: the ceiling ranks lower and holds MORE
+		// people-authority, so the identity stands.
+		{RoleDeveloper, RoleAdmin, RoleDeveloper},
+		{RoleAdmin, RoleDeveloper, RoleAdmin},
+		// A custom rung caps correctly, which the coarse RoleLevel scale --
+		// where every custom role collapses to "least privileged" -- could not
+		// express.
+		{Role("support-lead"), Role("acct-lead"), Role("acct-lead")},
+		{Role("acct-lead"), Role("support-lead"), Role("acct-lead")},
+	}
+	for _, tc := range cases {
+		if got := RoleAtMost(tc.identity, tc.ceiling); got != tc.want {
+			t.Errorf("RoleAtMost(%q, %q) = %q, want %q", tc.identity, tc.ceiling, got, tc.want)
+		}
+	}
+}
