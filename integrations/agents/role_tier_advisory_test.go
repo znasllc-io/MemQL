@@ -136,6 +136,15 @@ func TestAgentRoleTierIsPromptAdvisoryOnly(t *testing.T) {
 		// branch on RowAuthzDecl, never on agentRole.tier.
 		"rowauthz_rank.go": true,
 		"requires_rank.go": true,
+		// rowauthz_read_floor.go joined in memql#5216, which added
+		// `rankFloor=` -- an argument of the rowAuthz CLUSTER-OWNER tier that
+		// relaxes its read to a rank. Its two reads are
+		// `decl.Tier != langparser.RowAuthzClusterOwner`, checked at the point
+		// of adding it, exactly like the seven above: the tier a CONCEPT
+		// declares about who may see its rows, never agentRole.tier. So
+		// dsl/agents/concepts.memql's "advisory, nothing branches on it"
+		// description stays true.
+		"rowauthz_read_floor.go": true,
 	}
 
 	var unknown []string
