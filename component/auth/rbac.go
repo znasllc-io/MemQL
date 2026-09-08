@@ -424,9 +424,24 @@ func migrateRole(role string) string {
 	}
 }
 
-// IsValidRole returns true if the given role is one of the valid roles.
+// IsValidRole reports whether a slug names a role this cluster can assign: an
+// ACTIVE catalog slug, or one of its aliases (epic memql#5166, D3).
+//
+// It used to be a five-value switch, and that switch was the reason a custom
+// role could be created, could rank, and could not be assigned to anybody: the
+// two seams that write a role (SetUserRole and invitation issue) both validate
+// through here, so a slug the catalog carried and this function did not was
+// refused at the point of use.
+//
+// A DSL enum cannot name a row, which is why this is Go rather than an enum on
+// v1:identity:user.role. The compiled five answer when NO catalog is installed
+// -- a first boot, a node whose database is unreachable -- so sign-in and the
+// identity gates keep working on a cluster whose catalog has not seeded yet.
 func IsValidRole(role Role) bool {
-	switch role {
+	if assignable, answered := catalogAssignable(string(role)); answered {
+		return assignable
+	}
+	switch Role(normalizeSlug(string(role))) {
 	case RoleOwner, RoleAdmin, RoleDeveloper, RoleWriter, RoleReader:
 		return true
 	default:
