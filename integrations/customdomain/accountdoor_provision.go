@@ -374,14 +374,36 @@ func SelectDoorProvisioner() (DoorProvisioner, error) {
 	return dp, nil
 }
 
+// The Services a door's four Ingresses point at.
+//
+// CONSTANTS, NOT ENVIRONMENT. The first version made all six env-tunable and
+// the env-registry drift gate was right to refuse them: the cluster's own
+// generated front door names these same Services as literals in
+// cmd/frontdoorhosts/manifest.go, and a per-account door pointing at a
+// different bff from the one `api.<domain>` reaches is not a configuration
+// anybody wants -- it is a way to serve a client's people a different engine
+// by accident.
+//
+// EdgeService and EdgePort are NOT here: those come from the custom-domain
+// Config, which already carries them because the wildcard rule and every
+// bound domain reach the same edge, and having two answers to "which edge" is
+// exactly what this block avoids for the other three.
+const (
+	doorBFFHTTPService  = "bff-http"
+	doorBFFHTTPPort     = 8085
+	doorBFFGRPCService  = "bff"
+	doorBFFGRPCPort     = 50051
+	doorIdentityService = "identity"
+	doorIdentityPort    = 8085
+)
+
 // doorConfig derives the front-door half of the reconciler's configuration
 // from the custom-domain Config.
 //
 // THE SHARED VALUES ARE SHARED, not re-read. EdgeHost, ACMEIssuer, Namespace
 // and IngressClass answer the same questions for both reconcilers, and reading
 // them twice would let one sweep bind against a different issuer from the
-// other on the same cluster. What is added here is only what a front door
-// needs and a custom domain does not: the three extra backend Services.
+// other on the same cluster.
 func (c Config) doorConfig() DoorConfig {
 	return DoorConfig{
 		EdgeHost:     c.EdgeHost,
@@ -393,14 +415,11 @@ func (c Config) doorConfig() DoorConfig {
 		EdgeService: c.EdgeService,
 		EdgePort:    c.EdgePort,
 
-		// The bff's two edges and the identity service, from the environment
-		// with the cluster's own manifest values as defaults -- the same
-		// Services the generated front door points at.
-		BFFHTTPService:  envOr("MEMQL_ACCOUNT_FRONT_DOOR_BFF_HTTP_SERVICE", "bff-http"),
-		BFFHTTPPort:     envInt("MEMQL_ACCOUNT_FRONT_DOOR_BFF_HTTP_PORT", 8085),
-		BFFGRPCService:  envOr("MEMQL_ACCOUNT_FRONT_DOOR_BFF_GRPC_SERVICE", "bff"),
-		BFFGRPCPort:     envInt("MEMQL_ACCOUNT_FRONT_DOOR_BFF_GRPC_PORT", 50051),
-		IdentityService: envOr("MEMQL_ACCOUNT_FRONT_DOOR_IDENTITY_SERVICE", "identity"),
-		IdentityPort:    envInt("MEMQL_ACCOUNT_FRONT_DOOR_IDENTITY_PORT", 8085),
+		BFFHTTPService:  doorBFFHTTPService,
+		BFFHTTPPort:     doorBFFHTTPPort,
+		BFFGRPCService:  doorBFFGRPCService,
+		BFFGRPCPort:     doorBFFGRPCPort,
+		IdentityService: doorIdentityService,
+		IdentityPort:    doorIdentityPort,
 	}
 }

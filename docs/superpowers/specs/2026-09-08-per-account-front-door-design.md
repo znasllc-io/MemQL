@@ -170,12 +170,26 @@ memql-6e asked for this from the Accounts rail, and it is right: an absent
 `memqlReservedAt` currently means either "ownership unproven" or "the name was
 refused", and the rail infers which by reading the ownership stop beside it.
 
-`account.memqlReservationReason` (string, typed code) is written by
-`component/memql/account_domain_validation.go` in the same guard that already
-emits the three record-A codes, and by the reconciler when it declines to
-stamp. Values: `""` (held, or not yet walked), `ownership_unproven`,
-`domain_under_cluster_domain`, `domain_is_front_door_host`,
-`name_collides_with_site`, `name_collides_with_custom_domain`.
+`account.memqlReservationReason` (string, typed code). Values: `""` (held, or
+not yet walked), `ownership_unproven`, `domain_under_cluster_domain`,
+`domain_is_front_door_host`, `name_collides_with_site`,
+`name_collides_with_custom_domain`.
+
+**WHO WRITES IT IS A CORRECTION TO THIS RECORD.** It said the guard in
+`component/memql/account_domain_validation.go` writes it. The guard cannot: it
+REFUSES the write, so there is no row left to carry a reason -- the caller gets
+an error and the field would never be set on the two codes that matter most.
+The state where an absent `memqlReservedAt` is ambiguous is the one where a row
+DOES exist, so the writer has to be the sweep. It rides record A's
+`recordAccountDomainCheck` as one more optional argument rather than a second
+writer of the same fields, which is what that mutation was shaped for.
+
+**`domain_is_front_door_host` will be written by nothing** on any cluster whose
+labels are today's. Every front-door host is a single label under the cluster's
+own domain, so the under-domain test fires first and that branch is unreachable
+for any name a person would type. Record A asserts the overlap honestly rather
+than claiming both fire; this record does not reorder those branches to make the
+second reachable, and the value exists because the code that would set it does.
 
 **The overlap memql-8a flagged is real and is kept honest.** Every front-door
 host is a single label under the cluster's domain, so the under-domain test
@@ -284,8 +298,17 @@ is not arbitrary: a deployable already answering on a name must never lose
 traffic to a front door, and a client's own domain is a more specific claim
 than a reserved name under ours.
 
-`Site` gains `Account *SiteAccount{ID, Name, ReservedName}`, nil for every
-other resolution path, and `RuntimeConfig` gains:
+`Site` gains `Account *SiteAccount{ID, ReservedName}`, nil for every other
+resolution path, and `RuntimeConfig` gains:
+
+**TWO FIELDS, AND THE MISSING ONE IS A CORRECTION TO THIS RECORD.** It said
+`{id, name, reservedName}`; what shipped has no account NAME, for two reasons
+that only became clear against the code. The document is served
+UNAUTHENTICATED to every visitor of the host, so a display name there tells any
+passer-by which company this cluster serves at this name; and it would be
+denormalized onto a serving row and wrong the first time somebody renamed the
+client. The OS reads the name through its own authorized query once there is a
+signed-in person to read it for, which is both fresher and narrower.
 
 ```go
 // Account is present ONLY when this page was served through an account's
