@@ -175,7 +175,7 @@ describe("SetupGroup", () => {
       ),
     );
     expect(screen.getByRole("heading", { name: "Set up" })).toBeTruthy();
-    expect(screen.getByText("AI providers")).toBeTruthy();
+    expect(screen.getByText("Inference")).toBeTruthy();
     expect(screen.getByText("Not set up")).toBeTruthy();
     expect(screen.getByText("Storage")).toBeTruthy();
     // "Set up" is both the group's heading and a row's state word, so this
@@ -186,8 +186,8 @@ describe("SetupGroup", () => {
     expect(rowStates).toContain("Set up");
     // No OsProvider in this test, so the act is the words, not a button --
     // a button with no window to open into would go nowhere.
-    expect(screen.getByText("Settings, under AI providers")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open AI providers" })).toBeNull();
+    expect(screen.getByText("Settings, under Doors")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open Doors" })).toBeNull();
     // And the CONFIGURED module carries no act at all: "Set in the
     // deployment" beside a row that says "Set up" is an instruction with
     // nothing behind it.
@@ -307,10 +307,10 @@ describe("SetupGroup", () => {
       ),
     );
     expect(
-      screen.queryByRole("button", { name: "Open AI providers" }),
+      screen.queryByRole("button", { name: "Open Doors" }),
       "a developer may configure providers since memql#5088 D7, so the act is offered",
     ).not.toBeNull();
-    expect(screen.queryByText("Settings, under AI providers")).toBeNull();
+    expect(screen.queryByText("Settings, under Doors")).toBeNull();
   });
 
   it("renders nothing for a viewer", () => {

@@ -107,12 +107,17 @@ export function InferenceStop({ role }: { role: string }) {
       );
     }
     const vendor = door === "anthropic" ? "Anthropic" : "OpenAI";
+    // THE SCREEN THIS OPENS IS CALLED "Doors" (epic memql#5153, D1). The
+    // section ID is still `providers` -- deliberately, so this call and
+    // MODULE_SETTINGS_SECTION keep working -- but a button that says "Open AI
+    // providers" and lands on a page headed "Doors" is a broken signpost, and
+    // it is on the one screen a fresh owner cannot dismiss.
     return canOpenProviders ? (
       <Button tone="primary" onClick={() => settings.open("providers", { vendor: door })}>
-        Open AI providers
+        Open Doors
       </Button>
     ) : (
-      <Caption>An owner can set {vendor} up in Settings, under AI providers.</Caption>
+      <Caption>An owner can set {vendor} up in Settings, under Doors.</Caption>
     );
   }
 }

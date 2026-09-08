@@ -108,5 +108,7 @@ else gets a desk with Ask on it and no wizard.
 - [Access model](auth/access-model.md) — the roles, and what each may do
 - [Identity service](auth/identity-service.md) — passkeys, magic links,
   `/me/devices`
+- [Settings, AI](ai-settings.md) — where the inference stop sends you, and
+  what the four screens behind it do
 - [Workers runbook](workers-runbook.md) — pairing a machine on your fleet
 - [Environment variables](env-vars.md) — the deployment half of Storage
