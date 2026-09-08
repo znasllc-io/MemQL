@@ -706,6 +706,10 @@ button:not(:disabled):active {
   background: var(--os-accent);
   color: var(--os-accent-fg);
 }
+.os-ask-mark {
+  width: 20px;
+  height: 20px;
+}
 
 .os-avatar-anchor {
   position: relative;
