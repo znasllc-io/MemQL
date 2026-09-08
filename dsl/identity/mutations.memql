@@ -1201,7 +1201,12 @@ mutate user createUser {
     userId        string!
     displayName   string!
     primaryEmail  string!
-    role          enum("owner", "admin", "developer", "writer", "reader")
+    /// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum
+    /// cannot name a row, and the five-value one this replaced is why a
+    /// custom role could never land on a user (epic memql#5166). Validated
+    /// in Go by the caller -- the magic-link verifier, the invitation
+    /// redemption, SetUserRole -- through auth.IsValidRole.
+    role          string
     preferences   object
   }
   insert {
@@ -1259,7 +1264,12 @@ mutate user createUserOnFirstLogin {
     primaryRole   string
     gender        string
     birthdate     string
-    role          enum("owner", "admin", "developer", "writer", "reader")
+    /// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum
+    /// cannot name a row, and the five-value one this replaced is why a
+    /// custom role could never land on a user (epic memql#5166). Validated
+    /// in Go by the caller -- the magic-link verifier, the invitation
+    /// redemption, SetUserRole -- through auth.IsValidRole.
+    role          string
     internal      bool!
     sharedMailbox bool
     preferences   object

@@ -121,14 +121,19 @@ func (r *EngineDelegationResolver) ResolveActiveDelegation(ctx context.Context, 
 		delegatorRole = auth.RoleReader
 	}
 
-	// Role ceiling: lower RoleLevel = higher privilege. Reject if
-	// the ceiling outranks the delegator.
+	// Role ceiling: reject if the ceiling outranks the delegator.
+	//
+	// COMPARED BY RANK (epic memql#5166), not by the four-value RoleLevel
+	// scale it used to read. Every custom role collapses into that scale's
+	// bottom rung, so a ceiling authored at 250 looked LESS privileged than
+	// the admin (200) who set it, and the check that exists to refuse a
+	// ceiling above its delegator admitted exactly that one.
 	ceiling := auth.Role(strings.ToLower(strings.TrimSpace(chosen.RoleCeiling)))
 	if !auth.IsValidRole(ceiling) {
 		r.audit(ctx, subject, chosen, "delegation_rejected_ceiling", fmt.Sprintf("invalid roleCeiling %q", chosen.RoleCeiling), AuditOutcomeBlocked)
 		return nil, nil
 	}
-	if auth.RoleLevel(ceiling) < auth.RoleLevel(delegatorRole) {
+	if auth.RoleRank(ceiling) > auth.RoleRank(delegatorRole) {
 		r.audit(ctx, subject, chosen, "delegation_rejected_ceiling",
 			fmt.Sprintf("ceiling %s exceeds delegator role %s", ceiling, delegatorRole),
 			AuditOutcomeBlocked)

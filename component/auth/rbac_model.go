@@ -39,10 +39,19 @@ const (
 	rankUnknown   = 0
 )
 
-// roleRank returns the numeric rank for a (possibly legacy) role slug, HIGHER
-// == more privileged. Unknown slugs get rankUnknown (least privileged) so a
-// gate that bounds "strictly below the actor" denies by default.
+// roleRank returns the numeric rank for a role slug, HIGHER == more
+// privileged. Unknown slugs get rankUnknown (least privileged) so a gate that
+// bounds "strictly below the actor" denies by default.
+//
+// READS THE CATALOG WHEN ONE IS INSTALLED (epic memql#5166, D1 and D2). The
+// switch below is the seed's MIRROR and answers only before the rows are
+// readable; with a catalog installed, a slug it does not carry ranks 0 rather
+// than falling through -- see capability_catalog.go's header for why that
+// fallback would be an escalation rather than a courtesy.
 func roleRank(r Role) int {
+	if rank, answered := catalogRank(string(r)); answered {
+		return rank
+	}
 	switch r {
 	case RoleOwner:
 		return rankOwner
@@ -59,10 +68,25 @@ func roleRank(r Role) int {
 	}
 }
 
-// capabilitySets maps each role slug to its grant set -- the (verb, resource)
-// pairs the role holds. Mirrors the predefined seed grants in
+// capabilitySets is THE SEED'S MIRROR, not the model (epic memql#5166, D1).
+//
+// It maps each legacy role slug to its grant set -- the (verb, resource) pairs
+// the role holds -- and it mirrors the predefined seed grants in
 // dsl/rbac/seeds.memql (owner/developer/admin/user) plus the viewer profile for
-// reader. The Can* adapters look up membership here.
+// reader. Until memql#5166 it WAS the model: every runtime gate resolved
+// through it, so a custom role authored as data held nothing.
+//
+// It is now consulted only while no CapabilityCatalog is installed, which is a
+// narrow and real window rather than a fallback anybody should design against:
+// the identity node's gates run before the seed is readable, and a node whose
+// database is unreachable still has to rank its five base slugs rather than
+// ranking every principal at 0 and refusing the whole cluster its own rows.
+//
+// TestSeedMatchesCompiledMirror (seed_mirror_parity_test.go) reads
+// dsl/rbac/seeds.memql the way the ladder parity test does and fails the build
+// when a pair differs IN EITHER DIRECTION -- a pair only the seeds hold is a
+// permission that appears seconds after boot and not before; a pair only this
+// map holds is one that exists at boot and then vanishes.
 var capabilitySets = map[Role]map[verbResource]bool{
 	RoleOwner: setOf(
 		// principal (user management) -- full.
@@ -142,7 +166,13 @@ func setOf(keys ...verbResource) map[verbResource]bool {
 
 // roleHasCapability reports whether the role holds the (verb, resource) grant.
 // The single membership predicate every migrated Can* adapter calls.
+//
+// The catalog answers when one is installed; the mirror below answers only
+// before the rows are readable (epic memql#5166, D1).
 func roleHasCapability(r Role, verb, resource string) bool {
+	if held, answered := catalogHolds(string(r), verb, resource); answered {
+		return held
+	}
 	set, ok := capabilitySets[r]
 	if !ok {
 		return false
@@ -219,15 +249,38 @@ func Capable(role Role, verb, resourceType string) bool {
 // is still what refuses admin -> owner, since both hold the same four verbs
 // and this predicate sees no difference between them.
 func GrantsPrincipalAuthorityBeyond(actor, target Role) bool {
-	for vr := range capabilitySets[target] {
-		if vr.resource != ResourcePrincipal {
-			continue
-		}
-		if !capabilitySets[actor][vr] {
+	for _, vr := range principalGrantsOf(target) {
+		if !roleHasCapability(actor, vr.Verb, vr.Resource) {
 			return true
 		}
 	}
 	return false
+}
+
+// principalGrantsOf lists a role's grants on the `principal` resource, from
+// the catalog when one is installed and from the compiled mirror otherwise.
+//
+// The two readers are separate because the shapes differ -- the catalog speaks
+// the exported VerbResource across a module boundary, the mirror the
+// package-private one -- and merging them would mean exporting the mirror's key
+// type, which is a detail of this file rather than a contract.
+func principalGrantsOf(role Role) []VerbResource {
+	if grants, answered := catalogGrants(string(role)); answered {
+		out := make([]VerbResource, 0, len(grants))
+		for _, vr := range grants {
+			if vr.Resource == ResourcePrincipal {
+				out = append(out, vr)
+			}
+		}
+		return out
+	}
+	out := make([]VerbResource, 0, 4)
+	for vr := range capabilitySets[role] {
+		if vr.resource == ResourcePrincipal {
+			out = append(out, VerbResource{Verb: vr.verb, Resource: vr.resource})
+		}
+	}
+	return out
 }
 
 // RoleRank exposes a role's numeric rank (HIGHER == more privileged) from the

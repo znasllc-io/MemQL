@@ -237,6 +237,25 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// integrations/groups before either of these runs.
 		{Path: "identity/mutations.memql", Name: "writeGroup"}:           true,
 		{Path: "identity/mutations.memql", Name: "writeGroupMembership"}: true,
+		// epic memql#5166, the role catalog's raw writes. The client-reachable
+		// path is `roleCreate` / `roleUpdate` / `roleDeactivate` in
+		// dsl/rbac/builtins.memql, which apply the guards these mutations have
+		// none of: a rank strictly below the creator's, a rank no rung already
+		// holds, a slug no role or alias already claims, and every grant one
+		// the creator holds.
+		//
+		// Caller-scoping is not the missing piece and could not be written.
+		// The catalog is deployment-wide reference data with no owner field --
+		// every principal reads the whole ladder by design, because a client
+		// that cannot see a rung cannot rank it -- so there is no per-row
+		// predicate that expresses "you may not mint a role above yourself".
+		// That rule is relational (creator's rank versus the new rank) and
+		// set-valued (the grants against the creator's own), which is Go.
+		//
+		// The SeedMaterializer keeps writing through both: its write path
+		// stamps internal origin, which is what @serverOnly admits.
+		{Path: "rbac/mutations.memql", Name: "createRole"}:       true,
+		{Path: "rbac/mutations.memql", Name: "createCapability"}: true,
 
 		// epic memql#4966, the work spine's promotion path. Both of these
 		// write the engine's OWN EVIDENCE about a template -- the catalog key

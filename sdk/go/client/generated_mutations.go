@@ -2807,84 +2807,6 @@ func CreateCampaignBuild(args CreateCampaignArgs) string {
 	return b.String()
 }
 
-// CreateCapability -- Insert a v1:rbac:capability catalog row -- one (verb x resourceType) grant for a role. Called by the SeedMaterializer when it walks the capability seed declarations under dsl/rbac/*.memql (the materializer stamps the seed body's `id` into `capabilityId`). Also the write surface the E1.4 (memql#2074) rank-bounded custom-role authoring path layers on top of -- predefined defaults false there so the grant stays editable within the creator's rank bound; base-role seeds pass predefined=true to mark the row immutable at runtime (enforced by E1.2). Partition-agnostic: the engine stamps every v1:rbac:capability insert into the _system slot regardless of the envelope, exactly like createAgentRole / createSkill.
-//
-// Bound concept: v1:rbac:capability (machine-readable: BoundConcepts["createCapability"] in generated_concepts.go).
-type CreateCapabilityArgs struct {
-	CapabilityId string
-	RoleSlug     string
-	// Enum: read | create | update | delete | execute
-	Verb         string
-	ResourceType string
-	// Enum: allow | deny
-	Effect        string
-	Description   string
-	Predefined    bool
-	PredefinedSet bool // set true to send predefined; required because zero-value bool is ambiguous
-	Active        bool
-	ActiveSet     bool // set true to send active; required because zero-value bool is ambiguous
-}
-
-// CreateCapability calls the engine mutation createCapability.
-func (qc *QueryClient) CreateCapability(ctx context.Context, args CreateCapabilityArgs) (*Result, error) {
-	call := CreateCapabilityBuild(args)
-	return qc.executeNamed(ctx, "createCapability", call)
-}
-
-func CreateCapabilityBuild(args CreateCapabilityArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createCapability(")
-	if args.CapabilityId != "" {
-		b.WriteString("capabilityId: ")
-		b.WriteString(quoteMemQL(args.CapabilityId))
-	}
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("roleSlug: ")
-	b.WriteString(quoteMemQL(args.RoleSlug))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("verb: ")
-	b.WriteString(quoteMemQL(args.Verb))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("resourceType: ")
-	b.WriteString(quoteMemQL(args.ResourceType))
-	if args.Effect != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("effect: ")
-		b.WriteString(quoteMemQL(args.Effect))
-	}
-	if args.Description != "" {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("description: ")
-		b.WriteString(quoteMemQL(args.Description))
-	}
-	if args.PredefinedSet {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("predefined: ")
-		b.WriteString(fmt.Sprintf("%v", args.Predefined))
-	}
-	if args.ActiveSet {
-		if b.Len() > 26 {
-			b.WriteString(", ")
-		}
-		b.WriteString("active: ")
-		b.WriteString(fmt.Sprintf("%v", args.Active))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // CreateClientAccount -- Add a client to the registry -- and, once per cluster lifetime, materialize the owner's own company as `v1:accounts:account:self`.
 // =========================================================================== WHY THIS IS NOT NAMED createAccount =========================================================================== `createAccount` is TAKEN. `dsl/identity/mutations.memql` has declared it, with `updateAccount`, `archiveAccount` and the query `accountById`, since long before this domain existed -- they write `v1:identity:account`, the PAYING account of the isolation model, which shares a word with this concept and nothing else. Function names resolve in one flat registry and the first registration wins, so a second `createAccount` does not conflict loudly: it simply never registers, and every call in this domain reaches identity's mutation instead. Measured, not assumed -- memqllint reported all four of this domain's constructs as tools whose handler named no registered function, which is what an unregistered mutation looks like from the outside.
 // So the four names carry `client`, which is the word for what this concept is (see the disambiguation note in concepts.memql). The CONCEPT keeps its name -- `v1:accounts:account`, and the singleton `v1:accounts:account:self` -- because that id is what the OS, the design record and the custom-domains epic all key on, and because a concept id is namespaced where a function name is not.
@@ -5772,83 +5694,6 @@ func CreateResponsibilityBuild(args CreateResponsibilityArgs) string {
 	return b.String()
 }
 
-// CreateRole -- Insert a v1:rbac:role catalog row -- a named, ranked capability bundle. Called by the SeedMaterializer when it walks the base-role seed declarations under dsl/rbac/seeds.memql (the materializer stamps the seed body's `id` into `roleId`). Also the write surface the E1.4 (memql#2072) rank-bounded custom-role authoring path layers on top of -- predefined defaults false there so the role stays editable within the creator's rank bound, and the creator's own rank caps the `rank` arg. Base-role seeds pass predefined=true to mark the row IMMUTABLE at runtime: the validateRbacRoleImmutable Go guard (E1.2) rejects any non-system-actor write to a predefined role, so a base role can never be redefined / re-ranked as data to escalate privilege. Partition-agnostic: the engine stamps every v1:rbac:role insert into the _system slot regardless of the envelope, exactly like createAgentRole / createCapability.
-//
-// Bound concept: v1:rbac:role (machine-readable: BoundConcepts["createRole"] in generated_concepts.go).
-type CreateRoleArgs struct {
-	RoleId        string
-	Slug          string
-	Name          string
-	Rank          int
-	Description   string
-	Predefined    bool
-	PredefinedSet bool // set true to send predefined; required because zero-value bool is ambiguous
-	Active        bool
-	ActiveSet     bool // set true to send active; required because zero-value bool is ambiguous
-	// Other slugs that resolve to THIS rung. Accepted because the seed materializer writes base roles through this mutation, and a field the mutation does not accept is a field the seed silently drops -- which is exactly what happened to `aliases` on its first attempt: every seeded row landed with it null, the engine kept working through its compiled fallback, and MemQL OS could not rank `writer` or `reader` at all.
-	Aliases []string
-}
-
-// CreateRole calls the engine mutation createRole.
-func (qc *QueryClient) CreateRole(ctx context.Context, args CreateRoleArgs) (*Result, error) {
-	call := CreateRoleBuild(args)
-	return qc.executeNamed(ctx, "createRole", call)
-}
-
-func CreateRoleBuild(args CreateRoleArgs) string {
-	var b strings.Builder
-	b.WriteString("mutation createRole(")
-	if args.RoleId != "" {
-		b.WriteString("roleId: ")
-		b.WriteString(quoteMemQL(args.RoleId))
-	}
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("slug: ")
-	b.WriteString(quoteMemQL(args.Slug))
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("name: ")
-	b.WriteString(quoteMemQL(args.Name))
-	if b.Len() > 20 {
-		b.WriteString(", ")
-	}
-	b.WriteString("rank: ")
-	b.WriteString(fmt.Sprintf("%v", args.Rank))
-	if args.Description != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("description: ")
-		b.WriteString(quoteMemQL(args.Description))
-	}
-	if args.PredefinedSet {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("predefined: ")
-		b.WriteString(fmt.Sprintf("%v", args.Predefined))
-	}
-	if args.ActiveSet {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("active: ")
-		b.WriteString(fmt.Sprintf("%v", args.Active))
-	}
-	if args.Aliases != nil {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("aliases: ")
-		b.WriteString(renderMemQLValue(args.Aliases))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // CreateRoutingPolicy -- Create the caller's routing policy. Run once, for a user who has none; edits go through updateRoutingPolicy.
 //
 // Bound concept: v1:worker:routingPolicy (machine-readable: BoundConcepts["createRoutingPolicy"] in generated_concepts.go).
@@ -6587,7 +6432,7 @@ type CreateUserArgs struct {
 	UserId       string
 	DisplayName  string
 	PrimaryEmail string
-	// Enum: owner | admin | developer | writer | reader
+	// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole.
 	Role        string
 	GroupIds    map[string]any
 	Preferences map[string]any
@@ -6652,7 +6497,7 @@ type CreateUserOnFirstLoginArgs struct {
 	PrimaryRole  string
 	Gender       string
 	Birthdate    string
-	// Enum: owner | admin | developer | writer | reader
+	// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole.
 	Role             string
 	Internal         bool
 	SharedMailbox    bool

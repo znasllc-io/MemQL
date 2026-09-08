@@ -173,6 +173,31 @@ func defaultRoutingRules() []RoutingRule {
 		// tool call.
 		{Pattern: "graph.node.created.v1:worker:modelPull", TargetType: ""},
 		{Pattern: "graph.node.updated.v1:worker:modelPull", TargetType: ""},
+		// THE ROLE CATALOG (epic memql#5166). A role is written on whichever
+		// replica served the builtin and READ by every gate on every replica:
+		// the data-plane capability gate, the row gate's rank ladder,
+		// @requiresRank and @requiresCapability all resolve through the
+		// catalog these rows build.
+		//
+		// Without these rules default-deny keeps the event on the writer, and
+		// the new role holds its grants there and nothing anywhere else. That
+		// presents as a permission that applies to roughly half the requests,
+		// with every replica reporting healthy -- the same shape as the
+		// provider-auth split the providers.reload.* rule exists for, and
+		// harder to read, because the person who created the role watches it
+		// work on one page and refuse on the next.
+		//
+		// SAFE TO BROADCAST, checked rather than assumed: no automation in the
+		// tree triggers on a v1:rbac:* node event.
+		//
+		// There is no `deleted` pattern, and the absence is deliberate rather
+		// than an oversight: a role is DEACTIVATED, never deleted (D8), so the
+		// change arrives as an update. A rule for an event nothing emits is a
+		// rule nobody could tell was broken.
+		{Pattern: "graph.node.created.v1:rbac:role", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:rbac:role", TargetType: ""},
+		{Pattern: "graph.node.created.v1:rbac:capability", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:rbac:capability", TargetType: ""},
 		// DELETES, added by memql#4542. The three rules above were written
 		// for the Fleet's create/update flow and stopped there, which left
 		// a remove invisible on every replica but the writer's: the list is

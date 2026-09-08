@@ -53,8 +53,13 @@ func (i *IdentityIntegration) handleCreateDelegation(ctx context.Context, args m
 		return nil, fmt.Errorf("identity.createDelegation: caller must be the identity owner or have admin role")
 	}
 
-	// Role ceiling cannot exceed the caller's own role
-	if componentAuth.RoleLevel(componentAuth.Role(roleCeiling)) < componentAuth.RoleLevel(callerUser.Role) {
+	// Role ceiling cannot exceed the caller's own role.
+	//
+	// BY RANK (epic memql#5166): the four-value RoleLevel scale collapses every
+	// custom role into its bottom rung, so a ceiling authored between two base
+	// rungs read as least-privileged and cleared this check whatever it
+	// outranked.
+	if componentAuth.RoleRank(componentAuth.Role(roleCeiling)) > componentAuth.RoleRank(callerUser.Role) {
 		return nil, fmt.Errorf("identity.createDelegation: roleCeiling %q exceeds caller's role %q", roleCeiling, callerUser.Role)
 	}
 
