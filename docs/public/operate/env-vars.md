@@ -672,10 +672,17 @@ concept and are read by the product frontend's runtime config layer
 | `VITE_OPENAI_PROJECT_ID`        | `proj_...`             | OpenAI org / billing project id.                                               |
 | `VITE_DEFAULT_LANGUAGE`         | `en-US`                | UI language.                                                                   |
 | `VITE_ENABLE_ADMIN`             | `true` / `false`       | Admin panel feature flag.                                                      |
-| `MEMQL_DEFAULT_CHAT_PROVIDER`   | `chat54Mini`           | Forward-looking; whitelisted but not yet read by a consumer.                   |
-| `MEMQL_DEFAULT_STREAM_PROVIDER` | `stream54Mini`         | Same.                                                                          |
-| `MEMQL_DEFAULT_TTS_PROVIDER`    | `tts1Hd`               | Same.                                                                          |
+| `MEMQL_DEFAULT_TTS_PROVIDER`    | `tts1Hd`               | Forward-looking; whitelisted but not yet read by a consumer.                   |
 | `MEMQL_DEFAULT_USER_LANGUAGE`   | `en-US`                | Same.                                                                          |
+
+> `MEMQL_DEFAULT_PROVIDER`, `MEMQL_DEFAULT_CHAT_PROVIDER` and
+> `MEMQL_DEFAULT_STREAM_PROVIDER` are **deleted** (epic memql#5137). Each named
+> a vendor model in a deployment manifest, which put a routing decision
+> somewhere no rule could see and no decision record could explain -- and since
+> every concrete record is a paid model, each was a paid default with an
+> operator's name on it. Chat and streaming resolve through the router at a
+> LEVEL now; see [ai-routing.md](ai-routing.md). TTS is the one left, because
+> the four levels are chat levels and a TTS call still names a provider.
 
 The exact name on the MemQL side has to match the entry in the
 frontend's publicConfig whitelist exactly. To add a new one: add it to

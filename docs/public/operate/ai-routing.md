@@ -173,7 +173,7 @@ Six, all `@locked`.
 | `backgroundEscalation` | `tag="backgroundEscalation"` | `strong` | `localFirst` | degrade |
 | `operatorReasoning` | `prompt="agentReply", role="operator"` | `reasoning` | `localFirst` | degrade |
 | `reasoningParks` | `level="reasoning"` | -- | `federationStrongest` | **park** |
-| `embeddingsPark` | `level="embeddings"` | -- | `localFirst` | **park** |
+| `embeddingsBound` | `level="embeddings"` | -- | `embeddingsBinding` | **park** |
 
 `operatorReasoning` degrades while `reasoningParks` parks, and the difference is
 worth learning. A person is waiting on an agent reply and would rather have a
