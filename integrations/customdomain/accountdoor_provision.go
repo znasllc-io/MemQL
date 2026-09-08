@@ -1,0 +1,375 @@
+package customdomain
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/znasllc-io/memql/component/frontdoor"
+)
+
+// accountdoor_provision.go -- the cluster objects behind an account's reserved
+// front door (epic memql#5168, design E).
+//
+// # WHY THIS LIVES IN THE CUSTOM-DOMAIN PACKAGE
+//
+// It is the same job one level up. A custom domain is one client hostname
+// pointed at the edge; a reserved MemQL name is three hostnames pointed at
+// three different services. Same DNS resolver, same pointing check, same
+// capability-script seam, same two substrates chosen by the same probe, same
+// status ladder, same one-transition-per-pass reconciler. A second package
+// would be a second copy of CheckPointing's apex handling and a second
+// substrate selection to keep in agreement with this one.
+//
+// # WHAT DIFFERS: FIVE OBJECTS, NOT TWO
+//
+// One Certificate naming all three hosts, and FOUR Ingresses -- app. to the
+// edge, id. to identity, and TWO for api., because an ingress controller's
+// backend protocol is a per-Service annotation and the bff's h2c edge
+// (:50051) and its HTTP edge (:8085) therefore cannot share an object. The
+// cluster's own front door carries the same pair for the same reason.
+//
+// # THE CERTIFICATE IS THE ACTIVATION RULE (design D8)
+//
+// An HTTP-01 order cannot go Ready unless every dnsName in it solves, so
+// naming all three hosts on ONE certificate makes the door all-or-nothing with
+// nothing for the reconciler to police: one order, one rate-limit unit against
+// Let's Encrypt, one Ready condition to promote on. Three certificates would
+// have needed a rule saying "wait for all of them", and that rule would have
+// been the thing to get wrong.
+
+// DoorBindRequest is everything either substrate needs to serve one reserved
+// name.
+type DoorBindRequest struct {
+	// AccountID keys every object's name. NOT the door row id: a door that is
+	// torn down and reopened for the same account must converge on the same
+	// objects rather than leave orphans behind it, and the account is the
+	// thing that persists across that.
+	AccountID string
+	// DoorID is recorded as a label so an operator reading `kubectl get ing`
+	// can find the row.
+	DoorID string
+	// ReservedName is the name the three hosts sit beneath.
+	ReservedName string
+
+	Namespace    string
+	Issuer       string
+	IngressClass string
+
+	// EdgeService / EdgePort serve app.
+	EdgeService string
+	EdgePort    int
+	// BFFHTTPService / BFFHTTPPort serve api.'s generated path block.
+	BFFHTTPService string
+	BFFHTTPPort    int
+	// BFFGRPCService / BFFGRPCPort serve api.'s h2c catch-all.
+	BFFGRPCService string
+	BFFGRPCPort    int
+	// IdentityService / IdentityPort serve id.
+	IdentityService string
+	IdentityPort    int
+}
+
+// doorObjectName is the base name every object carries:
+// `account-front-door-<accountId>`, with a per-object suffix for the four
+// Ingresses.
+//
+// Keyed on the account id for objectName's reasons -- a hostname is not a
+// legal Kubernetes object name and any sanitiser collides some pair of inputs
+// -- plus the one above: the account outlives the door row.
+func doorObjectName(accountID string) string {
+	id := strings.ToLower(strings.TrimSpace(accountID))
+	id = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, id)
+	id = strings.Trim(id, "-")
+	if id == "" {
+		id = "unknown"
+	}
+	if len(id) > 200 {
+		id = id[:200]
+	}
+	return "account-front-door-" + id
+}
+
+// doorFieldManager is the server-side-apply owner both substrates declare, and
+// it is DELIBERATELY DISTINCT from fieldManager.
+//
+// Custom domains and front doors never write the same object, so sharing a
+// manager would buy nothing -- and it would make `kubectl get ... -o yaml`
+// unable to say which of the two reconcilers owns a field, which is the one
+// question managed-fields exists to answer.
+const doorFieldManager = "memql-account-front-door"
+
+// doorLabels are on every object: enough for an operator to find every piece
+// of one account's door with a single selector.
+func doorLabels(req DoorBindRequest) map[string]any {
+	return map[string]any{
+		"app.kubernetes.io/part-of":   "memql",
+		"app.kubernetes.io/name":      "account-front-door",
+		"memql/account-id":            req.AccountID,
+		"memql/account-front-door-id": req.DoorID,
+	}
+}
+
+// doorIngress renders one host -> one service Ingress with a `/` Prefix rule.
+func doorIngress(req DoorBindRequest, nameSuffix, host, service string, port int, grpc bool) map[string]any {
+	return doorIngressWithPaths(req, nameSuffix, host, []string{"/"}, service, port, grpc)
+}
+
+// doorIngressWithPaths renders an Ingress carrying one rule per path.
+//
+// EVERY ENTRY IS pathType: Prefix, matching cmd/frontdoorpaths' render(). That
+// generator's comment carries the reasoning; repeating the choice here rather
+// than the reasoning is deliberate, because the place a decision is argued
+// should be the place that produces the list.
+func doorIngressWithPaths(req DoorBindRequest, nameSuffix, host string, paths []string, service string, port int, grpc bool) map[string]any {
+	annotations := map[string]any{}
+	if strings.TrimSpace(req.Issuer) != "" {
+		annotations["cert-manager.io/cluster-issuer"] = req.Issuer
+	}
+	if grpc {
+		annotations["nginx.ingress.kubernetes.io/backend-protocol"] = "GRPC"
+	}
+
+	rules := make([]any, 0, len(paths))
+	for _, p := range paths {
+		rules = append(rules, map[string]any{
+			"path":     p,
+			"pathType": "Prefix",
+			"backend": map[string]any{
+				"service": map[string]any{
+					"name": service,
+					"port": map[string]any{"number": port},
+				},
+			},
+		})
+	}
+
+	name := doorObjectName(req.AccountID) + nameSuffix
+	return map[string]any{
+		"apiVersion": "networking.k8s.io/v1",
+		"kind":       "Ingress",
+		"metadata": map[string]any{
+			"name":        name,
+			"namespace":   req.Namespace,
+			"labels":      doorLabels(req),
+			"annotations": annotations,
+		},
+		"spec": map[string]any{
+			"ingressClassName": req.IngressClass,
+			"tls": []any{map[string]any{
+				"hosts":      []any{host},
+				"secretName": doorObjectName(req.AccountID) + "-tls",
+			}},
+			"rules": []any{map[string]any{
+				"host": host,
+				"http": map[string]any{"paths": rules},
+			}},
+		},
+	}
+}
+
+// DoorCertificateObject is the ONE Certificate, naming all three hosts.
+func DoorCertificateObject(req DoorBindRequest) map[string]any {
+	name := doorObjectName(req.AccountID)
+	sans := make([]any, 0, len(frontdoor.AccountRoles()))
+	for _, h := range frontdoor.AccountCertificateSANs(req.ReservedName) {
+		sans = append(sans, h)
+	}
+	return map[string]any{
+		"apiVersion": "cert-manager.io/v1",
+		"kind":       "Certificate",
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": req.Namespace,
+			"labels":    doorLabels(req),
+		},
+		"spec": map[string]any{
+			"secretName": name + "-tls",
+			"dnsNames":   sans,
+			"issuerRef": map[string]any{
+				"name":  req.Issuer,
+				"kind":  "ClusterIssuer",
+				"group": "cert-manager.io",
+			},
+		},
+	}
+}
+
+// doorIngressObjects is the four Ingresses, in apply order, each with the
+// object-name suffix its unbind counterpart deletes.
+//
+// THE SUFFIXES ARE THE CONTRACT WITH unbind-account-front-door.sh, which
+// deletes exactly these four names. account_front_door_test.go pins the bind
+// and unbind scripts against each other, and TestTheGoProvisionerNamesTheSame
+// ObjectsTheScriptDoes pins this against both.
+func doorIngressObjects(req DoorBindRequest, apiPaths []string) []map[string]any {
+	appHost := frontdoor.AccountRoleHost(frontdoor.AccountRoleApp, req.ReservedName)
+	apiHost := frontdoor.AccountRoleHost(frontdoor.AccountRoleAPI, req.ReservedName)
+	idHost := frontdoor.AccountRoleHost(frontdoor.AccountRoleID, req.ReservedName)
+
+	out := []map[string]any{
+		doorIngress(req, "-app", appHost, req.EdgeService, req.EdgePort, false),
+		doorIngress(req, "-api-grpc", apiHost, req.BFFGRPCService, req.BFFGRPCPort, true),
+		doorIngress(req, "-id", idHost, req.IdentityService, req.IdentityPort, false),
+	}
+	// NO HTTP INGRESS WHEN THERE ARE NO PATHS, rather than one with an empty
+	// rule list, which the API server rejects -- taking the other three hosts
+	// down with it. In practice frontdoor.BFFHTTPPaths is never empty; this is
+	// what happens if it ever is, and it is a door missing its HTTP routes
+	// rather than a door that failed to come up.
+	if len(apiPaths) > 0 {
+		out = append(out, doorIngressWithPaths(req, "-api", apiHost, apiPaths, req.BFFHTTPService, req.BFFHTTPPort, false))
+	}
+	return out
+}
+
+// doorIngressSuffixes is every suffix an unbind must delete, including the
+// HTTP one that may legitimately not exist.
+var doorIngressSuffixes = []string{"-app", "-api", "-api-grpc", "-id"}
+
+// DoorProvisioner applies and removes one account front door's objects.
+//
+// A SEPARATE INTERFACE FROM Provisioner rather than two more methods on it.
+// The two are chosen by the same probe and implemented by the same types, but
+// a caller holding one has no business being able to call the other: the
+// custom-domain reconciler must not be able to apply a front door, and the
+// door reconciler must not be able to unbind somebody's website.
+type DoorProvisioner interface {
+	BindDoor(ctx context.Context, req DoorBindRequest, apiPaths []string) (Outcome, error)
+	UnbindDoor(ctx context.Context, req DoorBindRequest) (Outcome, error)
+	Describe() string
+}
+
+// ---------------------------------------------------------------------------
+// The API-server substrate
+// ---------------------------------------------------------------------------
+
+func (p *apiProvisioner) BindDoor(ctx context.Context, req DoorBindRequest, apiPaths []string) (Outcome, error) {
+	if strings.TrimSpace(req.Issuer) == "" {
+		// REFUSE, DO NOT APPROXIMATE (custom domains D7). A Certificate with
+		// an empty issuerRef is accepted and then sits Pending forever with a
+		// condition nobody reads.
+		return Outcome{Reason: ReasonNoACMEIssuer, Detail: "this cluster declares no ACME issuer, so no certificate can be requested for " + req.ReservedName}, nil
+	}
+	if strings.TrimSpace(req.ReservedName) == "" {
+		return Outcome{Reason: ReasonIssuanceFailed, Detail: "the door carries no reserved name, so there are no hosts to serve"}, nil
+	}
+
+	name := doorObjectName(req.AccountID)
+	for _, obj := range doorIngressObjects(req, apiPaths) {
+		meta, _ := obj["metadata"].(map[string]any)
+		objName, _ := meta["name"].(string)
+		if err := p.apply(ctx, ingressPath(req.Namespace, objName), obj); err != nil {
+			return Outcome{Reason: ReasonIssuanceFailed, Detail: err.Error()}, nil
+		}
+	}
+	// THE CERTIFICATE LAST. The HTTP-01 challenge is served through the
+	// Ingresses, so requesting it before they exist starts an order whose
+	// first attempt is guaranteed to fail -- and cert-manager backs off after
+	// a failure, which would make every door slower to come up for no reason.
+	if err := p.apply(ctx, certificatePath(req.Namespace, name), DoorCertificateObject(req)); err != nil {
+		return Outcome{Applied: true, Reason: ReasonIssuanceFailed, Detail: err.Error()}, nil
+	}
+
+	ready, note := p.certificateReady(ctx, req.Namespace, name)
+	return Outcome{Applied: true, CertificateReady: ready, Note: note}, nil
+}
+
+func (p *apiProvisioner) UnbindDoor(ctx context.Context, req DoorBindRequest) (Outcome, error) {
+	name := doorObjectName(req.AccountID)
+	// The Certificate first, so cert-manager stops renewing before the routes
+	// disappear -- the same window Unbind's ordering closes.
+	if err := p.delete(ctx, certificatePath(req.Namespace, name)); err != nil {
+		return Outcome{Reason: ReasonIssuanceFailed, Detail: err.Error()}, nil
+	}
+	for _, suffix := range doorIngressSuffixes {
+		if err := p.delete(ctx, ingressPath(req.Namespace, name+suffix)); err != nil {
+			return Outcome{Reason: ReasonIssuanceFailed, Detail: err.Error()}, nil
+		}
+	}
+	return Outcome{Applied: true}, nil
+}
+
+// ---------------------------------------------------------------------------
+// The capability-script substrate
+// ---------------------------------------------------------------------------
+
+// The two capability-script ids, registered in
+// component/automations/steps.capabilityScriptAllowlist.
+const (
+	ScriptDoorBind   = "frontdoor.bind"
+	ScriptDoorUnbind = "frontdoor.unbind"
+)
+
+func (p *scriptProvisioner) BindDoor(ctx context.Context, req DoorBindRequest, apiPaths []string) (Outcome, error) {
+	return p.dispatch(ctx, ScriptDoorBind, map[string]any{
+		"accountId":    req.AccountID,
+		"doorId":       req.DoorID,
+		"reservedName": req.ReservedName,
+		"namespace":    req.Namespace,
+		"issuer":       req.Issuer,
+		"ingressClass": req.IngressClass,
+		// COMMA-SEPARATED, and paths cannot contain a comma, so the encoding
+		// is lossless without escaping. The script's own dry run asserts the
+		// rule count it rendered against the count it was handed, because a
+		// count taken only from the input cannot notice a dropped field.
+		"apiPaths":        strings.Join(apiPaths, ","),
+		"edgeService":     req.EdgeService,
+		"edgePort":        fmt.Sprintf("%d", req.EdgePort),
+		"bffHttpService":  req.BFFHTTPService,
+		"bffHttpPort":     fmt.Sprintf("%d", req.BFFHTTPPort),
+		"bffGrpcService":  req.BFFGRPCService,
+		"bffGrpcPort":     fmt.Sprintf("%d", req.BFFGRPCPort),
+		"identityService": req.IdentityService,
+		"identityPort":    fmt.Sprintf("%d", req.IdentityPort),
+	})
+}
+
+func (p *scriptProvisioner) UnbindDoor(ctx context.Context, req DoorBindRequest) (Outcome, error) {
+	return p.dispatch(ctx, ScriptDoorUnbind, map[string]any{
+		"accountId":    req.AccountID,
+		"doorId":       req.DoorID,
+		"reservedName": req.ReservedName,
+		"namespace":    req.Namespace,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// The substrate that cannot
+// ---------------------------------------------------------------------------
+
+func (p refusingProvisioner) BindDoor(_ context.Context, _ DoorBindRequest, _ []string) (Outcome, error) {
+	return Outcome{Reason: ReasonIssuanceFailed, Detail: "this node cannot provision cluster objects: " + p.reason}, nil
+}
+
+func (p refusingProvisioner) UnbindDoor(_ context.Context, _ DoorBindRequest) (Outcome, error) {
+	return Outcome{Reason: ReasonIssuanceFailed, Detail: "this node cannot remove cluster objects: " + p.reason}, nil
+}
+
+// SelectDoorProvisioner picks the substrate this process can actually use, by
+// the same probe SelectProvisioner uses and for the same reason: "is there a
+// projected ServiceAccount token AND an API server address" is a question
+// about capability rather than about which environment somebody thinks they
+// are in.
+//
+// It returns the SAME concrete value SelectProvisioner would, which is why
+// there is no risk of a node provisioning custom domains one way and front
+// doors another.
+func SelectDoorProvisioner() (DoorProvisioner, error) {
+	p, err := SelectProvisioner()
+	if err != nil {
+		return nil, err
+	}
+	dp, ok := p.(DoorProvisioner)
+	if !ok {
+		return nil, fmt.Errorf("customdomain: substrate %q cannot provision account front doors", p.Describe())
+	}
+	return dp, nil
+}

@@ -472,6 +472,30 @@ query accountFrontDoor accountFrontDoorById {
   shape   accountFrontDoorFull
 }
 
+/// Every front door that is not `removed` -- what the sweep compares against the accounts holding a
+/// reservation, in both directions (design D9).
+///
+/// INCLUDES `live`, which is the whole point and is what `accountFrontDoorsToReconcile` deliberately
+/// leaves out. A door only ever leaves `live` because the RESERVATION behind it went away, and
+/// noticing that is a question about the account rather than about the door -- so the sweep reads
+/// the reservations, reads this, and takes the difference. Re-checking every live door's DNS on
+/// every tick would make the steady state of a healthy cluster the most expensive one; reading this
+/// costs a row per account an operator typed.
+///
+/// Includes `removing` too, so a door already coming down is not asked to come down again on every
+/// pass.
+///
+/// UNPAGINATED for accountFrontDoorsToReconcile's reason: a sweep that read a page would silently
+/// never notice the withdrawn reservations past it, and the symptom is a cluster still answering on
+/// a client's name after their domain changed.
+/// NO `sort`, and the parser is right to insist: a sorted query is a bounded one.
+@unbounded("open account front doors -- an internal sweep that must see all of them, bounded by how many accounts hold a reserved name")
+@actor
+query accountFrontDoor accountFrontDoorsOpen {
+  filter  status in ["pending_dns", "verifying", "issuing", "live", "removing"] && actor.isClusterOwner==true
+  shape   accountFrontDoorFull
+}
+
 // ---- The sync runtime's reads (epic memql#4378) ----
 //
 // Every one of these is cluster-owner gated by its concept's declared
