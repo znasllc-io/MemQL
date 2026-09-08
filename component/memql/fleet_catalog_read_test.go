@@ -222,3 +222,49 @@ func (f *perActorFleet) Call(context.Context, FleetCallRequest) (FleetCallResult
 type stubChatOnly struct{}
 
 func (stubChatOnly) Call(context.Context, string) (any, error) { return "", nil }
+
+func TestFleetProjectionKeepsActiveAndTotalParameters(t *testing.T) {
+	m := capable("mixture")
+	m.Params = 35000000000
+	m.ActiveParams = 3000000000
+	nodes, err := engineWithFleet([]FleetModel{m}).evaluateFleetModelsExpression(userCtx("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := decodePayload(t, nodes[0].Payload)
+	if p["params"] != float64(m.Params) || p["activeParams"] != float64(m.ActiveParams) {
+		t.Fatalf("projection: %+v", p)
+	}
+}
+
+func TestFleetProjectionValidatesActiveParametersBeforeMergingSources(t *testing.T) {
+	for _, tc := range []struct {
+		name                      string
+		total, active, wantActive int64
+	}{
+		{"invalid", 2_000_000_000, 9_000_000_000, 3_000_000_000},
+		{"unknown total", 0, 9_000_000_000, 9_000_000_000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first, second := capable("same"), capable("same")
+			first.Params, first.ActiveParams = tc.total, tc.active
+			second.Params, second.ActiveParams = 35_000_000_000, 3_000_000_000
+			for _, reverse := range []bool{false, true} {
+				if reverse {
+					first, second = second, first
+				}
+				r := newProviderRegistry()
+				r.SetFleetInference(&perActorFleet{mine: []FleetModel{first}, shared: []FleetModel{second}})
+				e := &MemQLEngine{providers: r}
+				nodes, err := e.evaluateFleetModelsExpression(userCtx("alice"))
+				if err != nil || len(nodes) != 1 {
+					t.Fatalf("projection: %v %v", nodes, err)
+				}
+				got := decodePayload(t, nodes[0].Payload)
+				if got["params"] != float64(35_000_000_000) || got["activeParams"] != float64(tc.wantActive) {
+					t.Errorf("reverse=%v: projected params=%v active=%v; want total35B active%d", reverse, got["params"], got["activeParams"], tc.wantActive)
+				}
+			}
+		})
+	}
+}

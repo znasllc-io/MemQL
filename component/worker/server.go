@@ -1412,6 +1412,7 @@ func (s *streamSession) openModelCall(ctx context.Context, req ModelCallRequest)
 			TopP:            req.Params.TopP,
 			TopPSet:         req.Params.TopPSet,
 			MaxOutputTokens: req.Params.MaxOutputTokens,
+			ContextTokens:   req.Params.ContextTokens,
 			Stop:            req.Params.Stop,
 			Seed:            req.Params.Seed,
 			SeedSet:         req.Params.SeedSet,

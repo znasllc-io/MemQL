@@ -727,6 +727,10 @@ message ModelCallParams {
   // ignore it rather than failing.
   int64 seed = 7;
   bool seed_set = 8;
+  // Working context requested for this call, including output headroom.
+  // Zero leaves the runtime default; a positive value must reach the runtime
+  // so it does not silently truncate a prompt admitted by the router.
+  int64 context_tokens = 9;
 }
 
 // ModelCallLimits are the envelope-owned deadlines.

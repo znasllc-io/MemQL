@@ -28,12 +28,10 @@ import { useInference, type CatalogModel, type DoorsReading } from "./useInferen
 // THE ORDER IS THE POINT
 // ===========================================================================
 // Every other list in this app answers "what do I have". This one answers
-// "what will be used", which is a different question and the only one an
-// operator asks when something is slow, expensive or refusing. A policy names
-// `fleet:*`; the router ranks the caller's own catalog strongest-first and
-// takes the first model that can serve THAT turn. So the list is rendered in
-// exactly that order, the first eligible row is marked, and the ranking rule
-// is stated ONCE above the list rather than restated per row.
+// "how my preferences and model sizes compare". The first eligible row in
+// that order is marked, but measured structured-output validity can change
+// the engine's actual strongest selection. The caption states that boundary
+// rather than presenting this display as a dispatch prediction.
 //
 // It is not alphabetical, and the shape of the screen is what says so.
 //
@@ -189,10 +187,10 @@ export function ModelsSection() {
       {models.length === 0 ? null : (
         <>
           <Caption>
-            A policy that names <span className="os-mono">fleet:*</span> takes the first model
-            here that can serve the turn it is making. The order is your preference first, then
-            parameters, then context window, then model id — and a model that did not report its
-            size sorts last, never first.
+            This list shows your preferences, then active parameters per token (total when
+            unreported), context window, and model id. A model that did not report its size sorts last.
+            For <span className="os-mono">fleet:strongest</span>, measured structured-output reliability
+            takes priority over preferences and size, so the model selected for a call can differ.
           </Caption>
 
           {preference.length > 0 ? (

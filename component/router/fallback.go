@@ -2,8 +2,10 @@ package router
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -12,9 +14,10 @@ import (
 // advance to the next entry. The successful entry is wrapped with an
 // observedStreamWithTools, which handles normal end-of-stream recording.
 //
-// Mid-stream errors are NOT auto-fallback'd -- they're recorded as
-// outcome="error" by the observer. Mid-stream retry would require a
-// replay buffer; that's out of Phase 2 scope.
+// A typed FleetUnavailable may arrive as the first error chunk: fleet calls
+// dispatch asynchronously, so their machine eligibility check runs after this
+// method returns. It is safe to retry only before content or tool output. Raw
+// runtime errors and errors after output never replay a started generation.
 type fallbackStreamWithTools struct {
 	router *Router
 	chain  []string
@@ -26,11 +29,14 @@ func (f *fallbackStreamWithTools) CallChatStreamWithTools(
 	messages []common.ChatMessage,
 	tools []common.ToolDefinition,
 ) (<-chan common.StreamToolChunk, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var lastErr error
 	var lastFailedResolved Resolved
 
-	for _, name := range f.chain {
-		client, resolved, ok := f.router.providerLookup(ctx, f.req.UserId, name, modalityStreamTools)
+	for i, name := range f.chain {
+		client, resolved, ok := f.router.providerLookup(ctx, f.req, name, modalityStreamTools)
 		if !ok {
 			continue
 		}
@@ -53,7 +59,7 @@ func (f *fallbackStreamWithTools) CallChatStreamWithTools(
 		}
 		ch, err := observed.CallChatStreamWithTools(ctx, messages, tools)
 		if err == nil {
-			return ch, nil
+			return f.retryUnstartedStream(ctx, ch, messages, tools, i+1, resolved), nil
 		}
 		lastErr = err
 		lastFailedResolved = resolved
@@ -63,6 +69,80 @@ func (f *fallbackStreamWithTools) CallChatStreamWithTools(
 		return nil, lastErr
 	}
 	return nil, errNoChainEntryAvailable
+}
+
+// retryUnstartedStream relays without buffering model output. The concrete
+// FleetUnavailable type proves no machine started; the broader unavailable
+// sentinel is insufficient because it may wrap other runtime failures.
+func (f *fallbackStreamWithTools) retryUnstartedStream(
+	ctx context.Context, stream <-chan common.StreamToolChunk,
+	messages []common.ChatMessage, tools []common.ToolDefinition,
+	next int, failed Resolved,
+) <-chan common.StreamToolChunk {
+	out := make(chan common.StreamToolChunk)
+	go func() {
+		defer close(out)
+		emitted := false
+		for {
+			var chunk common.StreamToolChunk
+			var ok bool
+			select {
+			case <-ctx.Done():
+				return
+			case chunk, ok = <-stream:
+				if !ok {
+					return
+				}
+			}
+			emitted = emitted || chunk.Content != "" || len(chunk.ToolCalls) > 0
+			var unavailable *memql.FleetUnavailable
+			if !emitted && next < len(f.chain) && errors.As(chunk.Error, &unavailable) {
+				// Let the observer finish recording this refusal before advancing.
+				// A fleet refusal closes its stream without starting any generation.
+				for stream != nil {
+					select {
+					case <-ctx.Done():
+						return
+					case _, ok := <-stream:
+						if !ok {
+							stream = nil
+						}
+					}
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				f.router.recordCall(fallbackRecord(f.req, failed, chunk.Error))
+				remaining := *f
+				remaining.chain = f.chain[next:]
+				retry, err := remaining.CallChatStreamWithTools(ctx, messages, tools)
+				if err != nil {
+					if errors.Is(err, errNoChainEntryAvailable) {
+						err = chunk.Error
+					}
+					select {
+					case out <- common.StreamToolChunk{Error: err, Done: true}:
+					case <-ctx.Done():
+					}
+					return
+				}
+				for c := range retry {
+					select {
+					case out <- c:
+					case <-ctx.Done():
+						return
+					}
+				}
+				return
+			}
+			select {
+			case out <- chunk:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out
 }
 
 // fallbackWithTools walks a provider chain on CallChatWithTools -- the
@@ -87,7 +167,7 @@ func (f *fallbackWithTools) CallChatWithTools(
 	var lastFailedResolved Resolved
 
 	for _, name := range f.chain {
-		client, resolved, ok := f.router.providerLookup(ctx, f.req.UserId, name, modalityTools)
+		client, resolved, ok := f.router.providerLookup(ctx, f.req, name, modalityTools)
 		if !ok {
 			continue
 		}
@@ -130,7 +210,7 @@ func (f *fallbackChat) CallChat(ctx context.Context, messages []common.ChatMessa
 	var lastFailedResolved Resolved
 
 	for _, name := range f.chain {
-		client, resolved, ok := f.router.providerLookup(ctx, f.req.UserId, name, modalityChat)
+		client, resolved, ok := f.router.providerLookup(ctx, f.req, name, modalityChat)
 		if !ok {
 			continue
 		}

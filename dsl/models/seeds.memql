@@ -29,79 +29,151 @@
 //   small local model good enough for a harness that asks narrow questions.
 // =============================================================================
 
-@description("qwen3.5:9b -- the 16 GB workhorse: tools, thinking, structured output and vision in one 6.6 GB record at 256K context")
+@description("qwen3.5:4b -- a smaller manual text option; the standalone setup fallback below class 16")
+seed modelProfile qwen35_4b {
+  id:               "qwen3-5-4b"
+  modelId:          "qwen3.5:4b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.5"
+  params:           4660000000
+  quant:            "Q4_K_M"
+  sizeBytes:        3400000000
+  memoryNeedBytes:  0
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/qwen3.5:4b"
+  recommendedFor:   []
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "A 3.4 GB download for a smaller working set. Standalone setup chooses it below class 16; the engine class ladder still starts at 16. Residency below that floor depends on available memory and context, so no simultaneous-residency claim is made."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3.5:9b -- the 16 GB workhorse: tools, thinking, structured output and vision in one 6.6 GB record at 256K context, 8.8 GB resident at 32K")
 seed modelProfile qwen35_9b {
   id:               "qwen3-5-9b"
   modelId:          "qwen3.5:9b"
   category:         "text"
   runtime:          "ollama"
   family:           "qwen3.5"
-  params:           9000000000
+  params:           9650000000
   quant:            "Q4_K_M"
   sizeBytes:        6600000000
-  memoryNeedBytes:  9000000000
+  memoryNeedBytes:  8800000000
   contextWindow:    262144
   flags:            ["structured", "tools", "thinking", "vision", "streaming"]
   dimensions:       0
-  license:          "qwen"
+  license:          "apache-2.0"
   source:           "https://ollama.com/library/qwen3.5"
-  recommendedFor:   ["fast", "strong"]
+  recommendedFor:   ["fast", "strong", "reasoning"]
   minMachineClass:  "16"
   offeredOn:        ["macos", "linux"]
-  notes:            "The default local pick. Everything the platform asks a model to do, on the smallest machine the catalog offers."
+  notes:            "The 16 GB default, and every level of it: thinking is in the record, so a 16 GB machine reasons on it rather than thrashing against a second model. 6.6 GB of weights and a 1.1 GB cache at 32K (hybrid attention: one full layer in four)."
   active:           true
   curated:          true
 }
 
-@description("gemma4:12b -- 256K context with vision and native function calling, the 24 GB step up from the 9B")
+@description("gemma4:12b -- the other 9B-class pick: 256K context, vision and native function calling, 9.9 GB resident at 32K")
 seed modelProfile gemma4_12b {
   id:               "gemma4-12b"
   modelId:          "gemma4:12b"
   category:         "text"
   runtime:          "ollama"
   family:           "gemma4"
-  params:           12000000000
+  params:           11950000000
   quant:            "Q4_K_M"
   sizeBytes:        7600000000
-  memoryNeedBytes:  10500000000
+  memoryNeedBytes:  9900000000
   contextWindow:    262144
   flags:            ["structured", "tools", "thinking", "vision", "streaming"]
   dimensions:       0
   license:          "gemma"
   source:           "https://ollama.com/library/gemma4"
-  recommendedFor:   ["fast", "strong"]
+  recommendedFor:   ["fast"]
   minMachineClass:  "24"
   offeredOn:        ["macos", "linux"]
-  notes:            "A second family at the same job as qwen3.5:9b, for a fleet that wants one that is not Qwen."
+  notes:            "A second family at the same job as qwen3.5:9b, for a fleet that wants one that is not Qwen. Floor 24 so it never displaces the 9B at 16; at 24 the 27B outranks it. 9.9 GB resident at 32K (sliding-window cache)."
   active:           true
   curated:          true
 }
 
-@description("qwen3.8:27b -- the 32 GB strong pick: 256K context, text and image in, published August 2026")
+@description("qwen3.8:27b -- the 24 GB and 32 GB pick: the curated dense text model, 256K context, text and image in, 20.1 GB resident at 32K")
 seed modelProfile qwen38_27b {
   id:               "qwen3-8-27b"
   modelId:          "qwen3.8:27b"
   category:         "text"
   runtime:          "ollama"
   family:           "qwen3.8"
-  params:           27000000000
+  params:           27300000000
   quant:            "Q4_K_M"
   sizeBytes:        18000000000
-  memoryNeedBytes:  24000000000
+  memoryNeedBytes:  20100000000
   contextWindow:    262144
   flags:            ["structured", "tools", "thinking", "vision", "streaming"]
   dimensions:       0
-  license:          "qwen"
+  license:          "apache-2.0"
   source:           "https://ollama.com/library/qwen3.8"
-  recommendedFor:   ["strong", "reasoning"]
-  minMachineClass:  "32"
+  recommendedFor:   ["fast", "strong", "reasoning"]
+  minMachineClass:  "24"
   offeredOn:        ["macos", "linux"]
-  notes:            "The strongest thing that fits comfortably on a 32 GB machine, and the reason a 32 GB fleet needs no paid door."
+  notes:            "The 24 GB and 32 GB default for fast, strong and reasoning: one text model plus the active embedder avoids swapping between text models. Ollama reports 27.3B parameters and an 18 GB Q4_K_M download. Artificial Analysis reported index 34 at its highest reasoning setting on 2026-09-08; that score is not a local quantized-model measurement. The 20.1 GB memory estimate uses a 32K working context; larger contexts and runtime buffers need additional room."
   active:           true
   curated:          true
 }
 
-@description("qwen3.5:35b -- the 64 GB pick, 24 GB on disk at 256K context")
+@description("qwen3.8:27b-q8_0 -- the 64 GB and 128 GB pick: the same model as the 24 GB one at eight bits, 38.7 GB resident at 256K")
+seed modelProfile qwen38_27b_q8 {
+  id:               "qwen3-8-27b-q8-0"
+  modelId:          "qwen3.8:27b-q8_0"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.8"
+  params:           27300000000
+  quant:            "Q8_0"
+  sizeBytes:        30000000000
+  memoryNeedBytes:  38700000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/qwen3.8/tags"
+  recommendedFor:   ["fast", "strong", "reasoning"]
+  minMachineClass:  "64"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The 64 GB and 128 GB default uses the same 27.3B model at eight-bit precision. Its larger download does not change its parameter count; precision breaks the recommendation tie after hardware eligibility. Estimated weights plus cache are 38.7 GB at 256K, leaving runtime headroom and space for the active embedder. Larger models remain manual alternatives; benchmark scores are evidence for curation, not a guarantee for every workload."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3.6:35b -- the newest 35B mixture, 3B active, 256K context, quick; a pullable alternate outranked by the 27B")
+seed modelProfile qwen36_35b {
+  id:               "qwen3-6-35b"
+  modelId:          "qwen3.6:35b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.6"
+  params:           35500000000
+  quant:            "Q4_K_M"
+  sizeBytes:        23000000000
+  memoryNeedBytes:  24800000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/qwen3.6/tags"
+  recommendedFor:   []
+  minMachineClass:  "32"
+  offeredOn:        ["macos", "linux"]
+  notes:            "Manual mixture-of-experts alternative with vision, tools and thinking. Active parameters are used for routing when the runtime can substantiate them. The resident figure is an estimate from related architecture metadata, not a local measurement; benchmark this tag on the intended hardware and workload."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3.5:35b -- superseded by qwen3.6:35b; a pullable alternate, recommended nowhere")
 seed modelProfile qwen35_35b {
   id:               "qwen3-5-35b"
   modelId:          "qwen3.5:35b"
@@ -111,40 +183,40 @@ seed modelProfile qwen35_35b {
   params:           35000000000
   quant:            "Q4_K_M"
   sizeBytes:        24000000000
-  memoryNeedBytes:  32000000000
+  memoryNeedBytes:  26600000000
   contextWindow:    262144
   flags:            ["structured", "tools", "thinking", "vision", "streaming"]
   dimensions:       0
   license:          "qwen"
   source:           "https://ollama.com/library/qwen3.5"
-  recommendedFor:   ["strong", "reasoning"]
-  minMachineClass:  "64"
+  recommendedFor:   []
+  minMachineClass:  "32"
   offeredOn:        ["macos", "linux"]
-  notes:            "What a 64 GB machine should run for the work the 27B has to think hardest about."
+  notes:            "Manual mixture-of-experts alternative retained alongside qwen3.6:35b. It is not installed by the default set. Routing uses a valid active-parameter count when available; the total still describes the weights that must fit in memory."
   active:           true
   curated:          true
 }
 
-@description("qwen3.5:122b -- the 128 GB entry, listed so the largest machine class has a text answer of its own")
+@description("qwen3.5:122b -- the largest local Qwen on the library: 84.8 GB resident at 256K, outranked by the 27B, a pullable alternate")
 seed modelProfile qwen35_122b {
   id:               "qwen3-5-122b"
   modelId:          "qwen3.5:122b"
   category:         "text"
   runtime:          "ollama"
   family:           "qwen3.5"
-  params:           122000000000
+  params:           125000000000
   quant:            "Q4_K_M"
   sizeBytes:        81000000000
-  memoryNeedBytes:  100000000000
+  memoryNeedBytes:  84800000000
   contextWindow:    262144
   flags:            ["structured", "tools", "thinking", "vision", "streaming"]
   dimensions:       0
-  license:          "qwen"
+  license:          "apache-2.0"
   source:           "https://ollama.com/library/qwen3.5"
-  recommendedFor:   ["strong", "reasoning"]
+  recommendedFor:   []
   minMachineClass:  "128"
   offeredOn:        ["macos", "linux"]
-  notes:            "For a workstation with the memory to hold it. Nothing in the platform needs it; it is here because a 128 GB machine should not be offered the 35B as its ceiling."
+  notes:            "Manual larger mixture-of-experts alternative for operators who benchmark it on their own tasks. Estimated resident memory is 84.8 GB at 256K. It is not installed alongside the default text model automatically; compare both quality and residency before choosing it."
   active:           true
   curated:          true
 }
@@ -160,43 +232,43 @@ seed modelProfile gptoss_20b {
   category:         "reasoning"
   runtime:          "ollama"
   family:           "gpt-oss"
-  params:           20000000000
+  params:           21000000000
   quant:            "MXFP4"
   sizeBytes:        14000000000
-  memoryNeedBytes:  16000000000
+  memoryNeedBytes:  15700000000
   contextWindow:    131072
   flags:            ["structured", "tools", "thinking", "streaming"]
   dimensions:       0
   license:          "apache-2.0"
   source:           "https://ollama.com/library/gpt-oss"
-  recommendedFor:   ["reasoning"]
+  recommendedFor:   []
   minMachineClass:  "16"
   offeredOn:        ["macos", "linux"]
-  notes:            "The reasoning answer for a 16 GB machine, and the only entry here whose licence carries no copyleft or field-of-use terms at all."
+  notes:            "Manual reasoning alternative. Its estimated 15.7 GB residency plus the 9B default exceeds the class-16 budget, so the recommended set uses one text model for all three levels. An operator can pin this model for its configurable reasoning effort."
   active:           true
   curated:          true
 }
 
-@description("gemma4:26b -- a mixture of experts with 4B active, so it reasons at 26B and runs closer to its active size")
+@description("gemma4:26b -- a manual mixture-of-experts alternate, estimated 20.3 GB resident at 32K")
 seed modelProfile gemma4_26b {
   id:               "gemma4-26b"
   modelId:          "gemma4:26b"
   category:         "reasoning"
   runtime:          "ollama"
   family:           "gemma4"
-  params:           26000000000
+  params:           25200000000
   quant:            "Q4_K_M"
-  sizeBytes:        19000000000
-  memoryNeedBytes:  24000000000
+  sizeBytes:        18100000000
+  memoryNeedBytes:  20300000000
   contextWindow:    262144
   flags:            ["structured", "tools", "thinking", "vision", "streaming"]
   dimensions:       0
   license:          "gemma"
   source:           "https://ollama.com/library/gemma4"
-  recommendedFor:   ["reasoning"]
-  minMachineClass:  "32"
+  recommendedFor:   []
+  minMachineClass:  "24"
   offeredOn:        ["macos", "linux"]
-  notes:            "A 4B-active mixture: the throughput of a small model with the judgement of a large one, which is the trade a reasoning turn wants."
+  notes:            "Manual mixture-of-experts alternative with vision, tools and thinking. Estimated residency is 20.3 GB at 32K. Throughput and task quality depend on the hardware, context and workload; no local speed measurement is claimed here."
   active:           true
   curated:          true
 }
@@ -208,43 +280,43 @@ seed modelProfile gptoss_120b {
   category:         "reasoning"
   runtime:          "ollama"
   family:           "gpt-oss"
-  params:           120000000000
+  params:           117000000000
   quant:            "MXFP4"
   sizeBytes:        65000000000
-  memoryNeedBytes:  80000000000
+  memoryNeedBytes:  70300000000
   contextWindow:    131072
   flags:            ["structured", "tools", "thinking", "streaming"]
   dimensions:       0
   license:          "apache-2.0"
   source:           "https://ollama.com/library/gpt-oss"
-  recommendedFor:   ["reasoning"]
+  recommendedFor:   []
   minMachineClass:  "128"
   offeredOn:        ["macos", "linux"]
-  notes:            "The strongest open-weight reasoning model the catalog offers, for the one machine class that can hold it."
+  notes:            "Manual reasoning alternative with an estimated 70.3 GB residency at its 128K ceiling. Its class floor is 128 so the default set does not overfill a 64 GB machine. Measure the intended tasks before replacing the curated text default."
   active:           true
   curated:          true
 }
 
-@description("gemma4:e4b -- 7.2 GB with text, image AND audio in one record, the 64 GB fleet's small all-rounder")
+@description("gemma4:e4b -- a 9.6 GB manual multimodal alternative with text, image and audio")
 seed modelProfile gemma4_e4b_reasoning {
   id:               "gemma4-e4b-reasoning"
   modelId:          "gemma4:e4b"
   category:         "reasoning"
   runtime:          "ollama"
   family:           "gemma4"
-  params:           4000000000
+  params:           8000000000
   quant:            "Q4_K_M"
-  sizeBytes:        7200000000
-  memoryNeedBytes:  9000000000
+  sizeBytes:        9600000000
+  memoryNeedBytes:  11300000000
   contextWindow:    131072
   flags:            ["structured", "tools", "thinking", "vision", "audioIn", "streaming"]
   dimensions:       0
   license:          "gemma"
   source:           "https://ollama.com/library/gemma4"
-  recommendedFor:   ["fast", "reasoning"]
+  recommendedFor:   []
   minMachineClass:  "24"
   offeredOn:        ["macos", "linux"]
-  notes:            "The cheapest way to have a reasoning answer and an audio door on the same weights."
+  notes:            "The audio door (see the audioIn entry of the same id); as a text model it is outranked by qwen3.5:9b at every class it reaches, so it is recommended for no text level. 11.3 GB resident at 32K."
   active:           true
   curated:          true
 }
@@ -270,10 +342,10 @@ seed modelProfile qwen3_omni_30b {
   dimensions:       0
   license:          "apache-2.0"
   source:           "https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct"
-  recommendedFor:   ["strong"]
+  recommendedFor:   []
   minMachineClass:  "32"
   offeredOn:        ["macos"]
-  notes:            "The one entry that serves every modality from a single set of weights. Worth it when a fleet would otherwise install four runtimes."
+  notes:            "Manual multimodal alternative for an MLX installation. It is not a default strong recommendation: its resident memory has not been established, and adding it beside the standard text model would invalidate the per-class memory budget."
   active:           true
   curated:          true
 }
@@ -295,10 +367,10 @@ seed modelProfile gemma4_e4b_audio {
   category:         "audioIn"
   runtime:          "ollama"
   family:           "gemma4"
-  params:           4000000000
+  params:           8000000000
   quant:            "Q4_K_M"
-  sizeBytes:        7200000000
-  memoryNeedBytes:  9000000000
+  sizeBytes:        9600000000
+  memoryNeedBytes:  11300000000
   contextWindow:    131072
   flags:            ["structured", "tools", "thinking", "vision", "audioIn", "streaming"]
   dimensions:       0
@@ -630,9 +702,9 @@ seed modelProfile qwen3_embedding_06b {
   runtime:          "ollama"
   family:           "qwen3-embedding"
   params:           600000000
-  quant:            "F16"
+  quant:            "Q8_0"
   sizeBytes:        639000000
-  memoryNeedBytes:  1200000000
+  memoryNeedBytes:  1600000000
   contextWindow:    32768
   flags:            []
   dimensions:       1024
@@ -641,7 +713,7 @@ seed modelProfile qwen3_embedding_06b {
   recommendedFor:   ["embeddings"]
   minMachineClass:  "16"
   offeredOn:        ["macos", "linux"]
-  notes:            "The default. Small enough to sit beside a chat model on a 16 GB machine, which is the whole reason the default pair is a pair."
+  notes:            "The cluster's active embedder (embedder:active) at every class: 1024 dimensions, 639 MB of weights. Every layer is full attention, so at Ollama's 32K default the cache alone is 3.8 GB; the cockpit sends every embedding call at an 8K working context, which is the 1.6 GB figure here and what lets it sit beside a 27B on a 24 GB card."
   active:           true
   curated:          true
 }
@@ -654,18 +726,18 @@ seed modelProfile qwen3_embedding_4b {
   runtime:          "ollama"
   family:           "qwen3-embedding"
   params:           4000000000
-  quant:            "F16"
+  quant:            "Q4_K_M"
   sizeBytes:        2500000000
-  memoryNeedBytes:  4000000000
+  memoryNeedBytes:  3700000000
   contextWindow:    40960
   flags:            []
   dimensions:       2560
   license:          "apache-2.0"
   source:           "https://ollama.com/library/qwen3-embedding"
-  recommendedFor:   ["embeddings"]
+  recommendedFor:   []
   minMachineClass:  "32"
   offeredOn:        ["macos", "linux"]
-  notes:            "Switching to this is a binding change and a full re-embed, not a setting -- the vector width is different, so it is a different search space."
+  notes:            "2560 dimensions. Recommended nowhere: the cluster embeds with ONE model, the active binding, and a machine that pulled this while the binding names the 0.6B would hold 3.7 GB nobody calls. Rebind first, then pull."
   active:           true
   curated:          true
 }
@@ -678,18 +750,18 @@ seed modelProfile qwen3_embedding_8b {
   runtime:          "ollama"
   family:           "qwen3-embedding"
   params:           8000000000
-  quant:            "F16"
+  quant:            "Q4_K_M"
   sizeBytes:        4700000000
-  memoryNeedBytes:  7000000000
+  memoryNeedBytes:  5900000000
   contextWindow:    40960
   flags:            []
   dimensions:       4096
   license:          "apache-2.0"
   source:           "https://ollama.com/library/qwen3-embedding"
-  recommendedFor:   ["embeddings"]
+  recommendedFor:   []
   minMachineClass:  "64"
   offeredOn:        ["macos", "linux"]
-  notes:            "Supports user-defined output widths from 32 to 4096; the catalog records the native one, because a truncated width is a different binding."
+  notes:            "4096 dimensions. Recommended nowhere, for the 4B's reason: rebind embedder:active first, then pull."
   active:           true
   curated:          true
 }
@@ -710,7 +782,7 @@ seed modelProfile nomic_embed_text {
   dimensions:       768
   license:          "apache-2.0"
   source:           "https://ollama.com/library/nomic-embed-text"
-  recommendedFor:   ["embeddings"]
+  recommendedFor:   []
   minMachineClass:  "16"
   offeredOn:        ["macos", "linux"]
   notes:            "What the cockpit pulled before this catalog existed. Kept so an existing fleet's binding still names something the catalog knows."
@@ -734,7 +806,7 @@ seed modelProfile bge_m3 {
   dimensions:       1024
   license:          "mit"
   source:           "https://ollama.com/library/bge-m3"
-  recommendedFor:   ["embeddings"]
+  recommendedFor:   []
   minMachineClass:  "16"
   offeredOn:        ["macos", "linux"]
   notes:            "The same width as the 0.6B Qwen, so a fleet can switch between them without re-embedding into a new table -- two bindings, one width, two tables all the same."

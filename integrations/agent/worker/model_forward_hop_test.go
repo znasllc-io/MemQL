@@ -105,6 +105,9 @@ func (h *modelHop) start() *memqlv1.ModelCallStart {
 
 func TestAModelCallReachesAMachineHeldByAnotherReplica(t *testing.T) {
 	h := newModelHop(t, func(_ context.Context, req workerservice.ModelCallRequest, emit func(workerservice.ModelCallDelta)) workerservice.ModelCallOutcome {
+		if req.Params.ContextTokens != 32768 {
+			t.Errorf("working context lost between replicas: got %d, want 32768", req.Params.ContextTokens)
+		}
 		emit(workerservice.ModelCallDelta{Seq: 1, Content: "hi "})
 		emit(workerservice.ModelCallDelta{Seq: 2, Content: "there"})
 		return workerservice.ModelCallOutcome{
@@ -115,8 +118,10 @@ func TestAModelCallReachesAMachineHeldByAnotherReplica(t *testing.T) {
 
 	var mu sync.Mutex
 	var got []string
+	start := h.start()
+	start.Params = &memqlv1.ModelCallParams{ContextTokens: 32768}
 	out, err := h.link.router.ForwardModelCall(
-		authorityCtx(t, h.owner), nodeB, "laptop", h.owner, h.start(), 10*time.Second,
+		authorityCtx(t, h.owner), nodeB, "laptop", h.owner, start, 10*time.Second,
 		func(_ uint64, content string) {
 			mu.Lock()
 			defer mu.Unlock()

@@ -42,6 +42,8 @@ type orderingFixture struct {
 		Models     []struct {
 			ModelId       string `json:"modelId"`
 			Params        int64  `json:"params"`
+			ActiveParams  int64  `json:"activeParams"`
+			Quant         string `json:"quant"`
 			ContextWindow int    `json:"contextWindow"`
 		} `json:"models"`
 		Want []string `json:"want"`
@@ -73,6 +75,8 @@ func TestModelOrderingMatchesTheClients(t *testing.T) {
 				models = append(models, FleetModel{
 					ModelId:       m.ModelId,
 					Params:        m.Params,
+					ActiveParams:  m.ActiveParams,
+					Quant:         m.Quant,
 					ContextWindow: m.ContextWindow,
 				})
 			}

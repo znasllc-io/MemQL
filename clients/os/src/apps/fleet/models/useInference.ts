@@ -106,6 +106,7 @@ export function catalogModelFromRow(row: Row): CatalogModel {
     // correctly.
     modelId: stringOf(row, "modelId") || stringOf(row, "id"),
     params: numberOf(row, "params"),
+    activeParams: numberOf(row, "activeParams"),
     contextWindow: numberOf(row, "contextWindow"),
     structuredOutput: boolOr(row, "structuredOutput", false),
     embeddings: boolOr(row, "embeddings", false),

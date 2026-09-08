@@ -151,6 +151,11 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 		runtimes := m.Runtimes()
 		for _, modelId := range m.ModelsOffered() {
 			attrs, _ := m.ModelAttributesFor(modelId)
+			// Validate against this machine's total before another machine's
+			// larger total can make an impossible active count appear valid.
+			if attrs.Params > 0 && attrs.ActiveParams > attrs.Params {
+				attrs.ActiveParams = 0
+			}
 			entry, ok := byModel[modelId]
 			if !ok {
 				entry = &memqlengine.FleetModel{ModelId: modelId}
@@ -176,6 +181,9 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 			// runs at full size.
 			if attrs.Params > entry.Params {
 				entry.Params = attrs.Params
+			}
+			if attrs.ActiveParams > entry.ActiveParams {
+				entry.ActiveParams = attrs.ActiveParams
 			}
 			// The quantization is the FIRST non-empty one reported, and it
 			// is operator-facing only. Two machines running different
@@ -227,6 +235,7 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 	want := req.Needs()
 	needs := ModelNeeds{
 		StructuredOutput: want.StructuredOutput,
+		MinContextWindow: want.MinContextWindow,
 		Embeddings:       want.Embeddings,
 		Tools:            want.Tools,
 	}
@@ -313,7 +322,7 @@ func (f *FleetInference) buildStart(req memqlengine.FleetCallRequest) *memqlv1.M
 		// operations: every one of them (conductor, planner, suggest) parses
 		// what comes back, and a sampled answer to a structured prompt is a
 		// parse failure with no cause a reader can see.
-		Params: &memqlv1.ModelCallParams{TemperatureSet: true, Temperature: 0},
+		Params: &memqlv1.ModelCallParams{TemperatureSet: true, Temperature: 0, ContextTokens: int64(req.ContextTokens)},
 	}
 	if start.Kind == "" {
 		start.Kind = workerservice.ModelCallKindChat

@@ -59,6 +59,13 @@ from the Ollama library and from Hugging Face, and the whole thing reachable fro
 
 ### D1 -- Docker is the runtime on Linux; native Ollama is the runtime on Apple Silicon
 
+> **Overturned for Linux on 2026-09-08** by
+> `2026-09-08-linux-native-runtime-and-class-defaults-design.md` (D1): the
+> container needs a root-installed toolkit and a Docker restart on every fresh
+> machine, which a cockpit that never runs sudo cannot finish. Linux now runs
+> Ollama as the person's own user from the vendor's release archive; the
+> container survives as `--runtime docker`. The macOS half stands.
+
 Ruling. The owner asked for Docker always. On macOS a container has no access to the
 GPU, so Ollama in Docker on an M-series machine serves on the CPU, which the hardware
 floor exists to prevent; on Linux the Docker image with the NVIDIA container toolkit (or

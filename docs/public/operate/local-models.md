@@ -38,6 +38,20 @@ The floor is checked by the cockpit's model discovery, on the machine itself.
 That placement is deliberate: only the machine can see its own GPU, and a
 central check would be guessing from a hostname.
 
+**How the runtime gets there.** `memql worker setup --inference` installs it
+without anything from root on either platform. On macOS that is Homebrew's
+Ollama. On Linux it is Ollama **as the person's own user**: the vendor's
+release archive, checked against that release's `sha256sum.txt`, unpacked
+into `~/.memql/ollama/runtime` and kept running by a user systemd unit on
+the loopback, with models under `~/.memql/ollama/models` — reaching the GPU
+through the same device nodes `nvidia-smi` used to pass the floor, so no
+container toolkit, no Docker and no daemon restart are involved. The
+`ollama/ollama` container is still there as `--runtime docker`, and it does
+need the NVIDIA container toolkit (a root install). The Linux uninstaller
+removes the runtime's unit with the worker's; its `--purge` removes the
+runtime and the models. Design record:
+[2026-09-08-linux-native-runtime-and-class-defaults](../../superpowers/specs/2026-09-08-linux-native-runtime-and-class-defaults-design.md).
+
 **"My laptop does not appear in the model list."** In order of likelihood: it
 is below the floor above; it has no model runtime installed; its
 `policy.yaml` `models.allow` does not list the model; it is not signed in; or
@@ -95,13 +109,17 @@ driver does not work, and that repair lives on the machine.
 Given the class, the page says what the catalog recommends — one model per
 level — and offers to pull the set as **one act**:
 
-> For a 32 GB machine, the catalog recommends:
+> For a 24 GB machine, the catalog recommends:
 >
 > | | |
 > |---|---|
-> | Fast | `qwen3.5:9b` · 5.0 GiB · the balanced pick for everyday turns |
-> | Strong | `gpt-oss:20b` · 11.3 GiB · for planning and long context |
-> | Reasoning | `hf.co/kokoro/voice:Q4_K_M` · 858 MiB · **Needs the MFLUX runtime, which this machine has not reported.** |
+> | Fast | `qwen3.8:27b` · 16.5 GiB · the curated text model for all three levels |
+> | Strong | `qwen3.8:27b` · the same model; a second one would not stay resident beside it |
+> | Reasoning | `qwen3.8:27b` · thinking is in the record |
+> | Embeddings | `qwen3-embedding:0.6b` · 610 MiB · the cluster's active embedder |
+>
+> A level whose pick this machine cannot serve is shown with the reason, for
+> example **Needs the Kokoro runtime, which this machine has not reported.**
 
 **A blocked entry is shown, not filtered.** Hiding it would answer "there is
 nothing for reasoning on this machine", which is false — the answer is "there
@@ -140,9 +158,11 @@ Four things about these figures are load-bearing:
 
 ## The model floor
 
-The default operational class is a **7–8B instruct model with structured
-output** — `llama3.1:8b` or `qwen2.5:7b` class — plus a **small embeddings
-model** where embeddings route locally.
+The default set is **whatever the machine's class recommends** — one text
+model that carries tools, thinking, structured output and vision in a single
+record, sized to the memory the machine actually has, plus a **small
+embeddings model** where embeddings route locally. The per-class table is
+[below](#what-to-pull-by-machine-class); the standalone setup also has a smaller 4B fallback below class 16.
 
 Two different things enforce and recommend that, and it is worth keeping them
 apart:
@@ -196,7 +216,7 @@ A machine already paired is set up the same way from its own terminal:
 
 ```bash
 memql worker setup --inference
-memql worker setup --inference --model llama3.1:8b --model nomic-embed-text
+memql worker setup --inference --model qwen3.5:9b --model qwen3-embedding:0.6b
 ```
 
 Supported runtimes: **Ollama**, discovered natively at its default endpoint;
@@ -329,19 +349,20 @@ the same reason; there is no local substitute today.
 Every shipped policy tries the doors in **cost order** (epic memql#5096):
 
 ```
-@primary("fleet:*")      a model on hardware you already own. Electricity.
+@primary("fleet:strongest")      a model on hardware you already own. Electricity.
 @fallback("app:*")       a signed-in Claude Code or Codex on one of your
                          machines. A subscription you already pay for.
 @fallback("streamClaudeSonnet")   … and then the vendor entries, which cost
 @fallback("stream54Pro")          money and are gated by the cost ceiling.
 ```
 
-`fleet:*` and `app:*` are **wildcards**, and that is what makes this shippable
-as a default. A policy naming one model id would park on every fleet running
-something else, and which weights you pulled is not knowable in advance. The
-wildcard resolves **per call**, among the models that can serve *that* call:
+`fleet:strongest`, `fleet:fastest` and `app:*` are **selectors**: they
+resolve among what the fleet offers for each call. The shipped fast rule uses
+`fleet:fastest` with its quality floor; the stronger text lanes use
+`fleet:strongest`. For strongest selection:
 
-- **strongest first** — parameters, then context window, then model id;
+- **strongest first** — active parameters for mixtures when known, otherwise total
+  parameters, then context window, quantization precision and model id;
 - **your explicit preference wins**, if you set one (Fleet → Routing,
   `modelPreference`);
 - **a model that does not say how big it is sorts LAST**, never first. It stays
@@ -570,16 +591,59 @@ the cockpit performs on consent.
 ### What to pull, by machine class
 
 `minMachineClass` on each entry is a **floor** in gigabytes of unified memory or
-VRAM, so a machine runs everything at or below its own class. A 32 GB machine
-gets the 16 GB recommendations as well as its own.
+VRAM. A machine can manually pull eligible models at or below its class; its
+automatic recommended set is the row below and does not accumulate smaller sets.
 
-| Class | Text and reasoning | Embeddings |
-|---|---|---|
-| 16 GB | `qwen3.5:9b`, `gpt-oss:20b` | `qwen3-embedding:0.6b` |
-| 24 GB | adds `gemma4:12b`, `gemma4:e4b` | — |
-| 32 GB | adds `qwen3.8:27b`, `gemma4:26b` | adds `qwen3-embedding:4b` |
-| 64 GB | adds `qwen3.5:35b` | adds `qwen3-embedding:8b` |
-| 128 GB | adds `qwen3.5:122b`, `gpt-oss:120b` | — |
+| Class | Fast / strong / reasoning | Embeddings | Estimated resident set |
+|---|---|---|---|
+| Below 16 GB, above the setup hardware floor | `qwen3.5:4b` | `qwen3-embedding:0.6b` | Depends on available memory and context; simultaneous residency is not guaranteed |
+| 16 GB | `qwen3.5:9b` | `qwen3-embedding:0.6b` | 10.4 GB at 32K chat / 8K embedding context |
+| 24 GB | `qwen3.8:27b` | `qwen3-embedding:0.6b` | 21.7 GB at 32K / 8K |
+| 32 GB | `qwen3.8:27b` | `qwen3-embedding:0.6b` | 21.7 GB at 32K / 8K |
+| 64 GB | `qwen3.8:27b-q8_0` | `qwen3-embedding:0.6b` | 40.3 GB at 256K / 8K |
+| 128 GB | `qwen3.8:27b-q8_0` | `qwen3-embedding:0.6b` | 40.3 GB at 256K / 8K |
+
+These are one text model and one embedder per class. The larger classes use
+higher precision rather than installing a second text model by default.
+Both 27B variants have **27.3 billion parameters**: quantization changes their
+weight precision and download size, not their parameter count. The engine
+uses precision to break a recommendation tie after checking the hardware
+floor. Tags and download sizes were checked on 2026-09-08 against the Ollama
+pages for [4B](https://ollama.com/library/qwen3.5:4b),
+[9B](https://ollama.com/library/qwen3.5:9b),
+[27B Q4](https://ollama.com/library/qwen3.8:27b) and
+[27B Q8](https://ollama.com/library/qwen3.8:27b-q8_0).
+
+The below-16 row is the standalone Cockpit setup fallback; the engine's
+catalog class ladder still starts at 16. On smaller machines, reduce context
+or explicitly choose models that fit the available memory.
+
+`memoryNeedBytes` estimates weights plus cache at the stated working context.
+The conformance gate runs the engine's actual recommendation function over
+the embedded seeds, checks every class against this table, and requires the
+unique recommended models to fit within 90% of the class. This is a curation
+budget, not a runtime reservation: larger prompts, concurrent requests and
+other GPU applications can require more memory. Embedding calls use an 8K
+working context; chat calls carry their context requirement to the runtime.
+The native Linux service requests `q8_0` KV cache; Ollama enables Flash
+Attention automatically on supported devices, where this reduces cache memory. See [Ollama context settings](https://docs.ollama.com/context-length)
+and [cache quantization](https://docs.ollama.com/faq).
+
+Installing and routing answer different questions. The shipped `fast` rule
+uses `fleet:fastest` with a 3B effective-parameter floor; strong and reasoning
+use `fleet:strongest`. If a fleet offers both a 9B and a 27B dense model, fast
+calls can use the smaller model while strong calls use the larger one.
+Strongest ordering uses advertised active parameters for mixtures when known,
+otherwise total parameters; higher precision breaks equal-size/context ties
+for strongest selection. This is a routing heuristic; explicit model
+preferences and model pins remain available. See [AI routing](ai-routing.md).
+
+The catalog keeps other models available for manual pulls, including
+`gemma4:26b`, `qwen3.6:35b`, `qwen3.5:122b` and `gpt-oss:120b`.
+The defaults are a curated starting point, not a claim that one benchmark
+predicts every task. `qwen3-embedding:0.6b` remains the cluster's active
+embedding binding at every class; change that binding before choosing a
+different embedder for cluster work.
 
 A machine that has not reported its memory blocks nothing: unknown is not small,
 and telling somebody with an unreported 64 GB laptop that they have no machine

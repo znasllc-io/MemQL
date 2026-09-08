@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { catalogModelFromRow } from "../../src/apps/fleet/models/useInference";
+import type { Row } from "@znasllc-io/memql-sdk-core/client";
+
 import fixture from "../../src/apps/fleet/models/ordering.fixture.json";
 import {
   eligibleFor,
@@ -30,6 +33,11 @@ function model(over: Partial<RankedModel> & { modelId: string }): RankedModel {
 }
 
 describe("fleet model ordering", () => {
+  it("preserves active parameters from the live fleet projection", () => {
+    const row = catalogModelFromRow({ modelId: "mixture", params: 35_000_000_000, activeParams: 3_000_000_000 } as unknown as Row);
+    expect(row.activeParams).toBe(3_000_000_000);
+    expect(row.params).toBe(35_000_000_000);
+  });
   it("declares cases -- a gate over nothing passes for the wrong reason", () => {
     expect(fixture.cases.length).toBeGreaterThan(0);
   });
@@ -37,7 +45,7 @@ describe("fleet model ordering", () => {
   for (const tc of fixture.cases) {
     it(tc.name, () => {
       const models = tc.models.map((m) =>
-        model({ modelId: m.modelId, params: m.params, contextWindow: m.contextWindow }),
+        model({ ...m }),
       );
       expect(orderModels(models, tc.preference).map((m) => m.modelId)).toEqual(tc.want);
     });
