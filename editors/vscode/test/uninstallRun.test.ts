@@ -36,6 +36,7 @@ import { removalPreviewItems } from "../src/install/removalPreview.js";
 import type { RunScript } from "../src/install/runner.js";
 import { previewUninstall, runUninstall, type SessionOptions } from "../src/install/session.js";
 import { failureGuidance } from "../src/state/installProgress.js";
+import { uninstallConfirmCopy, uninstallDoneSentence } from "../src/webview/installScreens.js";
 import { UninstallRunState } from "../src/state/uninstallRun.js";
 
 function graph(doc: unknown): Graph {
@@ -261,6 +262,93 @@ test("an empty receipt says so rather than rendering a blank panel", async () =>
 
   assert.match(html, /remove nothing/);
   assert.ok(!html.includes("<li "), "an empty receipt has no rows");
+});
+
+// -----------------------------------------------------------------------------
+// 1b -- THE CLUSTER NOTHING RECORDED (memql#5118, D8)
+// -----------------------------------------------------------------------------
+//
+// `present-unreceipted` is a live k3d cluster named `memql` that this installer
+// did not create, and D8 gives it two acts: adopt, or delete. The delete had no
+// path -- both session entry points require a receipt, and by definition there
+// is none -- so the card was offered and the screen behind it read "no receipt
+// at ~/.memql/install-receipt.json". These four cases are the act, and the
+// refusal it must not have weakened.
+
+test("with no receipt and a SEEN cluster, the preview plans exactly that one removal", async () => {
+  const { run } = remover();
+  const preview = await previewUninstall(
+    // A receiptFile that does not exist, which is the whole premise.
+    options({ unreceiptedCluster: "memql" }),
+    { graph: UNINSTALL_GRAPH, run },
+  );
+
+  // ONE ARTIFACT, AND IT IS THE ONE THAT WAS OBSERVED. Every other step finds
+  // no entry and skips satisfied -- the same answer it gives for an install
+  // that stopped before it, and the reason a synthesized receipt cannot become
+  // a licence to remove a hosts block nothing has evidence for.
+  const planned = preview.steps.filter((step) => step.action === "run");
+  assert.deepEqual(planned.map((step) => step.id), ["removeCluster"]);
+  assert.equal(planned[0]?.params["cluster"], "memql");
+  assert.equal(planned[0]?.params["kind"], "stack");
+
+  // PRE-EXISTING, WHICH IS THE LITERAL TRUTH AND THE SAFETY. It is what makes
+  // remove-artifact.sh refuse until the box is ticked and the phrase typed, so
+  // the one destructive act stays destructive-on-purpose rather than becoming
+  // an ordinary removal.
+  assert.equal(planned[0]?.params["pre-existing"], "true");
+  assert.deepEqual(preview.removals, []);
+  assert.deepEqual(preview.preserved.map((step) => step.id), ["removeCluster"]);
+});
+
+test("with no receipt and NO seen cluster, it still refuses -- the general rule is untouched", async () => {
+  // THE NEGATIVE CONTROL. `requireReceipt` refuses because an uninstall
+  // reverses what an install RECORDED; the new path is a named observation, not
+  // a fallback. If this stops throwing, the wizard has started guessing at
+  // hosts files and trust stores again.
+  const { run } = remover();
+  await assert.rejects(
+    () => previewUninstall(options(), { graph: UNINSTALL_GRAPH, run }),
+    /no receipt at/,
+  );
+});
+
+test("a REAL receipt outranks the observation", async () => {
+  // The two can only disagree if a caller set the field in a state where the
+  // verdict says it should not have, and the record describes more of the
+  // machine than a listing can. `machineReceipt` has three artifacts.
+  const { run } = remover();
+  const preview = await previewUninstall(
+    options({ receiptFile: await machineReceipt(), unreceiptedCluster: "memql" }),
+    { graph: UNINSTALL_GRAPH, run },
+  );
+  assert.equal(preview.steps.filter((step) => step.action === "run").length, 3);
+});
+
+test("the phrase deletes the cluster nothing recorded, and without it nothing goes", async () => {
+  // END TO END on the act D9 describes: the same run, twice, differing only by
+  // the param a typed phrase produces.
+  const refused = remover({ stack: 3 });
+  const kept = await runUninstall(options({ unreceiptedCluster: "memql" }), {
+    graph: UNINSTALL_GRAPH,
+    run: refused.run,
+  });
+  assert.equal(kept.outcomes.find((o) => o.id === "removeCluster")?.status, "preserved");
+  assert.equal(kept.keptCluster, true, "no phrase, so the cluster stays and the records stay with it");
+
+  const allowed = remover();
+  const removed = await runUninstall(
+    options({
+      unreceiptedCluster: "memql",
+      stepParams: { removeCluster: { confirm: "delete-memql-data" } },
+    }),
+    { graph: UNINSTALL_GRAPH, run: allowed.run },
+  );
+  assert.equal(removed.outcomes.find((o) => o.id === "removeCluster")?.status, "ok");
+  assert.equal(removed.keptCluster, false, "the cluster is gone, so the records go too");
+  // The phrase reached the script rather than being consumed by the wizard.
+  const invocation = allowed.seen.find((params) => params["kind"] === "stack");
+  assert.equal(invocation?.["confirm"], "delete-memql-data");
 });
 
 // -----------------------------------------------------------------------------
@@ -535,6 +623,7 @@ test("a preserved step is its own state, never a failure", () => {
 test("the completion trio all fire: the entry goes, the memo drops, the tree repaints", async () => {
   const order: string[] = [];
   const problem = await completeLocalUninstall({
+    keptCluster: false,
     clusterName: "local",
     removeEntry: async (name) => void order.push(`remove:${name}`),
     invalidatePresence: () => order.push("invalidate"),
@@ -557,6 +646,7 @@ test("a registry write that fails still drops the memo and repaints the tree", a
   // problem with a second, unrelated lie.
   const order: string[] = [];
   const problem = await completeLocalUninstall({
+    keptCluster: false,
     clusterName: "local",
     removeEntry: async () => {
       throw new Error("clusters.yaml is read-only");
@@ -574,12 +664,118 @@ test("a registry write that fails still drops the memo and repaints the tree", a
   assert.match(problem, /off this machine/, "the uninstall SUCCEEDED -- only the bookkeeping did not");
 });
 
+// -----------------------------------------------------------------------------
+// KEPT IS A RESULT, AND THE RECORDS GO WITH THE ARTIFACTS (memql#5118, D8)
+// -----------------------------------------------------------------------------
+
+test("a run that KEPT something leaves the receipt and the registry row alone", async () => {
+  // THE BUG THIS CLOSES, end to end. remove-artifact.sh refuses to delete a
+  // pre-existing k3d cluster; executor.ts classes that `preserved`; ok ignores
+  // preservations. So the wizard deleted the receipt that described a cluster
+  // still running, presence read `absent` because nothing asked k3d, Install
+  // was offered again, and it adopted the same database -- after telling the
+  // operator everything had been taken back.
+  const order: string[] = [];
+  const problem = await completeLocalUninstall({
+    keptCluster: true,
+    clusterName: "local",
+    removeEntry: async (name) => void order.push(`remove:${name}`),
+    invalidatePresence: () => order.push("invalidate"),
+    refreshTree: () => order.push("refresh"),
+    deleteReceipt: async () => void order.push("deleteReceipt"),
+  });
+
+  assert.equal(problem, "");
+  // NEITHER RECORD IS TOUCHED. Both name a cluster that is still here.
+  assert.ok(!order.includes("deleteReceipt"), `the receipt was deleted: ${order.join(", ")}`);
+  assert.ok(!order.includes("remove:local"), `the registry row was dropped: ${order.join(", ")}`);
+  // The memo and the tree still refresh: the machine HAS changed, and a
+  // thirty-second-old verdict about it is stale either way.
+  assert.deepEqual(order, ["invalidate", "refresh"]);
+});
+
+test("a run that kept a CHECKOUT but not the cluster still takes both records", async () => {
+  // THE NARROW PREDICATE, ASSERTED FROM THE OTHER SIDE. Both records name a
+  // CLUSTER -- clusters.yaml says what to connect to, the receipt is what
+  // `detectPresence` reads -- so a preserved checkout must not keep them. It
+  // reaches here as `keptCluster: false` even though the run left something on
+  // the machine and the closing sentence says so; reading one field for both
+  // questions strands a receipt describing a cluster that is gone, which is
+  // memql#3544 re-opened and which nothing in the extension can clear.
+  const order: string[] = [];
+  await completeLocalUninstall({
+    keptCluster: false,
+    clusterName: "local",
+    removeEntry: async (name) => void order.push(`remove:${name}`),
+    invalidatePresence: () => order.push("invalidate"),
+    refreshTree: () => order.push("refresh"),
+    deleteReceipt: async () => void order.push("deleteReceipt"),
+  });
+  assert.deepEqual(order, ["remove:local", "deleteReceipt", "invalidate", "refresh"]);
+});
+
+test("a run that kept NOTHING takes both records, exactly as before", async () => {
+  const order: string[] = [];
+  await completeLocalUninstall({
+    keptCluster: false,
+    clusterName: "local",
+    removeEntry: async (name) => void order.push(`remove:${name}`),
+    invalidatePresence: () => order.push("invalidate"),
+    refreshTree: () => order.push("refresh"),
+    deleteReceipt: async () => void order.push("deleteReceipt"),
+  });
+  assert.deepEqual(order, ["remove:local", "deleteReceipt", "invalidate", "refresh"]);
+});
+
+test("the confirmation does not claim a receipt when there is none", () => {
+  // THE SCREEN IMMEDIATELY BEFORE THE ONE DESTRUCTIVE ACT IN THE WIZARD. Its
+  // ordinary lede rests the operator's confidence on the install receipt, which
+  // is the right argument everywhere except the one verdict whose whole premise
+  // is that nothing recorded this cluster. Reassurance that is not true is
+  // worse than none, and this is where it would be read.
+  const ordinary = uninstallConfirmCopy(false);
+  const unreceipted = uninstallConfirmCopy(true);
+
+  assert.match(ordinary.lede, /built from the install receipt/);
+  assert.ok(
+    !/receipt/.test(unreceipted.lede),
+    `the unreceipted lede still points at a receipt that does not exist: ${unreceipted.lede}`,
+  );
+  // It says what the list IS instead, so the operator knows why there is one row.
+  assert.match(unreceipted.lede, /Nothing recorded this cluster/);
+  assert.match(unreceipted.lede, /k3d reports/);
+
+  // Both still say the list is the confirmation -- that is the wizard's promise
+  // on this screen, and it holds either way.
+  for (const copy of [ordinary, unreceipted]) {
+    assert.match(copy.lede, /no second prompt/);
+    assert.notEqual(copy.title, "");
+  }
+  // And the titles differ: "Uninstall the local cluster" is a claim about
+  // MemQL's own install, which this is not.
+  assert.notEqual(ordinary.title, unreceipted.title);
+});
+
+test("the done sentence changes when anything was kept", () => {
+  const clean = uninstallDoneSentence(false);
+  const kept = uninstallDoneSentence(true);
+  assert.notEqual(clean, kept);
+  // The claim that was FALSE on a machine where the cluster is still running.
+  assert.match(clean, /Everything the install put on this machine has been taken back/);
+  assert.ok(
+    !/Everything the install put on this machine has been taken back/.test(kept),
+    `the kept sentence still claims a complete removal: ${kept}`,
+  );
+  assert.match(kept, /still on this machine/);
+});
+
 test("no registered cluster is an ordinary case, not a problem", async () => {
   // An operator can install a cluster and never add it to clusters.yaml. There
   // is then no entry to remove, and nothing to report.
   for (const clusterName of [undefined, ""]) {
     const order: string[] = [];
     const problem = await completeLocalUninstall({
+      keptCluster: false,
       clusterName,
       removeEntry: async (name) => void order.push(`remove:${name}`),
       invalidatePresence: () => order.push("invalidate"),
@@ -599,6 +795,7 @@ test("a receipt that cannot be removed is reported, because the wizard will keep
   // no way to connect the two.
   const order: string[] = [];
   const problem = await completeLocalUninstall({
+    keptCluster: false,
     clusterName: "local",
     removeEntry: async (name) => void order.push(`remove:${name}`),
     invalidatePresence: () => order.push("invalidate"),

@@ -138,6 +138,71 @@ afterEach(() => {
   setRoleLadder(SEEDED_LADDER);
 });
 
+// THE CORE GATE, THROUGH THE REAL SHELL (epic memql#5118).
+//
+// This is the one case that pins the COMPOSITION rather than the component.
+// `CoreGate`'s own suite mounts it inside a shell provider by hand, so every
+// case there passed while `Shell.tsx` mounted the real one OUTSIDE
+// `ShellRoster` -- where `useAppReach` reads a null shell, every section list
+// is empty, and the inference stop's act degrades to prose pointing at an app
+// the gate has not mounted. On a local cluster, which reaches no federation by
+// design, that left an owner with Sign out as the only working control on a
+// screen demanding they set up inference.
+//
+// Nothing but the real `<Shell>` can catch that, which is why it lives here
+// beside the other case that exists for a wiring failure a unit test cannot
+// see.
+describe("the core gate, mounted by the real shell", () => {
+  it("holds an owner and offers an act that can actually run", async () => {
+    const { connection, openReadiness } = fakeConnection([
+      readinessRow("ai", "unconfigured"),
+      readinessRow("storage", "configured"),
+    ]);
+    h.connection = connection;
+    mountShell();
+
+    // Before the rows land the shell OPENS -- only positive evidence holds
+    // anybody, and this is the frame every configured cluster passes through.
+    expect(await screen.findByRole("button", { name: "Launcher" })).toBeTruthy();
+
+    openReadiness();
+
+    // The gate takes the screen.
+    await waitFor(() => {
+      expect(screen.getByRole("list", { name: "Set up this cluster" })).toBeTruthy();
+    });
+    expect(screen.queryByRole("button", { name: "Launcher" })).toBeNull();
+    expect(document.querySelector("[data-os-dock]")).toBeNull();
+
+    // AND THE ACT WORKS. A button, not the words-only fallback -- which is the
+    // whole finding: `useAppReach` has to reach a real shell from in here.
+    expect(await screen.findByRole("button", { name: "Open Fleet" })).toBeTruthy();
+    expect(screen.queryByText(/Pair a machine in Fleet, under Machines/)).toBeNull();
+
+    // And taking it opens the app, over a desk the gate steps aside for.
+    fireEvent.click(screen.getByRole("button", { name: "Open Fleet" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Fleet" })).toBeTruthy();
+    });
+  });
+
+  it("gives a reader the sentence, and no rail", async () => {
+    const { connection, openReadiness } = fakeConnection([readinessRow("ai", "unconfigured")]);
+    connection.query.getMyAccess = vi.fn(async () => summary("reader"));
+    h.connection = connection;
+    mountShell();
+    openReadiness();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("An owner or developer has to set up inference before anyone can use it."),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByRole("list", { name: "Set up this cluster" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  });
+});
+
 describe("an unconfigured app gates only once readiness has loaded", () => {
   it("renders the app body while unknown, then the setup surface, with the mark on Settings", async () => {
     const { connection, openReadiness } = fakeConnection([

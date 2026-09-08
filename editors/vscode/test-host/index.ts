@@ -597,7 +597,7 @@ smoke("every webview surface opens without throwing", async () => {
       runsDir: path.join(os.tmpdir(), "memql-smoke-no-such-runs"),
       presence: async () => ({
         verdict: "absent" as const,
-        evidence: { receipt: false, registry: false },
+        evidence: { receipt: false, registry: false, liveCluster: false },
         endpoint: "",
       }),
     },
@@ -649,7 +649,7 @@ smoke("the remote instance page renders all three pipeline states", async () => 
       runsDir: path.join(os.tmpdir(), "memql-smoke-no-such-runs"),
       presence: async () => ({
         verdict: "absent" as const,
-        evidence: { receipt: false, registry: false },
+        evidence: { receipt: false, registry: false, liveCluster: false },
         endpoint: "",
       }),
       readClusters: async () => ({

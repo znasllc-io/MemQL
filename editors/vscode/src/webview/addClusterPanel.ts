@@ -39,6 +39,7 @@ import {
 import { addCluster, readClustersFileSafe } from "../clusters/file.js";
 import {
   addClusterMenu,
+  LOCAL_CLUSTER_NAME,
   type AddClusterAction,
   type AddClusterChoice,
   type ClusterPresence,
@@ -126,12 +127,27 @@ import {
   renderFailedScreen,
   renderRunBlock,
   renderRunningScreen,
+  uninstallConfirmCopy,
 } from "./installScreens.js";
 import type { ExecutionReport } from "../install/executor.js";
 import { listReleaseTags } from "../install/tags.js";
 import { DEFAULT_STACK_REPO, isMainBranchChoice } from "../install/stackPin.js";
 import { UninstallRunState } from "../state/uninstallRun.js";
 import { errorText } from "../auth/errors.js";
+
+/**
+ * The phrase an operator TYPES, and the value the script receives.
+ *
+ * TWO SPELLINGS, MAPPED IN ONE PLACE (memql#5118, D9). A person types a
+ * sentence; `remove-artifact.sh` takes a flag value, and a flag value with
+ * spaces in it is a quoting problem waiting to happen on every shell the
+ * installer runs on. So the typed form is prose and the wire form is
+ * hyphenated, and this pair is the only place either appears -- the script's
+ * own test pins the wire half, and it also pins that the TYPED half is
+ * refused, so the two can never quietly become one.
+ */
+const DELETE_DATA_TYPED_PHRASE = "delete memql data";
+const DELETE_DATA_CONFIRM_VALUE = "delete-memql-data";
 
 /** The ids the webview may send. A real guard, not a cast. */
 const CHOICE_ACTIONS: readonly AddClusterAction[] = [
@@ -141,6 +157,7 @@ const CHOICE_ACTIONS: readonly AddClusterAction[] = [
   "reconnect",
   "repair",
   "uninstall",
+  "adopt",
 ];
 
 /**
@@ -497,6 +514,17 @@ export class AddClusterPanel {
    * answer: everything not in here is skipped (memql#3566).
    */
   private readonly removeShared = new Set<string>();
+  /**
+   * The one destructive act (memql#5118, D9): also delete the cluster and its
+   * data, even if MemQL did not create it.
+   *
+   * TWO PIECES OF STATE, because a tick and a typed phrase are two different
+   * consents and collapsing them would let the box alone be enough. The tick
+   * is what OFFERS the field; the phrase is what permits the act, and the run
+   * refuses unless both hold.
+   */
+  private deleteData = false;
+  private deleteDataPhrase = "";
   /** Answers sudo for every step of the run in flight. See sudoAgent.ts. */
   private sudoAgent: SudoAgent | undefined;
   /** Why the preview could not be produced -- most often: no receipt. */
@@ -648,6 +676,13 @@ export class AddClusterPanel {
       // The other cards ask for confirmation or collect fields before they
       // change anything; this one does not, so the check is here.
       if (action === "reconnect" && !offersReconnect(this.verdict, this.localRegistered)) return;
+      // ADOPT IS RECONNECT'S GATE, on the verdict reconnect refuses. It writes
+      // the same registry row for the same reason, and it is offered on
+      // evidence from k3d rather than from a receipt -- so the check is the
+      // same shape, over the one verdict that produced this card
+      // (memql#5118, D8). Same reasoning as the line above: the postMessage
+      // channel is untrusted and this action WRITES.
+      if (action === "adopt" && (this.verdict !== "present-unreceipted" || this.localRegistered)) return;
       this.state.chooseAction(action);
       // The duplicate-name check needs a registry to check against, and this
       // is the moment it becomes worth reading one. Nothing waits on it: the
@@ -671,7 +706,7 @@ export class AddClusterPanel {
       // default), the entry is composed from it, and the hand-off screen the
       // action lands on is the same one a finished install reaches -- so the
       // operator's next click is "Sign in as owner" either way (memql#3741).
-      if (action === "reconnect") void this.reconnectLocal();
+      if (action === "reconnect" || action === "adopt") void this.reconnectLocal();
       this.render();
       return;
     }
@@ -763,6 +798,25 @@ export class AddClusterPanel {
       if (!offered) return;
       if (remove) this.removeShared.add(step);
       else this.removeShared.delete(step);
+      return;
+    }
+    // The data box and its phrase. Recorded rather than acted on, exactly like
+    // the shared ticks above and for the same reason: a repaint here replaces
+    // the whole document and would take the caret out of the phrase field
+    // mid-word.
+    if (type === "deleteData" && typeof value === "object" && value !== null) {
+      const { on, phrase } = value as { on?: unknown; phrase?: unknown };
+      if (typeof on === "boolean") {
+        this.deleteData = on;
+        // UNTICKING CLEARS THE PHRASE. A phrase left standing behind a box
+        // somebody deliberately turned off is consent this surface no longer
+        // has, and it would be spent silently the next time the box was
+        // ticked.
+        if (!on) this.deleteDataPhrase = "";
+        this.render();
+        return;
+      }
+      if (typeof phrase === "string") this.deleteDataPhrase = phrase;
       return;
     }
     if (type === "begin") {
@@ -1463,11 +1517,24 @@ export class AddClusterPanel {
    * artifact landed, and whether the installer created it or merely found it.
    * That is why this carries no domain, no owner and no tag -- a removal is not
    * configured, it is remembered.
+   *
+   * WITH ONE EXCEPTION, WHICH IS REMEMBERED FROM SOMEWHERE ELSE (memql#5118,
+   * D8). `present-unreceipted` means k3d listed a cluster named `memql` and
+   * nothing here recorded it, and D8 gives that verdict two acts: adopt, or
+   * delete. Without `unreceiptedCluster` the delete card opened a screen
+   * reading "no receipt at ~/.memql/install-receipt.json" -- an act the wizard
+   * offered and could not perform. The name is the observation the verdict was
+   * MADE from, not a guess, and it stands in for exactly one artifact.
    */
   private uninstallOptions(): SessionOptions {
     return {
       root: this.deps.installRoot,
       receiptFile: this.deps.receiptFile,
+      // Set ONLY on the verdict that means "a cluster is here and no record of
+      // it is". On every other verdict there is a receipt, which outranks this
+      // anyway -- but a field that is present when it is not the answer is a
+      // field the next reader has to rule out.
+      ...(this.verdict === "present-unreceipted" ? { unreceiptedCluster: LOCAL_CLUSTER_NAME } : {}),
       // THE SHARED TOOLS THE OPERATOR DID NOT TICK (memql#3566).
       //
       // This used to read "nothing is skipped", reasoning that narrowing an
@@ -1479,7 +1546,19 @@ export class AddClusterPanel {
       // still describes the result exactly -- a skipped removal leaves its entry
       // intact, so a later uninstall can still take it.
       skip: this.skippedSharedRemovals(),
-      stepParams: {},
+      // THE ONE DESTRUCTIVE ACT reaches the script as a run-time param, and
+      // ONLY when the box is ticked and the phrase matches exactly
+      // (memql#5118, D9). `deleteDataConfirmed` is both conditions, and the
+      // script checks the phrase again at the point of action -- so an
+      // executor bug here cannot delete somebody's cluster, it can only fail
+      // to.
+      //
+      // The step id is the graph's, not a guess: `removeCluster` is the one
+      // step whose kind is `stack`, which is the one kind the script accepts a
+      // phrase for.
+      stepParams: this.deleteDataConfirmed()
+        ? { removeCluster: { confirm: DELETE_DATA_CONFIRM_VALUE } }
+        : {},
       // A removal can hang exactly as an install can -- `k3d cluster delete`
       // against a wedged daemon is the obvious way -- and an uninstall stuck
       // halfway is the worse of the two states to be left in.
@@ -1558,6 +1637,19 @@ export class AddClusterPanel {
     // would have each step racing the other's removal of the same artifact.
     if (this.uninstalling || this.uninstallPreview === undefined) return;
 
+    // THE PHRASE IS A PRECONDITION, NOT A WARNING (memql#5118, D9). A box
+    // ticked with the phrase empty or mistyped means the person asked for
+    // something and has not yet said it -- so the run does not start, and the
+    // refusal lands on the FORM they are already looking at, beside the field
+    // that is wrong. `deleteDataHtml` renders it there; this is only the gate.
+    //
+    // The script checks the phrase again at the point of action, so this is
+    // the courteous half rather than the safe one.
+    if (this.deleteData && !this.deleteDataConfirmed()) {
+      this.render();
+      return;
+    }
+
     this.uninstalling = true;
     // Platform before sudo (memql#4294). Asking for a password so we can then
     // say the wizard cannot run here is the wrong order.
@@ -1615,7 +1707,7 @@ export class AddClusterPanel {
       );
       this.uninstall.finish(report);
       if (report.ok && report.cancelled !== true) {
-        await this.completeUninstall();
+        await this.completeUninstall(report.keptCluster === true);
       } else {
         // A partial removal still changed the machine, so the memo describing
         // it has to go. The registry entry does NOT: it still names a cluster
@@ -1646,9 +1738,20 @@ export class AddClusterPanel {
     }
   }
 
-  /** The three things that follow a clean removal. See completeLocalUninstall. */
-  private async completeUninstall(): Promise<void> {
+  /**
+   * The three things that follow a clean removal. See completeLocalUninstall.
+   *
+   * `keptCluster` decides whether the records go with the artifacts: a run that
+   * preserved the operator's own cluster has left it on this machine, and the
+   * receipt and the registry row are what say so (memql#5118, D8).
+   *
+   * The CLUSTER rather than `report.kept`, which is true of any preserved
+   * artifact. Both records name a cluster, so a run that kept only a checkout
+   * has to let them go -- see ExecutionReport.keptCluster.
+   */
+  private async completeUninstall(keptCluster: boolean): Promise<void> {
     const problem = await completeLocalUninstall({
+      keptCluster,
       clusterName: this.localClusterName,
       removeEntry: (name) => this.deps.removeRegistryEntry(name),
       invalidatePresence: () => this.presence.invalidate(),
@@ -1777,6 +1880,19 @@ ${this.bodyHtml()}
   // whole document and would take the caret with it (memql#3538). (No
   // backticks in here: this script is itself inside a template literal.)
   function sendField(e) {
+    // The data box REPAINTS (the phrase field appears or goes with it), so it
+    // is the one control on this page that is an action rather than a
+    // keystroke. The phrase field beside it is an ordinary keystroke again.
+    const deleteBox = e.target.closest('[data-delete-data]');
+    if (deleteBox) {
+      vscode.postMessage({ type: 'deleteData', value: { on: deleteBox.checked } });
+      return;
+    }
+    const deletePhrase = e.target.closest('[data-delete-phrase]');
+    if (deletePhrase) {
+      vscode.postMessage({ type: 'deleteData', value: { phrase: deletePhrase.value } });
+      return;
+    }
     const shared = e.target.closest('[data-shared]');
     if (shared) {
       // A tick is state, not an action: the host records it and does NOT
@@ -2233,17 +2349,20 @@ ${this.probeHtml()}`,
     // pointing at where they are. The list is still the confirmation and there
     // is still no second prompt; what changed is that an operator who has
     // already read it does not scroll back past it to act.
+    // WHAT THE LIST IS BUILT FROM, SAID ACCURATELY FOR BOTH CASES. The words are
+    // installScreens' (uninstallConfirmCopy), which is where the wizard's copy
+    // lives and where it can be tested without a webview; this only decides
+    // which case the screen is in.
+    const copy = uninstallConfirmCopy(this.verdict === "present-unreceipted");
     return `<div data-escape-act="uninstallBack">${renderScreen({
-      title: "Uninstall the local cluster",
+      title: copy.title,
       actions: `<button class="primary" type="button" data-act="uninstallStart">Uninstall -- remove the items listed below</button>
   <button class="secondary" type="button" data-act="uninstallBack">Cancel</button>`,
-      status: `<p class="lede">${escapeHtml(
-        "This list is the confirmation -- there is no second prompt. It is built from the " +
-          "install receipt, so nothing this machine had before the install is touched.",
-      )}</p>`,
+      status: `<p class="lede">${escapeHtml(copy.lede)}</p>`,
       details: `${renderToHtml(renderRemovalPreview(items.filter((item) => !this.isShared(item.id))))}
 ${elevationNote}
-${this.sharedToolsHtml()}`,
+${this.sharedToolsHtml()}
+${this.deleteDataHtml()}`,
     })}</div>`;
   }
 
@@ -2424,6 +2543,88 @@ ${rows}`;
   }
 
   /**
+   * The one destructive act, offered (memql#5118, D9).
+   *
+   * A CHECKBOX IN A FORM, which interface rule 10 permits and which nothing
+   * else on this page is: the rule bans a standing checkbox in front of
+   * CONTENT, and this is a consent inside the form that runs the act.
+   *
+   * THE PHRASE FIELD APPEARS ONLY WHEN THE BOX IS TICKED. A field asking for a
+   * phrase beside an untouched box is chrome for an act nobody chose, and it
+   * would teach an operator to type it before deciding.
+   *
+   * WHAT IT CHANGES IS SAID BEFORE IT IS DONE. Without this box a pre-existing
+   * cluster is KEPT -- the preview's `preserved` list says so, in the operator's
+   * own words -- so ticking it moves that row from one list to the other, and
+   * the sentence here has to be the one thing on the page that says the
+   * database goes with it.
+   */
+  private deleteDataHtml(): string {
+    // Offered only when there is a cluster that would otherwise be kept: on a
+    // machine where MemQL created the cluster, the ordinary removal already
+    // takes it and a second box would be a second answer to a settled
+    // question.
+    // The ARTIFACT KIND, not the step id: `stack` is what remove-artifact.sh
+    // calls the k3d cluster and the only kind the phrase is accepted for, so
+    // the box is offered for exactly what the script would take.
+    //
+    // ONE PREDICATE, AND IT NOW COVERS `present-unreceipted` TOO. That verdict
+    // used to need a disjunct of its own because the preview REFUSED without a
+    // receipt, so there was no preserved list to read. It plans that one
+    // removal now (session.ts, `unreceiptedCluster`), which puts the cluster in
+    // `preserved` exactly as a receipted pre-existing one is -- and a second
+    // condition that can no longer differ from the first is a branch the next
+    // reader has to rule out.
+    const kept = (this.uninstallPreview?.preserved ?? []).some((step) => step.params.kind === "stack");
+    if (!kept) return "";
+
+    const checked = this.deleteData ? " checked" : "";
+    const mismatch = this.deleteData && !this.deleteDataConfirmed();
+    const field = this.deleteData
+      ? `<div class="field"${mismatch ? ' data-invalid="true"' : ""}>
+  <label for="deleteDataPhrase">Type <code>${escapeHtml(DELETE_DATA_TYPED_PHRASE)}</code> to confirm</label>
+  <input id="deleteDataPhrase" type="text" data-delete-phrase value="${escapeHtml(this.deleteDataPhrase)}" autocomplete="off" spellcheck="false">
+  ${
+    this.deleteDataPhrase !== "" && mismatch
+      ? `<p class="error">${escapeHtml("That is not the phrase, so nothing will be removed.")}</p>`
+      : ""
+  }
+</div>`
+      : "";
+
+    // WHAT THE BOX CHANGES, SAID WHERE THE BOX IS. The list above still shows
+    // the cluster under "kept", because that list is the PREVIEW and the
+    // preview is computed from the receipt once, before this box exists. So
+    // this sentence is what reconciles the two -- without it the screen would
+    // say "kept" in one place and "deleted" in another and leave the operator
+    // to guess which one the run believes.
+    const overrides = this.deleteDataConfirmed()
+      ? `<p class="hint">${escapeHtml(
+          "The cluster is listed above as kept. With this ticked and the phrase typed, it is " +
+            "removed instead.",
+        )}</p>`
+      : "";
+
+    return `<h2>The cluster this install did not create</h2>
+<p class="hint">${escapeHtml(
+      "It is kept by default, and an uninstall followed by an install is NOT a data reset -- " +
+        "the install adopts the cluster it finds, database and all.",
+    )}</p>
+<label class="shared-tool">
+  <input type="checkbox" data-delete-data${checked}>
+  <span><strong>Also delete the cluster and its data</strong>
+  <em>Every database inside it goes. This cannot be undone.</em></span>
+</label>
+${field}
+${overrides}`;
+  }
+
+  /** Whether the typed phrase permits the act. Exact, and never trimmed. */
+  private deleteDataConfirmed(): boolean {
+    return this.deleteData && this.deleteDataPhrase === DELETE_DATA_TYPED_PHRASE;
+  }
+
+  /**
    * The removal in flight.
    *
    * THE SAME RUN BLOCK AS AN INSTALL (memql#4454), from `renderRunBlock` with
@@ -2439,6 +2640,11 @@ ${rows}`;
       steps,
       mode: "uninstall" as const,
       running: !runIsSettled(steps),
+      // Read off the STEPS rather than off the report, so the finished
+      // sentence is right on the running screen too -- the report only exists
+      // once the whole graph has settled, and by then this screen has already
+      // said what it thinks happened.
+      kept: steps.some((step) => step.state === "preserved"),
       logsOpen: this.uninstall.logsOpen,
       logsFollow: this.uninstall.logsFollow,
     };
@@ -2469,11 +2675,17 @@ ${renderRunBlock(block)}`,
     const steps = this.uninstall.steps;
     const removed = steps.filter((step) => step.state === "done").length;
     const kept = steps.filter((step) => step.state === "preserved").length;
+    // KEPT IS ITS OWN WORD, not a footnote on a removal count (memql#5118,
+    // D8). Each kept row already carries the capability's own reason on its
+    // detail line, so this sentence says WHAT happened and the list below says
+    // to which artifact and why -- rather than this one paragraph having to
+    // carry both.
     const summary =
       kept === 0
         ? `${removed} artifact${removed === 1 ? "" : "s"} removed.`
-        : `${removed} artifact${removed === 1 ? "" : "s"} removed; ${kept} left in place because ` +
-          `${kept === 1 ? "it was" : "they were"} already on this machine before the install.`;
+        : `${removed} artifact${removed === 1 ? "" : "s"} removed. ` +
+          `Kept: ${kept === 1 ? "one artifact was" : `${kept} artifacts were`} here before the install, ` +
+          `so ${kept === 1 ? "it is" : "they are"} still on this machine.`;
     // The follow-up is reported as its own news. The cluster IS gone -- saying
     // the uninstall failed because a YAML write did would send the operator to
     // repeat a removal with nothing left to remove.
@@ -2483,7 +2695,13 @@ ${renderRunBlock(block)}`,
         : `<p class="error">${escapeHtml(this.uninstall.followUpProblem)}</p>`;
 
     return renderScreen({
-      title: "The local cluster is off this machine",
+      // The TITLE changes too, and not only the sentence beneath it: "off this
+      // machine" is the claim an operator reads first, and it is false when
+      // the cluster is still running (memql#5118, D8).
+      title:
+        kept === 0
+          ? "The local cluster is off this machine"
+          : "What the install created is off this machine",
       actions: `<button class="secondary" type="button" data-act="uninstallBack">Back</button>`,
       status: `<p class="lede">${escapeHtml(summary)}</p>
 ${followUp}`,
@@ -3194,6 +3412,11 @@ const VERDICT_LEDE: Record<PresenceVerdict, string> = {
   absent: "No local cluster was found on this machine.",
   "installed-healthy": "A local cluster is installed here and is answering.",
   "installed-unreachable": "A local cluster is installed here, but it is not answering.",
+  // It says WHOSE cluster it is not, because that is the whole difference:
+  // this machine has one and MemQL did not put it there, so nothing here
+  // knows what it holds.
+  "present-unreceipted":
+    "A cluster named memql is running on this machine, and this installer did not create it.",
 };
 
 // `usablePath` IS GONE (epic memql#5088). It turned a recorded key-file value

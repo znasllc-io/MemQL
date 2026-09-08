@@ -201,16 +201,21 @@ describe("ids minted against the document", () => {
     const seeded = store.load();
     const surface = seeded?.surfaces[seeded.activeDeskId];
     const widgetIds = Object.keys(surface?.items ?? {});
-    // An owner's seed places TWO widgets (epic memql#5106): Ask, and the
-    // first-run Set up wizard beneath it. Pinned by NAME rather than by
-    // count, because what this case then asserts is that every seeded id
-    // survives the collision -- and a bare number says nothing about which
-    // one went missing when it does not.
+    // THE SEED PLACES ASK ALONE (epic memql#5118, D4). It used to place two,
+    // Ask and the Set up wizard beneath it -- except that it never did in
+    // production, because the seed runs before the role ladder lands and
+    // `roleAdmits("")` refused it every time. The wizard's presence is derived
+    // now, by `SetupPresence`, which needs a loaded readiness feed and so
+    // places nothing on a shell dialling nothing.
+    //
+    // Pinned by NAME rather than by count, because what this case then asserts
+    // is that every seeded id survives the collision -- and a bare number says
+    // nothing about which one went missing when it does not.
     expect(
       widgetIds
         .map((id) => (surface?.items[id] as { widgetId?: string } | undefined)?.widgetId ?? "")
         .sort(),
-    ).toEqual(["ask", "setup"]);
+    ).toEqual(["ask"]);
     first.unmount();
 
     resetIdsForTest(); // the reload

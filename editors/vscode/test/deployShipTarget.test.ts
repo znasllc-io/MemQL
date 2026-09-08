@@ -187,7 +187,7 @@ function record(id: string, status: string): DeploymentRecord {
 // -----------------------------------------------------------------------------
 
 function presenceOf(verdict: PresenceResult["verdict"]): () => Promise<PresenceResult> {
-  return async () => ({ verdict, evidence: { receipt: true, registry: false }, endpoint: "" });
+  return async () => ({ verdict, evidence: { receipt: true, registry: false, liveCluster: false }, endpoint: "" });
 }
 
 function clusters(file: Partial<ClustersFile> = {}): CatalogInputs["readClusters"] {

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { AskSurface } from "../ask/AskSurface";
+import { AskUnconfigured } from "../ask/AskUnconfigured";
 import { useAsk } from "../ask/AskProvider";
 import { useMakeGoal } from "../ask/useMakeGoal";
 import type { OsAppManifest, OsRegistry, OsWidgetManifest } from "../system/registry";
@@ -53,7 +54,6 @@ import { NexusApp } from "./nexus/NexusApp";
 import { NEXUS_SECTIONS } from "./nexus/settings";
 import { useSession } from "../chrome/access";
 import { gateFor } from "../kit/ReadinessStates";
-import { MODULE_DESCRIPTIONS } from "../system/modules";
 
 // The installed roster (spec D12). Every app is real now -- Files (epic
 // #4721) replaced the last stub, and the `stub` helper and StubApp went with
@@ -659,13 +659,7 @@ function AskWidgetBody() {
   // One Ask, three entry points, and an act that exists on one of them is an
   // act somebody learns and then cannot find.
   const makeGoal = useMakeGoal();
-  if (aiGate.state === "unconfigured") {
-    return (
-      <p className="os-caption os-ask-unconfigured">
-        {MODULE_DESCRIPTIONS.ai} An owner or developer can set it up in Settings.
-      </p>
-    );
-  }
+  if (aiGate.state === "unconfigured") return <AskUnconfigured />;
   return (
     <AskSurface
       transport={transport}

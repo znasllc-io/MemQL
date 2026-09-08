@@ -150,6 +150,13 @@ describe("the dispatcher", () => {
       seeded = os.state.shell.desks[0]?.id ?? "";
       return (
         <>
+          {/* THE WIDGET IS PUT THERE, not seeded (epic memql#5118, D4). In
+              production `SetupPresence` does this from the feed and the
+              ladder; here the test does it directly, because what this case
+              is about is the RETURN, not how the card arrived. */}
+          <button type="button" onClick={() => os.actions.ensureWidget("setup", "ask")}>
+            ensure widget
+          </button>
           <button type="button" onClick={() => os.actions.addDesk()}>
             add desk
           </button>
@@ -165,7 +172,9 @@ describe("the dispatcher", () => {
         <Harness />
       </OsProvider>,
     );
-    // A second desk, which is where they were when they followed the link.
+    // The first desk holds the widget, which is the desk they left from.
+    fireEvent.click(screen.getByRole("button", { name: "ensure widget" }));
+    // A second desk, which is where they are when they come back.
     fireEvent.click(screen.getByRole("button", { name: "add desk" }));
     switched.length = 0;
     fireEvent.click(screen.getByRole("button", { name: "come back" }));

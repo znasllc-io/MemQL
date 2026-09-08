@@ -143,6 +143,21 @@ export interface OsActions {
   /** Refresh a folder shortcut's denormalized name from live rows. */
   renameFolderShortcut: (itemId: string, name: string) => void;
   addWidget: (widgetId: string) => boolean;
+  /**
+   * Put a widget on the ACTIVE desk if it is not already there, seated under
+   * `under` when that widget is on the desk too.
+   *
+   * The DERIVED half of the setup wizard's presence (epic memql#5118, D4).
+   * Unlike `addWidget` it reports nothing and does nothing when the widget is
+   * already present, because its caller is an effect that re-runs on every
+   * change of the readiness feed -- a boolean nobody reads would only invite
+   * somebody to branch on "did it land this time".
+   *
+   * IDEMPOTENT BY THE DESK'S CONTENTS, never by a remembered flag: anything
+   * remembered would be a second answer to a question the desk can already
+   * answer, and it would be wrong the moment somebody moved to another desk.
+   */
+  ensureWidget: (widgetId: string, under?: string) => void;
   removeWidget: (itemId: string) => void;
   sortActiveDesk: () => void;
   setThemePack: (pack: string) => void;
@@ -244,26 +259,38 @@ export function gridForViewport(width: number, height: number): GridSize {
 }
 
 /**
- * First-run document: one desk, the Ask widget resting top-right (the one
- * pre-placed thing a fresh desktop carries), the Set up wizard beneath it for
- * a role that can act on it, and Settings pinned so the dock is never empty.
+ * First-run document: one desk, the Ask widget resting top-right -- the ONE
+ * pre-placed thing a fresh desktop carries -- and Settings pinned so the dock
+ * is never empty.
  *
- * THE WIZARD IS SEEDED, NOT CONDITIONAL ON A CLUSTER READING. `seedDocument`
- * runs before anything has been read -- there is no connection yet, let alone
- * a readiness feed -- so the placement cannot depend on whether the cluster
- * needs setting up. It does not have to: the widget's own gate draws nothing
- * on a configured cluster and takes the item off the desk, which is one
- * decision in one place rather than the same question asked at boot and again
- * every render (design record 2026-09-06-first-run-wizard, D1).
+ * THE WIZARD IS NOT SEEDED, AND COULD NOT BE (design record
+ * 2026-09-07-core-gate-and-honest-install, D4).
  *
- * `actorRole` is "" for a shell that has not resolved one, and `roleAdmits`
- * refuses an unknown role against a requirement -- so a document seeded
- * before the ladder lands carries no wizard, and the person gets one on their
- * next fresh desk. That is the right way round: seeding a gated widget for
- * somebody who turns out to be a reader would put a card on their desk that
- * the desk then refuses to draw.
+ * This runs in a React state initializer: before the connection exists, before
+ * the role ladder lands, before the readiness feed has said anything.
+ * `Shell.tsx` passes `access?.clusterRole ?? ""`, which in production is "",
+ * and `roleAdmits` refuses an unknown role against a requirement -- so the
+ * seeded wizard was placed for NOBODY, on every production boot. This header
+ * used to say a desk seeded before the ladder lands carries no wizard, as
+ * though that were an edge case; it was every desk.
+ *
+ * Fixing the TIMING would not have been enough either. A seed is a one-time
+ * act, and an EXISTING desk never gains a widget: the store adopts the stored
+ * document and replaces the seeded surfaces wholesale. So a timing fix would
+ * have left every desk made before it without a wizard forever -- the
+ * population that most needed one.
+ *
+ * Presence is DERIVED instead, by `SetupPresence`, from the feed and the
+ * ladder, on whatever desk is active. "It comes back on a fresh desk", which
+ * this file documented and never implemented, becomes "it comes back on any
+ * desk the moment a core stop unsettles".
+ *
+ * `actorRole` stays a parameter: every caller passes one and the tests read
+ * it. What changed is that nothing here gates on it any more, which is what
+ * the seeded-roster case asserts for every role.
  */
 export function seedDocument(registry: OsRegistry, grid: GridSize, actorRole = ""): OsState {
+  void actorRole;
   const shell = initialShell();
   let surface = emptySurface();
   const ask = widgetById(registry, "ask");
@@ -272,20 +299,6 @@ export function seedDocument(registry: OsRegistry, grid: GridSize, actorRole = "
       surface,
       { kind: "widget", id: nextId("item"), widgetId: ask.id, w: ask.size.w, h: ask.size.h },
       { col: Math.max(0, grid.cols - ask.size.w), row: 0 },
-      grid,
-    );
-    if (placed) surface = placed;
-  }
-  const setup = widgetById(registry, "setup");
-  if (setup && roleAdmits(actorRole, setup.roles)) {
-    const placed = addItem(
-      surface,
-      { kind: "widget", id: nextId("item"), widgetId: setup.id, w: setup.size.w, h: setup.size.h },
-      // Under Ask, on the same edge: the two pre-placed things read as one
-      // column rather than two unrelated cards. `addItem` settles on the
-      // nearest free cell, so a desk too short for this row places it
-      // wherever it fits instead of dropping it.
-      { col: Math.max(0, grid.cols - setup.size.w), row: ask ? ask.size.h : 0 },
       grid,
     );
     if (placed) surface = placed;
@@ -717,6 +730,43 @@ export function OsProvider({
           return withSurface(s, deskId, placed);
         });
         return ok;
+      },
+      ensureWidget: (widgetId, under) => {
+        set((s) => {
+          const manifest = widgetById(registry, widgetId);
+          if (!manifest) return s;
+          // The role gate addWidget states in full, for the reason it states:
+          // an action that trusts its callers is an action whose next caller
+          // does not know it had to.
+          if (!roleAdmits(actorRoleRef.current, manifest.roles)) return s;
+          const deskId = s.shell.activeDeskId;
+          const surface = surfaceOf(s, deskId);
+          // `items` is keyed by item id, not a list -- Object.values, the way
+          // addWidget reads it.
+          const items = Object.values(surface.items);
+          if (items.some((i) => i.kind === "widget" && i.widgetId === widgetId)) return s;
+          // The anchor's own placement, not its item: a surface keeps items
+          // and positions in two maps, so a widget's row lives in the second.
+          const anchor = under
+            ? items.find((i) => i.kind === "widget" && i.widgetId === under)
+            : undefined;
+          const anchorAt = anchor ? surface.positions[anchor.id] : undefined;
+          const anchorSpan = anchor && anchor.kind === "widget" ? anchor.h : 0;
+          const placed = addItem(
+            surface,
+            { kind: "widget", id: mintItemId(s), widgetId, w: manifest.size.w, h: manifest.size.h },
+            // Under its anchor on the same edge, so the two pre-placed things
+            // read as one column rather than two unrelated cards. `addItem`
+            // settles on the nearest free cell, so a desk too short for this
+            // row places it wherever it fits instead of dropping it.
+            {
+              col: Math.max(0, gridRef.current.cols - manifest.size.w),
+              row: anchorAt ? anchorAt.row + anchorSpan : 0,
+            },
+            gridRef.current,
+          );
+          return withSurface(s, deskId, placed);
+        });
       },
       removeWidget: (itemId) => actionsRef.current!.removeSurfaceItem(itemId),
       sortActiveDesk: () =>

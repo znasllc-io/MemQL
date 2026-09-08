@@ -23,6 +23,7 @@ import {
   detectPresence,
   probeEndpointFor,
   verdictFor,
+  type PresenceEvidence,
   type EndpointProbe,
   type PresenceVerdict,
 } from "../src/clusters/presence.js";
@@ -93,7 +94,7 @@ interface Row {
   clusters: ClusterConfig[];
   probe: EndpointProbe;
   want: PresenceVerdict;
-  wantEvidence: { receipt: boolean; registry: boolean };
+  wantEvidence: PresenceEvidence;
   /** Endpoints the probe should have been asked about. */
   wantProbed: string[];
 }
@@ -105,7 +106,7 @@ const TABLE: Row[] = [
     clusters: [],
     probe: fixedProbe(true),
     want: "absent",
-    wantEvidence: { receipt: false, registry: false },
+    wantEvidence: { receipt: false, registry: false, liveCluster: false },
     // The verdict is `absent` however the dial goes, so there is nothing to
     // learn from it -- and the operator with no cluster is the one who least
     // deserves a network round trip in front of their menu.
@@ -117,7 +118,7 @@ const TABLE: Row[] = [
     clusters: [],
     probe: fixedProbe(true),
     want: "absent",
-    wantEvidence: { receipt: false, registry: false },
+    wantEvidence: { receipt: false, registry: false, liveCluster: false },
     wantProbed: [],
   },
   {
@@ -128,7 +129,7 @@ const TABLE: Row[] = [
     clusters: [{ name: "staging", endpoint: "api.example.com:443" }],
     probe: fixedProbe(true),
     want: "absent",
-    wantEvidence: { receipt: false, registry: false },
+    wantEvidence: { receipt: false, registry: false, liveCluster: false },
     wantProbed: [],
   },
   {
@@ -137,7 +138,7 @@ const TABLE: Row[] = [
     clusters: [],
     probe: fixedProbe(true),
     want: "installed-healthy",
-    wantEvidence: { receipt: true, registry: false },
+    wantEvidence: { receipt: true, registry: false, liveCluster: false },
     wantProbed: [DEFAULT_LOCAL_ENDPOINT],
   },
   {
@@ -146,7 +147,7 @@ const TABLE: Row[] = [
     clusters: [],
     probe: fixedProbe(false),
     want: "installed-unreachable",
-    wantEvidence: { receipt: true, registry: false },
+    wantEvidence: { receipt: true, registry: false, liveCluster: false },
     wantProbed: [DEFAULT_LOCAL_ENDPOINT],
   },
   {
@@ -155,7 +156,7 @@ const TABLE: Row[] = [
     clusters: [LOCAL_ENTRY],
     probe: fixedProbe(true),
     want: "installed-healthy",
-    wantEvidence: { receipt: false, registry: true },
+    wantEvidence: { receipt: false, registry: true, liveCluster: false },
     wantProbed: [LOCAL_ENTRY.endpoint],
   },
   {
@@ -164,7 +165,7 @@ const TABLE: Row[] = [
     clusters: [LOCAL_ENTRY],
     probe: fixedProbe(false),
     want: "installed-unreachable",
-    wantEvidence: { receipt: false, registry: true },
+    wantEvidence: { receipt: false, registry: true, liveCluster: false },
     wantProbed: [LOCAL_ENTRY.endpoint],
   },
   {
@@ -173,7 +174,7 @@ const TABLE: Row[] = [
     clusters: [LOCAL_ENTRY],
     probe: fixedProbe(true),
     want: "installed-healthy",
-    wantEvidence: { receipt: true, registry: true },
+    wantEvidence: { receipt: true, registry: true, liveCluster: false },
     // The registered endpoint wins over the receipt's convention: an operator
     // who wrote one down is naming the front door they actually use.
     wantProbed: [LOCAL_ENTRY.endpoint],
@@ -184,7 +185,7 @@ const TABLE: Row[] = [
     clusters: [LOCAL_ENTRY],
     probe: fixedProbe(false),
     want: "installed-unreachable",
-    wantEvidence: { receipt: true, registry: true },
+    wantEvidence: { receipt: true, registry: true, liveCluster: false },
     wantProbed: [LOCAL_ENTRY.endpoint],
   },
   {
@@ -193,7 +194,7 @@ const TABLE: Row[] = [
     clusters: [LOCAL_ENTRY],
     probe: HANGING_PROBE,
     want: "installed-unreachable",
-    wantEvidence: { receipt: true, registry: true },
+    wantEvidence: { receipt: true, registry: true, liveCluster: false },
     wantProbed: [LOCAL_ENTRY.endpoint],
   },
 ];
@@ -226,10 +227,113 @@ test("INSTALL IS NEVER OFFERED once either source says a cluster is here", () =>
   // together they are the acceptance criterion. An install run over an
   // existing cluster rebuilds a k3d stack, a hosts block and a trust-store CA
   // underneath a working one.
-  for (const verdict of ["installed-healthy", "installed-unreachable"] as const) {
+  for (const verdict of ["installed-healthy", "installed-unreachable", "present-unreceipted"] as const) {
     const actions = addClusterMenu(verdict, true).map((c) => c.action);
     assert.ok(!actions.includes("install"), `${verdict} offered an install: ${actions.join(", ")}`);
   }
+});
+
+// -----------------------------------------------------------------------------
+// THE FOURTH SIGNAL (memql#5118, D8)
+// -----------------------------------------------------------------------------
+//
+// The uninstall refuses to delete a k3d cluster it did not create -- correctly
+// -- classes that refusal `preserved`, and `ok` ignores preservations. So the
+// wizard deleted the receipt, presence read `absent` because it never asked
+// k3d, Install was offered again, and it adopted the same database. The
+// operator was told everything had been taken back and then handed their own
+// data back under a fresh install. Every step was individually correct.
+
+/** detectPresence with nothing on disk: the path the fourth signal is on. */
+function bareMachine(listClusters?: () => Promise<string[]>) {
+  return detectPresence({
+    clustersPath: CLUSTERS_PATH,
+    receiptPath: RECEIPT_PATH,
+    readReceiptFile: () => Promise.resolve(null),
+    readClusters: clustersWith([]),
+    probe: fixedProbe(true),
+    probeTimeoutMs: 25,
+    ...(listClusters ? { listClusters } : {}),
+  });
+}
+
+test("a live cluster with no receipt and no registry row reads PRESENT-UNRECEIPTED", async () => {
+  const result = await bareMachine(async () => ["memql"]);
+  assert.equal(result.verdict, "present-unreceipted");
+  assert.equal(result.evidence.liveCluster, true);
+  // Nothing was dialed: there is no endpoint to dial, which is exactly why
+  // this signal costs no round trip on top of another.
+  assert.equal(result.endpoint, "");
+});
+
+test("a cluster by another name is somebody else's project", async () => {
+  const result = await bareMachine(async () => ["k3s-default", "someone-elses"]);
+  assert.equal(result.verdict, "absent");
+  assert.equal(result.evidence.liveCluster, false);
+});
+
+test("an empty listing is still ABSENT", async () => {
+  const result = await bareMachine(async () => []);
+  assert.equal(result.verdict, "absent");
+});
+
+test("a listing that THROWS answers the same as an empty one", async () => {
+  // k3d may not be installed and Docker may be down, and neither is evidence
+  // of a cluster. The direction that cannot destroy anything is the one to
+  // fail in -- and here that means keeping Install offered on the machine that
+  // genuinely has nothing.
+  const result = await bareMachine(async () => {
+    throw new Error("k3d: command not found");
+  });
+  assert.equal(result.verdict, "absent");
+  assert.equal(result.evidence.liveCluster, false);
+});
+
+test("no listener at all is the same again, so an older caller is unchanged", async () => {
+  const result = await bareMachine();
+  assert.equal(result.verdict, "absent");
+});
+
+test("THE RECEIPT OUTRANKS THE LISTING, and is never asked for a second opinion", async () => {
+  // A cluster this installer DID create reads installed-healthy even though
+  // k3d would list it too: the receipt is what makes repair, rebuild and
+  // uninstall mean anything, and demoting it would take those acts away.
+  let asked = 0;
+  const result = await detectPresence({
+    clustersPath: CLUSTERS_PATH,
+    receiptPath: RECEIPT_PATH,
+    readReceiptFile: () => Promise.resolve(installedReceipt()),
+    readClusters: clustersWith([]),
+    probe: fixedProbe(true),
+    probeTimeoutMs: 25,
+    listClusters: async () => {
+      asked += 1;
+      return ["memql"];
+    },
+  });
+  assert.equal(result.verdict, "installed-healthy");
+  // NOT ASKED AT ALL. Property 2 of this module is that rendering a menu must
+  // not wait on `k3d cluster list`; the one exception is the path that would
+  // otherwise offer to install over an existing cluster, and this is not it.
+  assert.equal(asked, 0);
+});
+
+test("an unreceipted cluster is offered adopt and delete, and never repair", async () => {
+  const actions = addClusterMenu("present-unreceipted", false).map((c) => c.action);
+  assert.deepEqual(actions, ["adopt", "connect", "uninstall"]);
+  // REPAIR HAS NOTHING TO REVERSE. There is no receipt, so a repair run would
+  // be an install by another name over a cluster nobody recorded.
+  assert.ok(!actions.includes("repair"));
+  // And RECONNECT is not it either: reconnect composes its entry from what the
+  // install recorded, and there is no record. `adopt` asks the same question
+  // and says which cluster it means.
+  assert.ok(!actions.includes("reconnect"));
+});
+
+test("the delete card says a phrase will be asked for, so the click is not the consent", () => {
+  const del = addClusterMenu("present-unreceipted", false).find((c) => c.action === "uninstall");
+  assert.ok(del !== undefined);
+  assert.match(del.detail, /type a phrase/i);
 });
 
 test("the menu matches the table in the issue", () => {
@@ -353,7 +457,7 @@ test("an UNREADABLE receipt counts as evidence rather than as an empty install",
     probeTimeoutMs: 25,
   });
   assert.equal(result.verdict, "installed-unreachable");
-  assert.deepEqual(result.evidence, { receipt: true, registry: false });
+  assert.deepEqual(result.evidence, { receipt: true, registry: false, liveCluster: false });
 });
 
 test("a malformed clusters.yaml yields no registry evidence rather than an error", async () => {
@@ -368,7 +472,7 @@ test("a malformed clusters.yaml yields no registry evidence rather than an error
     probeTimeoutMs: 25,
   });
   assert.equal(result.verdict, "absent");
-  assert.deepEqual(result.evidence, { receipt: false, registry: false });
+  assert.deepEqual(result.evidence, { receipt: false, registry: false, liveCluster: false });
 });
 
 test("a clusters read that THROWS does not reject the detection", async () => {
@@ -429,10 +533,10 @@ test("the endpoint comes from the registry, then the receipt's domain, then the 
 });
 
 test("verdictFor is evidence first, reachability second", () => {
-  assert.equal(verdictFor({ receipt: false, registry: false }, true), "absent");
-  assert.equal(verdictFor({ receipt: false, registry: false }, false), "absent");
-  assert.equal(verdictFor({ receipt: true, registry: false }, true), "installed-healthy");
-  assert.equal(verdictFor({ receipt: false, registry: true }, false), "installed-unreachable");
+  assert.equal(verdictFor({ receipt: false, registry: false, liveCluster: false }, true), "absent");
+  assert.equal(verdictFor({ receipt: false, registry: false, liveCluster: false }, false), "absent");
+  assert.equal(verdictFor({ receipt: true, registry: false, liveCluster: false }, true), "installed-healthy");
+  assert.equal(verdictFor({ receipt: false, registry: true, liveCluster: false }, false), "installed-unreachable");
 });
 
 // ---------------------------------------------------------------------------
@@ -544,7 +648,7 @@ test("a receipt whose steps left NO artifact is not evidence of an install", asy
   });
 
   assert.equal(result.verdict, "absent", "nothing was left on this machine to protect");
-  assert.deepEqual(result.evidence, { receipt: false, registry: false });
+  assert.deepEqual(result.evidence, { receipt: false, registry: false, liveCluster: false });
 });
 
 test("an artifact a step FOUND already present is still evidence", async () => {
@@ -569,5 +673,5 @@ test("an artifact a step FOUND already present is still evidence", async () => {
   });
 
   assert.equal(result.verdict, "installed-unreachable");
-  assert.deepEqual(result.evidence, { receipt: true, registry: false });
+  assert.deepEqual(result.evidence, { receipt: true, registry: false, liveCluster: false });
 });

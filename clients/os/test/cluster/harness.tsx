@@ -223,6 +223,13 @@ export function withSession(
     clusterRole?: string;
     identityUrl?: string;
     readiness?: SessionFacts["readiness"];
+    /**
+     * Overridable so a surface that fails CLOSED on the ladder can be tested
+     * in its pre-load state. Defaults TRUE, which is what every existing
+     * harness expects -- the ladder is seeded in test/setup.ts and no case
+     * before the core gate rendered the window in which it has not landed.
+     */
+    ladderLoaded?: boolean;
   } = {},
 ) {
   const config: OsRuntimeConfig = {
@@ -242,7 +249,7 @@ export function withSession(
           clusterRole: overrides.clusterRole ?? "owner",
         },
         config,
-        ladderLoaded: true,
+        ladderLoaded: overrides.ladderLoaded ?? true,
         readiness: overrides.readiness,
       }}
     >

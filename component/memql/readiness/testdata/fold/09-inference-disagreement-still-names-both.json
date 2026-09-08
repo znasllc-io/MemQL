@@ -1,0 +1,23 @@
+{
+  "name": "the disagreement rule is unchanged; what changed is that inference stopped tripping it",
+  "now": "2026-09-07T12:00:00Z",
+  "reports": [
+    {"module": "ai", "nodeId": "agent-a", "nodeType": "agent", "state": "configured", "core": true, "lanes": [
+      {"name": "local", "configurableFrom": "fleet", "complete": true, "slots": [{"name": "live", "present": true}]},
+      {"name": "app", "configurableFrom": "fleet", "complete": false, "slots": [{"name": "live", "present": false}]},
+      {"name": "federation", "configurableFrom": "deployment", "complete": false, "slots": [{"name": "live", "present": false}]}
+    ], "reportedAt": "2026-09-07T11:59:00Z"},
+    {"module": "ai", "nodeId": "bff-a", "nodeType": "bff", "state": "unconfigured", "core": true, "lanes": [
+      {"name": "local", "configurableFrom": "fleet", "complete": false, "slots": [{"name": "live", "present": false}]},
+      {"name": "app", "configurableFrom": "fleet", "complete": false, "slots": [{"name": "live", "present": false}]},
+      {"name": "federation", "configurableFrom": "deployment", "complete": false, "slots": [{"name": "live", "present": false}]}
+    ], "reportedAt": "2026-09-07T11:59:00Z"}
+  ],
+  "nodes": [
+    {"nodeId": "agent-a", "health": "healthy", "lastSeen": "2026-09-07T11:59:40Z"},
+    {"nodeId": "bff-a", "health": "healthy", "lastSeen": "2026-09-07T11:59:40Z"}
+  ],
+  "expect": [
+    {"module": "ai", "state": "partial", "disagreement": ["bff-a=unconfigured", "agent-a=configured"]}
+  ]
+}

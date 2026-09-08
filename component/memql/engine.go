@@ -7,6 +7,7 @@ import (
 	"github.com/znasllc-io/memql/component/auth"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -104,9 +105,22 @@ type MemQLEngine struct {
 	// falls back to MEMQL_NODE_ID and the resolved node type.
 	readinessNodeId   string
 	readinessNodeType string
-	wiring            *bus.Wiring
-	partition         string // active partition for data isolation
-	metadataCollector metadataCollectorInterface
+	// readinessRecompute is this node's debounced rewriter, wired by
+	// StartReadinessRecomputeSubscriber. Nil on a hand-built engine and on any
+	// binary that has not started it, and every method on it is nil-safe --
+	// a notification with nowhere to go is a no-op, not a panic.
+	//
+	// ATOMIC BECAUSE THE WRITE AND THE READS ARE ON DIFFERENT GOROUTINES.
+	// `StartReadinessRecomputeSubscriber` assigns it during startup while the
+	// providers-reload subscriber -- already running, started a few lines
+	// earlier -- can call `NotifyReadinessRecompute` from its own goroutine on
+	// any broadcast that arrives in that window. A plain field is a data race
+	// there, and the race detector only sees it when the timing lines up,
+	// which on a boot-ordering window is rarely.
+	readinessRecompute atomic.Pointer[ReadinessRecomputeSubscriber]
+	wiring             *bus.Wiring
+	partition          string // active partition for data isolation
+	metadataCollector  metadataCollectorInterface
 	// logicRunner wires multi-step Logic dispatch through the
 	// automation step runner. Set via SetLogicRunner from app bootstrap;
 	// when nil, multi-step Logic invocations fall back to the
@@ -1886,6 +1900,15 @@ func (e *MemQLEngine) run(ctx context.Context, markStarted func()) error {
 	// providers.reload.<requestId>; this subscriber re-resolves on receipt.
 	// Scoped to the engine lifecycle context, like its siblings above.
 	e.StartProvidersReloadSubscriber(ctx)
+
+	// epic memql#5118 (D5): wire this node's readiness rows to the events that
+	// change them. Before it, the rows were rewritten at boot and on three
+	// explicit triggers -- so pairing a machine, the one act the first-run
+	// wizard asks for, left the `ai` verdict exactly as it was at boot and the
+	// wizard's rail did not move. Debounced two seconds, because a cockpit
+	// reconnecting re-advertises everything it holds in one burst. Scoped to
+	// the engine lifecycle context, like its siblings above.
+	e.StartReadinessRecomputeSubscriber(ctx)
 
 	// memql#2163: wire LIVE cross-node propagation of durable DEMOTIONS, the
 	// inverse of the promote subscriber above. A durable demote on any node

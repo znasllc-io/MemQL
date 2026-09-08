@@ -205,13 +205,30 @@ repair, rebuild and uninstall rather than Install; and presence gains a fourth s
 no receipt reads `present-unreceipted` with the sentence "a cluster named memql exists
 that this installer did not create" and the acts adopt or delete.
 
+*As built:* the delete needed a path of its own, because both session entry points call
+`requireReceipt` and `present-unreceipted` means there is no receipt -- so the card was
+offered and the screen behind it read "no receipt at ~/.memql/install-receipt.json".
+`SessionOptions.unreceiptedCluster` names the cluster the verdict was MADE from, and
+`unreceiptedClusterReceipt` builds a one-entry record for it with `preExisting: true`;
+every other uninstall step finds no entry and skips satisfied. Nothing is guessed: the
+cluster is the one artifact `k3d cluster list` is direct evidence of, and the general
+refusal is unchanged for a caller that names nothing.
+
+Two predicates came out of this, not one. `ExecutionReport.kept` ("is anything still on
+this machine?") drives the closing sentence; `keptCluster` ("is the CLUSTER still here?")
+decides whether the receipt and the registry row stay. Reading one for both is a bug in
+each direction: a preserved checkout with the cluster deleted would strand a receipt
+naming a cluster that is gone, which is memql#3544 re-opened from the other side.
+
 ### D9 -- The one destructive act is offered, behind a typed phrase
 
 The uninstall form gains "Also delete the cluster and its data", a form checkbox (rule 10
 of the interface language permits a checkbox in a form) with a phrase field. When ticked
 and the phrase `delete memql data` is typed, `removeCluster` runs with
-`--confirm=delete-memql-data`, which `remove-artifact.sh` accepts for `--kind=cluster`
-only and which overrides the pre-existing refusal for that one kind. Nothing else in the
+`--confirm=delete-memql-data`, which `remove-artifact.sh` accepts for `--kind=stack`
+only and which overrides the pre-existing refusal for that one kind. (The record said
+`--kind=cluster` when this was written; `stack` is the artifact kind the script and the
+receipt actually use, and `--cluster` is the flag that names which one.) Nothing else in the
 graph accepts a confirm phrase. The install page gains the sentence that a wizard
 uninstall plus install is not a data reset unless that box is ticked, and the table row
 for the k3d cluster says "only if MemQL created it, or if you tick the data box".
@@ -222,7 +239,10 @@ for the k3d cluster says "only if MemQL created it, or if you tick the data box"
   `Shell.tsx`; draws nothing while `readiness.loaded` or `ladderLoaded` is false, so a
   configured cluster never flashes a gate.
 - `clients/os/src/apps/setup/stops.ts`: unchanged mapping; `inferenceConfigured` reads
-  the lane's `complete`, and the door names come from the lanes.
+  the lane's `complete`. *As built:* the door NAMES are still the client's own strings,
+  not the lanes'. Taking them from the feed would put operator-facing copy in a Go
+  constant, where the interface language cannot reach it; the lane `name` stays an
+  identifier the client matches on.
 - `clients/os/src/chrome/state.tsx`: `seedDocument` places Ask alone; `ensureSetupWidget`
   effect; the retire path reused.
 - `clients/os/src/ask/AskSheet.tsx`: the readiness gate.
@@ -230,10 +250,18 @@ for the k3d cluster says "only if MemQL created it, or if you tick the data box"
   shape already carries `complete` and `slots`; the fixture parity tests gain the
   inference lanes.
 - `component/memql/readiness_eval.go`: the `ai` arm reads registrations and the provider
-  registry; `readiness_write.go`: the maintenance-actor context;
-  `readiness_recompute_subscriber.go` (new): the debounced event-driven rewrite;
-  `app/run.go`: the delayed re-write.
-- `integrations/email`: the status probe answers from the config resolver.
+  registry, and applies the evaluation actor at the one place a context reaches a
+  resolver -- `evaluateModule`, not the caller. *As built:* it began as a line in
+  `readiness_write.go`, which meant one caller carried the whole property and reverting
+  one assignment left every test green. `readiness_recompute_subscriber.go` (new): the
+  debounced event-driven rewrite; `app/run.go`: the delayed re-write, routed through the
+  debounce where there is one.
+- `integrations/email`: *unchanged.* The record expected the status probe to need work
+  here and it did not -- the probe was already a reproduction of the resolution
+  algorithm, and the cause of `email` reading notApplicable on every node was the ACTOR,
+  not timing. `component/memql/readiness_email_probe_test.go` pins both halves, and
+  `TestEmailStatusFloorMatchesTheIntegration` reads the real `statusAuthorized` out of
+  its source file rather than trusting the copy beside it.
 - `editors/vscode/src/install/executor.ts`, `webview/addClusterPanel.ts`,
   `webview/installScreens.ts`, `clusters/presence.ts`, `clusters/registry.ts`,
   `state/uninstallRun.ts`: kept as a result, the receipt retained, the fourth presence

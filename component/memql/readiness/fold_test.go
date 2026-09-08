@@ -29,8 +29,8 @@ func TestFoldFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) < 7 {
-		t.Fatalf("expected at least 7 fold fixtures, found %d -- the parity set is incomplete", len(paths))
+	if len(paths) < 9 {
+		t.Fatalf("expected at least 9 fold fixtures, found %d -- the parity set is incomplete", len(paths))
 	}
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)

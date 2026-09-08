@@ -75,6 +75,61 @@ export function emptyReceipt(graph: string, now: string = new Date().toISOString
   return { version: RECEIPT_VERSION, graph, startedAt: now, updatedAt: now, entries: [] };
 }
 
+/**
+ * The record an uninstall reads when there IS a cluster and no record of it
+ * (memql#5118, D8).
+ *
+ * WHAT THIS IS FOR. `present-unreceipted` is the verdict for a live k3d cluster
+ * named `memql` that this installer did not create -- a developer who ran
+ * `make up` before they ever opened the wizard -- and D8 gives it two acts,
+ * adopt or delete. The delete had no path: both session entry points call
+ * `requireReceipt`, which refuses without one, so the card was offered and the
+ * screen behind it said "no receipt at ~/.memql/install-receipt.json". An act
+ * a product advertises and cannot perform is worse than one it does not offer.
+ *
+ * IT DESCRIBES EXACTLY ONE ARTIFACT, and that is the whole safety argument. The
+ * refusal `requireReceipt` makes is right in general -- an uninstall reverses
+ * what an install RECORDED, and inventing entries would have the wizard guess
+ * at a hosts file, a trust-store CA and a checkout it has no evidence for. Here
+ * nothing is guessed: the cluster is the one thing a verdict of
+ * `present-unreceipted` is direct evidence of, because it comes from `k3d
+ * cluster list` naming it. Every other uninstall step finds no entry and skips
+ * satisfied, which is the same answer it would give for an install that never
+ * got that far.
+ *
+ * `preExisting` IS TRUE, AND MUST BE. It is the literal truth -- this installer
+ * did not create it -- and it is what makes remove-artifact.sh refuse until the
+ * operator ticks the box and types the phrase (D9). Writing `false` here would
+ * turn the one destructive act in the wizard into an ordinary removal.
+ */
+export function unreceiptedClusterReceipt(
+  clusterName: string,
+  now: string = new Date().toISOString(),
+): Receipt {
+  return {
+    version: RECEIPT_VERSION,
+    graph: "install",
+    startedAt: now,
+    updatedAt: now,
+    entries: [
+      {
+        // The install step `removeCluster` reverses, and the `stack` kind
+        // remove-artifact.sh gives a k3d cluster. Both are read from the graph
+        // documents rather than chosen here; see REMOVAL_TARGETS.
+        stepId: "clusterUp",
+        script: "k3d.up",
+        receipt: "stack",
+        preExisting: true,
+        params: { cluster: clusterName },
+        result: { cluster: clusterName },
+        // Nothing was mutated to produce this record: it is an observation.
+        changed: false,
+        recordedAt: now,
+      },
+    ],
+  };
+}
+
 export function serializeReceipt(receipt: Receipt): string {
   return `${JSON.stringify(receipt, null, 2)}\n`;
 }

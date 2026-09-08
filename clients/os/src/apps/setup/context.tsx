@@ -13,6 +13,17 @@ import type { SetupStop } from "./stops";
 
 export interface SetupFacts {
   stops: SetupStop[];
+  /**
+   * Whether every stop has been read. NOTHING is drawn before this -- not the
+   * gate, not the widget, not the desk behind the gate.
+   *
+   * Derived in the scope rather than by each consumer, because the three of
+   * them branch on it and a copy that got the fail-closed direction wrong
+   * would flash a setup screen at somebody on a configured cluster.
+   */
+  known: boolean;
+  /** Whether there is nothing left to do. False for an unread rail. */
+  configured: boolean;
   readiness: Readiness | undefined;
   identityUrl: string;
   role: string;

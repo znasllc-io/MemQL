@@ -54,7 +54,12 @@ type detectResult struct {
 	Tools        map[string]toolProbe `json:"tools"`
 	DockerAccess *string              `json:"dockerAccess"`
 	Ports        map[string]bool      `json:"ports"`
-	Disk         struct {
+	// A POINTER, so an absent key and an empty list stay different answers.
+	// The whole value of this field to its caller is that "[]" means "asked,
+	// nothing there"; a missing key decoding to nil would say the same thing
+	// while meaning "this detect predates the signal".
+	Clusters *[]string `json:"clusters"`
+	Disk     struct {
 		Path   string `json:"path"`
 		FreeMb int64  `json:"freeMb"`
 	} `json:"disk"`
@@ -354,9 +359,9 @@ func TestDockerAccessIsSeparateFromDockerPresent(t *testing.T) {
 	// operator whose daemon was running and healthy -- but whose user was not in
 	// the docker group -- to go and start a daemon that was already active.
 	cases := []struct {
-		name  string
-		stub  string // docker stub body; empty means no docker on PATH at all
-		want  string
+		name string
+		stub string // docker stub body; empty means no docker on PATH at all
+		want string
 	}{
 		{
 			name: "daemon not answering",
@@ -552,4 +557,96 @@ func mustDetect(t *testing.T, dir, home string, args ...string) capEnvelope {
 		t.Fatalf("detect exited %d, want 0\noutput:\n%s", code, out)
 	}
 	return env
+}
+
+//=============================================================================
+// THE k3d CLUSTER LIST -- the installer's fourth presence signal (memql#5118, D8)
+//=============================================================================
+//
+// The wizard decides whether to offer an Install from its own receipt and from
+// a `local: true` row in clusters.yaml. Neither sees a cluster an operator
+// built by hand and never registered, so the wizard offered to install over it
+// -- and the install ADOPTED its database.
+//
+// What detect owes that signal is exactly three things, and all three are
+// about being SILENT rather than about being clever: report the names when it
+// can, report an empty list when it cannot, and never let either take the rest
+// of the inventory down.
+
+// withK3d adds a `k3d` stub to the exclusive PATH, plus the `awk` the cluster
+// list is parsed with. `body` is the whole script after the shebang.
+func withK3d(t *testing.T, dir, body string) {
+	t.Helper()
+	linkReal(t, dir, "awk")
+	writeStub(t, dir, "k3d", body)
+}
+
+func TestDetectReportsTheK3dClusterList(t *testing.T) {
+	home := t.TempDir()
+	dir := stubPATH(t, "Linux", "x86_64")
+	// The real `k3d cluster list --no-headers` prints one row per cluster,
+	// name first. Anything else on the row is a column this signal ignores.
+	withK3d(t, dir, `if [[ "${1:-}" == "cluster" && "${2:-}" == "list" ]]; then
+  printf 'memql          1/1       0/0       true\n'
+  printf 'k3s-default    1/1       0/0       true\n'
+fi
+`)
+
+	r := decodeDetect(t, mustDetect(t, dir, home, "--path="+home))
+	if r.Clusters == nil {
+		t.Fatal("detect reported no `clusters` key at all; the wizard reads an absent key as " +
+			"a detect that predates the signal, and falls back to offering Install")
+	}
+	if got := *r.Clusters; len(got) != 2 || got[0] != "memql" || got[1] != "k3s-default" {
+		t.Fatalf("clusters = %v, want [memql k3s-default] -- the first column of each row, in order", got)
+	}
+}
+
+func TestDetectReportsAnEmptyClusterListWithoutK3d(t *testing.T) {
+	// The ordinary bare machine, and the one where being wrong costs the most:
+	// an empty list is what keeps Install offered for somebody who has nothing.
+	home := t.TempDir()
+	dir := stubPATH(t, "Linux", "x86_64")
+
+	env := mustDetect(t, dir, home, "--path="+home)
+	if !env.OK {
+		t.Fatalf("detect reported ok=false on a machine with no k3d: %+v", env.Error)
+	}
+	r := decodeDetect(t, env)
+	if r.Clusters == nil {
+		t.Fatal("`clusters` is absent rather than empty; asked-and-nothing-there and " +
+			"never-asked are different answers and only one of them is true here")
+	}
+	if got := *r.Clusters; len(got) != 0 {
+		t.Fatalf("clusters = %v on a machine with no k3d, want []", got)
+	}
+}
+
+func TestAFailingK3dDoesNotFailTheInventory(t *testing.T) {
+	// k3d is installed and the docker daemon is not, which is an ordinary state
+	// and not an error for a READ-ONLY inventory. Failing the whole pass here
+	// would take the platform check and the disk reading down with it -- and
+	// those are what the operator opened the wizard to find out.
+	home := t.TempDir()
+	dir := stubPATH(t, "Linux", "x86_64")
+	withK3d(t, dir, `echo "failed to get clusters: docker daemon not reachable" >&2
+exit 1
+`)
+
+	env := mustDetect(t, dir, home, "--path="+home)
+	if !env.OK {
+		t.Fatalf("a failing k3d failed the whole inventory: %+v", env.Error)
+	}
+	if env.Changed {
+		t.Error("detect reported changed=true; it is read-only, always")
+	}
+	r := decodeDetect(t, env)
+	if r.Clusters == nil || len(*r.Clusters) != 0 {
+		t.Fatalf("clusters = %v after a failing k3d, want [] -- a read that did not work is "+
+			"not evidence of a cluster", r.Clusters)
+	}
+	// And the rest of the inventory still answered.
+	if !r.Supported || r.Disk.FreeMb <= 0 {
+		t.Errorf("the inventory lost its other answers: supported=%v freeMb=%d", r.Supported, r.Disk.FreeMb)
+	}
 }

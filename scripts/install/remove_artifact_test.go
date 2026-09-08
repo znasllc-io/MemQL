@@ -1045,3 +1045,115 @@ func TestRemoveArtifactAbsentIsNotARefusal(t *testing.T) {
 		})
 	}
 }
+
+//=============================================================================
+// THE ONE DESTRUCTIVE ACT (memql#5118, D9)
+//=============================================================================
+//
+// `--pre-existing=true` is an unconditional refusal for every kind, and that is
+// the right default: an uninstall must never take something that was already
+// here. But an operator who genuinely wanted their cluster and its data gone
+// had no way to say so from the wizard, and "uninstall, then install again" is
+// not a reset -- the install ADOPTS the cluster it finds.
+//
+// So exactly one kind accepts a typed phrase. Four properties bound it, and
+// each is a way the escape hatch could have been the wrong shape.
+
+func TestTheConfirmPhraseIsAcceptedForTheClusterKindOnly(t *testing.T) {
+	// (1) THE PHRASE ON ANOTHER KIND IS EXIT 2, NEVER A SILENT NO-OP. A phrase
+	// typed into a form that never reads it is worse than a rejected one: the
+	// person believes they have consented to something.
+	for _, args := range [][]string{
+		{"--kind=binary", "--path=/nonexistent/memql-bin", "--pre-existing=true"},
+		{"--kind=checkout", "--path=/nonexistent/memql-src", "--pre-existing=true"},
+		{"--kind=hostsEntries", "--path=/nonexistent/hosts", "--pre-existing=true"},
+		{"--kind=mkcertCA", "--pre-existing=true"},
+		{"--kind=images", "--image-prefix=memql", "--pre-existing=true"},
+	} {
+		w := raNewWorld(t, raClusterList, raImageList)
+		stdout, _, code := raRun(t, w.env, append(args, "--confirm=delete-memql-data")...)
+		if code != 2 {
+			t.Errorf("%v with the phrase exited %d, want 2 (bad param)\nstdout: %s", args, code, stdout)
+			continue
+		}
+		env, _ := raParse(t, stdout)
+		if env.Changed {
+			t.Errorf("%v changed something while refusing the phrase", args)
+		}
+	}
+}
+
+func TestAMistypedPhraseRemovesNothing(t *testing.T) {
+	// (2) A MISTYPED PHRASE IS EXIT 2 AND NOTHING IS REMOVED. The phrase exists
+	// so that deleting somebody's own cluster is a deliberate act; a near miss
+	// that went through would make it an accident with extra steps.
+	//
+	// The first entry is the one a person actually TYPES into the form. The
+	// panel maps that to the flag's hyphenated value in one place, and this
+	// asserts the script does not quietly accept the human spelling too --
+	// two accepted phrases would be two things to keep in step.
+	for _, phrase := range []string{
+		"delete memql data",
+		"delete-memql-Data",
+		"delete-memql-data ",
+		"yes",
+		"DELETE-MEMQL-DATA",
+	} {
+		w := raNewWorld(t, raClusterList, raImageList)
+		stdout, _, code := raRun(t, w.env,
+			"--kind=stack", "--cluster=memql", "--pre-existing=true", "--confirm="+phrase)
+		if code != 2 {
+			t.Errorf("phrase %q exited %d, want 2\nstdout: %s", phrase, code, stdout)
+			continue
+		}
+		// STRONGER THAN "did not delete": k3d was never invoked AT ALL. The
+		// phrase is checked while parameters are read, before the script has
+		// gone looking for anything, so a mistyped phrase does not even ask
+		// the machine what is on it.
+		if _, err := os.Stat(filepath.Join(w.argvDir, "k3d")); err == nil {
+			t.Errorf("phrase %q reached k3d; argv: %s", phrase, w.argv(t, "k3d"))
+		}
+	}
+}
+
+func TestWithoutThePhraseAPreExistingClusterIsStillRefused(t *testing.T) {
+	// (3) THE DEFAULT IS UNCHANGED. This is the case the guard has always
+	// covered, re-asserted beside the new one so a future edit that widened the
+	// override cannot pass by only fixing the tests that are about it.
+	w := raNewWorld(t, raClusterList, raImageList)
+	stdout, _, code := raRun(t, w.env, "--kind=stack", "--cluster=memql", "--pre-existing=true")
+	if code != 3 {
+		t.Fatalf("exit %d, want 3 (refused)\nstdout: %s", code, stdout)
+	}
+	if strings.Contains(w.argv(t, "k3d"), "cluster delete") {
+		t.Errorf("a pre-existing cluster was deleted with no phrase; argv: %s", w.argv(t, "k3d"))
+	}
+}
+
+func TestThePhraseOverridesTheRefusalForTheClusterKind(t *testing.T) {
+	// (4) AND IT ACTUALLY WORKS. The three cases above are all refusals, so
+	// without this one they would every one pass over a script that refused
+	// everything -- the reachable positive that keeps them meaningful.
+	w := raNewWorld(t, raClusterList, raImageList)
+	stdout, stderr, code := raRun(t, w.env,
+		"--kind=stack", "--cluster=memql", "--pre-existing=true", "--confirm=delete-memql-data")
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	env, res := raParse(t, stdout)
+	if !env.Changed {
+		t.Error("changed=false after deleting the cluster")
+	}
+	if !res.Removed {
+		t.Errorf("removed=%v, want true", res.Removed)
+	}
+	if !strings.Contains(w.argv(t, "k3d"), "cluster delete memql") {
+		t.Errorf("k3d cluster delete was never run; argv: %s", w.argv(t, "k3d"))
+	}
+	// It says so on stderr, where the human log lives: an operator reading a
+	// transcript should see that the refusal was overridden, rather than infer
+	// it from the absence of one.
+	if !strings.Contains(stderr, "delete-memql-data") {
+		t.Errorf("stderr does not record that the phrase was given:\n%s", stderr)
+	}
+}
