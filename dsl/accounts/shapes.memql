@@ -38,6 +38,15 @@ shape account clientAccountFull {
   primaryContactEmail
   notes
   status
+  domainToken
+  domainStatus
+  domainFailureReason
+  domainFailureDetail
+  domainLastCheckedAt
+  domainVerifiedAt
+  joinOnDomain
+  memqlDomain
+  memqlReservedAt
   configuredAt
   row.createdAt
 }

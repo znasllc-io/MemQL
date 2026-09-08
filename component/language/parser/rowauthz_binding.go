@@ -182,6 +182,41 @@ type RowAuthzDecl struct {
 	// on rank 0 (which admits everyone).
 	Unowned string `json:"unowned,omitempty"`
 
+	// Account is the payload field naming the ACCOUNT a row belongs to --
+	// `@rowAuthz(owner="<field>", account="accountId")` (epic memql#5165 D3).
+	//
+	// It widens the owned tier's reads AND writes to "the owner, OR anyone
+	// whose group ties them to this row's account". That is the whole point
+	// of the groups program: a client's people are on the cluster to work on
+	// the client's things, and under a plain owner tier a client-rank member
+	// sees only rows they made themselves -- never the deployable a
+	// developer stood up for them.
+	//
+	// AN ARGUMENT OF THE OWNED TIER, not a tier, for the reason
+	// ClusterOwnerBypass and the rank modifiers are arguments: four sites
+	// switch on Tier == RowAuthzOwned, and a new tier value falls silently
+	// out of all four while looking like a tidy addition.
+	//
+	// THE FIELD MAY BE A LIST. `account="accountIds"` on a concept whose
+	// payload carries a string array is lowered as a jsonb overlap rather
+	// than an IN, so one row may be tied to several accounts. The two are
+	// one argument because they are one QUESTION -- "which accounts is this
+	// row for" -- and a second spelling would be a second thing an author
+	// has to get right about a decision the concept has already made.
+	//
+	// IT WIDENS WRITES TOO, which is the one place this program widens the
+	// rank record's D3 (memql#5165 D4): a member may write a tied row
+	// whatever the owner's rank, provided their ROLE holds the verb. The
+	// verb is decided upstream -- by the data-plane gate and the mutation's
+	// own capability annotation -- never here. This gate answers "which
+	// rows", never "may this actor write at all".
+	//
+	// Set only for RowAuthzOwned. The field is checked at LOAD against the
+	// concept's declared properties, the way `owner=` is, so a typo refuses
+	// boot rather than lowering to a scope that matches nothing and reads
+	// like a gate.
+	Account string `json:"account,omitempty"`
+
 	// RequiresIdentity narrows the PUBLIC tier from "anybody at all,
 	// including a stranger who has not signed in" to "any authenticated
 	// caller of this cluster" -- `@rowAuthz(public, requiresIdentity)`
@@ -276,7 +311,7 @@ var rowAuthzKeywordTiers = map[string]RowAuthzTier{
 // rowAuthzSpellings renders the accepted forms for a diagnostic, in a
 // stable order.
 func rowAuthzSpellings() string {
-	return `@rowAuthz(public), @rowAuthz(public, requiresIdentity), @rowAuthz(clusterOwner), @rowAuthz(owner="<field>"), @rowAuthz(via="<spec>"), @rowAuthz(owner="<field>", clusterOwner), @rowAuthz(owner="<field>", rankVisible[, rankStrict][, unowned="<role>"][, clusterOwner])`
+	return `@rowAuthz(public), @rowAuthz(public, requiresIdentity), @rowAuthz(clusterOwner), @rowAuthz(owner="<field>"), @rowAuthz(via="<spec>"), @rowAuthz(owner="<field>", clusterOwner), @rowAuthz(owner="<field>", rankVisible[, rankStrict][, unowned="<role>"][, clusterOwner]), @rowAuthz(owner="<field>", account="<field>"[, rankVisible][, clusterOwner])`
 }
 
 // rowAuthzOwnedModifiers is THE set of arguments that may accompany an
@@ -294,6 +329,7 @@ var rowAuthzOwnedModifiers = map[string]bool{
 	rowAuthzArgRankVisible:  true,
 	rowAuthzArgRankStrict:   true,
 	rowAuthzArgUnowned:      false,
+	rowAuthzArgAccount:      false,
 }
 
 // rowAuthzArgClusterOwner is the flag spelling that, BESIDE an `owner=`
@@ -310,6 +346,11 @@ const (
 	rowAuthzArgRankStrict  = "rankStrict"
 	rowAuthzArgUnowned     = "unowned"
 )
+
+// rowAuthzArgAccount is the keyword spelling of the account grant (epic
+// memql#5165). A constant for the reason its siblings are: the parser,
+// the formatter and the modifier table all have to agree on the spelling.
+const rowAuthzArgAccount = "account"
 
 // rowAuthzArgRequiresIdentity is the flag spelling that, BESIDE the bare
 // `public` flag, narrows the public tier to authenticated callers
@@ -453,14 +494,22 @@ func parseRowAuthzOwnedModifiers(args map[string]any) (*RowAuthzDecl, string, bo
 			}
 			continue
 		}
-		// A keyword modifier carries a quoted value.
+		// A keyword modifier carries a quoted value. The NOUN differs
+		// per modifier and is not cosmetic: `unowned` names a role slug
+		// and `account` names a payload field, and telling an author who
+		// wrote `account=` that a role slug was wanted sends them to the
+		// role catalog to fix a concept.
 		v, ok := raw.(string)
 		if !ok || strings.TrimSpace(v) == "" {
-			return nil, fmt.Sprintf("@%s(%s=...) requires a quoted role slug -- write @%s(%s=%q, %s=\"developer\"). Accepted: %s",
-				RowAuthzAnnotation, name, RowAuthzAnnotation, rowAuthzArgOwner, owner, name, rowAuthzSpellings()), false
+			return nil, fmt.Sprintf("@%s(%s=...) requires a quoted %s -- write @%s(%s=%q, %s=%q). Accepted: %s",
+				RowAuthzAnnotation, name, rowAuthzModifierNoun(name),
+				RowAuthzAnnotation, rowAuthzArgOwner, owner, name, rowAuthzModifierPlaceholder(name), rowAuthzSpellings()), false
 		}
-		if name == rowAuthzArgUnowned {
+		switch name {
+		case rowAuthzArgUnowned:
 			decl.Unowned = strings.TrimSpace(v)
+		case rowAuthzArgAccount:
+			decl.Account = strings.TrimSpace(v)
 		}
 	}
 
@@ -482,7 +531,35 @@ func parseRowAuthzOwnedModifiers(args map[string]any) (*RowAuthzDecl, string, bo
 			RowAuthzAnnotation, rowAuthzArgUnowned, decl.Unowned, rowAuthzArgRankVisible, rowAuthzArgClusterOwner,
 			RowAuthzAnnotation, rowAuthzArgOwner, owner, rowAuthzArgRankVisible, rowAuthzArgUnowned, decl.Unowned, rowAuthzSpellings()), false
 	}
+	// The account field must not BE the owner field. Declared that way the
+	// argument would compare a user id against an account id and lower to a
+	// scope that matches nothing -- a gate that reads like a widening and
+	// grants nobody anything. Refused rather than ignored, because the
+	// author meant one of the two and the engine cannot tell which.
+	if decl.Account != "" && decl.Account == decl.Owner {
+		return nil, fmt.Sprintf("@%s(%s=%q) names the same field as %s=%q -- the account argument names the ACCOUNT a row is for, never the person who owns it, so declaring both on one field lowers to a scope that matches nothing. Accepted: %s",
+			RowAuthzAnnotation, rowAuthzArgAccount, decl.Account, rowAuthzArgOwner, decl.Owner, rowAuthzSpellings()), false
+	}
 	return decl, "", true
+}
+
+// rowAuthzModifierNoun and rowAuthzModifierPlaceholder render what a
+// keyword modifier's value IS, for the diagnostic an author reads when
+// they leave it off. Two functions rather than one map because the pair
+// is always used together and a caller that got only the noun right
+// would still print `unowned="accountId"`.
+func rowAuthzModifierNoun(name string) string {
+	if name == rowAuthzArgAccount {
+		return "field name"
+	}
+	return "role slug"
+}
+
+func rowAuthzModifierPlaceholder(name string) string {
+	if name == rowAuthzArgAccount {
+		return "accountId"
+	}
+	return "developer"
 }
 
 // ParseRowAuthz is THE detector: it turns an `@rowAuthz(...)`
@@ -637,6 +714,7 @@ func FormatRowAuthz(d RowAuthzDecl) (string, error) {
 		{d.RankVisible, rowAuthzArgRankVisible},
 		{d.RankStrict, rowAuthzArgRankStrict},
 		{d.Unowned != "", rowAuthzArgUnowned},
+		{d.Account != "", rowAuthzArgAccount},
 	} {
 		if m.set && d.Tier != RowAuthzOwned {
 			return "", fmt.Errorf("@%s: %s is an argument of the owned tier -- it has no meaning on tier %q",
@@ -657,6 +735,10 @@ func FormatRowAuthz(d RowAuthzDecl) (string, error) {
 	if d.Unowned != "" && !d.RankVisible {
 		return "", fmt.Errorf("@%s: %s without %s is not a declaration this parser reads back -- see ParseRowAuthz",
 			RowAuthzAnnotation, rowAuthzArgUnowned, rowAuthzArgRankVisible)
+	}
+	if d.Account != "" && d.Account == d.Owner {
+		return "", fmt.Errorf("@%s: %s=%q naming the same field as %s is not a declaration this parser reads back -- see ParseRowAuthz",
+			RowAuthzAnnotation, rowAuthzArgAccount, d.Account, rowAuthzArgOwner)
 	}
 	switch d.Tier {
 	case RowAuthzPublic:
@@ -684,6 +766,13 @@ func FormatRowAuthz(d RowAuthzDecl) (string, error) {
 		}
 		if d.Unowned != "" {
 			out += fmt.Sprintf(", %s=%q", rowAuthzArgUnowned, d.Unowned)
+		}
+		// The account grant sits after the rank arguments and before the
+		// cluster-owner escape: it is the newest widening, and putting it
+		// last would move `clusterOwner` on every declaration in the tree
+		// that already spells it there.
+		if d.Account != "" {
+			out += fmt.Sprintf(", %s=%q", rowAuthzArgAccount, d.Account)
 		}
 		if d.ClusterOwnerBypass {
 			out += ", " + rowAuthzArgClusterOwner

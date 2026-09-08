@@ -464,7 +464,6 @@ shape user userFull {
   gender
   birthdate
   role
-  groupIds
   preferences
   active
   suspendedAt
