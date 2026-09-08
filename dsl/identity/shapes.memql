@@ -346,6 +346,14 @@ shape invitation invitationAdminSummary {
   deliveryError
   deliveryAttemptedAt
   accountId
+  // The groups this person JOINS on acceptance (epic memql#5165, section G).
+  // PROJECTED because the OS draws them: the People list renders an invited
+  // row as a person who has not arrived, and a group's page lists the people
+  // who will join it from this same feed. A concept field is not a readable
+  // field -- only a shape reaches a client -- so without this line the OS can
+  // only show an invitation whose groups it cannot name, which reads as an
+  // invitation that carries none.
+  groupIds
   row.createdAt
 }
 

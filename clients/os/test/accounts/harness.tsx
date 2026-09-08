@@ -91,6 +91,10 @@ export interface FakeSeed {
    * and still pass -- which is exactly the defect memql#5013 fixed.
    */
   accounts?: Row[] | Error;
+  /** The groups that grant this client -- the People band's first read. */
+  groupsForAccount?: Row[] | Error;
+  /** Membership rows keyed by group id -- the band's fan-out. */
+  membersOfGroup?: Record<string, Row[]>;
   byId?: Record<string, Row>;
 }
 
@@ -137,6 +141,19 @@ export function fakeConnection(seed: FakeSeed = {}) {
       createClientAccount: vi.fn(async (_args: Record<string, unknown>) => rowsResult([])),
       updateClientAccount: vi.fn(async (_args: Record<string, unknown>) => rowsResult([])),
       archiveClientAccount: vi.fn(async (_args: Record<string, unknown>) => rowsResult([])),
+      // The People band's two reads (epic memql#5167, section C). Stubbed to
+      // EMPTY rather than left unstubbed, for the reason `campaignsForAccount`
+      // is: an unstubbed read throws and the band renders a refusal, which
+      // would make an unrelated "a refusal is not a zero" assertion match two
+      // elements and fail for a reason that has nothing to do with it.
+      groupsForAccount: vi.fn(async (_args: Record<string, unknown>) => {
+        if (seed.groupsForAccount instanceof Error) throw seed.groupsForAccount;
+        return rowsResult(seed.groupsForAccount ?? []);
+      }),
+      membersOfGroup: vi.fn(async (args: Record<string, unknown>) => {
+        const groupId = typeof args["groupId"] === "string" ? args["groupId"] : "";
+        return rowsResult(seed.membersOfGroup?.[groupId] ?? []);
+      }),
       executeNamed: vi.fn(async (_name: string, filter: string) => {
         const match = /id==(\S+)/.exec(filter);
         const wanted = match?.[1] ?? "";
@@ -151,7 +168,14 @@ export function fakeConnection(seed: FakeSeed = {}) {
 
 export type FakeConnection = ReturnType<typeof fakeConnection>;
 
-export function withSession(children: ReactNode, overrides: { role?: string } = {}) {
+export function withSession(
+  children: ReactNode,
+  overrides: {
+    role?: string;
+    /** The groups MyAccess reports for this caller (epic memql#5165, H). */
+    groups?: { id: string; name: string; kind: string; accountId: string; accountName: string }[];
+  } = {},
+) {
   const config: OsRuntimeConfig = { ...UNKNOWN_RUNTIME_CONFIG, domain: "memql.example.com" };
   return (
     <SessionProvider
@@ -162,6 +186,10 @@ export function withSession(children: ReactNode, overrides: { role?: string } = 
           role: overrides.role ?? "owner",
           roleName: "",
           rank: 0,
+          // ABSENT rather than empty by default, which is the difference the
+          // type states: a harness constructing a session by hand is not
+          // making a claim about anybody's groups.
+          ...(overrides.groups === undefined ? {} : { groups: overrides.groups }),
         },
         config,
       }}
@@ -185,6 +213,33 @@ export function accountRow(over: Partial<Row> & { id: string }): Row {
     // default produced it would make every unrelated test render a form.
     configuredAt: "2026-08-01T00:00:00Z",
     ownerUserId: "",
+    // The domain walk's fields (epic memql#5165, section F). UNVERIFIED by
+    // default: proving a domain is the state somebody has to reach, and a
+    // harness whose default was "proven" would let every case about the
+    // Ownership stop pass without the stop ever being unproven.
+    // BUILT FROM OBVIOUSLY-FAKE PARTS, and joined rather than written whole.
+    // A scanner judges a test fixture exactly like production: the plausible
+    // token this used to hold ("memql-verify-abc123") tripped gitleaks'
+    // generic-api-key rule at entropy 3.93, and a fixture cannot be dismissed
+    // as a false positive without teaching everybody that this rule is noise.
+    //
+    // DO NOT "FIX" THIS TO LOOK REAL. The production value is
+    // `base64.RawURLEncoding` over 32 crypto/rand bytes -- 43 characters at
+    // maximal entropy with no prefix -- so a fixture that imitates it
+    // faithfully trips the rule HARDER than the one that was caught here.
+    // There is no realistic spelling that passes, which makes joined-from-words
+    // the convention rather than a workaround.
+    //
+    // The stop renders whatever this says, so the words are the assertion too.
+    domainToken: ["memql", "verify", "example", "not", "a", "real", "token"].join("-"),
+    domainStatus: "unverified",
+    domainFailureReason: "",
+    domainFailureDetail: "",
+    domainLastCheckedAt: "",
+    domainVerifiedAt: "",
+    joinOnDomain: false,
+    memqlDomain: "",
+    memqlReservedAt: "",
     createdAt: "2026-08-01T00:00:00Z",
     ...over,
   };

@@ -112,3 +112,100 @@ export function useSessionsCount(userId: string): SessionsCount {
 }
 
 export { countLive as countLiveSessions };
+
+// ---------------------------------------------------------------------------
+// The sessions themselves, for the person page's Sign-in panel
+// ---------------------------------------------------------------------------
+
+/** One session, projected from `authSessionAdminSummary`. */
+export interface SessionRowView {
+  id: string;
+  source: string;
+  clientLabel: string;
+  firstAuthenticatedAt: string;
+  lastActivityAt: string;
+  expiresAt: string;
+  revokedAt: string;
+  revokedReason: string;
+}
+
+export interface SessionsView {
+  /** The live ones, newest activity first. */
+  live: SessionRowView[];
+  /** True while the read is in flight or has never answered. */
+  unknown: boolean;
+  reload: () => void;
+}
+
+/**
+ * A person's live sessions, listed.
+ *
+ * THE SAME READ THE COUNT USES, and the same best-effort contract: a refusal
+ * leaves `unknown` true and the panel says so, rather than rendering an empty
+ * list. "Nobody is signed in" and "we could not ask" are different answers, and
+ * only one of them is a reason to stop worrying.
+ *
+ * It re-reads on demand rather than subscribing: `v1:identity:authSession`
+ * carries no browser broadcast rule, so a subscription would be a promise this
+ * cluster does not keep. Ending one re-reads.
+ */
+export function useSessions(userId: string): SessionsView {
+  const connection = useOsConnection();
+  const [live, setLive] = useState<SessionRowView[] | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    setLive(null);
+    if (connection === null || userId === "") return;
+    const controller = new AbortController();
+    let alive = true;
+    void (async () => {
+      try {
+        const result = await connection.query.sessionsForSubjectAdmin(
+          { subject: userId },
+          { signal: controller.signal },
+        );
+        if (!alive) return;
+        const now = Date.now();
+        const rows = (result.rows() as Record<string, unknown>[]).map(sessionView);
+        setLive(
+          rows
+            .filter((row) => row.revokedAt === "" && !hasExpired(row.expiresAt, now))
+            .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
+        );
+      } catch {
+        if (alive) setLive(null);
+      }
+    })();
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [connection, userId, nonce]);
+
+  return {
+    live: live ?? [],
+    unknown: live === null,
+    reload: () => setNonce((n) => n + 1),
+  };
+}
+
+function sessionView(row: Record<string, unknown>): SessionRowView {
+  const read = (key: string) => (typeof row[key] === "string" ? (row[key] as string) : "");
+  return {
+    id: read("id"),
+    source: read("source"),
+    clientLabel: read("clientLabel"),
+    firstAuthenticatedAt: read("firstAuthenticatedAt"),
+    lastActivityAt: read("lastActivityAt"),
+    expiresAt: read("expiresAt"),
+    revokedAt: read("revokedAt"),
+    revokedReason: read("revokedReason"),
+  };
+}
+
+/** An unparseable or absent expiry counts as live -- see countLive. */
+function hasExpired(expiresAt: string, now: number): boolean {
+  const at = Date.parse(expiresAt);
+  return Number.isFinite(at) && at <= now;
+}

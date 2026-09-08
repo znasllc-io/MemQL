@@ -40,15 +40,22 @@ describe("the readiness mapping (design record section 5.1)", () => {
     expect(requirementsFor(app("fleet"), "machines").requires).toEqual([]);
   });
 
-  it("Deployables, Files, Training, Users and Logs only want", () => {
+  it("Deployables, Files, Training and Logs only want", () => {
     expect(requirementsFor(app("deployables"), "map")).toEqual({
       requires: [],
       wants: ["storage", "githubApp"],
     });
     expect(requirementsFor(app("files"), "browse")).toEqual({ requires: [], wants: ["storage"] });
     expect(requirementsFor(app("training"), "upload")).toEqual({ requires: [], wants: ["ai"] });
-    expect(requirementsFor(app("users"), "invites")).toEqual({ requires: [], wants: ["email"] });
+    // USERS DECLARES NOTHING AT ALL any more (epic memql#5167): the Invites
+    // section is gone -- an invitation is a person who has not arrived, so the
+    // roster carries them -- and the roster, the groups and the roles all read
+    // fine with no mailbox. Only SENDING an invitation needs one, so the
+    // People Head asks the question for itself and renders the gate's own
+    // sentence where Invite would be. A section-level `wants` would have put a
+    // setup mark on an app whose every screen works.
     expect(requirementsFor(app("users"), "people")).toEqual({ requires: [], wants: [] });
+    expect(requirementsFor(app("users"), "groups")).toEqual({ requires: [], wants: [] });
     // The Logs app's own STREAM is its logsSection, which requirementsFor
     // exempts, so its want surfaces on the section that is not exempt. The
     // MARK still draws for the whole app: the window frame computes that from
@@ -66,8 +73,7 @@ describe("the readiness mapping (design record section 5.1)", () => {
     expect(requirementsFor(app("fleet"), "machines").requires).toEqual([]);
     expect(allRequirementsFor(app("nexus")).requires).toEqual(["ai"]);
     expect(requirementsFor(app("nexus"), "automations").requires).toEqual([]);
-    expect(allRequirementsFor(app("users")).wants).toEqual(["email"]);
-    expect(requirementsFor(app("users"), "people").wants).toEqual([]);
+    expect(allRequirementsFor(app("users")).wants).toEqual([]);
   });
 
   it("the Ask widget requires ai", () => {

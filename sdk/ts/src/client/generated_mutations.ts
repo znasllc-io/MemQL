@@ -7668,6 +7668,11 @@ export interface UpdateClientAccountArgs {
   primaryContactName?: string;
   primaryContactEmail?: string;
   notes?: string;
+  /** Whether a person arriving with a VERIFIED address on this domain joins this account's group (epic memql#5165, D9). It is a DECISION somebody makes, so it needs a caller-reachable path -- the Accounts app's Domain rail is the one that sets it, and without this argument the flag the engine already validates could be set by nothing. */
+  /** The guard is Go, not here: component/memql's account_domain_validation refuses `domain_not_verified` on a row whose status is not "verified", which is a comparison against the STORED row that a mutation body cannot make. */
+  joinOnDomain?: boolean;
+  /** The name this account is reserved under on this cluster (D10). Refused under the cluster's own domain or equal to a front-door host, by the same Go validation. */
+  memqlDomain?: string;
 }
 
 export function buildUpdateClientAccount(args: UpdateClientAccountArgs): string {
@@ -7678,6 +7683,8 @@ export function buildUpdateClientAccount(args: UpdateClientAccountArgs): string 
   if (args.primaryContactName !== undefined) parts.push("primaryContactName: " + renderMemQLValue(args.primaryContactName));
   if (args.primaryContactEmail !== undefined) parts.push("primaryContactEmail: " + renderMemQLValue(args.primaryContactEmail));
   if (args.notes !== undefined) parts.push("notes: " + renderMemQLValue(args.notes));
+  if (args.joinOnDomain !== undefined) parts.push("joinOnDomain: " + renderMemQLValue(args.joinOnDomain));
+  if (args.memqlDomain !== undefined) parts.push("memqlDomain: " + renderMemQLValue(args.memqlDomain));
   return "mutation updateClientAccount(" + parts.join(", ") + ")";
 }
 

@@ -175,3 +175,117 @@ export async function rereadAccount(
   const row = await getRowByConceptAndId(query, ACCOUNT_CONCEPT, accountId, signal ? { signal } : {});
   return row ? accountFromRow(row as Row) : null;
 }
+
+// ---------------------------------------------------------------------------
+// The People band (epic memql#5167, section C)
+// ---------------------------------------------------------------------------
+
+/** What the People band draws: how many people, in how many groups. */
+export interface AccountPeople {
+  /** Distinct people across this client's groups. */
+  people: number;
+  /** The groups, named, in the order the read returned them. */
+  groups: { id: string; name: string }[];
+  state: "idle" | "loading" | "ready" | "error";
+  /** The server's own sentence, verbatim. */
+  error: string;
+  readAt: string;
+}
+
+const EMPTY_PEOPLE: AccountPeople = {
+  people: 0,
+  groups: [],
+  state: "idle",
+  error: "",
+  readAt: "",
+};
+
+/**
+ * How many people reach one client's work, read on demand with the other bands.
+ *
+ * TWO READS, AND THE SECOND ONE FANS OUT: `groupsForAccount` answers which
+ * groups grant this client, and `membersOfGroup` answers each group's members.
+ * There is no cluster-wide membership feed to sum instead -- one row per person
+ * per group in the cluster, forever -- and the fan-out is bounded by the number
+ * of groups ONE client has, which is one plus whatever an operator made.
+ *
+ * DISTINCT PEOPLE, not summed memberships: somebody in two of a client's
+ * groups is one person, and "5 in 2 groups" for three people would be a number
+ * this window invented.
+ *
+ * IT DOES NOT COUNT THE STANDING STAFF, and that is the honest answer rather
+ * than a gap. Developer rank and above are members of every account's group by
+ * RULE, with no rows anywhere -- so adding them would mean this band deciding
+ * who the cluster's staff are, on a screen about a client. The Users app says
+ * the rule where it belongs, on the group's own page.
+ *
+ * A REFUSAL IS NOT A ZERO, the ledger's standing rule: the reads carry
+ * `@requiresRank("admin")`, so below that the band prints the server's sentence
+ * rather than claiming the client has nobody.
+ */
+export function useAccountPeople(accountId: string): AccountPeople & { reload: () => void } {
+  const connection = useOsConnection();
+  const [state, setState] = useState<AccountPeople>(EMPTY_PEOPLE);
+  const [nonce, setNonce] = useState(0);
+
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    const query = connection?.query ?? null;
+    if (query === null || accountId === "") return;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let alive = true;
+    setState({ ...EMPTY_PEOPLE, state: "loading" });
+
+    void (async () => {
+      try {
+        const groupsResult = await query.groupsForAccount({ accountId }, { signal });
+        const groups = (groupsResult.rows() as Record<string, unknown>[])
+          .map((row) => ({
+            id: typeof row["id"] === "string" ? row["id"] : "",
+            name: typeof row["name"] === "string" ? row["name"] : "",
+          }))
+          .filter((g) => g.id !== "");
+
+        const members = await Promise.all(
+          groups.map((group) =>
+            query.membersOfGroup({ groupId: group.id, includeRemoved: false }, { signal }),
+          ),
+        );
+        if (!alive) return;
+
+        const people = new Set<string>();
+        for (const result of members) {
+          for (const row of result.rows() as Record<string, unknown>[]) {
+            const userId = typeof row["userId"] === "string" ? row["userId"] : "";
+            const status = typeof row["status"] === "string" ? row["status"] : "active";
+            if (userId !== "" && status !== "removed") people.add(userId);
+          }
+        }
+        setState({
+          people: people.size,
+          groups,
+          state: "ready",
+          error: "",
+          readAt: new Date().toISOString(),
+        });
+      } catch (err: unknown) {
+        if (!alive || signal.aborted) return;
+        setState({
+          ...EMPTY_PEOPLE,
+          state: "error",
+          error: err instanceof Error ? err.message : String(err),
+          readAt: new Date().toISOString(),
+        });
+      }
+    })();
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [connection, accountId, nonce]);
+
+  return { ...state, reload };
+}

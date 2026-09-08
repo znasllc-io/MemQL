@@ -1,6 +1,6 @@
 import { rowString, type Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { boolOr, flatten } from "../../kit/rows";
+import { boolOr, flatten, stringsOf } from "../../kit/rows";
 
 // The wire rows the Users app renders, projected into the shapes its surfaces
 // read.
@@ -134,6 +134,15 @@ export interface InvitationRow {
    * would have quietly shown nothing.
    */
   accountId: string;
+  /**
+   * The groups this person joins the moment they accept (epic memql#5165,
+   * section G). Empty is the ordinary case and joins nobody.
+   *
+   * It is on the ROW rather than derived, which is what lets an invited person
+   * appear on a group's member list before they exist: there is no membership
+   * row to read until they arrive.
+   */
+  groupIds: string[];
   createdAt: string;
 }
 
@@ -161,6 +170,7 @@ export function invitationFromRow(raw: Row): InvitationRow {
       delivery === "sent" || delivery === "failed" ? delivery : "not_attempted",
     deliveryError: rowString(row, "deliveryError"),
     accountId: rowString(row, "accountId"),
+    groupIds: stringsOf(row, "groupIds"),
     createdAt: rowString(row, "createdAt"),
   };
 }
@@ -183,4 +193,186 @@ export function invitationHasExpired(invite: InvitationRow, now: Date): boolean 
   if (invite.expiresAt === "") return false;
   const at = Date.parse(invite.expiresAt);
   return Number.isFinite(at) && at <= now.getTime();
+}
+
+// ---------------------------------------------------------------------------
+// A group, and one person's place in it
+// ---------------------------------------------------------------------------
+
+export type GroupKind = "account" | "custom";
+export type GroupStatus = "active" | "archived";
+
+export interface GroupRow {
+  id: string;
+  name: string;
+  description: string;
+  kind: GroupKind;
+  /** The client this group grants. "" for a group that grants nothing. */
+  accountId: string;
+  status: GroupStatus;
+  archivedAt: string;
+  createdAt: string;
+}
+
+export function groupFromRow(raw: Row): GroupRow {
+  const row = flatten(raw);
+  const kind = rowString(row, "kind");
+  const status = rowString(row, "status");
+  return {
+    id: rowString(row, "id"),
+    name: rowString(row, "name"),
+    description: rowString(row, "description"),
+    // ABSENT MEANS "custom", which is the value a caller can make. The
+    // account-kind group is written by the engine and always carries its kind;
+    // a folded event that omitted the field must not turn a custom group into
+    // one this app then refuses to archive.
+    kind: kind === "account" ? "account" : "custom",
+    accountId: rowString(row, "accountId"),
+    // ABSENT MEANS ACTIVE, the boolOr reasoning in a two-value enum: a folded
+    // CDC event carries only what the write touched, and reading an absent
+    // status as archived would empty the list the first time anybody was added
+    // to a group.
+    status: status === "archived" ? "archived" : "active",
+    archivedAt: rowString(row, "archivedAt"),
+    createdAt: rowString(row, "createdAt"),
+  };
+}
+
+export function groupIsActive(group: GroupRow): boolean {
+  return group.status === "active";
+}
+
+export type MembershipOrigin = "added" | "invitation" | "domain";
+
+export interface MembershipRow {
+  id: string;
+  groupId: string;
+  userId: string;
+  origin: MembershipOrigin;
+  /** The acting person, or "" when the engine placed them. */
+  addedBy: string;
+  status: "active" | "removed";
+  removedAt: string;
+  removedBy: string;
+  createdAt: string;
+}
+
+export function membershipFromRow(raw: Row): MembershipRow {
+  const row = flatten(raw);
+  const origin = rowString(row, "origin");
+  const status = rowString(row, "status");
+  return {
+    id: rowString(row, "id"),
+    groupId: rowString(row, "groupId"),
+    userId: rowString(row, "userId"),
+    origin: origin === "invitation" || origin === "domain" ? origin : "added",
+    addedBy: rowString(row, "addedBy"),
+    status: status === "removed" ? "removed" : "active",
+    removedAt: rowString(row, "removedAt"),
+    removedBy: rowString(row, "removedBy"),
+    createdAt: rowString(row, "createdAt"),
+  };
+}
+
+export function membershipIsActive(membership: MembershipRow): boolean {
+  return membership.status === "active";
+}
+
+/**
+ * Why this person is in this group, as a sentence.
+ *
+ * The three origins answer different questions when somebody asks why a person
+ * can see a client's work, so they are said in different words rather than
+ * folded into one "member since" line. `domain` names the domain because that
+ * is the rule that placed them; the other two name the person, because a
+ * person is who somebody would go and ask.
+ */
+export function originSentence(
+  membership: MembershipRow,
+  names: { addedByName?: string; domain?: string } = {},
+): string {
+  switch (membership.origin) {
+    case "domain":
+      return names.domain ? `joined on @${names.domain}` : "joined on this client's domain";
+    case "invitation":
+      return names.addedByName ? `invited by ${names.addedByName}` : "invited";
+    default:
+      return names.addedByName ? `added by ${names.addedByName}` : "added";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A role, and a grant
+// ---------------------------------------------------------------------------
+
+export interface RoleRow {
+  id: string;
+  slug: string;
+  name: string;
+  rank: number;
+  description: string;
+  predefined: boolean;
+  active: boolean;
+  aliases: string[];
+  /** The account an account-scoped role is confined to. "" is everywhere. */
+  accountId: string;
+}
+
+export function roleFromRow(raw: Row): RoleRow {
+  const row = flatten(raw);
+  const rank = row["rank"];
+  return {
+    id: rowString(row, "id"),
+    slug: rowString(row, "slug"),
+    name: rowString(row, "name"),
+    // A rank crosses the wire as a number OR as its own decimal string
+    // depending on the envelope; `Number` reads both and NaN is repaired to 0,
+    // which sorts a rankless row to the bottom of the ladder rather than
+    // throwing it out of the list.
+    rank: Number.isFinite(Number(rank)) ? Number(rank) : 0,
+    description: rowString(row, "description"),
+    predefined: boolOr(row, "predefined", false),
+    active: boolOr(row, "active", true),
+    aliases: stringsOf(row, "aliases"),
+    accountId: rowString(row, "accountId"),
+  };
+}
+
+export interface GrantRow {
+  id: string;
+  roleSlug: string;
+  verb: string;
+  resourceType: string;
+  effect: "allow" | "deny";
+  predefined: boolean;
+  active: boolean;
+}
+
+export function grantFromRow(raw: Row): GrantRow {
+  const row = flatten(raw);
+  return {
+    id: rowString(row, "id"),
+    roleSlug: rowString(row, "roleSlug"),
+    verb: rowString(row, "verb"),
+    resourceType: rowString(row, "resourceType"),
+    // ALLOW IS THE DEFAULT and a deny always wins at resolution, so an absent
+    // effect must read as the permissive value the concept defaults to rather
+    // than as a hole somebody deliberately carved.
+    effect: rowString(row, "effect") === "deny" ? "deny" : "allow",
+    predefined: boolOr(row, "predefined", false),
+    active: boolOr(row, "active", true),
+  };
+}
+
+/** Whether a role holds a verb on a resource: an allow with no deny. */
+export function roleHolds(grants: readonly GrantRow[], slug: string, verb: string, resource: string): boolean {
+  let allowed = false;
+  for (const grant of grants) {
+    if (!grant.active || grant.roleSlug !== slug || grant.verb !== verb || grant.resourceType !== resource) {
+      continue;
+    }
+    if (grant.effect === "deny") return false;
+    allowed = true;
+  }
+  return allowed;
 }

@@ -315,12 +315,27 @@ export class IdentityAdminClient {
     email: string,
     role = "",
     ttlSeconds = 0,
+    groupIds: readonly string[] = [],
     opts: IdentityAdminCallOptions = {},
   ): Promise<UserInvitationResult> {
     requireArg("issuing an invitation", "email", email);
     const { result, raw } = await this.callRaw(
       "issuing an invitation",
-      { issueUserInvitation: { email, role, ttlSeconds } },
+      {
+        issueUserInvitation: {
+          email,
+          role,
+          ttlSeconds,
+          // THE GROUPS THE PERSON JOINS ON ACCEPTANCE (epic memql#5165,
+          // section G). Sent only when there are some: the field is repeated,
+          // and an empty list on every ordinary invitation is a wire field
+          // that says nothing. Every id is validated at issue -- an active
+          // group, and the invitee's role strictly below the inviter's -- so
+          // an invitation cannot place somebody where the inviter could not
+          // have placed them by hand.
+          ...(groupIds.length > 0 ? { groupIds: [...groupIds] } : {}),
+        },
+      },
       opts,
     );
     const url = raw.invitationUrl ?? "";

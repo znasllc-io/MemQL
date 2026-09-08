@@ -3,6 +3,7 @@ import { Concepts } from "@znasllc-io/memql-sdk-core/client";
 
 import { Check, Head, Panel } from "../../kit";
 import { AppLogsSection } from "../../logs/AppLogsSection";
+import { useOsIfPresent } from "../../chrome/state";
 import type { OsAppProps } from "../../system/registry";
 import { AccountsSection } from "./AccountsSection";
 import { CredentialsSection } from "./CredentialsSection";
@@ -149,6 +150,11 @@ function AccountsSurface({
   archive: ReturnType<typeof useArchiveAccount>;
 }) {
   const { snapshot } = feed;
+  // `useOsIfPresent`, not `useOs`: a section rendered in a test with no shell
+  // around it is not a bug, and "there is nowhere to hand off to" is exactly
+  // what null means. The People band renders its count either way and offers
+  // the handoff only when there is one.
+  const os = useOsIfPresent();
 
   const self: AccountRow | null = useMemo(() => {
     const found = snapshot.rows.map(accountFromRow).find((a) => a.id === SELF_ACCOUNT_ID);
@@ -179,6 +185,11 @@ function AccountsSurface({
       create={create}
       update={update}
       archive={archive}
+      // OPENING THE PEOPLE BAND IS AN APP HANDOFF, not a panel: membership is
+      // managed on the group's own page, and a members list here would be a
+      // second place to manage it. The intent is consumed by id on the far
+      // side, so acting on a stale render cannot eat a newer instruction.
+      onOpenGroup={(groupId) => os?.actions.openApp("users", "groups", { groupId })}
     />
   );
 }

@@ -30,8 +30,11 @@ const CONFIG: OsRuntimeConfig = {
 describe("accessFromSummary", () => {
   const summary = { requestId: "r", sessionId: "s", ...ACCESS } as never;
 
-  it("reads MyAccess data only -- user id, primaryEmail, role", () => {
-    expect(accessFromSummary(summary)).toEqual(ACCESS);
+  it("reads MyAccess data only -- user id, primaryEmail, role, groups", () => {
+    // `groups` rides through unchanged (epic memql#5165, section H): an empty
+    // list is "not reported" as well as "none", and this layer must not turn
+    // either into a claim of its own.
+    expect(accessFromSummary(summary)).toEqual({ ...ACCESS, groups: [] });
   });
 
   it("KEEPS THE ROLE when there is no email", () => {
@@ -50,6 +53,7 @@ describe("accessFromSummary", () => {
       role: "owner",
       roleName: "Owner",
       rank: 400,
+      groups: [],
     });
   });
 
@@ -69,6 +73,7 @@ describe("accessFromSummary", () => {
       role: "retired-lead",
       roleName: "",
       rank: 0,
+      groups: [],
     });
   });
 

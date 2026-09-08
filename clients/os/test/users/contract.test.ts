@@ -57,7 +57,15 @@ describe("the Users manifest", () => {
     // naming a section the manifest does not declare leaves the window on
     // People with the nav highlighting nothing.
     expect(users?.sections).toBe(USERS_SECTIONS);
-    expect(USERS_SECTION_IDS).toEqual(["people", "invites", "logs", "settings"]);
+    expect(USERS_SECTION_IDS).toEqual(["people", "groups", "roles", "logs", "settings"]);
+  });
+
+  it("declares no section-level `wants`, because only SENDING needs a mailbox", () => {
+    // The roster, the groups and the roles all read fine with no mail wired.
+    // The People Head asks the question for itself and renders the gate's own
+    // sentence where Invite would be -- an app that hid the action with no
+    // account of itself reads as a missing feature.
+    expect(USERS_SECTIONS.filter((s) => s.wants && s.wants.length > 0)).toEqual([]);
   });
 });
 
@@ -65,8 +73,33 @@ describe("the Users settings document", () => {
   it("repairs each field independently rather than rejecting wholesale", () => {
     // A garbage defaultSection must not cost somebody their show-deactivated
     // choice.
-    expect(sanitizeUsersSettings({ version: 1, defaultSection: "nope", showDeactivated: true }))
-      .toEqual({ version: 1, defaultSection: "people", showDeactivated: true });
+    expect(sanitizeUsersSettings({ version: 1, defaultSection: "nope", showDeactivated: true })).toEqual(
+      {
+        version: 1,
+        defaultSection: "people",
+        showDeactivated: true,
+        showArchivedGroups: false,
+        sort: "name",
+      },
+    );
+  });
+
+  it("repairs a sort it does not offer without touching the booleans beside it", () => {
+    expect(
+      sanitizeUsersSettings({
+        version: 1,
+        defaultSection: "groups",
+        showDeactivated: true,
+        showArchivedGroups: true,
+        sort: "byVibes",
+      }),
+    ).toEqual({
+      version: 1,
+      defaultSection: "groups",
+      showDeactivated: true,
+      showArchivedGroups: true,
+      sort: "name",
+    });
   });
 
   it("discards a document whose version it does not know", () => {

@@ -5,7 +5,10 @@ import {
   type UserInvitationResult,
 } from "@znasllc-io/memql-sdk-core/identityadmin";
 
+import { renderMemQLValue, type QueryClient, type Result } from "@znasllc-io/memql-sdk-core/client";
+
 import { useOsConnection } from "../../live/connection";
+import { copyFor, refusalFrom } from "./refusals";
 
 // Every write the Users app makes, and the one busy/error pair they share.
 //
@@ -38,6 +41,21 @@ export interface ActionRefusal {
   auditEventId: string;
   /** True when the refusal was the role gate rather than a failure. */
   denied: boolean;
+  /**
+   * The TYPED CODE, for a refusal that carried one. "" for the admin ops,
+   * which answer with a gRPC status and a sentence and no code of their own.
+   *
+   * The two halves of this app refuse differently and both are kept as they
+   * arrive: `IdentityAdminMsg` answers `PERMISSION_DENIED` with a message,
+   * while the group and role builtins answer `"<code>: <sentence>"` -- the
+   * contract integrations/groups/guards.go states, and what `refusals.ts`
+   * keys its copy on.
+   */
+  code?: string;
+  /** The headline for `code`, or absent when this build does not know it. */
+  title?: string;
+  /** What to do about it. */
+  next?: string;
 }
 
 export function describeRefusal(err: unknown): ActionRefusal {
@@ -48,10 +66,17 @@ export function describeRefusal(err: unknown): ActionRefusal {
       denied: err.isPermissionDenied,
     };
   }
+  // A builtin refusal, which carries its code inside the message. `refusalFrom`
+  // recognises the two frames it can arrive in and answers a blank code for
+  // anything that is not one, so an ordinary failure keeps its own words.
+  const refusal = refusalFrom(err);
   return {
-    detail: err instanceof Error ? err.message : String(err),
+    detail: refusal.detail,
     auditEventId: "",
-    denied: false,
+    denied: refusal.code === "group_capability_missing" || refusal.code === "role_capability_missing",
+    code: refusal.code,
+    title: refusal.title,
+    next: refusal.next,
   };
 }
 
@@ -68,7 +93,11 @@ export interface UsersActions {
   issueEnrolmentLink: (userId: string) => Promise<string>;
   revokeEnrolmentLink: (enrolmentTokenId: string) => Promise<boolean>;
 
-  issueInvitation: (email: string, role: string) => Promise<UserInvitationResult | null>;
+  issueInvitation: (
+    email: string,
+    role: string,
+    groupIds?: readonly string[],
+  ) => Promise<UserInvitationResult | null>;
   revokeInvitation: (invitationId: string) => Promise<boolean>;
   /**
    * Re-send: issue a FRESH invitation for the same address, then revoke the
@@ -85,7 +114,47 @@ export interface UsersActions {
     invitationId: string,
     email: string,
     role: string,
+    groupIds?: readonly string[],
   ) => Promise<UserInvitationResult | null>;
+
+  /** Suspend or reinstate a person -- Deactivate and Reactivate on their bar. */
+  setSuspended: (userId: string, suspended: boolean) => Promise<boolean>;
+  /** End one session of somebody else's, from their Sign-in panel. */
+  endSession: (sessionId: string) => Promise<boolean>;
+
+  // ---- groups (integrations/groups, hand-rendered until #5176 regenerates) --
+  /**
+   * The new group's id, or NULL when the write was refused.
+   *
+   * The two are different answers and the caller acts on the difference: a
+   * refusal keeps the form up with the server's sentence beside it, while a
+   * SUCCESS whose reply this build could not read is still a success -- the
+   * row is written, it arrives on its own broadcast, and keeping the form open
+   * would invite a second one.
+   */
+  groupCreate: (name: string, description: string, accountId: string) => Promise<string | null>;
+  groupUpdate: (groupId: string, name: string, description: string) => Promise<boolean>;
+  groupArchive: (groupId: string) => Promise<boolean>;
+  groupMemberAdd: (groupId: string, userId: string) => Promise<boolean>;
+  groupMemberRemove: (groupId: string, userId: string) => Promise<boolean>;
+
+  // ---- roles (integrations/rbac) ------------------------------------------
+  /** The new role's slug, or NULL when the write was refused. See groupCreate. */
+  roleCreate: (input: RoleDraft) => Promise<string | null>;
+  roleUpdate: (slug: string, grants: readonly string[]) => Promise<boolean>;
+  roleDeactivate: (slug: string) => Promise<boolean>;
+}
+
+/** What New role sends: the whole role in one call, grants included. */
+export interface RoleDraft {
+  slug: string;
+  name: string;
+  rank: number;
+  description: string;
+  /** `resource:verb` pairs, the grid's own vocabulary. */
+  grants: readonly string[];
+  /** The account a scoped role is confined to, or "" for everywhere. */
+  accountId: string;
 }
 
 export function useUsersActions(): UsersActions {
@@ -101,6 +170,8 @@ export function useUsersActions(): UsersActions {
     const transport = connection?.dispatcher ?? null;
     return transport === null ? null : new IdentityAdminClient(transport);
   }, [connection]);
+
+  const query = connection?.query ?? null;
 
   const run = useCallback(
     async <T,>(key: string, write: (c: IdentityAdminClient) => Promise<T>): Promise<T | null> => {
@@ -124,6 +195,37 @@ export function useUsersActions(): UsersActions {
       }
     },
     [client],
+  );
+
+  // THE SECOND WRITE PATH, and it is a different client on purpose.
+  //
+  // The admin ops ride `IdentityAdminMsg` and answer a gRPC status; the group
+  // and role builtins ride the ordinary query path and answer `"<code>:
+  // <sentence>"`. One `run` over both would have to invent a common failure
+  // shape, and the shape it invented would drop the code -- which is the thing
+  // `refusals.ts` keys every sentence in this app on.
+  const runQuery = useCallback(
+    async <T,>(key: string, write: (query: QueryClient) => Promise<T>): Promise<T | null> => {
+      if (query === null) {
+        setRefusal({
+          detail: "Not connected to the cluster, so nothing was written.",
+          auditEventId: "",
+          denied: false,
+        });
+        return null;
+      }
+      setBusyKey(key);
+      setRefusal(null);
+      try {
+        return await write(query);
+      } catch (err: unknown) {
+        setRefusal(describeRefusal(err));
+        return null;
+      } finally {
+        setBusyKey("");
+      }
+    },
+    [query],
   );
 
   const setRole = useCallback(
@@ -157,8 +259,8 @@ export function useUsersActions(): UsersActions {
   );
 
   const issueInvitation = useCallback(
-    (email: string, role: string) =>
-      run(`invite:${email}`, (c) => c.issueUserInvitation(email, role)),
+    (email: string, role: string, groupIds: readonly string[] = []) =>
+      run(`invite:${email}`, (c) => c.issueUserInvitation(email, role, 0, groupIds)),
     [run],
   );
 
@@ -169,9 +271,9 @@ export function useUsersActions(): UsersActions {
   );
 
   const resendInvitation = useCallback(
-    (invitationId: string, email: string, role: string) =>
+    (invitationId: string, email: string, role: string, groupIds: readonly string[] = []) =>
       run(invitationId, async (c) => {
-        const issued = await c.issueUserInvitation(email, role);
+        const issued = await c.issueUserInvitation(email, role, 0, groupIds);
         // The revoke is deliberately NOT awaited into the failure path: the
         // fresh invitation is the thing the operator asked for and it already
         // exists. A failure to tidy the stale row must not report the resend
@@ -180,6 +282,153 @@ export function useUsersActions(): UsersActions {
         return issued;
       }),
     [run],
+  );
+
+  const setSuspended = useCallback(
+    async (userId: string, suspended: boolean) =>
+      (await run(userId, (c) => c.setUserSuspended(userId, suspended))) !== null,
+    [run],
+  );
+
+  const endSession = useCallback(
+    async (sessionId: string) =>
+      // `revokedReason: "admin"` is the enum value for somebody else ending it.
+      // The other three are the person's own act, the all-sessions fan-out and
+      // the rotator's reuse detection, and none of them is what this is.
+      (await runQuery(sessionId, (q) =>
+        q.revokeAuthSession({ sessionId, revokedReason: "admin" }),
+      )) !== null,
+    [runQuery],
+  );
+
+  // ---- groups -------------------------------------------------------------
+  //
+  // The GENERATED builders (`make sdk-gen`), which is what keeps the argument
+  // names in step with the DSL: a builtin whose argument was renamed fails to
+  // compile here rather than being refused at runtime for a reason no sentence
+  // on screen would explain.
+
+  const groupCreate = useCallback(
+    async (name: string, description: string, accountId: string) => {
+      const result: Result | null = await runQuery(`group:new:${name}`, (q) =>
+        q.groupCreate({ name, description, accountId }),
+      );
+      if (result === null) return null;
+      const row = result.rows()[0];
+      return row ? String((row as Record<string, unknown>)["groupId"] ?? "") : "";
+    },
+    [runQuery],
+  );
+
+  const groupUpdate = useCallback(
+    async (groupId: string, name: string, description: string) =>
+      (await runQuery(groupId, (q) =>
+        q.groupUpdate({ groupId, name, description }),
+      )) !== null,
+    [runQuery],
+  );
+
+  const groupArchive = useCallback(
+    async (groupId: string) =>
+      (await runQuery(groupId, (q) =>
+        q.groupArchive({ groupId }),
+      )) !== null,
+    [runQuery],
+  );
+
+  const groupMemberAdd = useCallback(
+    async (groupId: string, userId: string) =>
+      (await runQuery(userId, (q) =>
+        q.groupMemberAdd({ groupId, userId }),
+      )) !== null,
+    [runQuery],
+  );
+
+  const groupMemberRemove = useCallback(
+    async (groupId: string, userId: string) =>
+      (await runQuery(userId, (q) =>
+        q.groupMemberRemove({ groupId, userId }),
+      )) !== null,
+    [runQuery],
+  );
+
+  // ---- roles --------------------------------------------------------------
+  //
+  // `grants` crosses as the grid's own `resource:verb` pairs, which is what the
+  // three builtins take: the whole grant set on every call, never a patch. A
+  // patch would need the caller to send what to REMOVE, and a role edited from
+  // two windows would then apply two half-answers.
+
+  // ===========================================================================
+  // THE ROLE BUILTINS ANSWER WITH A DECISION ROW, NOT AN ERROR
+  // ===========================================================================
+  // `integrations/groups` refuses by returning an error, so a refused group
+  // write throws and `runQuery` catches it. `integrations/rbac` does NOT: its
+  // three role handlers answer `{ok, slug, code, message}` as an ordinary
+  // reply row (`decisionNodes`), so the call SUCCEEDS and the refusal rides
+  // inside it.
+  //
+  // Read naively, that makes every refused role write report success -- the
+  // form closes, nothing is written, and the person is told nothing at all.
+  // This is the one place that difference is reconciled, and it reads the CODE
+  // rather than `ok`: a scalar boolean crosses a builtin's reply row as the
+  // STRING "true", so `rowBool` answers false for a successful write and
+  // trusting it would invert the whole thing.
+  const decisionRefusal = useCallback((result: Result | null): boolean => {
+    if (result === null) return false;
+    const row = result.rows()[0] as Record<string, unknown> | undefined;
+    const code = typeof row?.["code"] === "string" ? (row["code"] as string) : "";
+    if (code === "" || code === "ok") return true;
+    const message = typeof row?.["message"] === "string" ? (row["message"] as string) : "";
+    const copy = copyFor(code);
+    setRefusal({
+      detail: message,
+      auditEventId: "",
+      denied: code === "role_not_authorized",
+      code,
+      title: copy?.title ?? "",
+      next: copy?.next ?? "",
+    });
+    return false;
+  }, []);
+
+  const roleCreate = useCallback(
+    async (input: RoleDraft) => {
+      const result: Result | null = await runQuery(`role:new:${input.slug}`, (q) =>
+        q.executeNamed(
+          "roleCreate",
+          `builtin roleCreate(slug: ${renderMemQLValue(input.slug)}, name: ${renderMemQLValue(input.name)}, rank: ${renderMemQLValue(input.rank)}, description: ${renderMemQLValue(input.description)}, grants: ${renderMemQLValue([...input.grants])}, accountId: ${renderMemQLValue(input.accountId)})`,
+        ),
+      );
+      if (result === null) return null;
+      if (!decisionRefusal(result)) return null;
+      const row = result.rows()[0];
+      return row ? String((row as Record<string, unknown>)["slug"] ?? "") : input.slug;
+    },
+    [runQuery, decisionRefusal],
+  );
+
+  const roleUpdate = useCallback(
+    async (slug: string, grants: readonly string[]) => {
+      const result: Result | null = await runQuery(slug, (q) =>
+        q.executeNamed(
+          "roleUpdate",
+          `builtin roleUpdate(slug: ${renderMemQLValue(slug)}, grants: ${renderMemQLValue([...grants])})`,
+        ),
+      );
+      return decisionRefusal(result);
+    },
+    [runQuery, decisionRefusal],
+  );
+
+  const roleDeactivate = useCallback(
+    async (slug: string) => {
+      const result: Result | null = await runQuery(slug, (q) =>
+        q.executeNamed("roleDeactivate", `builtin roleDeactivate(slug: ${renderMemQLValue(slug)})`),
+      );
+      return decisionRefusal(result);
+    },
+    [runQuery, decisionRefusal],
   );
 
   return {
@@ -193,5 +442,15 @@ export function useUsersActions(): UsersActions {
     issueInvitation,
     revokeInvitation,
     resendInvitation,
+    setSuspended,
+    endSession,
+    groupCreate,
+    groupUpdate,
+    groupArchive,
+    groupMemberAdd,
+    groupMemberRemove,
+    roleCreate,
+    roleUpdate,
+    roleDeactivate,
   };
 }

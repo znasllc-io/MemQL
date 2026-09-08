@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { Result, type Row } from "@znasllc-io/memql-sdk-core/client";
 
 import { SessionProvider } from "../../src/chrome/access";
+import { readiness, verdict } from "../setup/harness";
 import { UNKNOWN_RUNTIME_CONFIG, type OsRuntimeConfig } from "../../src/cluster/config";
 
 // The Users app's test harness: a connection-shaped double, and the session
@@ -92,8 +93,26 @@ export interface FakeQuery {
   searchUsers: ReturnType<typeof vi.fn>;
   pendingUserInvitations: ReturnType<typeof vi.fn>;
   sessionsForSubjectAdmin: ReturnType<typeof vi.fn>;
-  /** What `getRowByConceptAndId` goes through -- the detail panel's re-read
-   *  and the collection's id-only event path both land here. */
+  activeRoles: ReturnType<typeof vi.fn>;
+  activeCapabilities: ReturnType<typeof vi.fn>;
+  clientAccountsAll: ReturnType<typeof vi.fn>;
+  revokeAuthSession: ReturnType<typeof vi.fn>;
+  groupsAll: ReturnType<typeof vi.fn>;
+  membersOfGroup: ReturnType<typeof vi.fn>;
+  groupsForUser: ReturnType<typeof vi.fn>;
+  groupsForAccount: ReturnType<typeof vi.fn>;
+  groupCreate: ReturnType<typeof vi.fn>;
+  groupUpdate: ReturnType<typeof vi.fn>;
+  groupArchive: ReturnType<typeof vi.fn>;
+  groupMemberAdd: ReturnType<typeof vi.fn>;
+  groupMemberRemove: ReturnType<typeof vi.fn>;
+  /**
+   * The one entry point for everything without a generated builder yet: the
+   * group reads and every group and role BUILTIN (`useGroups.ts` and
+   * `actions.ts` both hand-render, because epic memql#5165's last task is what
+   * regenerates the SDKs). `getRowByConceptAndId` lands here too, which is why
+   * the fake dispatches on the NAME rather than pattern-matching the call.
+   */
   executeNamed: ReturnType<typeof vi.fn>;
 }
 
@@ -107,23 +126,93 @@ export interface FakeSeed {
   searchUsers?: Row[];
   pendingUserInvitations?: Row[];
   sessionsForSubjectAdmin?: Row[];
+  groupsAll?: Row[];
+  activeRoles?: Row[];
+  activeCapabilities?: Row[];
+  clientAccountsAll?: Row[];
+  /** Membership rows, keyed by group id -- what `membersOfGroup` answers. */
+  membersOfGroup?: Record<string, Row[]>;
+  /** Membership rows, keyed by user id -- what `groupsForUser` answers. */
+  groupsForUser?: Record<string, Row[]>;
   /** Rows the by-id re-read answers with, keyed by row id. */
   byId?: Record<string, Row>;
+  /** Builtin replies by name; a thrown value is the refusal path. */
+  builtins?: Record<string, Row | Error>;
 }
 
 export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
-  const read = (key: "searchUsers" | "pendingUserInvitations" | "sessionsForSubjectAdmin") =>
-    vi.fn(async () => rowsResult(seed[key] ?? []));
+  const read = (
+    key:
+      | "searchUsers"
+      | "pendingUserInvitations"
+      | "sessionsForSubjectAdmin"
+      | "activeRoles"
+      | "activeCapabilities"
+      | "clientAccountsAll",
+  ) => vi.fn(async () => rowsResult(seed[key] ?? []));
+
+  /** Pull the one argument a hand-rendered read passes, e.g. `groupId: "g1"`. */
+  const argOf = (call: string, name: string): string => {
+    const m = new RegExp(`${name}:\\s*"([^"]*)"`).exec(call);
+    return m?.[1] ?? "";
+  };
+
+  /** A generated builtin's reply, or the seeded refusal. */
+  const builtin = (name: string, reply: Record<string, unknown>) =>
+    vi.fn(async (_args: Record<string, unknown>) => {
+      const seeded = seed.builtins?.[name];
+      if (seeded instanceof Error) throw seeded;
+      return rowsResult([(seeded ?? reply) as Row]);
+    });
+
   return {
     query: {
       searchUsers: read("searchUsers"),
       pendingUserInvitations: read("pendingUserInvitations"),
       sessionsForSubjectAdmin: read("sessionsForSubjectAdmin"),
-      executeNamed: vi.fn(async (_name: string, filter: string) => {
+      activeRoles: read("activeRoles"),
+      activeCapabilities: read("activeCapabilities"),
+      clientAccountsAll: read("clientAccountsAll"),
+      revokeAuthSession: vi.fn(async () => rowsResult([])),
+      // The group reads, through the GENERATED builders the app calls (`make
+      // sdk-gen`). They were hand-rendered through `executeNamed` until epic
+      // memql#5165's own last task regenerated the SDKs; a harness that
+      // answered only the old shape would leave every group surface reading an
+      // empty list, which is a completely plausible answer and is what makes
+      // that kind of miss survive review.
+      groupsAll: vi.fn(async (_args: Record<string, unknown>) => rowsResult(seed.groupsAll ?? [])),
+      membersOfGroup: vi.fn(async (args: Record<string, unknown>) => {
+        const groupId = typeof args["groupId"] === "string" ? args["groupId"] : "";
+        return rowsResult(seed.membersOfGroup?.[groupId] ?? []);
+      }),
+      groupsForUser: vi.fn(async (args: Record<string, unknown>) => {
+        const userId = typeof args["userId"] === "string" ? args["userId"] : "";
+        return rowsResult(seed.groupsForUser?.[userId] ?? []);
+      }),
+      groupsForAccount: vi.fn(async (_args: Record<string, unknown>) => rowsResult([])),
+      // The five group WRITES, likewise generated. A thrown seed value is the
+      // refusal path.
+      groupCreate: builtin("groupCreate", { groupId: "g-new" }),
+      groupUpdate: builtin("groupUpdate", { ok: "true" }),
+      groupArchive: builtin("groupArchive", { ok: "true" }),
+      groupMemberAdd: builtin("groupMemberAdd", { ok: "true" }),
+      groupMemberRemove: builtin("groupMemberRemove", { ok: "true" }),
+      executeNamed: vi.fn(async (name: string, call: string) => {
+        if (name === "groupsAll") return rowsResult(seed.groupsAll ?? []);
+        if (name === "membersOfGroup") {
+          return rowsResult(seed.membersOfGroup?.[argOf(call, "groupId")] ?? []);
+        }
+        if (name === "groupsForUser") {
+          return rowsResult(seed.groupsForUser?.[argOf(call, "userId")] ?? []);
+        }
+        const builtin = seed.builtins?.[name];
+        if (builtin instanceof Error) throw builtin;
+        if (builtin !== undefined) return rowsResult([builtin]);
+        if (name.startsWith("group") || name.startsWith("role")) return rowsResult([{ ok: "true" } as Row]);
         // `getRowByConceptAndId` composes `concept==<c> && id==<id>`; the
         // harness answers from `byId` so a by-id re-read is a real round trip
         // through the same helper the app calls.
-        const match = /id==(\S+)/.exec(filter);
+        const match = /id==(\S+)/.exec(call);
         const wanted = match?.[1] ?? "";
         const row = wanted === "" ? undefined : seed.byId?.[wanted];
         return bundleResult(row ? [row] : []);
@@ -131,6 +220,88 @@ export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
     },
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },
+  };
+}
+
+/** A group row with sane defaults. */
+export function groupRow(over: Partial<Row> & { id: string }): Row {
+  return {
+    name: "A group",
+    description: "",
+    kind: "custom",
+    accountId: "",
+    status: "active",
+    archivedAt: "",
+    createdAt: "2026-08-01T00:00:00Z",
+    ...over,
+  };
+}
+
+/** A membership row with sane defaults. */
+export function membershipRow(over: Partial<Row> & { id: string }): Row {
+  return {
+    groupId: "g1",
+    userId: "v1:identity:user:someone",
+    origin: "added",
+    addedBy: "",
+    status: "active",
+    removedAt: "",
+    removedBy: "",
+    createdAt: "2026-08-01T00:00:00Z",
+    ...over,
+  };
+}
+
+/** A role row with sane defaults. */
+export function roleRow(over: Partial<Row> & { slug: string }): Row {
+  return {
+    id: `v1:rbac:role:${String(over["slug"])}`,
+    name: String(over["slug"]),
+    rank: 100,
+    description: "",
+    predefined: true,
+    active: true,
+    aliases: [],
+    accountId: "",
+    ...over,
+  };
+}
+
+/** A capability row: one role's grant of one verb on one resource. */
+export function grantRow(roleSlug: string, verb: string, resourceType: string): Row {
+  return {
+    id: `v1:rbac:capability:${roleSlug}-${verb}-${resourceType}`,
+    roleSlug,
+    verb,
+    resourceType,
+    effect: "allow",
+    predefined: true,
+    active: true,
+  };
+}
+
+/** An account row with sane defaults, for the domain match and the chips. */
+export function accountRow(over: Partial<Row> & { id: string }): Row {
+  return {
+    name: "Acme",
+    domain: "",
+    primaryContactName: "",
+    primaryContactEmail: "",
+    notes: "",
+    status: "active",
+    configuredAt: "2026-08-01T00:00:00Z",
+    ownerUserId: "",
+    domainToken: "",
+    domainStatus: "unverified",
+    domainFailureReason: "",
+    domainFailureDetail: "",
+    domainLastCheckedAt: "",
+    domainVerifiedAt: "",
+    joinOnDomain: false,
+    memqlDomain: "",
+    memqlReservedAt: "",
+    createdAt: "2026-08-01T00:00:00Z",
+    ...over,
   };
 }
 
@@ -167,12 +338,26 @@ export function adminRefusal(message: string, code = 7) {
 
 export function withSession(
   children: ReactNode,
-  overrides: { userId?: string; role?: string; domain?: string } = {},
+  overrides: {
+    userId?: string;
+    role?: string;
+    domain?: string;
+    /**
+     * Whether the email module reports configured.
+     *
+     * IT DEFAULTS TO TRUE, and that is the deliberate one. `gateFor` answers
+     * "unknown" for an ABSENT readiness feed, and unknown is not ready -- so a
+     * harness that left it out would hide the Invite action in every case here
+     * and each of them would pass while measuring nothing.
+     */
+    emailReady?: boolean;
+  } = {},
 ) {
   const config: OsRuntimeConfig = {
     ...UNKNOWN_RUNTIME_CONFIG,
     domain: overrides.domain ?? "memql.example.com",
   };
+  const emailState = (overrides.emailReady ?? true) ? "configured" : "unconfigured";
   return (
     <SessionProvider
       value={{
@@ -184,6 +369,9 @@ export function withSession(
           rank: 0,
         },
         config,
+        // The shared fixture rather than a shape spelled here: one place says
+        // what a Verdict is, and a second copy is one that drifts.
+        readiness: readiness(true, [verdict("email", emailState)]),
       }}
     >
       {children}
@@ -223,6 +411,7 @@ export function invitationRow(over: Partial<Row> & { id: string }): Row {
     respondedAt: "",
     deliveryState: "sent",
     deliveryError: "",
+    groupIds: [],
     createdAt: "2026-08-01T00:00:00Z",
     ...over,
   };

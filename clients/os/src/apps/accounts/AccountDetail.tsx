@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
-import { FileText, GraduationCap, Rocket, Send, UserPlus } from "lucide-react";
+import { FileText, GraduationCap, Rocket, Send, UserPlus, UserRound } from "lucide-react";
 
 import { Button, Caption, Check, Fact, Facts, Input, Notice, Panel, Subhead,
   PeerRowReadOnly,
@@ -11,7 +11,8 @@ import { useAccountCampaignsRollup } from "../campaigns/useCampaigns";
 import type { ArchiveAccountState, UpdateAccountState } from "./actions";
 import { accountIsArchived, accountIsSelf, accountName, type AccountRow } from "./rows";
 import { useSession } from "../../chrome/access";
-import { useAccountRollups, type Rollup } from "./useAccounts";
+import { AccountDomainRail } from "./AccountDomainRail";
+import { useAccountPeople, useAccountRollups, type Rollup } from "./useAccounts";
 
 // One client: their facts, and everything of this cluster's that is theirs.
 //
@@ -40,11 +41,14 @@ export function AccountDetail({
   update,
   archive,
   onArchived,
+  onOpenGroup,
 }: {
   account: AccountRow;
   update: UpdateAccountState;
   archive: ArchiveAccountState;
   onArchived: () => void;
+  /** Opens the Users app on one of this client's groups. */
+  onOpenGroup?: (groupId: string) => void;
 }) {
   const rollups = useAccountRollups(account.id);
   const archived = accountIsArchived(account);
@@ -53,7 +57,12 @@ export function AccountDetail({
   return (
     <div className="os-account-detail">
       <ProfilePanel account={account} update={update} />
-      <Ledger account={account} rollups={rollups} />
+      {/* THE DOMAIN RAIL sits beneath the profile because that is where its
+          first stop's value is edited: the domain is a profile fact, and what
+          it BUYS -- proof, joining, a reserved name -- is what the rail
+          answers. */}
+      <AccountDomainRail account={account} update={update} />
+      <Ledger account={account} rollups={rollups} onOpenGroup={onOpenGroup} />
       {/* NO CREDENTIALS PANEL HERE, AND THAT IS THE POINT (memql#5013).
           A credential is minted against a `v1:identity:account` -- the paying
           account of the isolation model -- and `mintAccountToken` gates on
@@ -275,10 +284,16 @@ interface BandSpec {
 function Ledger({
   account,
   rollups,
+  onOpenGroup,
 }: {
   account: AccountRow;
   rollups: ReturnType<typeof useAccountRollups>;
+  onOpenGroup?: (groupId: string) => void;
 }) {
+  // THE PEOPLE BAND'S OWN READ. It is not a Rollup: the other five count rows,
+  // and this one is two numbers over two reads -- distinct people, across the
+  // groups that grant this client. It prints the same shared read time.
+  const people = useAccountPeople(account.id);
   // THE FIFTH BAND, AND ITS READ LIVES IN THE CAMPAIGNS APP. `tie.tsx` states
   // the rule for the other direction -- a tie surface belongs to the domain
   // that owns the concept -- and this is the same rule read the other way
@@ -359,7 +374,8 @@ function Ledger({
     [rollups, campaigns],
   );
 
-  const readAt = bands.map((b) => b.rollup.readAt).filter((t) => t !== "")[0] ?? "";
+  const readAt =
+    [people.readAt, ...bands.map((b) => b.rollup.readAt)].filter((t) => t !== "")[0] ?? "";
 
   return (
     <section className="os-account-ledger" aria-label={`What belongs to ${accountName(account)}`}>
@@ -376,6 +392,10 @@ function Ledger({
       </div>
 
       <div className="os-account-bands">
+        {/* FIRST, because it is the band the other five are about: the people
+            are who the deployables, the files, the knowledge and the campaigns
+            are for. */}
+        <PeopleBand people={people} onOpenGroup={onOpenGroup} />
         {bands.map((band) => (
           <Band key={band.key} band={band} />
         ))}
@@ -393,6 +413,82 @@ function Ledger({
         </Caption>
       )}
     </section>
+  );
+}
+
+/**
+ * How many people reach this client's work, and through which groups.
+ *
+ * OPENING IT GOES TO USERS, on the group, by intent -- rather than listing
+ * members here. A members list in this ledger would be a second place to
+ * manage membership, and the one that manages it is the group's own page.
+ */
+function PeopleBand({
+  people,
+  onOpenGroup,
+}: {
+  people: ReturnType<typeof useAccountPeople>;
+  onOpenGroup?: (groupId: string) => void;
+}) {
+  if (people.state === "error") {
+    // A REFUSAL IS NOT A ZERO. The reads carry `@requiresRank("admin")`, so
+    // below that the engine refuses -- and rendering that as "0 people" would
+    // be this window inventing a fact about a client.
+    return (
+      <article className="os-account-band" data-state="refused">
+        <header className="os-account-band-head">
+          <UserRound size={15} aria-hidden />
+          <h4 className="os-account-band-title">People</h4>
+        </header>
+        <p className="os-account-band-refused">Not yours to read</p>
+        <p className="os-account-band-detail os-mono">{people.error}</p>
+      </article>
+    );
+  }
+
+  if (people.state !== "ready") {
+    return (
+      <article className="os-account-band" data-state="loading">
+        <header className="os-account-band-head">
+          <UserRound size={15} aria-hidden />
+          <h4 className="os-account-band-title">People</h4>
+        </header>
+        <p className="os-account-band-count" aria-hidden>
+          --
+        </p>
+        <p className="os-account-band-note">Reading</p>
+      </article>
+    );
+  }
+
+  const first = people.groups[0];
+  return (
+    <article className="os-account-band" data-state={people.people === 0 ? "empty" : "ready"}>
+      <header className="os-account-band-head">
+        <UserRound size={15} aria-hidden />
+        <h4 className="os-account-band-title">People</h4>
+      </header>
+      <p className="os-account-band-count">{people.people}</p>
+      <p className="os-account-band-note">
+        {people.groups.length === 0
+          ? "in no groups yet"
+          : people.groups.length === 1
+            ? "in 1 group"
+            : `in ${people.groups.length} groups`}
+      </p>
+      {people.groups.length === 0 ? (
+        <p className="os-account-band-owner">Users is where these are added.</p>
+      ) : (
+        <ul className="os-account-band-rows" aria-label="Groups for this client">
+          {people.groups.map((group) => (
+            <li key={group.id}>{group.name}</li>
+          ))}
+        </ul>
+      )}
+      {first === undefined || onOpenGroup === undefined ? null : (
+        <Button onClick={() => onOpenGroup(first.id)}>Open in Users</Button>
+      )}
+    </article>
   );
 }
 

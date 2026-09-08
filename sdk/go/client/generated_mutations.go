@@ -13127,6 +13127,12 @@ type UpdateClientAccountArgs struct {
 	PrimaryContactName  string
 	PrimaryContactEmail string
 	Notes               string
+	// Whether a person arriving with a VERIFIED address on this domain joins this account's group (epic memql#5165, D9). It is a DECISION somebody makes, so it needs a caller-reachable path -- the Accounts app's Domain rail is the one that sets it, and without this argument the flag the engine already validates could be set by nothing.
+	// The guard is Go, not here: component/memql's account_domain_validation refuses `domain_not_verified` on a row whose status is not "verified", which is a comparison against the STORED row that a mutation body cannot make.
+	JoinOnDomain    bool
+	JoinOnDomainSet bool // set true to send joinOnDomain; required because zero-value bool is ambiguous
+	// The name this account is reserved under on this cluster (D10). Refused under the cluster's own domain or equal to a front-door host, by the same Go validation.
+	MemqlDomain string
 }
 
 // UpdateClientAccount calls the engine mutation updateClientAccount.
@@ -13174,6 +13180,20 @@ func UpdateClientAccountBuild(args UpdateClientAccountArgs) string {
 		}
 		b.WriteString("notes: ")
 		b.WriteString(quoteMemQL(args.Notes))
+	}
+	if args.JoinOnDomainSet {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("joinOnDomain: ")
+		b.WriteString(fmt.Sprintf("%v", args.JoinOnDomain))
+	}
+	if args.MemqlDomain != "" {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("memqlDomain: ")
+		b.WriteString(quoteMemQL(args.MemqlDomain))
 	}
 	b.WriteString(")")
 	return b.String()

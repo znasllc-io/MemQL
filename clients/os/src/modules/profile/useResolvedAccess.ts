@@ -73,6 +73,10 @@ export function accessFromSummary(summary: AccessSummary | null): ProfileAccess 
     role,
     roleName: String(summary.roleName ?? "").trim(),
     rank: typeof summary.rank === "number" ? summary.rank : 0,
+    // The groups ride through unchanged (epic memql#5165, section H): the SDK
+    // already answers an empty list for a cluster that does not report them,
+    // and this layer must not turn that into a claim of its own.
+    groups: summary.groups ?? [],
   };
 }
 
