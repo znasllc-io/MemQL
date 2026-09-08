@@ -5297,13 +5297,13 @@ a.os-button {
  * above. That block renders Type / Name / Value per bound domain, where all
  * three genuinely vary. Here three hosts share ONE record type and ONE target,
  * because one ingress controller terminates them all -- so the constant is
- * stated once in .os-door-shared and the three names carry the vertical
- * rhythm in .os-door-hosts, each on its own line with what the cluster last
+ * stated once in .os-frontdoor-shared and the three names carry the vertical
+ * rhythm in .os-frontdoor-hosts, each on its own line with what the cluster last
  * saw at it. Three near-identical strips differing in one of six fields would
  * bury the only thing a person is looking for.
  * ======================================================================== */
 
-.os-door {
+.os-frontdoor {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -5312,7 +5312,7 @@ a.os-button {
 /* The name itself, and the one word that says whether it answers. Monospace
  * because it is a hostname somebody will type, at reading size because it is
  * the subject of the stop rather than a field in it. */
-.os-door-name {
+.os-frontdoor-name {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -5322,39 +5322,39 @@ a.os-button {
   border-bottom: 1px solid var(--os-line);
 }
 
-.os-door-name code {
+.os-frontdoor-name code {
   font-family: var(--os-font-mono);
   font-size: var(--os-text-md);
   color: var(--os-ink);
   overflow-wrap: anywhere;
 }
 
-.os-door-state {
+.os-frontdoor-state {
   flex: 0 0 auto;
   font-size: var(--os-text-xs);
   color: var(--os-muted);
 }
 
-.os-door-name[data-tone="ok"] .os-door-state {
+.os-frontdoor-name[data-tone="ok"] .os-frontdoor-state {
   color: var(--os-accent);
 }
 
-.os-door-name[data-tone="error"] .os-door-state {
+.os-frontdoor-name[data-tone="error"] .os-frontdoor-state {
   color: var(--os-error);
 }
 
-.os-door-name[data-tone="warn"] .os-door-state {
+.os-frontdoor-name[data-tone="warn"] .os-frontdoor-state {
   color: var(--os-warn);
 }
 
-.os-door-records {
+.os-frontdoor-records {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 /* Stated once: the record type and the one target all three names point at. */
-.os-door-shared {
+.os-frontdoor-shared {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -5364,18 +5364,18 @@ a.os-button {
   background: var(--os-raised);
 }
 
-.os-door-part {
+.os-frontdoor-part {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.os-door-part[data-grow="true"] {
+.os-frontdoor-part[data-grow="true"] {
   flex: 1 1 220px;
 }
 
-.os-door-label {
+.os-frontdoor-label {
   font-size: var(--os-text-xs);
   color: var(--os-muted);
   /* The registrar's own vocabulary, reading as a field label rather than as
@@ -5384,14 +5384,14 @@ a.os-button {
   text-transform: uppercase;
 }
 
-.os-door-kind {
+.os-frontdoor-kind {
   padding: 5px 8px;
   font-family: var(--os-font-mono);
   font-size: var(--os-text-xs);
   color: var(--os-ink);
 }
 
-.os-door-value {
+.os-frontdoor-value {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5410,34 +5410,34 @@ a.os-button {
   transition: border-color var(--os-duration-fast) var(--os-ease);
 }
 
-.os-door-value:hover {
+.os-frontdoor-value:hover {
   border-color: var(--os-accent);
 }
 
-.os-door-value:focus-visible {
+.os-frontdoor-value:focus-visible {
   outline: 2px solid var(--os-accent);
   outline-offset: 1px;
 }
 
-.os-door-value code {
+.os-frontdoor-value code {
   overflow-wrap: anywhere;
   font-family: inherit;
 }
 
-.os-door-value svg {
+.os-frontdoor-value svg {
   flex: 0 0 auto;
   color: var(--os-muted);
 }
 
 /* The three names. A hairline BETWEEN them rather than a box around each: they
  * are one list of three, not three cards. */
-.os-door-hosts {
+.os-frontdoor-hosts {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.os-door-hosts li {
+.os-frontdoor-hosts li {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5447,21 +5447,21 @@ a.os-button {
   border-bottom: 1px solid var(--os-line);
 }
 
-.os-door-hosts li:last-child {
+.os-frontdoor-hosts li:last-child {
   border-bottom: 0;
 }
 
 /* THE ONE STILL WRONG, marked -- .os-record's rule, applied per NAME rather
  * than per record, because here the name is what varies. */
-.os-door-hosts li[data-state="wrong"] .os-door-saw {
+.os-frontdoor-hosts li[data-state="wrong"] .os-frontdoor-saw {
   color: var(--os-error);
 }
 
-.os-door-hosts li[data-state="pending"] .os-door-saw {
+.os-frontdoor-hosts li[data-state="pending"] .os-frontdoor-saw {
   opacity: 0.72;
 }
 
-.os-door-saw {
+.os-frontdoor-saw {
   flex: 0 1 auto;
   font-size: var(--os-text-xs);
   color: var(--os-muted);
@@ -5470,7 +5470,7 @@ a.os-button {
 
 /* Once it is serving, the hosts stop being records to create and become
  * addresses to open. */
-.os-door-hosts[data-serving="true"] li a {
+.os-frontdoor-hosts[data-serving="true"] li a {
   color: var(--os-ink);
   font-family: var(--os-font-mono);
   font-size: var(--os-text-xs);
@@ -5479,15 +5479,15 @@ a.os-button {
   transition: border-color var(--os-duration-fast) var(--os-ease);
 }
 
-.os-door-hosts[data-serving="true"] li a:hover,
-.os-door-hosts[data-serving="true"] li a:focus-visible {
+.os-frontdoor-hosts[data-serving="true"] li a:hover,
+.os-frontdoor-hosts[data-serving="true"] li a:focus-visible {
   border-color: var(--os-accent);
 }
 
 /* cert-manager's own condition message, verbatim. Its wording names which
  * challenge is outstanding, which is what an operator with one CNAME still
  * missing needs to read. */
-.os-door-detail {
+.os-frontdoor-detail {
   margin: 0;
   font-size: var(--os-text-xs);
   color: var(--os-muted);

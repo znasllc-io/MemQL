@@ -89,7 +89,7 @@ export function AccountFrontDoorStop({
   if (!door) {
     const why = reservationReasonSentence(reservationReason);
     return (
-      <div className="os-door">
+      <div className="os-frontdoor">
         <NameLine name={reservedName} tone="muted" state="Not held" />
         <Caption>
           {isKnownReservationReason(reservationReason)
@@ -104,7 +104,7 @@ export function AccountFrontDoorStop({
   const serving = door.status === "live";
 
   return (
-    <div className="os-door">
+    <div className="os-frontdoor">
       <NameLine
         name={reservedName}
         tone={doorTone(door)}
@@ -112,10 +112,19 @@ export function AccountFrontDoorStop({
       />
       <Caption>{doorSentence(door)}</Caption>
 
-      {serving ? <ServingHosts hosts={hosts} /> : <PointingGuidance hosts={hosts} target={pointingTarget(clusterDomain)} />}
+      {serving ? (
+        <ServingHosts hosts={hosts} />
+      ) : (
+        <PointingGuidance hosts={hosts} target={pointingTarget(clusterDomain)} />
+      )}
 
-      {door.failureDetail && !serving ? (
-        <p className="os-door-detail">{door.failureDetail}</p>
+      {/* THE DETAIL ONLY WHERE IT IS THE ONLY CONTENT. cert-manager's own
+          condition message ("Issuing certificate as Secret does not exist")
+          says something no sentence here could; a typed failure's detail
+          restates the sentence directly above it in slightly different words,
+          which reads as the surface saying the same thing twice and hedging. */}
+      {door.failureDetail && !serving && door.failureReason === "" ? (
+        <p className="os-frontdoor-detail">{door.failureDetail}</p>
       ) : null}
 
       <Caption>
@@ -138,9 +147,9 @@ export function AccountFrontDoorStop({
 /** The reserved name itself, with the one word that says whether it answers. */
 function NameLine({ name, tone, state }: { name: string; tone: string; state: string }) {
   return (
-    <div className="os-door-name" data-tone={tone}>
+    <div className="os-frontdoor-name" data-tone={tone}>
       <code>{name}</code>
-      <span className="os-door-state">{state}</span>
+      <span className="os-frontdoor-state">{state}</span>
     </div>
   );
 }
@@ -150,24 +159,33 @@ function NameLine({ name, tone, state }: { name: string; tone: string; state: st
  * each with what we saw at it.
  */
 function PointingGuidance({ hosts, target }: { hosts: DoorHost[]; target: string }) {
-  return (
-    <div className="os-door-records">
-      <div className="os-door-shared">
-        {/* TYPE IS NOT COPYABLE, the Domains panel's reasoning: every registrar
-            offers it as a dropdown, so nobody pastes "CNAME". A copy button
-            there is an affordance for something nobody does. */}
-        <div className="os-door-part">
-          <span className="os-door-label">Type</span>
-          <span className="os-door-kind">CNAME</span>
-        </div>
-        <CopyablePart label="Value" value={target} grow />
-      </div>
+  // ONCE ALL THREE POINT HERE, THE INSTRUCTION IS FINISHED WORK. The record to
+  // create is guidance, and guidance for a thing already done is noise sitting
+  // between a person and the one line that has changed -- what the certificate
+  // is waiting on. The three names stay, because they are now the EVIDENCE that
+  // the records are right rather than a list of records to make.
+  const stillWrong = hosts.some((h) => h.state !== "ok");
 
-      <ul className="os-door-hosts">
+  return (
+    <div className="os-frontdoor-records">
+      {stillWrong ? (
+        <div className="os-frontdoor-shared">
+          {/* TYPE IS NOT COPYABLE, the Domains panel's reasoning: every
+              registrar offers it as a dropdown, so nobody pastes "CNAME". A
+              copy button there is an affordance for something nobody does. */}
+          <div className="os-frontdoor-part">
+            <span className="os-frontdoor-label">Type</span>
+            <span className="os-frontdoor-kind">CNAME</span>
+          </div>
+          <CopyablePart label="Value" value={target} grow />
+        </div>
+      ) : null}
+
+      <ul className="os-frontdoor-hosts">
         {hosts.map((h) => (
           <li key={h.role} data-state={h.state}>
             <CopyablePart label="Name" value={h.host} grow hideLabel />
-            <span className="os-door-saw">
+            <span className="os-frontdoor-saw">
               {h.state === "ok" ? "points here" : h.state === "pending" ? "not checked yet" : h.observed || "does not point here"}
             </span>
           </li>
@@ -180,13 +198,13 @@ function PointingGuidance({ hosts, target }: { hosts: DoorHost[]; target: string
 /** Once it is serving, the hosts stop being records and become addresses. */
 function ServingHosts({ hosts }: { hosts: DoorHost[] }) {
   return (
-    <ul className="os-door-hosts" data-serving="true">
+    <ul className="os-frontdoor-hosts" data-serving="true">
       {hosts.map((h) => (
         <li key={h.role} data-state="ok">
           <a href={`https://${h.host}`} target="_blank" rel="noreferrer noopener">
             <code>{h.host}</code>
           </a>
-          <span className="os-door-saw">{h.purpose}</span>
+          <span className="os-frontdoor-saw">{h.purpose}</span>
         </li>
       ))}
     </ul>
@@ -220,11 +238,11 @@ function CopyablePart({
   }
 
   return (
-    <div className="os-door-part" data-grow={grow}>
-      {hideLabel ? null : <span className="os-door-label">{label}</span>}
+    <div className="os-frontdoor-part" data-grow={grow}>
+      {hideLabel ? null : <span className="os-frontdoor-label">{label}</span>}
       <button
         type="button"
-        className="os-door-value"
+        className="os-frontdoor-value"
         onClick={() => void copy()}
         title={`Copy ${label.toLowerCase()}`}
         aria-label={`Copy ${label.toLowerCase()}: ${value}`}
