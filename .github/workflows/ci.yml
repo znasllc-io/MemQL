@@ -884,6 +884,19 @@ jobs:
       - name: sdk-gen-check (typed SDK drift)
         if: ${{ env.RUN_DSL == 'true' }}
         run: make sdk-gen-check
+      # Concept-field snapshot drift (memql#5209). Reads dsl/ and the migrations
+      # directory, so it gates with the DSL lanes beside the SDK generator.
+      #
+      # It answers a question none of its siblings can: did this branch REMOVE
+      # something from a concept -- a field, an enum value, an optional-ness --
+      # without recording what happened to the rows that still carry it? Such a
+      # removal bricks those rows (additionalProperties is false and the
+      # read-merge validates the merged payload) and is invisible to every other
+      # lane, because db-tests runs against a fresh database whose boot seed
+      # writes clean rows.
+      - name: concept-snapshot-check (concept field drift)
+        if: ${{ env.RUN_DSL == 'true' }}
+        run: make concept-snapshot-check
       # Proto drift check (memql#928): regenerate the pinned-toolchain proto
       # bindings (component/grpc, component/node and component/bus -- bus was
       # normalized onto the pinned toolchain in memql#928 itself, so the
