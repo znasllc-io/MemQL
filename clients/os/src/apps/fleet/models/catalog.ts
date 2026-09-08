@@ -92,6 +92,23 @@ export interface CatalogRow {
    * a pull, which is the only case where "why" is a question with an answer.
    */
   blocked: BlockedReason | null;
+  /**
+   * Whether the machine-class floor could actually be CHECKED for this row.
+   *
+   * FALSE IS NOT "TOO SMALL" AND IT IS NOT "BIG ENOUGH" -- it is "no machine
+   * on this fleet has reported its memory", which is the state of every fleet
+   * until the scanner in epic memql#5146 lands. The row is deliberately not
+   * blocked in that state, because guessing would tell an operator their
+   * machine is too small when the truth is nobody has asked it yet.
+   *
+   * But `blocked: null` alone made the SENTENCE claim the opposite: an
+   * uncheckable row counted toward "N of them run on a machine you already
+   * have", which is a positive claim about hardware from an absence of data,
+   * and it is the same defect as saying that to a fleet with no machines at
+   * all. Right now it is wrong for every entry with a floor on every real
+   * fleet. This flag is how the sentence tells the two apart.
+   */
+  classKnown: boolean;
 }
 
 /** A model the fleet serves that the catalog has never heard of. */
@@ -193,7 +210,9 @@ export function joinCatalog(
         .filter((m) => m.runtimes.includes(profile.runtime))
         .map((m) => m.name)
         .filter((n) => n !== "");
-      return { profile, served: true, servedBy, blocked: null };
+      // A served row needs no floor check: the fleet is demonstrably running
+      // it, which outranks any comparison against a reported class.
+      return { profile, served: true, servedBy, blocked: null, classKnown: true };
     }
 
     // Not pulled. Could this fleet run it at all?
@@ -209,6 +228,7 @@ export function joinCatalog(
             kind: "not-offered-on-platform",
             detail: `Runs on ${where}. No machine on your fleet is one.`,
           },
+          classKnown: biggest >= 0,
         };
       }
     }
@@ -222,6 +242,7 @@ export function joinCatalog(
           kind: "runtime-missing",
           detail: `Needs the ${profile.runtime} runtime. No machine on your fleet has it installed.`,
         },
+        classKnown: biggest >= 0,
       };
     }
 
@@ -235,11 +256,14 @@ export function joinCatalog(
           kind: "no-machine-of-class",
           detail: `Needs ${profile.minMachineClass} GB. Your largest machine has ${MACHINE_CLASSES[biggest]} GB.`,
         },
+        classKnown: true,
       };
     }
 
     // Could be served, and has not been pulled. Not blocked -- an invitation.
-    return { profile, served: false, servedBy: [], blocked: null };
+    // `classKnown` says whether that invitation rests on a checked floor or on
+    // a fleet that has not reported its memory.
+    return { profile, served: false, servedBy: [], blocked: null, classKnown: biggest >= 0 };
   });
 
   const known = new Set(profiles.map((p) => p.modelId));
@@ -367,8 +391,38 @@ export function categorySentence(group: CategoryGroup): string {
   if (blocked === group.rows.length) {
     return "Nothing here runs on your fleet, and each entry says why.";
   }
+  // AN UNCHECKABLE FLOOR IS NOT A PASSED ONE. A row whose machine-class floor
+  // could not be evaluated -- because no machine on this fleet has reported its
+  // memory, which is every fleet until epic memql#5146's scanner lands -- is
+  // deliberately not blocked. Counting it as pullable, though, turns "we could
+  // not check" into "it runs on a machine you already have": a positive claim
+  // about somebody's hardware built out of the absence of data about it, and
+  // wrong in the direction that gets a 122B pull started on a laptop.
+  //
+  // So the sentence names the gap instead, and names the thing that would close
+  // it, rather than reporting a count it cannot stand behind.
+  //
+  // The MEMORY half is a fact about the FLEET, not about this category, so the
+  // section says it once above the list and the group says only its own half
+  // (rule 7). Said per group it printed the same clause under every category
+  // with a floor -- the same repetition the no-machines branch above exists to
+  // avoid, arriving by a different route.
+  const unknown = group.rows.filter((r) => r.blocked === null && !r.classKnown).length;
+  if (unknown > 0) return "Nothing here is pulled yet.";
   const pullable = group.rows.length - blocked;
   return `Nothing here is pulled yet. ${pullable} of them ${plural(pullable, "runs", "run")} on a machine you already have.`;
+}
+
+/**
+ * Whether any entry's machine-class floor could not be checked, because no
+ * machine on this fleet has reported its memory.
+ *
+ * ASKED OF THE WHOLE READING, because it is a fact about the fleet: the answer
+ * is the same under every category, and the section says it once rather than
+ * each group repeating it (rule 7).
+ */
+export function hasUncheckableClass(groups: CategoryGroup[]): boolean {
+  return groups.some((g) => g.rows.some((r) => r.blocked === null && !r.classKnown));
 }
 
 /**

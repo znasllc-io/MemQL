@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const { applyFacets, categorySentence, groupByCategory, joinCatalog } = await import(
+const { applyFacets, categorySentence, groupByCategory, hasUncheckableClass, joinCatalog } = await import(
   "../../src/apps/fleet/models/catalog"
 );
 type FleetMachineFacts = import("../../src/apps/fleet/models/catalog").FleetMachineFacts;
@@ -189,6 +189,46 @@ describe("categorySentence", () => {
 
     const none = groupByCategory(joinCatalog([profile({ modelId: "a" })], [], [machine()]));
     expect(categorySentence(none[0]!)).toContain("runs on a machine you already have");
+  });
+
+  it("does not claim a model runs on hardware whose size nobody has reported", () => {
+    // THE PRODUCTION STATE, and the fixture default hides it: `machine()`
+    // reports memoryGb 32, and no real machine reports anything until the
+    // scanner in epic memql#5146 lands. So every test machine had a known
+    // class and this path was never taken.
+    //
+    // With memory unknown the floor cannot be checked, so the row is
+    // deliberately NOT blocked -- guessing would tell an operator their
+    // machine is too small when nobody has asked it yet. But counting it as
+    // pullable turns "we could not check" into "it runs on a machine you
+    // already have", which is a positive claim about somebody's hardware built
+    // from the absence of data about it, and wrong in the direction that gets
+    // a 122B pull started on a laptop.
+    const big = profile({ modelId: "qwen3.5:122b", minMachineClass: "128" });
+    const unreported = machine({ memoryGb: 0 });
+    const group = groupByCategory(joinCatalog([big], [], [unreported]))[0]!;
+
+    expect(group.rows[0]!.blocked).toBeNull();
+    expect(group.rows[0]!.classKnown).toBe(false);
+    expect(categorySentence(group)).not.toContain("machine you already have");
+    // The group says only its own half. The MEMORY half is a fact about the
+    // fleet -- the same under every category -- so the section says it once
+    // above the list (rule 7) and `hasUncheckableClass` is what it asks.
+    expect(categorySentence(group)).toBe("Nothing here is pulled yet.");
+    expect(hasUncheckableClass([group])).toBe(true);
+  });
+
+  it("still counts pullable entries when the class IS known", () => {
+    // The control for the case above. Without it, the fix could report the
+    // "not reported" sentence for every fleet and pass -- which would replace
+    // a wrong claim with a useless one.
+    const fits = profile({ modelId: "qwen3.5:9b", minMachineClass: "16" });
+    const known = machine({ memoryGb: 32 });
+    const group = groupByCategory(joinCatalog([fits], [], [known]))[0]!;
+
+    expect(group.rows[0]!.classKnown).toBe(true);
+    expect(categorySentence(group)).toContain("runs on a machine you already have");
+    expect(hasUncheckableClass([group])).toBe(false);
   });
 
   it("a fleet with no machines is told to pair one, not that these run on hardware it has", () => {

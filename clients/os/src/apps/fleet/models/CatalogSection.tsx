@@ -5,6 +5,7 @@ import {
   applyFacets,
   categorySentence,
   groupByCategory,
+  hasUncheckableClass,
   joinCatalog,
   type CatalogFacets,
   type CatalogRow,
@@ -144,6 +145,23 @@ export function CatalogSection({
           You have no machines paired yet. Pair one in Machines, then pull from this list.
         </Caption>
       )}
+
+      {machineCount > 0 && hasUncheckableClass(groups) ? (
+        // The same rule, for the same reason. Until the scanner in epic
+        // memql#5146 lands, no machine reports its memory -- so the floor
+        // cannot be checked for any entry that has one, under every category
+        // at once. It is one fact about the fleet, said once.
+        //
+        // Entries stay UNBLOCKED: guessing would tell somebody their machine is
+        // too small when nobody has asked it yet. What changed is that the list
+        // no longer counts an unchecked entry as one that "runs on a machine you
+        // already have", which was a claim about their hardware made out of the
+        // absence of data about it.
+        <Caption>
+          Your machines have not reported their memory yet, so this list cannot say which of these
+          they can run.
+        </Caption>
+      ) : null}
 
       <div className="os-fleet-catalog">
         {groups.map((group) => {
