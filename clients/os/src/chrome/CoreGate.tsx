@@ -9,6 +9,7 @@ import { PasskeyStop } from "../apps/setup/PasskeyStop";
 import { PASSKEY_STOP, drawnState, type SetupStop } from "../apps/setup/stops";
 import type { ModuleId } from "../system/modules";
 import { useSession } from "./access";
+import { useOs } from "./state";
 
 // THE CORE GATE (design record 2026-09-07-core-gate-and-honest-install, D1,
 // D2 and D6).
@@ -35,16 +36,18 @@ import { useSession } from "./access";
 // ===========================================================================
 // THREE SILENCES, AND ONLY ONE OF THEM HOLDS ANYBODY
 // ===========================================================================
-//   NOT KNOWN YET   the ladder or the feed has not landed. NOTHING is drawn --
-//                   not the gate and not the desk -- because a configured
-//                   cluster must never flash a gate, and showing the desk
-//                   first would flash the opposite. Both are false, and a
-//                   moment of the OS's own ground is honest.
-//   UNREPORTED      the feed loaded and no live node reported `ai`. The desk
-//                   OPENS. A broken cluster is not an unconfigured one, and a
-//                   gate that claimed it was would lock somebody out of the
-//                   Cluster app they need in order to go and fix it.
-//   UNCONFIGURED    the one state that holds.
+//   THE FEED HAS NOT SAID   unloaded, absent, `unreported`, `configured`,
+//                           `partial`. The desk OPENS. `unreported` is the
+//                           sharp one: a broken cluster is not an unconfigured
+//                           one, and a gate that claimed it was would lock
+//                           somebody out of the Cluster app they need in order
+//                           to go and find out why nothing is reporting.
+//   THE LADDER OR THE       nothing at all is drawn. The cluster IS
+//   IDENTITY HAS NOT SAID   unconfigured, so the desk must not open -- but
+//                           which VARIANT is not decided, and telling an owner
+//                           to go and find an owner is worse than a beat of
+//                           ground.
+//   UNCONFIGURED            the one state that holds.
 //
 // The PASSKEY read is a fourth wait and it is not one of these: by the time it
 // is outstanding the verdict is already in, so the surface draws and only the
@@ -57,15 +60,11 @@ import { useSession } from "./access";
 // call.
 export function CoreGate({ onSignOut, children }: { onSignOut: () => void; children: ReactNode }) {
   const { access, ladderLoaded, readiness } = useSession();
+  const { state } = useOs();
   const facts = useSetupFacts();
   const role = access?.clusterRole ?? "";
   const [override, setOverride] = useState<string | null>(null);
 
-  // FAIL-CLOSED ON THE LADDER, which is the opposite of the readiness feed's
-  // own default and deliberately so. `canConfigure` cannot answer until the
-  // ladder lands, and the two variants are not interchangeable: one offers the
-  // acts and one says to go and find somebody. Drawing either during the wait
-  // is drawing an answer.
   // ONLY POSITIVE EVIDENCE HOLDS ANYBODY, and this one line is every silence
   // at once. An unloaded feed answers `null` for every module (`of` reads a
   // map built only when `loaded`), an absent feed answers `null`, an
@@ -83,13 +82,30 @@ export function CoreGate({ onSignOut, children }: { onSignOut: () => void; child
   // a screen the person cannot dismiss.
   if (readiness?.of("ai")?.state !== "unconfigured") return <>{children}</>;
 
-  // FAIL-CLOSED ON THE LADDER, and only here, where it is the whole question.
-  // The cluster IS unconfigured -- that much is decided -- but which variant
-  // to draw is not: `canConfigure` cannot answer until the ladder lands, and
-  // telling an OWNER to go and find an owner is worse than a beat of ground.
-  // The wait is short and only ever happens on a cluster that is being held
-  // anyway.
-  if (ladderLoaded !== true) return null;
+  // A HOLD, NOT A PRISON. The gate's own acts OPEN AN APP -- Fleet to pair a
+  // machine, Settings to set a provider up -- and a window is drawn by the
+  // desk this renders in place of. So while any window is open the desk is
+  // drawn and the gate steps aside; close it and the gate returns, unless the
+  // door it sent them for is now open.
+  //
+  // ANY window rather than a named one, because the desk draws all of them and
+  // half a desk is not a thing this shell has. That is safe as the whole
+  // condition: the stored document never carries windows (state.tsx), so a
+  // boot always starts with none, and nothing behind the gate can open one --
+  // the only way this is non-empty is an act the person took on this screen.
+  if (Object.keys(state.shell.windows).length > 0) return <>{children}</>;
+
+  // FAIL-CLOSED ON THE LADDER AND ON THE IDENTITY, and only here, where it is
+  // the whole question. The cluster IS unconfigured -- that much is decided --
+  // but WHICH VARIANT to draw is not.
+  //
+  // `ladderLoaded` and `access` are two INDEPENDENT reads, fired from separate
+  // effects in Shell.tsx with no ordering between them, so the ladder landing
+  // says nothing about whether the identity has. Reading `access?.clusterRole
+  // ?? ""` while it is still null hands an OWNER the reader variant -- "an
+  // owner or developer has to set up inference", to the owner, with Sign out
+  // as the only control. Both reads, or neither variant.
+  if (ladderLoaded !== true || access === null) return null;
   // Bound once so `bodyFor` below reads the narrowed value: TypeScript does
   // not carry a narrowing through a closure, and the alternative is a non-null
   // assertion at the one place a wrong answer would be silent. Non-null is

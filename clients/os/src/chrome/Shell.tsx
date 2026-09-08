@@ -131,14 +131,26 @@ export function Shell({
         <MachinesProvider>
           <ShellTransports source={source} ports={ports}>
             {(uploads, desktopStore) => (
-              /* THE CORE GATE, between the session and the roster (D1). While
-                 the `ai` verdict is `unconfigured` it renders in place of the
-                 desk, so nothing behind it -- no app, no dock, no launcher --
-                 is mounted at all. It draws nothing while the feed or the
-                 ladder is unknown, and lifts on a feed change with no
-                 reload. */
-              <CoreGate onSignOut={onSignOut}>
               <ShellRoster grid={grid} store={desktopStore} layout={layout}>
+                {/* THE CORE GATE, INSIDE the roster and around the layout (D1).
+                    While the `ai` verdict is `unconfigured` it renders in place
+                    of the desk, so nothing behind it -- no app, no dock, no
+                    launcher -- is mounted at all.
+
+                    INSIDE rather than around `ShellRoster`, and the difference
+                    is not cosmetic. The gate's stops offer their acts through
+                    `useAppReach`, which reads `useOsIfPresent()`: outside the
+                    roster that answers null, every section list is empty, and
+                    the inference stop degrades to "Pair a machine in Fleet,
+                    under Machines" -- prose pointing at an app the gate has
+                    not mounted. An owner on a local cluster would then have
+                    Sign out as the only working control on a screen demanding
+                    they set up inference.
+
+                    The roster's own siblings -- the return dispatchers, the
+                    capture installer and SetupPresence -- stay OUTSIDE the
+                    gate, because they must keep running while it draws. */}
+                <CoreGate onSignOut={onSignOut}>
                 {layout === "phone" ? (
                   <div
       className="os-root"
@@ -157,8 +169,8 @@ export function Shell({
                     onSignOut={onSignOut}
                   />
                 )}
+                </CoreGate>
               </ShellRoster>
-              </CoreGate>
             )}
           </ShellTransports>
         </MachinesProvider>

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ connection: null as unknown }));
@@ -6,16 +6,26 @@ vi.mock("../../src/live/connection", () => ({ useOsConnection: () => h.connectio
 
 import type { ReactNode } from "react";
 
-import { coreAt, readiness } from "../setup/harness";
+import { coreAt, readiness, withOs } from "../setup/harness";
 import { fakeConnection, passkeyRow, withSession } from "../cluster/harness";
 import { SetupFactsScope } from "../../src/apps/setup/SetupFactsScope";
 import { CoreGate } from "../../src/chrome/CoreGate";
+import { useOs } from "../../src/chrome/state";
 import type { Readiness } from "../../src/live/readiness";
 
-// THE CORE GATE, mounted the way Shell.tsx mounts it: inside the facts scope,
-// with the desk as its children. What every case here asserts is which of the
-// three things is on screen -- the rail, the sentence, or the desk -- because
-// that is the whole of what this surface decides.
+// THE CORE GATE, mounted the way Shell.tsx mounts it: inside the facts scope
+// AND INSIDE THE SHELL PROVIDER, with the desk as its children.
+//
+// The provider is not scenery. The gate's stops offer their acts through
+// `useAppReach`, which reads `useOsIfPresent()` -- so a harness that left the
+// provider out would render every act as its words-only fallback and every
+// case here would still pass, while production shipped a full-screen gate
+// whose only working control was Sign out. `mountsInsideTheShell` below is the
+// case that pins the composition itself.
+//
+// What every other case asserts is which of the three things is on screen --
+// the rail, the sentence, or the desk -- because that is the whole of what
+// this surface decides.
 
 afterEach(() => {
   cleanup();
@@ -29,13 +39,31 @@ const READER_SENTENCE = "An owner or developer has to set up inference before an
 function gate(role: string, feed: Readiness, ladderLoaded = true): ReactNode {
   return withSession(
     <SetupFactsScope>
-      <CoreGate onSignOut={() => {}}>{DESK}</CoreGate>
+      {withOs(<CoreGate onSignOut={() => {}}>{DESK}</CoreGate>, role)}
     </SetupFactsScope>,
     { clusterRole: role, readiness: feed, ladderLoaded },
   );
 }
 
 const UNCONFIGURED = () => coreAt("unconfigured", "configured", "configured");
+
+/** Opens and closes a real window, the way the gate's own acts do. */
+function WindowDriver() {
+  const { actions, state } = useOs();
+  return (
+    <>
+      <button type="button" onClick={() => actions.openApp("fleet", "machines")}>
+        open fleet
+      </button>
+      <button
+        type="button"
+        onClick={() => Object.keys(state.shell.windows).forEach((id) => actions.closeWindow(id))}
+      >
+        close all
+      </button>
+    </>
+  );
+}
 
 describe("what the gate does while it cannot say", () => {
   it("OPENS THE DESK while the feed has not loaded, and draws no gate", async () => {
@@ -148,6 +176,56 @@ describe("the two role variants", () => {
       // own signed-in identity is the one thing that could leak here.
       expect(document.body.textContent).not.toContain("me@example.com");
     }
+  });
+
+  it("OFFERS A WORKING ACT, not prose pointing at an app it did not mount", async () => {
+    // THE CASE THAT WOULD HAVE CAUGHT THE COMPOSITION BUG. The gate was
+    // mounted OUTSIDE ShellRoster, so `useAppReach` read a null shell, every
+    // section list was empty, and the inference stop's act degraded to its
+    // words-only fallback: "Pair a machine in Fleet, under Machines" -- prose
+    // pointing at an app the gate had not mounted. On a local cluster, which
+    // reaches no federation by design, that left an owner with Sign out as the
+    // only working control on a screen demanding they set up inference.
+    //
+    // Every other case here passed against that, which is why this one asserts
+    // the ACT rather than the label above it.
+    h.connection = fakeConnection({ passkeysForSelf: [] });
+    render(gate("owner", UNCONFIGURED()));
+    expect(await screen.findByRole("button", { name: "Open Fleet" })).toBeTruthy();
+    // And the fallback prose is NOT on screen -- its presence is the symptom.
+    expect(screen.queryByText(/Pair a machine in Fleet, under Machines/)).toBeNull();
+  });
+
+  it("steps aside for the window its own act opened, and comes back when it closes", async () => {
+    // A HOLD, NOT A PRISON. `openApp` puts a window in the shell's state, and
+    // a window is drawn by the desk this renders in place of -- so the gate
+    // has to yield to it, or the act it just offered goes nowhere visible.
+    h.connection = fakeConnection({ passkeysForSelf: [] });
+    render(
+      withSession(
+        <SetupFactsScope>
+          {withOs(
+            <>
+              <CoreGate onSignOut={() => {}}>{DESK}</CoreGate>
+              <WindowDriver />
+            </>,
+            "owner",
+          )}
+        </SetupFactsScope>,
+        { clusterRole: "owner", readiness: UNCONFIGURED() },
+      ),
+    );
+    expect(await screen.findByRole("list", { name: "Set up this cluster" })).toBeTruthy();
+    expect(screen.queryByTestId("desk")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "open fleet" }));
+    await waitFor(() => expect(screen.getByTestId("desk")).toBeTruthy());
+    expect(screen.queryByRole("list", { name: "Set up this cluster" })).toBeNull();
+
+    // Closed with the door still shut: the gate returns rather than leaving
+    // somebody on a desk they were held off.
+    fireEvent.click(screen.getByRole("button", { name: "close all" }));
+    await waitFor(() => expect(screen.getByRole("list", { name: "Set up this cluster" })).toBeTruthy());
   });
 
   it("offers the owner a way out too", async () => {
