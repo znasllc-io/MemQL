@@ -1218,6 +1218,155 @@ func GithubConnectBeginBuild(args GithubConnectBeginArgs) string {
 	return b.String()
 }
 
+// GroupArchive -- Archive a group and remove its memberships. Requires `update` on `group`. Refuses `group_account_active` on an account-kind group whose account is still active (D5) -- that group is the account's, and archiving it alone would leave the account with no way for its people to reach its work while still looking configured. Archive the ACCOUNT instead, and the cascade takes the group with it. Returns {groupId, status, membershipsRemoved}.
+type GroupArchiveArgs struct {
+	GroupId string
+}
+
+// GroupArchive calls the engine builtin groupArchive.
+func (qc *QueryClient) GroupArchive(ctx context.Context, args GroupArchiveArgs) (*Result, error) {
+	call := GroupArchiveBuild(args)
+	return qc.executeNamed(ctx, "groupArchive", call)
+}
+
+func GroupArchiveBuild(args GroupArchiveArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin groupArchive(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupCreate -- Create a custom group, optionally tied to an account. Requires `create` on `group`; a named account must exist and be active. Returns {groupId, name, accountId, kind, status}. The group's KIND is always \"custom\" -- the account-kind group is written by the ensureAccountGroup automation and never by a caller, so a person cannot mint a second one and split an account's membership across two rows.
+type GroupCreateArgs struct {
+	// Display name, as a person would say it.
+	Name string
+	// What the group is for. Optional; group pickers fall back to the name.
+	Description string
+	// The v1:accounts:account this group grants. Omit for a group that grants nothing and exists to organize (D8).
+	AccountId string
+}
+
+// GroupCreate calls the engine builtin groupCreate.
+func (qc *QueryClient) GroupCreate(ctx context.Context, args GroupCreateArgs) (*Result, error) {
+	call := GroupCreateBuild(args)
+	return qc.executeNamed(ctx, "groupCreate", call)
+}
+
+func GroupCreateBuild(args GroupCreateArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin groupCreate(")
+	b.WriteString("name: ")
+	b.WriteString(quoteMemQL(args.Name))
+	if args.Description != "" {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("description: ")
+		b.WriteString(quoteMemQL(args.Description))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupMemberAdd -- Place a person in a group. Requires `update` on `group`, refuses `group_self_add_refused` when the target is the caller (nobody adds themselves -- D7), and refuses `group_member_rank_not_below_caller` unless the target ranks STRICTLY below the caller. Re-adding somebody who was removed writes a new version at the same derived id rather than a second row. Returns {membershipId, groupId, userId, origin, status}.
+type GroupMemberAddArgs struct {
+	GroupId string
+	UserId  string
+}
+
+// GroupMemberAdd calls the engine builtin groupMemberAdd.
+func (qc *QueryClient) GroupMemberAdd(ctx context.Context, args GroupMemberAddArgs) (*Result, error) {
+	call := GroupMemberAddBuild(args)
+	return qc.executeNamed(ctx, "groupMemberAdd", call)
+}
+
+func GroupMemberAddBuild(args GroupMemberAddArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin groupMemberAdd(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	if b.Len() > 23 {
+		b.WriteString(", ")
+	}
+	b.WriteString("userId: ")
+	b.WriteString(quoteMemQL(args.UserId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupMemberRemove -- Remove a person from a group. Requires `update` on `group` OR that the target IS the caller -- a person may always take themselves out, which is the one asymmetry with groupMemberAdd and is deliberate (D7). Otherwise the same rank rule applies. Returns {membershipId, groupId, userId, status}.
+type GroupMemberRemoveArgs struct {
+	GroupId string
+	UserId  string
+}
+
+// GroupMemberRemove calls the engine builtin groupMemberRemove.
+func (qc *QueryClient) GroupMemberRemove(ctx context.Context, args GroupMemberRemoveArgs) (*Result, error) {
+	call := GroupMemberRemoveBuild(args)
+	return qc.executeNamed(ctx, "groupMemberRemove", call)
+}
+
+func GroupMemberRemoveBuild(args GroupMemberRemoveArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin groupMemberRemove(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	if b.Len() > 26 {
+		b.WriteString(", ")
+	}
+	b.WriteString("userId: ")
+	b.WriteString(quoteMemQL(args.UserId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupUpdate -- Rename a group or change its description. Requires `update` on `group`. Refuses `group_not_active` on an archived group -- an archived group grants nothing, and editing one reads as reviving it. Returns {groupId, name, description}.
+type GroupUpdateArgs struct {
+	GroupId string
+	// New display name. Omit to leave it.
+	Name string
+	// New description. Omit to leave it.
+	Description string
+}
+
+// GroupUpdate calls the engine builtin groupUpdate.
+func (qc *QueryClient) GroupUpdate(ctx context.Context, args GroupUpdateArgs) (*Result, error) {
+	call := GroupUpdateBuild(args)
+	return qc.executeNamed(ctx, "groupUpdate", call)
+}
+
+func GroupUpdateBuild(args GroupUpdateArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin groupUpdate(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	if args.Name != "" {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("name: ")
+		b.WriteString(quoteMemQL(args.Name))
+	}
+	if args.Description != "" {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("description: ")
+		b.WriteString(quoteMemQL(args.Description))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // InferenceStatus -- Answer, in one row, whether this caller can get inference at all and through which of the three doors: a local model on their fleet, the Anthropic workload-identity federation, or a configured API key. Read from the SAME catalog and provider registry the router reads, so eligibility has exactly one implementation -- a second one drifts, and the drift lets a user through to a console whose features all refuse. Backs the shell's first-run gate.
 type InferenceStatusArgs struct {
 }

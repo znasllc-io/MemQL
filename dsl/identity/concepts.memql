@@ -728,7 +728,26 @@ concept group {
   status       enum("active", "archived")!  @description("Lifecycle. Only an ACTIVE group grants anything -- the resolution reads the group's status rather than trusting the membership, because a group is archived without its memberships being rewritten. Archive is the only exit; there is no delete.")
   archivedAt   datetime  @description("When status became archived. Written by groupArchive and by the archiveAccountGroup cascade.")
 
-  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
+  // NO @relationship ON accountId, and that is a decision rather than an
+  // omission (epic memql#5165).
+  //
+  // A relationship canonicalizes the field on write, against the concept its
+  // `target=` names -- and the bare name `account` is AMBIGUOUS IN THIS FILE:
+  // v1:identity:account is declared below, and the flat registry resolves a
+  // bare name first-wins, so `target=account` here binds the identity concept
+  // rather than the client registry. The DSL has no qualified spelling to
+  // disambiguate with.
+  //
+  // For v1:identity:invitation.accountId that ambiguity is harmless, because
+  // the stored value and the filter argument canonicalize the SAME wrong way
+  // and agree with each other. Here it is not: this field is compared against
+  // the accountId of a SITE or a CAMPAIGN, which canonicalize correctly in
+  // their own files -- so a relationship would store `v1:identity:account:X`
+  // against their `v1:accounts:account:X` and the grant would match nothing,
+  // silently, while every declaration read correctly.
+  //
+  // Stored BARE instead, which is the wire contract at every seam anyway, and
+  // the account scope carries both spellings for exactly this reason.
 }
 
 /// ONE PERSON'S MEMBERSHIP OF ONE GROUP (epic memql#5165, D11).

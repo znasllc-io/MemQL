@@ -483,6 +483,16 @@ var idBearingFieldExemptions = map[string]string{
 	// nothing ever writes. Its sibling v1:identity:group.ownerUserId is the
 	// same field for the same reason and does not appear here only because its
 	// @description names no v1: row for the heuristic to catch.
+	// v1:identity:group.accountId is a plain FK because the bare name
+	// `account` is AMBIGUOUS in dsl/identity/concepts.memql: that file
+	// declares v1:identity:account AND imports v1:accounts:account, and the
+	// flat registry resolves a bare `target=` first-wins. A relationship here
+	// would canonicalize the field under the identity concept while every
+	// concept it is compared against (site, campaign) canonicalizes under the
+	// client registry -- so the grant would match nothing, silently, with
+	// every declaration reading correctly. Stored bare, which is the wire
+	// contract anyway. See the comment on the concept.
+	"identity/group.accountId":             "plain-fk-by-design: the bare name `account` shadows in this file, so a relationship would canonicalize under the WRONG concept (epic memql#5165)",
 	"identity/groupMembership.ownerUserId": "plain-fk-by-design: always empty (epic memql#5165 D2); the owned tier needs a present-and-empty owner key, and the field names no target",
 	"identity/identity.accountId":          "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
 	// --- deliberate short-form storage by write-side normalization ---

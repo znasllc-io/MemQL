@@ -565,6 +565,89 @@ There is no per-partition grant list to show any more -- the proto's
 is the only access-relevant fact a `v1:identity:user` row carries (see
 "Role spectrum," above).
 
+## Groups and grants
+
+A cluster-wide role says what a person may DO. A group says whose rows they may
+do it to.
+
+`v1:identity:group` is a group; `v1:identity:groupMembership` is one person's
+place in one. A group tied to an account -- `kind: "account"` for the one every
+account gets by default, `kind: "custom"` for any other -- is what lets a
+client's people reach that client's work: reads for any active member, writes
+for a member whose role holds the verb.
+
+That is not a second authorization mechanism. It is one more argument of the
+tier every tied concept already declares:
+
+```memql fragment
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
+```
+
+The engine ORs an account branch onto the concept's admission and resolves it
+per request into the actor's account set, the way the rank scope already works
+-- so **subscriptions decide with the same function**, and a member's live feed
+carries their client's rows with no further work.
+
+### What is declared, and what is not
+
+`account="accountId"` on `v1:platform:site` and the campaigns concepts;
+`account="accountIds"` on `v1:library:artifact`, `v1:work:goal` and the compose
+concepts, whose rows may belong to more than one client. Not declared, on
+purpose: `customDomain` (cluster-owner only), `knowledgeDomain` (public), the
+work children, and the Library's backing rows.
+[per-row-authz-audit.md](per-row-authz-audit.md) carries the list.
+
+### The rows are the deployment's
+
+Both concepts declare `@rowAuthz(owner="ownerUserId", rankVisible,
+unowned="admin", clusterOwner)` with an `ownerUserId` that is **always empty**.
+They are readable from admin rank and written only by Go builtins under
+internal origin.
+
+That is a decision rather than an oversight. A membership keyed as owner-tier on
+`userId` would let a Member insert their OWN row into any client's group,
+because an owned row admits its owner's inserts.
+
+### Who may place whom
+
+`update` on `group`, plus rank governance: a caller may add or remove somebody
+who ranks **strictly below** them, and may remove themselves. **Nobody adds
+themselves** -- that is the escalation guard, not politeness. Note that
+developer (300) outranks admin (200), so an admin may not place a developer.
+
+Every refusal is a typed code the OS keys its copy on:
+`group_self_add_refused`, `group_member_rank_not_below_caller`,
+`group_account_active`, `group_not_active`, `group_capability_missing`.
+
+### Staff are a rule, not rows
+
+Everyone at **developer rank and above is a standing member of every
+account-kind group**. Applied by the engine as a rule, not written as rows:
+rows drift -- a developer hired next month is in no group until something adds
+them -- and a rule does not. Their scope lowers to "any tied row", and to no
+untied one. No query returns them, because there is nothing to return.
+
+### Two ways a person lands in a group
+
+**An invitation carries them.** `IssueUserInvitationRequest.group_ids` names
+the groups the recipient joins on acceptance. Validated at ISSUE, against an
+active group and against the same rank rule `groupMemberAdd` applies -- because
+the rank rule is about the INVITER, and the inviter is only present at issue.
+
+**Their email domain matches.** Once an account has proven it owns its domain
+(a TXT token at `_memql-verify.<domain>`, checked on the custom-domain
+reconciler's schedule) and has `joinOnDomain` on, a person arriving with a
+**verified** address on that domain joins the account's group. Never on an
+unverified address -- an unverified claim is a string the provider did not
+check, and joining on it is the same class of mistake as linking on it. Never
+retroactive: it applies at arrival and to nobody already here.
+
+### What a client is told
+
+`MyAccessResult` carries `groups`, `account_ids` and `every_account`, built from
+the same resolution the row gate uses. **Read `every_account` first**: it is the
+staff rule, and when it is set `account_ids` is empty and empty means *all*.
+
 ## Granting access
 
 A cluster-wide role is set by an owner or admin over `IdentityAdminMsg`

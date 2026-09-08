@@ -54,6 +54,50 @@ client-callable, so no caller-check applies and it is never flagged.
 | **admin** | Cluster-owner-only (e.g. audit log, identity admin views) | A top-level conjunct `actor.isClusterOwner == true`, or an admin context-spec |
 | **public** | Globally readable by intent (concept catalogs, role registry, public lookup tables) | `@public` annotation on the construct |
 
+### The account grant is an ARGUMENT of the owned tier, not a fifth bucket
+
+`@rowAuthz(owner="<field>", account="<field>")` (epic memql#5165) widens the
+owned tier's reads **and** writes to "the owner, OR anyone whose group ties them
+to this row's account". It composes with `clusterOwner` and the rank modifiers
+as one more OR-ed branch, and it changes no bucket: a concept declaring it is
+still classified `owned`.
+
+Declared today:
+
+| Concept | Field |
+|---|---|
+| `v1:platform:site` | `accountId` |
+| `v1:campaigns:campaign` / `audience` / `template` / `senderIdentity` / `emailRule` | `accountId` |
+| `v1:campaigns:recipient` / `delivery` / `engagementEvent` / `consentEvent` | `accountId`, stamped from the parent at write |
+| `v1:library:artifact` | `accountIds` |
+| `v1:work:goal` | `accountIds` |
+| `v1:compose:composition` / `composeTemplate` / `recipe` | `accountIds` |
+
+Not declared, on purpose: `v1:platform:customDomain` (cluster-owner only),
+`knowledgeDomain` (public), `v1:work:run` and its children, and the Library's
+backing rows -- their reach follows the artifact that indexes them.
+
+**There is no backfill.** A row on one of the four campaigns children written
+before its `accountId` existed carries no value and stays owner-only. A member
+reads the deliveries written after the change and not the ones before it, and
+that is the honest state rather than a history pretending to have moved.
+
+### The two group concepts
+
+`v1:identity:group` and `v1:identity:groupMembership` both declare
+`@rowAuthz(owner="ownerUserId", rankVisible, unowned="admin", clusterOwner)`
+with an `ownerUserId` that is **always empty** -- they are the deployment's
+rows, readable from admin rank and written only by `integrations/groups` under
+internal origin.
+
+A membership keyed as owner-tier on `userId` would let a Member insert their own
+row into any client's group, because an owned row admits its owner's inserts.
+That is why they are unowned and why their two writers are `@serverOnly`.
+
+The two `@serverOnly` writers and the five admin-floored reads are listed in
+`test/dslconformance/server_only_parsed_test.go`, each with the argument for
+why caller-scoping is not the fix.
+
 The two reported states that are not buckets: **`srvOnly`**, checked
 first as above, and **`other`** — everything the classifier did not
 place. `other` is by far the largest column and is not a finding.
