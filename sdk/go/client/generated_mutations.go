@@ -1634,23 +1634,22 @@ func CreateAgentAuthorizationBuild(args CreateAgentAuthorizationArgs) string {
 //
 // Bound concept: v1:agents:agentRole (machine-readable: BoundConcepts["createAgentRole"] in generated_concepts.go).
 type CreateAgentRoleArgs struct {
-	AgentRoleId           string
-	Slug                  string
-	Name                  string
-	Description           string
-	Category              string
-	Tier                  string
-	LockedSkillIds        []any
-	DefaultSkillIds       []any
-	AvailableSkillIds     []any
-	ForbiddenSkillIds     []any
-	MaxSkills             int
-	RecommendedPolicySlug string
-	SystemPromptHints     string
-	Active                bool
-	ActiveSet             bool // set true to send active; required because zero-value bool is ambiguous
-	Predefined            bool
-	PredefinedSet         bool // set true to send predefined; required because zero-value bool is ambiguous
+	AgentRoleId       string
+	Slug              string
+	Name              string
+	Description       string
+	Category          string
+	Tier              string
+	LockedSkillIds    []any
+	DefaultSkillIds   []any
+	AvailableSkillIds []any
+	ForbiddenSkillIds []any
+	MaxSkills         int
+	SystemPromptHints string
+	Active            bool
+	ActiveSet         bool // set true to send active; required because zero-value bool is ambiguous
+	Predefined        bool
+	PredefinedSet     bool // set true to send predefined; required because zero-value bool is ambiguous
 }
 
 // CreateAgentRole calls the engine mutation createAgentRole.
@@ -1731,13 +1730,6 @@ func CreateAgentRoleBuild(args CreateAgentRoleArgs) string {
 		}
 		b.WriteString("maxSkills: ")
 		b.WriteString(fmt.Sprintf("%v", args.MaxSkills))
-	}
-	if args.RecommendedPolicySlug != "" {
-		if b.Len() > 25 {
-			b.WriteString(", ")
-		}
-		b.WriteString("recommendedPolicySlug: ")
-		b.WriteString(quoteMemQL(args.RecommendedPolicySlug))
 	}
 	if args.SystemPromptHints != "" {
 		if b.Len() > 25 {
@@ -9275,6 +9267,29 @@ type RecordRouterCallArgs struct {
 	Billing string
 	// Where the call ran; empty for MemQL's own provider calls.
 	ExecutionSurface string
+	// The level the call was resolved at, after any rule override.
+	Level string
+	// The level the CALL declared, before a rule overrode it.
+	RequestedLevel string
+	// The level that actually served; differs from level only when degraded.
+	ServedLevel string
+	// True when the chain was exhausted at the requested level and the rule said degrade.
+	Degraded    bool
+	DegradedSet bool // set true to send degraded; required because zero-value bool is ambiguous
+	// The rule that matched. Empty only for a call pinned with an explicit provider.
+	Rule string
+	// The policy that rule named, after policy: expansion.
+	Policy string
+	// local | app | federation -- which door the winning entry belongs to.
+	Door string
+	// The door report: every entry the walk passed over, and the one it took.
+	Considered []map[string]any
+	// The call's footprint, so a decision can be filtered by what it was about.
+	Touches []string
+	// The context-window floor this resolution was made against. Never zero.
+	MinContextTokens int
+	// Whose machine served a local call. Empty until shared machines land.
+	MachineOwnerUserId string
 }
 
 // RecordRouterCall calls the engine mutation recordRouterCall.
@@ -9454,6 +9469,83 @@ func RecordRouterCallBuild(args RecordRouterCallArgs) string {
 		}
 		b.WriteString("executionSurface: ")
 		b.WriteString(quoteMemQL(args.ExecutionSurface))
+	}
+	if args.Level != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("level: ")
+		b.WriteString(quoteMemQL(args.Level))
+	}
+	if args.RequestedLevel != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("requestedLevel: ")
+		b.WriteString(quoteMemQL(args.RequestedLevel))
+	}
+	if args.ServedLevel != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("servedLevel: ")
+		b.WriteString(quoteMemQL(args.ServedLevel))
+	}
+	if args.DegradedSet {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("degraded: ")
+		b.WriteString(fmt.Sprintf("%v", args.Degraded))
+	}
+	if args.Rule != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("rule: ")
+		b.WriteString(quoteMemQL(args.Rule))
+	}
+	if args.Policy != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("policy: ")
+		b.WriteString(quoteMemQL(args.Policy))
+	}
+	if args.Door != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("door: ")
+		b.WriteString(quoteMemQL(args.Door))
+	}
+	if args.Considered != nil {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("considered: ")
+		b.WriteString(renderMemQLValue(args.Considered))
+	}
+	if args.Touches != nil {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("touches: ")
+		b.WriteString(renderMemQLValue(args.Touches))
+	}
+	if args.MinContextTokens != 0 {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("minContextTokens: ")
+		b.WriteString(fmt.Sprintf("%v", args.MinContextTokens))
+	}
+	if args.MachineOwnerUserId != "" {
+		if b.Len() > 26 {
+			b.WriteString(", ")
+		}
+		b.WriteString("machineOwnerUserId: ")
+		b.WriteString(quoteMemQL(args.MachineOwnerUserId))
 	}
 	b.WriteString(")")
 	return b.String()

@@ -5949,6 +5949,46 @@ QueryClient.prototype.routerBudgets = function (this: QueryClient, args: RouterB
   return this.executeNamed("routerBudgets", buildRouterBudgets(args), opts);
 };
 
+/** The recent AI routing decisions, newest first. This is how a rule is checked: a rule set nobody can read the consequences of is a set of assertions.
+FLOORED AT developer, WHICH ADMITS OWNER AND REFUSES ADMIN. On this ladder developer (300) outranks admin (200), so the floor is exactly the "owner or developer" this read was specified at. The AI-settings epic may want to widen it to admin -- a decision record carries no prompt content, and an admin answering "why did this go to a vendor" needs it -- and widening a floor later is safe where narrowing one is not, which is why it ships at the narrower reading.
+v1:router:call declares no @rowAuthz tier, so this gate is the whole of the authorization. Declaring a tier on the concept would narrow every existing read of the cost ledger, which is a separate decision from adding this one.
+There is no `limit` argument: the struct-query paginate directive accepts an integer literal only, so a caller-supplied page size is not expressible here. Callers page with the keyset cursor instead, which is the read a live decision list wants anyway. */
+// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerDecisionsRecent"] in generated_concepts.ts).
+export interface RouterDecisionsRecentArgs {
+  /** Only decisions at or after this RFC3339 timestamp. */
+  since?: string;
+  /** Only decisions resolved at this level. */
+  // Enum: fast | strong | reasoning | embeddings
+  level?: string;
+  /** Only decisions served through this door. */
+  // Enum: local | app | federation
+  door?: string;
+  /** Only decisions the named rule made. */
+  rule?: string;
+  /** Only decisions with this outcome. A park is recorded as its refusal code. */
+  outcome?: string;
+}
+
+export function buildRouterDecisionsRecent(args: RouterDecisionsRecentArgs): string {
+  const parts: string[] = [];
+  if (args.since !== undefined) parts.push("since: " + renderMemQLValue(args.since));
+  if (args.level !== undefined) parts.push("level: " + renderMemQLValue(args.level));
+  if (args.door !== undefined) parts.push("door: " + renderMemQLValue(args.door));
+  if (args.rule !== undefined) parts.push("rule: " + renderMemQLValue(args.rule));
+  if (args.outcome !== undefined) parts.push("outcome: " + renderMemQLValue(args.outcome));
+  return "query routerDecisionsRecent(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    routerDecisionsRecent(args: RouterDecisionsRecentArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.routerDecisionsRecent = function (this: QueryClient, args: RouterDecisionsRecentArgs = {} as RouterDecisionsRecentArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("routerDecisionsRecent", buildRouterDecisionsRecent(args), opts);
+};
+
 /** The caller's active routing policy, or nothing when they never set one (the common case -- the router then applies firstFit + nextMatching).
 Caller-scoped for the same reason myWorkersWithStatus is: the router runs under the session owner's actor, so an ownerUserId argument would be a caller-supplied id standing in for a caller check it already has. */
 // Bound concept: v1:worker:routingPolicy (machine-readable: BoundConcepts["routingPolicyForOwner"] in generated_concepts.ts).

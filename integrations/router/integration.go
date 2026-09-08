@@ -26,7 +26,10 @@ type Integration struct {
 	engine    memql.IntegrationEngineAccess
 	providers *memql.ProviderRegistry
 	policies  *memql.PolicyRegistry
-	logger    *slog.Logger
+	// ruleActivator arms runtime-authored routing rules. Installed from app/;
+	// nil on a node with no authored runtime, where the capability refuses.
+	ruleActivator RuleActivator
+	logger        *slog.Logger
 }
 
 // New builds a Router admin integration.

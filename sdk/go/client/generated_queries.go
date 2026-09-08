@@ -6022,6 +6022,72 @@ func RouterBudgetsBuild(args RouterBudgetsArgs) string {
 	return b.String()
 }
 
+// RouterDecisionsRecent -- The recent AI routing decisions, newest first. This is how a rule is checked: a rule set nobody can read the consequences of is a set of assertions.
+// FLOORED AT developer, WHICH ADMITS OWNER AND REFUSES ADMIN. On this ladder developer (300) outranks admin (200), so the floor is exactly the "owner or developer" this read was specified at. The AI-settings epic may want to widen it to admin -- a decision record carries no prompt content, and an admin answering "why did this go to a vendor" needs it -- and widening a floor later is safe where narrowing one is not, which is why it ships at the narrower reading.
+// v1:router:call declares no @rowAuthz tier, so this gate is the whole of the authorization. Declaring a tier on the concept would narrow every existing read of the cost ledger, which is a separate decision from adding this one.
+// There is no `limit` argument: the struct-query paginate directive accepts an integer literal only, so a caller-supplied page size is not expressible here. Callers page with the keyset cursor instead, which is the read a live decision list wants anyway.
+//
+// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerDecisionsRecent"] in generated_concepts.go).
+type RouterDecisionsRecentArgs struct {
+	// Only decisions at or after this RFC3339 timestamp.
+	Since string
+	// Only decisions resolved at this level.
+	// Enum: fast | strong | reasoning | embeddings
+	Level string
+	// Only decisions served through this door.
+	// Enum: local | app | federation
+	Door string
+	// Only decisions the named rule made.
+	Rule string
+	// Only decisions with this outcome. A park is recorded as its refusal code.
+	Outcome string
+}
+
+// RouterDecisionsRecent calls the engine query routerDecisionsRecent.
+func (qc *QueryClient) RouterDecisionsRecent(ctx context.Context, args RouterDecisionsRecentArgs) (*Result, error) {
+	call := RouterDecisionsRecentBuild(args)
+	return qc.executeNamed(ctx, "routerDecisionsRecent", call)
+}
+
+func RouterDecisionsRecentBuild(args RouterDecisionsRecentArgs) string {
+	var b strings.Builder
+	b.WriteString("query routerDecisionsRecent(")
+	if args.Since != "" {
+		b.WriteString("since: ")
+		b.WriteString(quoteMemQL(args.Since))
+	}
+	if args.Level != "" {
+		if b.Len() > 28 {
+			b.WriteString(", ")
+		}
+		b.WriteString("level: ")
+		b.WriteString(quoteMemQL(args.Level))
+	}
+	if args.Door != "" {
+		if b.Len() > 28 {
+			b.WriteString(", ")
+		}
+		b.WriteString("door: ")
+		b.WriteString(quoteMemQL(args.Door))
+	}
+	if args.Rule != "" {
+		if b.Len() > 28 {
+			b.WriteString(", ")
+		}
+		b.WriteString("rule: ")
+		b.WriteString(quoteMemQL(args.Rule))
+	}
+	if args.Outcome != "" {
+		if b.Len() > 28 {
+			b.WriteString(", ")
+		}
+		b.WriteString("outcome: ")
+		b.WriteString(quoteMemQL(args.Outcome))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // RoutingPolicyForOwner -- The caller's active routing policy, or nothing when they never set one (the common case -- the router then applies firstFit + nextMatching).
 // Caller-scoped for the same reason myWorkersWithStatus is: the router runs under the session owner's actor, so an ownerUserId argument would be a caller-supplied id standing in for a caller check it already has.
 //

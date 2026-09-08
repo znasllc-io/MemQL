@@ -102,16 +102,37 @@ func (r *Runner) Run(ctx context.Context, corpus scenario.Corpus) (SuiteResult, 
 //
 // The control is normally the BASELINE ARM of the same scenario: a bare loop
 // with no journal restarts from the beginning, so it re-executes and it
-// re-delivers. `compileCallsOnCatalogHit` is the exception -- a bare loop does
-// not compile -- and there the control is the platform arm measured on the
-// catalog-MISS path.
+// re-delivers.
+//
+// TWO METRICS ARE MEASURED ON THE PLATFORM ARM INSTEAD, and the reason is the
+// same both times: the mechanism the metric counts does not exist in a bare
+// loop at all, so its baseline arm is structurally zero and would report a dead
+// instrument on a working one. `compileCallsOnCatalogHit` -- a bare loop does
+// not compile. `recovery.modelCalls` -- a bare loop has no failure path, so it
+// never reaches the symptom classifier; the count the metric is about is the
+// PLATFORM deciding whether a failure needs a model, and a control on the
+// baseline would be asking a question the arm cannot answer.
+//
+// That is a narrower exemption than it looks. On the platform arm the control
+// still has to produce a non-zero, which is the whole property: it fails if the
+// classifier is never reached, which is exactly the state the suite was in
+// before it was wired.
+// platformArmControls are the metrics whose negative control is measured on the
+// platform arm rather than the baseline. See checkNegativeControl's header for
+// why each is here; an entry added without that reasoning turns a control into
+// a formality.
+var platformArmControls = map[figure.Metric]bool{
+	figure.MetricCompileCallsExact: true,
+	figure.MetricRecoveryCalls:     true,
+}
+
 func checkNegativeControl(s scenario.Scenario, entries []scorecard.Entry) string {
 	m := s.NegativeControlFor
 	if m == "" {
 		return ""
 	}
 	arm := figure.ArmBaseline
-	if m == figure.MetricCompileCallsExact {
+	if platformArmControls[m] {
 		arm = figure.ArmPlatform
 	}
 	for _, e := range entries {

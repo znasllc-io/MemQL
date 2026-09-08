@@ -32,6 +32,7 @@ import (
 	"github.com/znasllc-io/memql/component/identity"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/routingrules"
+	integrationsrouter "github.com/znasllc-io/memql/integrations/router"
 )
 
 // wireAuthoredRuntime constructs + wires the authored-construct runtime. Called
@@ -126,6 +127,20 @@ func (a *App) wireAuthoredRuntime() {
 		a.AuthoredRuntimeDeps,
 		routingrules.EngineShippedNames{Engine: a.engine},
 	)
+
+	// And the other half of that handoff: the router integration serves the
+	// two builtins and cannot import component/routingrules (its module
+	// requires the root module at a PUBLISHED version, and the package is
+	// newer than any of them), so app/ installs the adapter on it here.
+	//
+	// A node where the integration did not materialize installs nothing and
+	// the capability refuses by name, which is the visible failure rather than
+	// the silent one.
+	if ri := integrationsrouter.Materialized(); ri != nil {
+		ri.SetRuleActivator(routingRuleActivatorAdapter{})
+		a.Logger.Info("routing-rule authoring wired: an owner or developer can add a rule at runtime and it survives a restart",
+			"component", "router")
+	}
 
 	// Boot re-arm (#1039): re-register every already-active bundle across all
 	// owners so their automations fire again after a restart, with no manual
