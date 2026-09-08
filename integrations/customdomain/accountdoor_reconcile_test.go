@@ -530,3 +530,36 @@ func TestNoPathsOmitsTheHttpIngressRatherThanEmptyingIt(t *testing.T) {
 		}
 	}
 }
+
+// A FRONT-DOOR HOST IS NEVER AN APEX, and this pins it rather than testing a
+// branch that cannot be reached.
+//
+// The design record originally promised a test of "an apex reserved name",
+// which was a promise about a case that does not exist. CheckPointing's apex
+// path is a LABEL COUNT (`<= 1` dot), and every host a reserved name serves
+// has the reserved name's labels plus one -- so the shortest possible door
+// host is `app.<two-label-domain>`, which is three labels. The CNAME branch is
+// the only one a door ever takes.
+//
+// It matters because the apex branch compares resolved ADDRESSES rather than a
+// CNAME target, which is a weaker check: it would admit any host that happened
+// to resolve to the same load balancer, including one belonging to somebody
+// else this cluster serves.
+func TestNoFrontDoorHostIsEverAnApex(t *testing.T) {
+	for _, reserved := range []string{
+		"memql.acme.com",
+		"acme.com",      // a client who reserved their bare domain
+		"a.b.c.d.e.com", // and a deep one
+	} {
+		for _, h := range frontdoor.AccountHosts(reserved) {
+			if IsApex(h.Name) {
+				t.Errorf("%q reads as an apex; the pointing check would compare addresses rather than the CNAME target, which admits any host resolving to the same load balancer", h.Name)
+			}
+		}
+	}
+
+	// The control: the predicate is not simply always false.
+	if !IsApex("acme.com") {
+		t.Fatal("IsApex returns false for a real apex -- this assertion would be vacuous")
+	}
+}

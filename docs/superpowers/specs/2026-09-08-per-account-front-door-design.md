@@ -422,15 +422,30 @@ recursive resolver and an ACME endpoint.
 - The generated path slice against the manifest generator's own block, so the
   two cannot drift; folded into `TestFrontDoorPathsAreNotStale`.
 - `CheckPointing` over the fake resolver for the three-host shape, including
-  the one-target property and an apex reserved name.
+  the one-target property.
+
+  **NOT an apex reserved name** -- a correction to this record, which promised
+  a test of a case that does not exist. `IsApex` is a LABEL COUNT (`<= 1`
+  dot) and every door host is the reserved name plus one label, so the
+  shortest possible one is three labels. The CNAME branch is the only one a
+  door ever takes. What is tested instead is that unreachability, with a
+  control proving the predicate is not simply always false -- and it matters,
+  because the apex branch compares resolved ADDRESSES rather than a CNAME
+  target, which would admit any host resolving to the same load balancer.
 - The reconciler's state machine, one transition per pass, and the D9
   transition proven by clearing the reservation under a `live` row.
 - The guard's collision probes, db-gated, including the un-narrowed read (a
   hostname held by another user's site collides for a caller who cannot see
   it).
-- Edge resolution, db-gated: a live door resolves to the OS site with the
-  account attached; a `pending_dns` one does not; a site's own hostname and a
-  live custom domain both still win.
+- Edge resolution, **in-process against a stub executor**, not db-gated -- a
+  correction to this record. `component/edge` has no db-gated tests at all
+  (`scripts/ci/db-gated-packages.sh --trees` does not list it), so promising
+  one here promised a lane that does not exist. What the in-process tests
+  prove is the thing that matters and a database would not have added to: the
+  ORDER (a site's own hostname wins, then a live custom domain, then a door),
+  asserted by COUNTING the reads so a later step being asked after an earlier
+  one answered is a failure; that a `pending_dns` door resolves to nothing;
+  and that a miss is cached.
 - `RuntimeConfig` per door: `identityUrl` is the door's, `account` is present,
   and a document served on the cluster's own host is byte-identical to before.
 - The RP id resolution: a door name resolves to the reserved name, an
