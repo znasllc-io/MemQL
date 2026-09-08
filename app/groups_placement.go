@@ -29,8 +29,28 @@ import (
 	"log/slog"
 
 	"github.com/znasllc-io/memql/component/auth"
+	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/integrations/groups"
 )
+
+// placerEngine narrows the engine to the one method integrations/groups needs.
+//
+// It exists because the two Execute signatures differ: the engine returns a
+// typed *ExecuteResult and the groups package -- which must not import
+// component/memql's result type to stay a narrow seam -- takes `any`. The
+// plug-in factory has the same adapter for the same reason; this is the one
+// caller that builds the integration directly rather than through the
+// registry, and it needs its own.
+//
+// GO DOES NOT COERCE THE SIGNATURE, so leaving this out compiles everywhere
+// except under the `identity` build tag, which is the only build that reaches
+// the wiring below. That failure is invisible to `go build ./...` and to
+// `make test`.
+type placerEngine struct{ engine *memql.MemQLEngine }
+
+func (p placerEngine) Execute(ctx context.Context, query string) (any, error) {
+	return p.engine.Execute(ctx, query)
+}
 
 // groupPlacer places arrivals. Nil-safe throughout: a node with no groups
 // integration wired places nobody and says nothing.

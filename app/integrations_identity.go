@@ -116,7 +116,7 @@ func (a *App) integrationsIdentity() {
 	// integrations/, and integrations/groups does not know what an
 	// invitation is.
 	placer := &groupPlacer{
-		groups: groups.New(a.engine, func(msg string, args ...any) {
+		groups: groups.New(placerEngine{a.engine}, func(msg string, args ...any) {
 			if a.Logger != nil {
 				a.Logger.Warn(msg, args...)
 			}
