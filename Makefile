@@ -539,6 +539,7 @@ frontdoor-paths:
 	$(GO) run ./cmd/frontdoorpaths --write deploy/k8s/overlays/local/api-front-door.yaml
 	$(GO) run ./cmd/frontdoorpaths --write deploy/k8s/overlays/cloud/front-door.generated.yaml
 	$(GO) run ./cmd/frontdoorpaths --write deploy/k8s/overlays/cloud-entry/front-door.generated.yaml
+	$(GO) run ./cmd/frontdoorpaths --emit-go component/frontdoor/paths.generated.go
 
 ## CI gate: fail when a front door's generated path block is stale. The
 ## drift this catches is a new public HTTP path that nothing routes -- which

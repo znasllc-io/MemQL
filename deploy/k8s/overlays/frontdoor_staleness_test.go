@@ -66,6 +66,88 @@ func TestFrontDoorPathsAreNotStale(t *testing.T) {
 	}
 }
 
+// TestTheGeneratedPathSliceIsNotStale asserts component/frontdoor's committed
+// Go artifact equals what cmd/frontdoorpaths produces right now (epic
+// memql#5168).
+//
+// It is the SAME collect() behind the Ingress blocks above, and that is the
+// point: an account's reserved `api.<reserved>` host is routed at runtime by a
+// capability script rather than by a rendered overlay, so the path list has to
+// exist as data in Go for the provisioner to apply. Two lists would mean the
+// next HTTP route added to the bff reaches the cluster's own api host and no
+// client's -- failing as HTTP/1.1 handed to an h2c backend, which names no
+// path, no host and no generator.
+//
+// Folded in here rather than given a gate of its own so `make
+// frontdoor-paths-check` covers it with nothing new to remember.
+func TestTheGeneratedPathSliceIsNotStale(t *testing.T) {
+	const artifact = "../../../component/frontdoor/paths.generated.go"
+
+	tmp := filepath.Join(t.TempDir(), "paths.generated.go")
+	out, err := exec.Command("go", "run", "../../../cmd/frontdoorpaths", "--emit-go", tmp).CombinedOutput()
+	if err != nil {
+		t.Fatalf("generator failed: %v\n%s", err, out)
+	}
+	want, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("reading the generated artifact: %v", err)
+	}
+
+	got, err := os.ReadFile(artifact)
+	if err != nil {
+		t.Fatalf("reading the committed artifact: %v", err)
+	}
+
+	if string(got) != string(want) {
+		t.Errorf("component/frontdoor/paths.generated.go is stale -- run `make frontdoor-paths`.\n%s",
+			describePathDrift(string(got), string(want)))
+	}
+}
+
+// TestTheGeneratedPathSliceMatchesTheIngressBlock is the equality that actually
+// matters, asserted directly rather than inferred from both halves being
+// individually fresh: every path the Ingress block routes to bff-http appears
+// in the Go slice, and nothing else does.
+//
+// Freshness alone would not catch a generator change that emitted one set into
+// YAML and another into Go -- both artifacts would be current, and an account's
+// api host would route a different set from the cluster's while every staleness
+// gate stayed green.
+func TestTheGeneratedPathSliceMatchesTheIngressBlock(t *testing.T) {
+	block, err := exec.Command("go", "run", "../../../cmd/frontdoorpaths").CombinedOutput()
+	if err != nil {
+		t.Fatalf("generator failed: %v\n%s", err, block)
+	}
+
+	var fromYAML []string
+	for _, line := range strings.Split(string(block), "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "- path: "); ok {
+			fromYAML = append(fromYAML, strings.TrimSpace(after))
+		}
+	}
+	if len(fromYAML) == 0 {
+		t.Fatal("the Ingress block carries no paths -- this assertion would be vacuous")
+	}
+
+	raw, err := os.ReadFile("../../../component/frontdoor/paths.generated.go")
+	if err != nil {
+		t.Fatalf("reading the committed artifact: %v", err)
+	}
+	var fromGo []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"/`) {
+			continue
+		}
+		fromGo = append(fromGo, strings.Trim(strings.TrimSuffix(line, ","), `"`))
+	}
+
+	if !slices.Equal(fromYAML, fromGo) {
+		t.Errorf("the Ingress block and the Go slice route different sets, in different orders, or both.\nIngress: %v\nGo:      %v", fromYAML, fromGo)
+	}
+}
+
 // TestFrontDoorHostsAreNotStale asserts the generated front door equals what
 // cmd/frontdoorhosts produces right now (memql#3767).
 //
