@@ -175,3 +175,51 @@ func repoRootForModuleManifests(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// ARGs enter the environment of every following RUN, even when its command
+// does not mention them. Declaring the node or stamps above the dependency
+// downloads therefore fetched Tailwind once per node and once per commit.
+func TestDockerfileKeepsPerBuildArgsAfterReusableDownloads(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRootForModuleManifests(t), "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions := map[string]int{}
+	for i, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "FROM ") && strings.Contains(line, " AS spa-build") {
+			break
+		}
+		switch {
+		case line == "COPY . .":
+			positions["sources"] = i + 1
+		case strings.Contains(line, "go mod download"):
+			positions["modules"] = i + 1
+		case strings.Contains(line, `chmod +x "bin/tools/tailwindcss-${platform}"`):
+			positions["tailwind"] = i + 1
+		}
+		for _, arg := range []string{"BUILD_TAGS", "MEMQL_RELEASE", "MEMQL_COMMIT"} {
+			if strings.HasPrefix(line, "ARG "+arg+"=") || line == "ARG "+arg {
+				if positions[arg] == 0 {
+					positions[arg] = i + 1
+				}
+			}
+		}
+	}
+	for _, step := range []string{"modules", "tailwind", "sources"} {
+		if positions[step] == 0 {
+			t.Fatalf("Dockerfile has no %s step; cache guard needs updating", step)
+		}
+	}
+	if positions["modules"] >= positions["sources"] || positions["tailwind"] >= positions["sources"] {
+		t.Fatal("module and Tailwind downloads must precede the full source COPY to survive source edits")
+	}
+	for _, arg := range []string{"BUILD_TAGS", "MEMQL_RELEASE", "MEMQL_COMMIT"} {
+		if positions[arg] <= positions["sources"] {
+			t.Errorf("Dockerfile ARG %s at line %d must follow reusable downloads and source COPY at line %d: RUN cache includes in-scope build arguments even when commands do not read them", arg, positions[arg], positions["sources"])
+		}
+	}
+}

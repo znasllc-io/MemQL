@@ -36,44 +36,6 @@ ARG SPA_DIST_STAGE=spa-skip
 
 FROM golang:1.27.1@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fa AS builder
 
-# BUILD_TAGS controls which node type binary is compiled.
-# Defaults to empty (BFF -- the default node type).
-#
-# Usage:
-#   docker build .                                    # bff (default)
-#   docker build --build-arg BUILD_TAGS=bff .         # bff (explicit)
-#   docker build --build-arg BUILD_TAGS=agent .       # agent
-#   docker build --build-arg BUILD_TAGS=planner .     # planner
-#   docker build --build-arg BUILD_TAGS=edge --build-arg SPA_DIST_STAGE=spa-build .   # edge (serves hosted sites, the OS shell among them)
-ARG BUILD_TAGS=""
-
-# MEMQL_RELEASE is the release tag this image is being cut at -- e.g. "v0.18.1".
-# It is linked into the binary (core/buildinfo) and is the ONLY way a node can
-# learn which release it is, so a node reports "dev" when this is unset
-# (memql#3998).
-#
-# Set it ONLY when the build genuinely is a release: build-engine-images.yml
-# passes the release tag it was dispatched with, and release.sh passes its
-# --version. `make dev` deliberately does not, because a laptop build off a
-# branch is not a release and must not name one -- a version a client believes
-# and cannot verify is worse than one it knows it cannot compare.
-ARG MEMQL_RELEASE=""
-
-# MEMQL_COMMIT is the git revision this image was built from. It is linked into
-# the binary beside MEMQL_RELEASE and logged at boot (memql#4486).
-#
-# It is a SEPARATE fact from the release, and the reason is specific to how this
-# repository cuts releases: a tag's image pins are written BEFORE that tag's own
-# images exist, so an instance declaring ENGINE_REF=v0.19.6 legitimately runs
-# 0.19.5 binaries. "We are on v0.19.6" is then a statement about MANIFESTS that
-# every reader hears as a statement about CODE. The revision is the one value
-# that settles which source is executing.
-#
-# A Docker build context carries no .git, so the toolchain cannot stamp this
-# itself -- inside an image build this ARG is the only source there is.
-# build-engine-images.yml passes github.sha.
-ARG MEMQL_COMMIT=""
-
 WORKDIR /app
 
 COPY go.mod go.sum ./
@@ -154,10 +116,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Pre-fetch the pinned standalone Tailwind binary into the exact path
 # scripts/identity/build-css.sh probes (bin/tools is dockerignored, so the
 # source COPY below never clobbers it). Doing this BEFORE the source copy
-# keeps the ~100MB download in a layer that only invalidates on a version
-# bump -- previously every source change re-downloaded it concurrently
-# across all builder stages and one TLS hiccup killed the whole cluster
-# build (memql#1351). Keep TAILWIND_VERSION in sync with the script's pin;
+# keeps the ~100MB download reusable across nodes and source edits when the
+# dependencies and tool version are unchanged. Previously source changes
+# downloaded it concurrently across builder stages; one TLS hiccup killed the
+# whole cluster build (memql#1351). Keep TAILWIND_VERSION in sync with the script's pin;
 # a missed bump degrades gracefully (the script re-downloads, with retries).
 ARG TAILWIND_VERSION=v4.1.11
 RUN set -e; \
@@ -173,6 +135,21 @@ RUN set -e; \
     chmod +x "bin/tools/tailwindcss-${platform}"
 
 COPY . .
+
+# Keep per-build arguments below the reusable downloads: every following RUN
+# inherits ARG values into its cache key, even if the command never reads them.
+# Different node types and commit stamps must share the Go and Tailwind layers.
+#
+# BUILD_TAGS controls which node type binary is compiled.
+# Defaults to empty (BFF -- the default node type).
+#
+# Usage:
+#   docker build .                                    # bff (default)
+#   docker build --build-arg BUILD_TAGS=bff .         # bff (explicit)
+#   docker build --build-arg BUILD_TAGS=agent .       # agent
+#   docker build --build-arg BUILD_TAGS=planner .     # planner
+#   docker build --build-arg BUILD_TAGS=edge --build-arg SPA_DIST_STAGE=spa-build .   # edge (serves hosted sites, the OS shell among them)
+ARG BUILD_TAGS=""
 
 # BUILD_TAGS must name a node type this tree actually builds (memql#5057).
 #
@@ -226,6 +203,33 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go run github.com/a-h/templ/cmd/templ generate -path component/identity/web/templ
 RUN bash scripts/identity/build-css.sh
+
+# MEMQL_RELEASE is the release tag this image is being cut at -- e.g. "v0.18.1".
+# It is linked into the binary (core/buildinfo) and is the ONLY way a node can
+# learn which release it is, so a node reports "dev" when this is unset
+# (memql#3998).
+#
+# Set it ONLY when the build genuinely is a release: build-engine-images.yml
+# passes the release tag it was dispatched with, and release.sh passes its
+# --version. `make dev` deliberately does not, because a laptop build off a
+# branch is not a release and must not name one -- a version a client believes
+# and cannot verify is worse than one it knows it cannot compare.
+ARG MEMQL_RELEASE=""
+
+# MEMQL_COMMIT is the git revision this image was built from. It is linked into
+# the binary beside MEMQL_RELEASE and logged at boot (memql#4486).
+#
+# It is a SEPARATE fact from the release, and the reason is specific to how this
+# repository cuts releases: a tag's image pins are written BEFORE that tag's own
+# images exist, so an instance declaring ENGINE_REF=v0.19.6 legitimately runs
+# 0.19.5 binaries. "We are on v0.19.6" is then a statement about MANIFESTS that
+# every reader hears as a statement about CODE. The revision is the one value
+# that settles which source is executing.
+#
+# A Docker build context carries no .git, so the toolchain cannot stamp this
+# itself -- inside an image build this ARG is the only source there is.
+# build-engine-images.yml passes github.sha.
+ARG MEMQL_COMMIT=""
 
 # The release goes into the BINARY, via the linker, and nowhere else
 # (memql#3998). What used to be here instead was:
