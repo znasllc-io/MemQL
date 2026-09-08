@@ -213,6 +213,11 @@ export interface UndeclaredFinding {
  * the same answer here, and returning a shape for both invites a caller to
  * render an empty warning.
  */
+/** `1 row` / `2 rows`. A count is design content like any other. */
+function rows(n: number): string {
+  return `${n} ${n === 1 ? "row" : "rows"}`;
+}
+
 export function undeclaredFinding(
   reading: SchemaReading,
   complete: boolean,
@@ -222,7 +227,7 @@ export function undeclaredFinding(
   const subject = count === 1 ? "One key" : `${count} keys`;
   const verb = count === 1 ? "is" : "are";
   const carries = count === 1 ? "carries it" : "carries one";
-  const where = complete ? "on these rows" : `in the ${reading.sampleSize} rows loaded so far`;
+  const where = complete ? "on these rows" : `in the ${rows(reading.sampleSize)} loaded so far`;
   // The consequence rides in the SAME sentence as the count rather than
   // trailing it, because the count alone is a curiosity and the consequence is
   // the whole finding. The sample's caveat is a short sentence of its own: as a
@@ -251,6 +256,6 @@ export function unwrittenSentence(reading: SchemaReading, complete: boolean): st
   if (count === 0 || reading.sampleSize === 0) return "";
   const fields = count === 1 ? "field is" : "fields are";
   return complete
-    ? `${count} declared ${fields} carried by none of this concept's ${reading.sampleSize} rows.`
-    : `${count} declared ${fields} carried by none of the ${reading.sampleSize} rows loaded so far.`;
+    ? `${count} declared ${fields} carried by none of this concept's ${rows(reading.sampleSize)}.`
+    : `${count} declared ${fields} carried by none of the ${rows(reading.sampleSize)} loaded so far.`;
 }

@@ -197,8 +197,20 @@ describe("an undeclared key is a fault, and the surface says what it costs", () 
     // finding's words -- no count of unwritten fields, no "carried by none".
     expect(undeclaredFinding(reading, true)!.sentence).not.toContain("carried by none");
     expect(unwrittenSentence(reading, true)).toBe(
-      "1 declared field is carried by none of this concept's 1 rows.",
+      "1 declared field is carried by none of this concept's 1 row.",
     );
+  });
+
+  it("counts rows in English", () => {
+    // "1 rows" is the kind of sloppiness that reads as machine-generated, and
+    // this surface is read by people deciding whether to write a migration.
+    const one = readSchema(concept, [nodeOf("a", { name: "one", gender: "x" })]);
+    expect(undeclaredFinding(one, false)!.sentence).toContain("in the 1 row loaded so far");
+    const two = readSchema(concept, [
+      nodeOf("a", { name: "one", gender: "x" }),
+      nodeOf("b", { name: "two" }),
+    ]);
+    expect(undeclaredFinding(two, false)!.sentence).toContain("in the 2 rows loaded so far");
   });
 
   it("says nothing about unwritten fields when nothing has been loaded", () => {
