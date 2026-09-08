@@ -2734,6 +2734,19 @@ query githubConnectState githubConnectStateByHash {
 
 // ---- Groups (epic memql#5165, section D) ----
 //
+// EVERY FILTER CARRIES `requiresDeveloperOrAbove`, and it is not redundant
+// beside `@requiresRank("admin")`. The two answer different gates: the
+// annotation is the SURFACE floor the engine enforces at execution, and the
+// conjunct is what TestRowAuthzEnforcementLandGate can still check by
+// inspection on a rank-declaring tier -- whose injected term is a symbolic
+// node with no author spelling, so "does this filter imply it" has no static
+// answer. The conjunct is the tree's own idiom for the case; the accounts
+// reads over the same tier carry it too.
+//
+// It is also what makes these rows reachable AT ALL: their ownerUserId is
+// always empty, so the tier's owner arm matches nobody and `unowned="admin"`
+// is the branch doing the work.
+//
 // All five carry @requiresRank("admin"), the Users app's own floor. That is
 // the SURFACE half of the decision; the concepts' `unowned="admin"` tier is
 // the ROW half, and the two are deliberately both present: the tier decides
@@ -2750,7 +2763,7 @@ query group groupsAll {
   args {
     includeArchived  boolean
   }
-  filter  statusIsActive || args.includeArchived==true
+  filter  requiresDeveloperOrAbove && (statusIsActive || args.includeArchived==true)
   shape   groupFull
   sort    "name", "asc"
 }
@@ -2761,7 +2774,7 @@ query group groupById {
   args {
     groupId  string!
   }
-  filter  row.id==args.groupId
+  filter  requiresDeveloperOrAbove && row.id==args.groupId
   shape   groupFull
 }
 
@@ -2771,7 +2784,7 @@ query group groupsForAccount {
   args {
     accountId  string!
   }
-  filter  accountId==args.accountId && statusIsActive
+  filter  requiresDeveloperOrAbove && accountId==args.accountId && statusIsActive
   shape   groupFull
   sort    "name", "asc"
 }
@@ -2784,7 +2797,7 @@ query groupMembership membersOfGroup {
     groupId         string!
     includeRemoved  boolean
   }
-  filter  groupId==args.groupId && (statusIsActive || args.includeRemoved==true)
+  filter  requiresDeveloperOrAbove && groupId==args.groupId && (statusIsActive || args.includeRemoved==true)
   shape   groupMembershipFull
   sort    "row.createdAt", "desc"
 }
@@ -2796,7 +2809,7 @@ query groupMembership groupsForUser {
     userId          string!
     includeRemoved  boolean
   }
-  filter  userId==args.userId && (statusIsActive || args.includeRemoved==true)
+  filter  requiresDeveloperOrAbove && userId==args.userId && (statusIsActive || args.includeRemoved==true)
   shape   groupMembershipFull
   sort    "row.createdAt", "desc"
 }

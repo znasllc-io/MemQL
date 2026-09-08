@@ -413,3 +413,100 @@ func TestAccountGrantDoesNotWidenAQueryThatNarrowsItself(t *testing.T) {
 		}
 	}
 }
+
+// THE GROUP READS THEMSELVES, through the real engine (epic memql#5165).
+//
+// integrations/groups reads every one of these under its synthetic
+// cluster-owner actor, and its own tests drive a stub that evaluates no
+// filter. So without this, the five queries the whole plug-in depends on are
+// covered by nothing that would notice a filter change breaking them -- which
+// is exactly what the `requiresDeveloperOrAbove` conjunct is: a change to
+// every one of their filters, made to satisfy a gate.
+func TestGroupQueriesAnswerForTheSystemActorAndRefuseBelowTheFloor(t *testing.T) {
+	eng, _, _ := sharedReadMergeEngine(t)
+	suffix := uniqueSuffix("groupreads")
+
+	account := "acct-" + suffix
+	member := "member-" + suffix
+	seedPrincipal(t, eng, member, auth.RoleWriter)
+	seedGroup(t, eng, "g-"+suffix, "Readable", "custom", account)
+	seedMembership(t, eng, "g-"+suffix, member, "active")
+
+	// The plug-in's own actor: internal origin plus a cluster owner, which is
+	// what groups.SystemActorContext stamps.
+	sys := groupSeedCtx()
+
+	rowsOf := func(t *testing.T, ctx context.Context, q string) int {
+		t.Helper()
+		res, err := eng.Execute(ctx, q)
+		if err != nil {
+			// A refusal is an answer -- the @requiresRank floor turning a
+			// caller away -- and it is distinct from an empty result, which
+			// is the distinction these queries rest on.
+			return -1
+		}
+		return len(res.Bundle.GetNodes())
+	}
+
+	for _, tc := range []struct{ name, query string }{
+		{"groupsAll", `query groupsAll(includeArchived: true)`},
+		{"groupById", fmt.Sprintf(`query groupById(groupId: %s)`, langparser.QuoteString("g-"+suffix))},
+		{"groupsForAccount", fmt.Sprintf(`query groupsForAccount(accountId: %s)`, langparser.QuoteString(account))},
+		{"membersOfGroup", fmt.Sprintf(`query membersOfGroup(groupId: %s, includeRemoved: true)`, langparser.QuoteString("g-"+suffix))},
+		{"groupsForUser", fmt.Sprintf(`query groupsForUser(userId: %s, includeRemoved: true)`, langparser.QuoteString(member))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rowsOf(t, sys, tc.query); got <= 0 {
+				t.Fatalf("%s answered %d rows for the system actor. The plug-in reads through this "+
+					"query under exactly that actor, so a filter it cannot satisfy makes every group "+
+					"operation fail -- and no stub-driven test would see it.", tc.name, got)
+			}
+			// ...and a Member is refused rather than served, which is what
+			// the @requiresRank floor and the conjunct together are for.
+			if got := rowsOf(t, rankActorCtx(member, auth.RoleWriter), tc.query); got > 0 {
+				t.Fatalf("%s answered %d rows to a writer -- these reads are admin-floored", tc.name, got)
+			}
+		})
+	}
+}
+
+// The three @serverOnly account reads this epic added, for the same reason:
+// each runs under a system actor at boot or on a schedule, and a conjunct that
+// actor cannot satisfy turns the walk, the backfill or domain join into a
+// silent no-op that reports success.
+func TestTheServerOnlyAccountReadsAnswerForTheirSystemActors(t *testing.T) {
+	eng, _, _ := sharedReadMergeEngine(t)
+	suffix := uniqueSuffix("sysreads")
+	sys := groupSeedCtx()
+
+	// An account with a domain that is not yet verified, which is what the
+	// walk looks for, and joining on -- refused before verification, so it
+	// is stamped through the walk's own writer rather than at create.
+	account := "acct-" + suffix
+	seedAccountOwnedBy(t, eng, "owner-"+suffix, auth.RoleOwner, account, "Acme "+suffix)
+	if _, err := eng.Execute(sys, fmt.Sprintf(
+		`mutation updateClientAccount(accountId: %s, domain: %s)`,
+		langparser.QuoteString(account), langparser.QuoteString("acme-"+suffix+".test"))); err != nil {
+		t.Fatalf("set the account's domain: %v", err)
+	}
+
+	if res, err := eng.Execute(sys, `query accountsForGroupSweep()`); err != nil {
+		t.Fatalf("accountsForGroupSweep is unreadable by the seed materializer's actor: %v", err)
+	} else if len(res.Bundle.GetNodes()) == 0 {
+		t.Fatal("accountsForGroupSweep answered nothing -- the boot backfill would give no account " +
+			"a group, and would report success doing it")
+	}
+	if res, err := eng.Execute(sys, `query accountsForDomainWalk()`); err != nil {
+		t.Fatalf("accountsForDomainWalk is unreadable by the reconciler's actor: %v", err)
+	} else if len(res.Bundle.GetNodes()) == 0 {
+		t.Fatal("accountsForDomainWalk answered nothing -- every client's domain would stay " +
+			"unverified forever, with the panel showing a record that is published correctly")
+	}
+	// accountForDomainJoin answers nothing here on purpose: the account is
+	// not verified and not joining. What is asserted is that it RUNS -- an
+	// error would mean domain join is refused rather than declining.
+	if _, err := eng.Execute(sys, fmt.Sprintf(`query accountForDomainJoin(domain: %s)`,
+		langparser.QuoteString("acme-"+suffix+".test"))); err != nil {
+		t.Fatalf("accountForDomainJoin is unreadable by the groups actor: %v", err)
+	}
+}
