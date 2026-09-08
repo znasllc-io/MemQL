@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import { Users } from "lucide-react";
 
@@ -71,12 +71,16 @@ export function GroupsSection({
   );
   const [search, setSearch] = useState("");
 
-  // The intent is consumed by ID, so acting on a stale render can never eat a
-  // newer instruction (system/registry.ts states the rule).
-  if (openId && view.kind === "list") {
+  // IN AN EFFECT, not during render. Consuming the intent is a call INTO THE
+  // PARENT, and a parent's setState during a child's render is the one thing
+  // React will not do -- it warns and, in a StrictMode double render, can
+  // consume an instruction twice. The consumption is still id-matched, so
+  // acting on a stale render cannot eat a newer one (system/registry.ts).
+  useEffect(() => {
+    if (!openId) return;
     setView({ kind: "group", groupId: openId });
     onOpened?.();
-  }
+  }, [openId, onOpened]);
 
   const all = useMemo(
     () => groups.snapshot.rows.map(groupFromRow).filter((g) => g.id !== ""),

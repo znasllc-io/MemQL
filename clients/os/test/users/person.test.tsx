@@ -170,6 +170,23 @@ describe("the offered rungs", () => {
 // THE WRITES
 // ===========================================================================
 
+describe("opening a person", () => {
+  it("re-reads them through the authorized path rather than trusting the list", async () => {
+    // `v1:identity:user` broadcasts CREATES ONLY -- the row churns on
+    // `lastSeenAt`, so an update rule would be an event per person per
+    // heartbeat across the mesh forever. The list's copy is therefore only as
+    // fresh as the seed, which makes a page opened deliberately about one row
+    // exactly the right place to pay for one authorized read.
+    const connection = seed();
+    const view = await openAda(connection);
+    const rereads = connection.query.executeNamed.mock.calls.filter((c: unknown[]) =>
+      String(c[1] ?? "").includes("v1:identity:user:ada"),
+    );
+    expect(rereads.length).toBeGreaterThan(0);
+    view.unmount();
+  });
+});
+
 describe("changing a role", () => {
   it("shows the accepted value, and only after the server accepted it", async () => {
     const connection = seed();
