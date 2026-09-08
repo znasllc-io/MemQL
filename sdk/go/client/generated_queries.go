@@ -4328,6 +4328,28 @@ func ModelEvidenceForKeyBuild(args ModelEvidenceForKeyArgs) string {
 	return b.String()
 }
 
+// ModelProbesForWorker -- The CALLER'S probes for one machine, newest first (epic memql#5146). Backs the machine detail's Models group: a live probe renders its case counter, and finished ones answer "when was this measured, and did it work".
+//
+// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["modelProbesForWorker"] in generated_concepts.go).
+type ModelProbesForWorkerArgs struct {
+	WorkerId string
+}
+
+// ModelProbesForWorker calls the engine query modelProbesForWorker.
+func (qc *QueryClient) ModelProbesForWorker(ctx context.Context, args ModelProbesForWorkerArgs) (*Result, error) {
+	call := ModelProbesForWorkerBuild(args)
+	return qc.executeNamed(ctx, "modelProbesForWorker", call)
+}
+
+func ModelProbesForWorkerBuild(args ModelProbesForWorkerArgs) string {
+	var b strings.Builder
+	b.WriteString("query modelProbesForWorker(")
+	b.WriteString("workerId: ")
+	b.WriteString(quoteMemQL(args.WorkerId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // ModelProfileById -- One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it.
 //
 // Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileById"] in generated_concepts.go).
@@ -4754,6 +4776,39 @@ func OidcIdentityBySubjectBuild(args OidcIdentityBySubjectArgs) string {
 	}
 	b.WriteString("subject: ")
 	b.WriteString(quoteMemQL(args.Subject))
+	b.WriteString(")")
+	return b.String()
+}
+
+// OpenModelProbes -- Every probe nobody is driving, for the sweep that closes them.
+// TWO CUTOFFS, for openModelPulls' reason and with the same trap: a row still at `requested` was never picked up and is judged against when it was ASKED FOR, while a row at `running` was claimed and then lost and is judged against when it last REPORTED. One cutoff applied to both fails every ACTIVE suite older than the claim grace and then flaps, because the next case stamps `running` back on the row.
+// The stall grace must exceed the worker handle's own idle ceiling, or the row watcher gives up on a probe the runtime watcher has not -- and here the two are further apart than for a pull: a single 32K case on a modest machine can be minutes of silence that is not silence at all.
+// It reads under `actor.isClusterOwner==true` because its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL; writing the conjunct is what makes the failure loud, since stripping the principal returns zero rows and the filter says why.
+//
+// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["openModelProbes"] in generated_concepts.go).
+type OpenModelProbesArgs struct {
+	// A `requested` row older than this was never claimed.
+	RequestedBefore string
+	// A `running` row that has not reported since this has stopped moving.
+	UpdatedBefore string
+}
+
+// OpenModelProbes calls the engine query openModelProbes.
+func (qc *QueryClient) OpenModelProbes(ctx context.Context, args OpenModelProbesArgs) (*Result, error) {
+	call := OpenModelProbesBuild(args)
+	return qc.executeNamed(ctx, "openModelProbes", call)
+}
+
+func OpenModelProbesBuild(args OpenModelProbesArgs) string {
+	var b strings.Builder
+	b.WriteString("query openModelProbes(")
+	b.WriteString("requestedBefore: ")
+	b.WriteString(quoteMemQL(args.RequestedBefore))
+	if b.Len() > 22 {
+		b.WriteString(", ")
+	}
+	b.WriteString("updatedBefore: ")
+	b.WriteString(quoteMemQL(args.UpdatedBefore))
 	b.WriteString(")")
 	return b.String()
 }

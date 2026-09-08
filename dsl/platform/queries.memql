@@ -794,7 +794,11 @@ query modelMeasurement measurementsForMachine {
   args {
     machineId  string!
   }
-  filter   machineId==args.machineId
+  // The tier's own predicate, spelled out as a top-level conjunct. Declaring a
+  // tier narrows every read over the concept, and the enforcement gate requires
+  // the filter to IMPLY the tier rather than merely not contradict it -- a read
+  // that leaves it implicit is one whose narrowing nobody can check.
+  filter   machineId==args.machineId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
   sort     "measuredAt", "desc"
   paginate 200
   shape    modelMeasurementFull
@@ -809,7 +813,7 @@ query modelMeasurement measurementsForModel {
   args {
     modelId  string!
   }
-  filter   modelId==args.modelId
+  filter   modelId==args.modelId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
   sort     "measuredAt", "desc"
   paginate 200
   shape    modelMeasurementFull
@@ -824,7 +828,12 @@ query modelEvidence recentModelEvidence {
   args {
     week  string
   }
-  filter   when(args.week) { week==args.week }
+  // The cluster-owner conjunct comes FIRST and outside the guard. A `when()`
+  // block is invisible to the implication analyzer, so a filter that opened
+  // with one would be undecidable rather than merely strict -- and an
+  // undecidable read is one the enforcement gate cannot pass whatever it
+  // actually does.
+  filter   actor.isClusterOwner==true && when(args.week) { week==args.week }
   sort     "foldedAt", "desc"
   paginate 200
   shape    modelEvidenceFull
@@ -842,7 +851,7 @@ query modelEvidence modelEvidenceForKey {
     level    string!
     week     string!
   }
-  filter   modelId==args.modelId && level==args.level && week==args.week
+  filter   actor.isClusterOwner==true && modelId==args.modelId && level==args.level && week==args.week
   sort     "foldedAt", "desc"
   paginate 5
   shape    modelEvidenceFull

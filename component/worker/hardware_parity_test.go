@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/worker/probe"
 )
 
 // THE GATE THAT MAKES TWO READERS ONE READER (epic memql#5146).
@@ -114,6 +115,22 @@ func TestAbsentHardwareIsAbsentOnBothSidesOfTheModuleEdge(t *testing.T) {
 	}
 	if got := memql.MachineClass(there); got != memql.ClassUnknown {
 		t.Fatalf("class %q, want %q -- `unsupported` is an accusation and this machine has said nothing", got, memql.ClassUnknown)
+	}
+}
+
+func TestProbeSuiteVersionMatchesTheSuite(t *testing.T) {
+	// component/memql asks for a suite version by NAME and cannot import the
+	// package that defines it -- memql cannot reach worker, since worker reaches
+	// identity which reaches memql -- so it holds a mirrored constant.
+	//
+	// A drift between the two is silent and lands in the worst place: the engine
+	// asks for suite "1", the machine runs "1" and echoes "1", and the
+	// measurement is filed under whatever the engine's constant says. Two
+	// figures scored by different suites are not comparable, so a wrong label
+	// makes them silently so.
+	if memql.ProbeSuiteVersion != probe.SuiteVersion {
+		t.Fatalf("component/memql asks for suite %q but component/worker/probe pins %q -- bump both or neither",
+			memql.ProbeSuiteVersion, probe.SuiteVersion)
 	}
 }
 

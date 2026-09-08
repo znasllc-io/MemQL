@@ -468,6 +468,12 @@ const (
 	// which is the part the catalog can answer and a person cannot, and no
 	// second pull mechanism. See fleet_recommended_pull.go.
 	BuiltinExecutorFleetPullRecommended = "fleetPullRecommended"
+	// BuiltinExecutorFleetModelProbe asks one of the CALLER'S machines to
+	// MEASURE a model it already has (epic memql#5146, D3). The pull's act one
+	// question later: a pull puts a model on a machine, this measures what it
+	// does there. Returns at once with the id of the probe record to watch; the
+	// figures land on v1:platform:modelMeasurement. See fleet_model_probe.go.
+	BuiltinExecutorFleetModelProbe = "fleetModelProbe"
 	// BuiltinExecutorModuleReadiness folds every node's readiness rows into
 	// one verdict per module (design record 2026-09-06-configuration-readiness,
 	// section 4.5). See readiness_read.go.

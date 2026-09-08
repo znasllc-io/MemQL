@@ -4298,6 +4298,28 @@ QueryClient.prototype.modelEvidenceForKey = function (this: QueryClient, args: M
   return this.executeNamed("modelEvidenceForKey", buildModelEvidenceForKey(args), opts);
 };
 
+/** The CALLER'S probes for one machine, newest first (epic memql#5146). Backs the machine detail's Models group: a live probe renders its case counter, and finished ones answer "when was this measured, and did it work". */
+// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["modelProbesForWorker"] in generated_concepts.ts).
+export interface ModelProbesForWorkerArgs {
+  workerId: string;
+}
+
+export function buildModelProbesForWorker(args: ModelProbesForWorkerArgs): string {
+  const parts: string[] = [];
+  parts.push("workerId: " + renderMemQLValue(args.workerId));
+  return "query modelProbesForWorker(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelProbesForWorker(args: ModelProbesForWorkerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelProbesForWorker = function (this: QueryClient, args: ModelProbesForWorkerArgs = {} as ModelProbesForWorkerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelProbesForWorker", buildModelProbesForWorker(args), opts);
+};
+
 /** One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it. */
 // Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileById"] in generated_concepts.ts).
 export interface ModelProfileByIdArgs {
@@ -4735,6 +4757,35 @@ declare module "./query.js" {
 
 QueryClient.prototype.oidcIdentityBySubject = function (this: QueryClient, args: OidcIdentityBySubjectArgs = {} as OidcIdentityBySubjectArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("oidcIdentityBySubject", buildOidcIdentityBySubject(args), opts);
+};
+
+/** Every probe nobody is driving, for the sweep that closes them.
+TWO CUTOFFS, for openModelPulls' reason and with the same trap: a row still at `requested` was never picked up and is judged against when it was ASKED FOR, while a row at `running` was claimed and then lost and is judged against when it last REPORTED. One cutoff applied to both fails every ACTIVE suite older than the claim grace and then flaps, because the next case stamps `running` back on the row.
+The stall grace must exceed the worker handle's own idle ceiling, or the row watcher gives up on a probe the runtime watcher has not -- and here the two are further apart than for a pull: a single 32K case on a modest machine can be minutes of silence that is not silence at all.
+It reads under `actor.isClusterOwner==true` because its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL; writing the conjunct is what makes the failure loud, since stripping the principal returns zero rows and the filter says why. */
+// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["openModelProbes"] in generated_concepts.ts).
+export interface OpenModelProbesArgs {
+  /** A `requested` row older than this was never claimed. */
+  requestedBefore: string;
+  /** A `running` row that has not reported since this has stopped moving. */
+  updatedBefore: string;
+}
+
+export function buildOpenModelProbes(args: OpenModelProbesArgs): string {
+  const parts: string[] = [];
+  parts.push("requestedBefore: " + renderMemQLValue(args.requestedBefore));
+  parts.push("updatedBefore: " + renderMemQLValue(args.updatedBefore));
+  return "query openModelProbes(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    openModelProbes(args: OpenModelProbesArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.openModelProbes = function (this: QueryClient, args: OpenModelProbesArgs = {} as OpenModelProbesArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("openModelProbes", buildOpenModelProbes(args), opts);
 };
 
 /** Every model pull nobody is driving, for the sweep that closes them.

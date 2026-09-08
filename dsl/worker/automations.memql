@@ -139,3 +139,48 @@ automation workerModelPullStaleSweep {
     }
   }
 }
+
+
+// workerModelProbeStaleSweep
+// ==========================
+//
+// Every two minutes, fail the model probes nobody is driving (epic memql#5146).
+//
+// The pull sweep's cadence for the pull sweep's reason: this closes a counter
+// somebody is looking at right now, so its period is the longest a person will
+// stare at a number that is never going to move.
+//
+// It runs on the CRON LEADER, so exactly one replica sweeps -- and the rows it
+// closes belong to whatever replica has gone, which is why it cannot be the
+// claiming replica's own job.
+//
+// It is on the maintenance-principal list (component/auth/maintenance_actor.go)
+// because openModelProbes reads across owners BY NATURE: a sweep for abandoned
+// work cannot know whose work was abandoned before it looks. Without the
+// principal the read returns zero rows and no error, and a cluster full of
+// stuck probes sweeps nothing every two minutes, forever, in silence.
+
+/// Every two minutes: fail the model probes no replica is driving. decide (pure) returns the
+/// candidates, judged against two separate cutoffs; the forEach closes each one.
+///
+/// ONE SENTENCE FOR BOTH SHAPES OF ABANDONMENT, deliberately -- a forEach writes one literal, so a
+/// message naming a single cause would be wrong half the time, and the remedy is identical either
+/// way. The sentence says what a person actually needs: nothing was measured, so nothing was
+/// recorded, and running it again costs only the time.
+@trigger(schedule="0 */2 * * * *")
+automation workerModelProbeStaleSweep {
+  step decide {
+    logic workerModelProbeStaleSweep ( event: event )
+  }
+  step apply {
+    forEach item in decide.result {
+      finishModelProbe {
+        probeId:       item.id,
+        status:        "failed",
+        measurementId: "",
+        errorMessage:  "No agent replica is driving this probe -- either the node holding the machine's connection stopped before it began, or it went away mid-suite. Nothing was measured, so nothing was recorded; running it again costs only the time.",
+        endedAt:       now
+      }
+    }
+  }
+}

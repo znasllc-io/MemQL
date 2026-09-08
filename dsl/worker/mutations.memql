@@ -1056,3 +1056,106 @@ mutate modelPull finishModelPull {
     }
   }
 }
+
+// ---- The probe's row (epic memql#5146, D3) ----
+//
+// createModelProbe / recordModelProbeProgress / finishModelProbe are the pull's
+// three writers with the pull's reasoning, and one difference: progress is
+// written PER CASE rather than on a throttle. A suite emits ten observations in
+// total where a pull emits several a second, so there is no write storm to
+// throttle away, and every case is worth a row version because "which case is
+// slow" is the question a person watching actually has.
+
+/// Open the record for one probe. @serverOnly: `targetNodeId` is the CLAIM -- exactly one replica
+/// acts on this row, the one whose own id it names -- so a caller who could write it could point
+/// somebody else's probe at a replica that does not hold the machine, and it would sit at
+/// `requested` until the sweep failed it.
+///
+/// actor.userId scoping is not the fix, and it is the same subtlety createAppSession records: the
+/// caller IS the owner here, so a self-scoped filter would admit exactly this call. Scoping answers
+/// whose row it is, and the hazard is that a legitimate owner could name a replica the server never
+/// chose. Only the server knows which replica holds the stream.
+@actor
+@serverOnly
+mutate modelProbe createModelProbe {
+  args {
+    probeId       string!
+    workerId      string!
+    model         string!
+    suiteVersion  string!
+    targetNodeId  string
+    requestedAt   string!
+  }
+  insert {
+    accept { workerId, model, suiteVersion, requestedAt }
+    stamp {
+      id: args.probeId
+      ownerUserId: actor.userId
+      status: "requested"
+      completedCases: 0
+      totalCases: 0
+      currentCase: ""
+      measurementId: ""
+      errorMessage: ""
+      targetNodeId: args.targetNodeId ?? ""
+      updatedAt: args.requestedAt
+      endedAt: ""
+    }
+  }
+}
+
+/// Record one finished case. @serverOnly for createModelProbe's reason: it is written by the replica
+/// running the suite, under the owner's borrowed authority, and a client-reachable writer could move
+/// a counter for a probe it is not running -- which is a progress bar that lies.
+///
+/// actor.userId scoping is not the fix, the same subtlety createModelProbe records: the caller is
+/// the row's owner, so a self-scoped filter admits exactly this call. Scoping answers whose row it
+/// is, and the hazard is that only the replica actually executing the suite knows how far it has
+/// got.
+@actor
+@serverOnly
+mutate modelProbe recordModelProbeProgress {
+  args {
+    probeId         string!
+    completedCases  int!
+    totalCases      int!
+    currentCase     string
+    updatedAt       string!
+  }
+  update {
+    accept { completedCases, totalCases, updatedAt }
+    stamp {
+      id: args.probeId
+      currentCase: args.currentCase ?? ""
+      status: "running"
+    }
+  }
+}
+
+/// Close a probe. @serverOnly for the same reason, plus one of its own: `measurementId` points at the
+/// figures, and a caller who could set it could point a probe at somebody else's measurement.
+///
+/// actor.userId scoping is not the fix for createModelProbe's reason -- the caller owns the row, so
+/// self-scoping admits the call -- and here the consequence is sharper: the owner of a probe could
+/// declare it succeeded while the suite was still running, and the figures the page then shows would
+/// be whatever measurement id they named.
+@actor
+@serverOnly
+mutate modelProbe finishModelProbe {
+  args {
+    probeId        string!
+    status         string!
+    measurementId  string
+    errorMessage   string
+    endedAt        string!
+  }
+  update {
+    accept { status, endedAt }
+    stamp {
+      id: args.probeId
+      measurementId: args.measurementId ?? ""
+      errorMessage: args.errorMessage ?? ""
+      updatedAt: args.endedAt
+    }
+  }
+}
