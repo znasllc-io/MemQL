@@ -531,6 +531,39 @@ export function uninstallDoneSentence(kept: boolean): string {
 }
 
 /**
+ * The uninstall confirmation's title and lede, which differ for the one verdict
+ * that has no receipt behind it (memql#5118, D8).
+ *
+ * THE ORDINARY LEDE RESTS THE OPERATOR'S CONFIDENCE ON THE RECEIPT -- "it is
+ * built from the install receipt, so nothing this machine had before the
+ * install is touched" -- which is the right argument and a false sentence on
+ * `present-unreceipted`, where nothing recorded this cluster and the single row
+ * below comes from k3d having listed it. Reassurance that is not true is worse
+ * than none, and this is the screen immediately before the one destructive act
+ * in the wizard.
+ *
+ * HERE RATHER THAN IN THE PANEL because these are WORDS, and the wizard's words
+ * live in this module where they can be read as a set and tested without a
+ * webview. The panel decides which case it is in; this says what each one says.
+ */
+export function uninstallConfirmCopy(unreceipted: boolean): { title: string; lede: string } {
+  if (unreceipted) {
+    return {
+      title: "Delete the cluster that is already here",
+      lede:
+        "This list is the confirmation -- there is no second prompt. Nothing recorded this " +
+        "cluster, so the one item below is what k3d reports and all this can offer to take.",
+    };
+  }
+  return {
+    title: "Uninstall the local cluster",
+    lede:
+      "This list is the confirmation -- there is no second prompt. It is built from the " +
+      "install receipt, so nothing this machine had before the install is touched.",
+  };
+}
+
+/**
  * A step's description with its full stop taken off, for embedding in a phrase.
  *
  * The descriptions are SENTENCES -- the CLI prints them as sentences and the

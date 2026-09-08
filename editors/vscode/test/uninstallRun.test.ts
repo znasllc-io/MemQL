@@ -36,7 +36,7 @@ import { removalPreviewItems } from "../src/install/removalPreview.js";
 import type { RunScript } from "../src/install/runner.js";
 import { previewUninstall, runUninstall, type SessionOptions } from "../src/install/session.js";
 import { failureGuidance } from "../src/state/installProgress.js";
-import { uninstallDoneSentence } from "../src/webview/installScreens.js";
+import { uninstallConfirmCopy, uninstallDoneSentence } from "../src/webview/installScreens.js";
 import { UninstallRunState } from "../src/state/uninstallRun.js";
 
 function graph(doc: unknown): Graph {
@@ -725,6 +725,35 @@ test("a run that kept NOTHING takes both records, exactly as before", async () =
     deleteReceipt: async () => void order.push("deleteReceipt"),
   });
   assert.deepEqual(order, ["remove:local", "deleteReceipt", "invalidate", "refresh"]);
+});
+
+test("the confirmation does not claim a receipt when there is none", () => {
+  // THE SCREEN IMMEDIATELY BEFORE THE ONE DESTRUCTIVE ACT IN THE WIZARD. Its
+  // ordinary lede rests the operator's confidence on the install receipt, which
+  // is the right argument everywhere except the one verdict whose whole premise
+  // is that nothing recorded this cluster. Reassurance that is not true is
+  // worse than none, and this is where it would be read.
+  const ordinary = uninstallConfirmCopy(false);
+  const unreceipted = uninstallConfirmCopy(true);
+
+  assert.match(ordinary.lede, /built from the install receipt/);
+  assert.ok(
+    !/receipt/.test(unreceipted.lede),
+    `the unreceipted lede still points at a receipt that does not exist: ${unreceipted.lede}`,
+  );
+  // It says what the list IS instead, so the operator knows why there is one row.
+  assert.match(unreceipted.lede, /Nothing recorded this cluster/);
+  assert.match(unreceipted.lede, /k3d reports/);
+
+  // Both still say the list is the confirmation -- that is the wizard's promise
+  // on this screen, and it holds either way.
+  for (const copy of [ordinary, unreceipted]) {
+    assert.match(copy.lede, /no second prompt/);
+    assert.notEqual(copy.title, "");
+  }
+  // And the titles differ: "Uninstall the local cluster" is a claim about
+  // MemQL's own install, which this is not.
+  assert.notEqual(ordinary.title, unreceipted.title);
 });
 
 test("the done sentence changes when anything was kept", () => {

@@ -127,6 +127,7 @@ import {
   renderFailedScreen,
   renderRunBlock,
   renderRunningScreen,
+  uninstallConfirmCopy,
 } from "./installScreens.js";
 import type { ExecutionReport } from "../install/executor.js";
 import { listReleaseTags } from "../install/tags.js";
@@ -2348,25 +2349,16 @@ ${this.probeHtml()}`,
     // pointing at where they are. The list is still the confirmation and there
     // is still no second prompt; what changed is that an operator who has
     // already read it does not scroll back past it to act.
-    // WHAT THE LIST IS BUILT FROM, SAID ACCURATELY FOR BOTH CASES. The ordinary
-    // sentence rests the operator's confidence on the install receipt -- which
-    // is the right argument and a false one on `present-unreceipted`, where
-    // there is no receipt and the single row comes from k3d having listed the
-    // cluster. Printing "it is built from the install receipt" over a screen
-    // whose whole premise is that nothing recorded this cluster is the kind of
-    // reassurance that is worse than none.
-    const unreceipted = this.verdict === "present-unreceipted";
+    // WHAT THE LIST IS BUILT FROM, SAID ACCURATELY FOR BOTH CASES. The words are
+    // installScreens' (uninstallConfirmCopy), which is where the wizard's copy
+    // lives and where it can be tested without a webview; this only decides
+    // which case the screen is in.
+    const copy = uninstallConfirmCopy(this.verdict === "present-unreceipted");
     return `<div data-escape-act="uninstallBack">${renderScreen({
-      title: unreceipted ? "Delete the cluster that is already here" : "Uninstall the local cluster",
+      title: copy.title,
       actions: `<button class="primary" type="button" data-act="uninstallStart">Uninstall -- remove the items listed below</button>
   <button class="secondary" type="button" data-act="uninstallBack">Cancel</button>`,
-      status: `<p class="lede">${escapeHtml(
-        unreceipted
-          ? "This list is the confirmation -- there is no second prompt. Nothing recorded this " +
-              "cluster, so the one item below is what k3d reports and all this can offer to take."
-          : "This list is the confirmation -- there is no second prompt. It is built from the " +
-              "install receipt, so nothing this machine had before the install is touched.",
-      )}</p>`,
+      status: `<p class="lede">${escapeHtml(copy.lede)}</p>`,
       details: `${renderToHtml(renderRemovalPreview(items.filter((item) => !this.isShared(item.id))))}
 ${elevationNote}
 ${this.sharedToolsHtml()}
