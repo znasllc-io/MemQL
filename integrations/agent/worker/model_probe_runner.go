@@ -30,8 +30,6 @@ package worker
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -42,6 +40,7 @@ import (
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	workerservice "github.com/znasllc-io/memql/component/worker"
 	"github.com/znasllc-io/memql/component/worker/probe"
+	"github.com/znasllc-io/memql/core/id"
 )
 
 // ModelProbeTopic is the create event the runner claims on.
@@ -462,10 +461,25 @@ func (r *ModelProbeRunner) recordMeasurement(ctx context.Context, row modelProbe
 // and a row id is `{concept}:{shortId}` -- a concatenation would produce an id
 // the engine cannot parse, and truncating one would collide two models whose
 // tags share a prefix.
+//
+// Through core/id rather than crypto/sha256 directly, which is what
+// TestNoSHA256InIntegrations asks for and is the better call on its own terms:
+// `MustFromMap` marshals with SORTED KEYS, so the three parts are named rather
+// than positional. The hand-rolled version separated them with a NUL to keep
+// ("a", "b\x00c") from colliding with ("a\x00b", "c") -- a real hazard,
+// handled correctly there, and one that simply does not arise once the parts
+// are map keys instead of a concatenation.
+//
+// SUITE VERSION IS PART OF THE KEY, deliberately. A reading from a different
+// suite is not comparable to one from this suite, so it belongs in a different
+// row rather than overwriting the old one -- which is also why the page prints
+// the suite beside every figure.
 func MeasurementId(machineId, modelId, suiteVersion string) string {
-	sum := sha256.Sum256([]byte(
-		strings.TrimSpace(machineId) + "\x00" + strings.TrimSpace(modelId) + "\x00" + strings.TrimSpace(suiteVersion)))
-	return "v1:platform:modelMeasurement:" + hex.EncodeToString(sum[:16])
+	return "v1:platform:modelMeasurement:" + string(id.New().MustFromMap(map[string]any{
+		"machineId":    strings.TrimSpace(machineId),
+		"modelId":      strings.TrimSpace(modelId),
+		"suiteVersion": strings.TrimSpace(suiteVersion),
+	}))
 }
 
 func (r *ModelProbeRunner) finish(ctx context.Context, row modelProbeRow, status, measurementId, message string) {
