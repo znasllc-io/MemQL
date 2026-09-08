@@ -211,9 +211,14 @@ func (w *Worker) handleImportRecipients(ctx context.Context, args map[string]any
 	}
 
 	now := w.nowUTC()
+	// ONE read for the whole batch (epic memql#5165, section J): every
+	// recipient in an import lands in the same audience, so the tie is the
+	// same for all of them and reading it per row would be one query per
+	// address. Empty is the ordinary answer and stamps nothing.
+	accountID := w.store.AudienceAccountID(ctx, audienceID)
 	for _, row := range pending {
 		recipientID := id.NewShortId()
-		if err := w.store.AddRecipient(ctx, recipientID, audienceID, row.normalized, row.displayName, importSourceValue, row.fields); err != nil {
+		if err := w.store.AddRecipient(ctx, recipientID, audienceID, row.normalized, row.displayName, importSourceValue, accountID, row.fields); err != nil {
 			return nil, fmt.Errorf("campaigns.importRecipients: adding %s: %w", redactAddress(row.normalized), err)
 		}
 		result.Added++

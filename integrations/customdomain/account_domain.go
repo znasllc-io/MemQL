@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/znasllc-io/memql/component/auth"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
@@ -144,7 +145,13 @@ func (i *Integration) stepAccountDomain(ctx context.Context, row accountRow, out
 
 // accountsToWalk reads the accounts with work to do.
 func (i *Integration) accountsToWalk(ctx context.Context) ([]accountRow, error) {
-	res, err := i.store.engine.Execute(SystemActorContext(ctx), "query accountsForDomainWalk()")
+	// The stamp is INLINE rather than left to SystemActorContext, which also
+	// applies it. Both reads here name @serverOnly constructs, and a stamp
+	// hidden inside a helper is one a static check cannot see -- so the
+	// requirement is written where the call is, which is what
+	// component/auth/call_origin.go asks for and what
+	// TestEveryGoCallerOfAServerOnlyConstructStampsInternalOrigin reads.
+	res, err := i.store.engine.Execute(auth.ContextWithInternalOrigin(SystemActorContext(ctx)), "query accountsForDomainWalk()")
 	if err != nil {
 		return nil, fmt.Errorf("customdomain: accountsForDomainWalk: %w", err)
 	}
@@ -186,7 +193,7 @@ func (i *Integration) writeAccountDomain(ctx context.Context, accountID string, 
 		q.WriteString(langparser.QuoteString(value))
 	}
 	q.WriteString(")")
-	if _, err := i.store.engine.Execute(SystemActorContext(ctx), q.String()); err != nil {
+	if _, err := i.store.engine.Execute(auth.ContextWithInternalOrigin(SystemActorContext(ctx)), q.String()); err != nil {
 		return fmt.Errorf("customdomain: recordAccountDomainCheck: %w", err)
 	}
 	return nil

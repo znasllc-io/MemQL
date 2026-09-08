@@ -207,7 +207,7 @@ func (h *TrackingHandler) verify(token string) (TrackingPayload, bool) {
 // because the response is already decided. A lost open is a number; a broken
 // image or an error page is something a person sees.
 func (h *TrackingHandler) record(ctx context.Context, payload TrackingPayload) {
-	owner, found, err := h.store.CampaignOwnerForSend(h.system(ctx), payload.CampaignID)
+	owner, account, found, err := h.store.CampaignOwnerAndAccountForSend(h.system(ctx), payload.CampaignID)
 	if err != nil {
 		h.logger.Warn("campaigns: could not resolve the owner behind a tracked campaign",
 			"campaign", payload.CampaignID, "error", err)
@@ -229,6 +229,7 @@ func (h *TrackingHandler) record(ctx context.Context, payload TrackingPayload) {
 		Kind:       payload.Kind,
 		URL:        payload.URL,
 		OccurredAt: h.now().UTC(),
+		AccountID:  account,
 	}); err != nil {
 		h.logger.Warn("campaigns: could not record an engagement event",
 			"campaign", payload.CampaignID, "kind", payload.Kind, "error", err)
@@ -313,10 +314,25 @@ func tokenFromPath(path, mount string) string {
 //
 // clusterOwner-tier: issue under the engine's operator identity.
 func (s *Store) CampaignOwnerForSend(ctx context.Context, campaignID string) (string, bool, error) {
+	owner, _, found, err := s.CampaignOwnerAndAccountForSend(ctx, campaignID)
+	return owner, found, err
+}
+
+// CampaignOwnerAndAccountForSend answers the owner AND the client tie in the
+// same read (epic memql#5165, section J).
+//
+// ONE READ, not two. The tracking path is per pixel fetch and per followed
+// link, and it already reads this row to learn the owner -- so taking the
+// account off the same row costs nothing, while reading the campaign for it
+// would cost a query per hit and could not be done anyway before the owner is
+// known.
+func (s *Store) CampaignOwnerAndAccountForSend(ctx context.Context, campaignID string) (owner, account string, found bool, err error) {
 	rows, err := s.rows(ctx, call("query", "sendJobById", arg{"sendJobId", campaignID}))
 	if err != nil || len(rows) == 0 {
-		return "", false, err
+		return "", "", false, err
 	}
-	owner := bare(str(rows[len(rows)-1], "campaignOwnerUserId"))
-	return owner, owner != "", nil
+	row := rows[len(rows)-1]
+	owner = bare(str(row, "campaignOwnerUserId"))
+	account = bare(str(row, "campaignAccountId"))
+	return owner, account, owner != "", nil
 }
