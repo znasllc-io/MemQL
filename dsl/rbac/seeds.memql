@@ -130,6 +130,8 @@ seed capability cap-owner-execute-deployment { roleSlug: "owner"  verb: "execute
 seed capability cap-owner-create-agent { roleSlug: "owner"  verb: "create"  resourceType: "agent"  predefined: true }
 @description("owner: manage groups (create).")
 seed capability cap-owner-create-group { roleSlug: "owner"  verb: "create"  resourceType: "group"  predefined: true }
+@description("owner: edit groups -- rename, archive, and place or remove a member. The verb every group builtin but groupCreate checks (epic memql#5165, D7), because placing somebody into a client's group is an edit OF THE GROUP rather than a change to the person: the person's own row is untouched, and what changes is who the group admits. Rank governance narrows it further -- the target must rank strictly below the caller.")
+seed capability cap-owner-update-group { roleSlug: "owner"  verb: "update"  resourceType: "group"  predefined: true }
 @description("owner: read the RBAC role catalog.")
 seed capability cap-owner-read-role { roleSlug: "owner"  verb: "read"    resourceType: "role"  predefined: true }
 @description("owner: create custom roles.")
@@ -204,6 +206,8 @@ seed capability cap-admin-execute-deployment { roleSlug: "admin"  verb: "execute
 seed capability cap-admin-create-agent { roleSlug: "admin"  verb: "create"  resourceType: "agent"  predefined: true }
 @description("admin: manage groups (CanManageGroup -- create).")
 seed capability cap-admin-create-group { roleSlug: "admin"  verb: "create"  resourceType: "group"  predefined: true }
+@description("admin: edit groups -- rename, archive, and place or remove a member (epic memql#5165, D7). The Users app's group page runs on this verb, and its floor is the app's own: an admin manages people, and a group is how people reach a client's work.")
+seed capability cap-admin-update-group { roleSlug: "admin"  verb: "update"  resourceType: "group"  predefined: true }
 @description("admin: read the RBAC role catalog.")
 seed capability cap-admin-read-role { roleSlug: "admin"  verb: "read"    resourceType: "role"  predefined: true }
 @description("admin: create custom roles (bounded to <= admin rank by E1.4).")
