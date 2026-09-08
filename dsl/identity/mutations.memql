@@ -3287,7 +3287,16 @@ mutate githubConnectState consumeGithubConnectState {
 // was asked for, and restates the result. Splitting that across two places
 // would give the two of them different ideas about what an omitted field means.
 
-/// Write one v1:identity:group row. Server-only; see the note above.
+/// Write one v1:identity:group row.
+///
+/// @serverOnly, and actor.userId scoping is not the fix -- it is the thing this
+/// concept deliberately does not have. v1:identity:group is UNOWNED (epic
+/// memql#5165, D2): ownerUserId is always empty because the row is the
+/// deployment's record, not a person's. So there is no field for
+/// `ownerUserId==actor.userId` to compare against, and stamping the caller in
+/// would make the group readable by them alone and by no other admin -- the
+/// opposite of what a shared registry is. Authorization is the caller's
+/// capability and rank, checked in Go by integrations/groups before this runs.
 @serverOnly
 mutate group writeGroup {
   args {
@@ -3300,18 +3309,25 @@ mutate group writeGroup {
     archivedAt   string
   }
   insert {
-    id:          args.groupId
-    ownerUserId: ""
-    args.name
-    description: args.description ?? ""
-    args.kind
-    accountId:   args.accountId ?? ""
-    args.status
-    archivedAt:  args.archivedAt ?? ""
+    accept { name, kind, status }
+    stamp {
+      id:          args.groupId
+      ownerUserId: ""
+      description: args.description ?? ""
+      accountId:   args.accountId ?? ""
+      archivedAt:  args.archivedAt ?? ""
+    }
   }
 }
 
-/// Write one v1:identity:groupMembership row. Server-only; see the note above.
+/// Write one v1:identity:groupMembership row.
+///
+/// @serverOnly, and actor.userId scoping is worse than merely unavailable here.
+/// The obvious owner field would be `userId`, the member -- and an owned row
+/// admits its owner's INSERTS, so scoping to actor.userId would hand every
+/// person on the cluster a primitive for writing their own membership into any
+/// client's group. That is the D2 reasoning in one sentence, and it is why the
+/// row is unowned and this writer is off the wire.
 @serverOnly
 mutate groupMembership writeGroupMembership {
   args {
@@ -3325,14 +3341,13 @@ mutate groupMembership writeGroupMembership {
     removedBy     string
   }
   insert {
-    id:          args.membershipId
-    ownerUserId: ""
-    args.groupId
-    args.userId
-    args.origin
-    addedBy:     args.addedBy ?? ""
-    args.status
-    removedAt:   args.removedAt ?? ""
-    removedBy:   args.removedBy ?? ""
+    accept { groupId, userId, origin, status }
+    stamp {
+      id:          args.membershipId
+      ownerUserId: ""
+      addedBy:     args.addedBy ?? ""
+      removedAt:   args.removedAt ?? ""
+      removedBy:   args.removedBy ?? ""
+    }
   }
 }
