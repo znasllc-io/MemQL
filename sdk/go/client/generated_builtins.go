@@ -1110,6 +1110,48 @@ func FleetPullRecommendedBuild(args FleetPullRecommendedArgs) string {
 	return b.String()
 }
 
+// FleetRecommended -- What the catalog recommends for one of YOUR OWN machines, and why anything is blocked: one entry per level, strongest first, each with the model, its size, and either a pullable flag or the sentence saying what is in the way. The act's answer without the act, so the machine page and fleetPullRecommended read ONE implementation -- a second one in the browser would drift, and the drift presents as a page offering a pull the act then refuses. Also carries the machine's computed class and the usable memory that produced it. A machine whose cockpit has not reported its hardware answers with an EMPTY class and an empty set rather than a list of blocked entries: there is nothing to recommend and nothing to explain, and a page listing every profile as blocked reads as a machine that failed rather than one that has not spoken.
+type FleetRecommendedArgs struct {
+	// v1:worker:registration.id of the machine to recommend for. It must be one of the caller's own.
+	RegistrationId string
+}
+
+// FleetRecommended calls the engine builtin fleetRecommended.
+func (qc *QueryClient) FleetRecommended(ctx context.Context, args FleetRecommendedArgs) (*Result, error) {
+	call := FleetRecommendedBuild(args)
+	return qc.executeNamed(ctx, "fleetRecommended", call)
+}
+
+func FleetRecommendedBuild(args FleetRecommendedArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetRecommended(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// FleetSharingLedger -- What one of YOUR OWN machines has done this week: how many calls ran on it, for how many people, and how those calls split across the four levels. COUNTS AND LEVELS, and nothing else -- somebody who lends their machine to the team is entitled to know it is being used and NOT entitled to read what it was used for, so the narrowing happens in the engine before anything leaves it rather than in a renderer that could later be rewritten. People are counted and never named. A read that FAILS answers `readable: false` rather than zero: telling somebody who lent their machine that nobody used it is a specific claim, and a failed read is not evidence for it.
+type FleetSharingLedgerArgs struct {
+	// v1:worker:registration.id of the machine to report on. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
+	RegistrationId string
+}
+
+// FleetSharingLedger calls the engine builtin fleetSharingLedger.
+func (qc *QueryClient) FleetSharingLedger(ctx context.Context, args FleetSharingLedgerArgs) (*Result, error) {
+	call := FleetSharingLedgerBuild(args)
+	return qc.executeNamed(ctx, "fleetSharingLedger", call)
+}
+
+func FleetSharingLedgerBuild(args FleetSharingLedgerArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetSharingLedger(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // ForkRun -- Fork one of the caller's runs at a step: a NEW run that serves the shared prefix from the journal and runs live from the fork step on. The source run is untouched. Returns {runId}.
 type ForkRunArgs struct {
 	// The run to fork.

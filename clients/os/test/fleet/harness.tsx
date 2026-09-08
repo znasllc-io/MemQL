@@ -61,6 +61,17 @@ export interface FakeQuery {
   updateRoutingPolicy: ReturnType<typeof vi.fn>;
   setDelegationPolicy: ReturnType<typeof vi.fn>;
   fleetModelPull: ReturnType<typeof vi.fn>;
+  // The scanner's reads and acts (epic memql#5146). None of the three reads is
+  // live: `fleetRecommended` and `fleetSharingLedger` are virtual projections
+  // with no graph event behind them, and a measurement changes when somebody
+  // presses Probe and at no other time -- a fact with a date rather than an
+  // event with a duration.
+  fleetRecommended: ReturnType<typeof vi.fn>;
+  measurementsForMachine: ReturnType<typeof vi.fn>;
+  fleetSharingLedger: ReturnType<typeof vi.fn>;
+  fleetPullRecommended: ReturnType<typeof vi.fn>;
+  fleetModelProbe: ReturnType<typeof vi.fn>;
+  setWorkerSharing: ReturnType<typeof vi.fn>;
 }
 
 // The subscription seam, faithful to the one bit of it a collection uses:
@@ -142,6 +153,12 @@ export function fakeConnection(seed: Partial<Record<keyof FakeQuery, Row[]>> = {
       updateRoutingPolicy: vi.fn(async () => rowsResult([])),
       setDelegationPolicy: vi.fn(async () => rowsResult([])),
       fleetModelPull: vi.fn(async () => rowsResult([])),
+      fleetRecommended: read("fleetRecommended"),
+      measurementsForMachine: read("measurementsForMachine"),
+      fleetSharingLedger: read("fleetSharingLedger"),
+      fleetPullRecommended: vi.fn(async () => rowsResult([])),
+      fleetModelProbe: vi.fn(async () => rowsResult([])),
+      setWorkerSharing: vi.fn(async () => rowsResult([])),
     },
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },

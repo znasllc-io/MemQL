@@ -474,6 +474,19 @@ const (
 	// does there. Returns at once with the id of the probe record to watch; the
 	// figures land on v1:platform:modelMeasurement. See fleet_model_probe.go.
 	BuiltinExecutorFleetModelProbe = "fleetModelProbe"
+	// BuiltinExecutorFleetRecommended answers what the catalog recommends for
+	// one machine, and why anything is blocked (epic memql#5146, D2). The ACT's
+	// answer without the act, so the page and fleetPullRecommended read one
+	// implementation -- a second one in the browser would drift, and the drift
+	// presents as a page offering a pull the act then refuses. See
+	// fleet_recommended_read.go.
+	BuiltinExecutorFleetRecommended = "fleetRecommended"
+	// BuiltinExecutorFleetSharingLedger answers what a shared machine has done
+	// this week, for the person who lent it (epic memql#5146, D6). Counts and
+	// levels, never content -- the narrowing happens in the engine so the
+	// promise holds even if the page is rewritten by somebody who never read
+	// the fold. See sharing_ledger_read.go.
+	BuiltinExecutorFleetSharingLedger = "fleetSharingLedger"
 	// BuiltinExecutorModuleReadiness folds every node's readiness rows into
 	// one verdict per module (design record 2026-09-06-configuration-readiness,
 	// section 4.5). See readiness_read.go.

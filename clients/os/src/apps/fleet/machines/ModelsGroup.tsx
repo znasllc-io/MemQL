@@ -1,8 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import { useSession } from "../../../chrome/access";
+import { FigureValue } from "../../../cluster/FigureValue";
 import { Button, Notice, Subhead } from "../../../kit";
-import { formatMoment } from "../../../kit/format";
+import { formatBytes, formatMoment } from "../../../kit/format";
 import { formatContext, formatParams } from "../models/ordering";
 import { machineName, type MachineRow } from "../rows";
 import {
@@ -13,6 +14,16 @@ import {
   type MachineModel,
   type ModelPull,
 } from "./models";
+import {
+  formatRate,
+  formatTps,
+  levelLabel,
+  type Measurement,
+  type Recommendation,
+  type RecommendedSet,
+} from "./recommended";
+import { runtimeLabel } from "./hardware";
+import { useMachineInference } from "./useMachineInference";
 import { useModelPulls } from "./useModelPulls";
 
 // The Models group on a machine's detail: what this machine runs, and the act
@@ -45,6 +56,7 @@ import { useModelPulls } from "./useModelPulls";
 export function ModelsGroup({ machine }: { machine: MachineRow }) {
   const { access } = useSession();
   const { pulls, live, loading, feedError, start, starting } = useModelPulls(machine.id);
+  const inference = useMachineInference(machine.id);
 
   const models = useMemo(() => machineModelsFrom(machine.reportedLabels), [machine.reportedLabels]);
   const runtimes = useMemo(
@@ -65,12 +77,36 @@ export function ModelsGroup({ machine }: { machine: MachineRow }) {
 
       <RuntimeLine runtimes={runtimes} modelCount={models.length} />
 
+      <RecommendedBlock
+        set={inference.recommended}
+        isOwner={isOwner}
+        busy={inference.pullingSet}
+        blocked={live !== null}
+        onPull={inference.pullRecommended}
+      />
+
       {models.length > 0 ? (
         <ul className="os-fleet-machinemodel-list">
           {models.map((model) => (
-            <ModelRow key={model.modelId} model={model} />
+            <ModelRow
+              key={model.modelId}
+              model={model}
+              measurement={inference.measurements.get(model.modelId) ?? null}
+              isOwner={isOwner}
+              probing={inference.probing === model.modelId}
+              onProbe={inference.probe}
+            />
           ))}
         </ul>
+      ) : null}
+
+      {inference.error ? (
+        <Notice
+          tone="warn"
+          sentence="The recommended set and the measured figures could not be read."
+          next="The models above are still what this machine reports."
+          detail={inference.error}
+        />
       ) : null}
 
       {feedError ? (
@@ -138,14 +174,33 @@ function RuntimeLine({ runtimes, modelCount }: { runtimes: string[]; modelCount:
 }
 
 /**
- * One model.
+ * One model: what it says about itself, then what a probe found it does.
  *
  * SIZE, QUANTIZATION AND WINDOW READ AS FACTS, and an unreported one is
  * ABSENT rather than zero: a model that never said how big it is is not a
  * zero-parameter model, and printing 0 would make the unmeasured one look like
  * the smallest.
+ *
+ * THE MEASURED LINE IS THE SAME RULE ONE LEVEL ALONG, and it is the one the
+ * whole probe exists for. A machine nobody has probed shows an em dash with
+ * its reason on hover, never "0%" and never "0 tok/s" -- those read exactly
+ * like a model that failed every case, and the two lead to opposite actions:
+ * go and probe it, against do not route structured work here.
  */
-function ModelRow({ model }: { model: MachineModel }) {
+function ModelRow({
+  model,
+  measurement,
+  isOwner,
+  probing,
+  onProbe,
+}: {
+  model: MachineModel;
+  measurement: Measurement | null;
+  isOwner: boolean;
+  probing: boolean;
+  onProbe: (modelId: string) => Promise<string>;
+}) {
+  const [refusal, setRefusal] = useState("");
   const size = formatParams(model.params);
   const window = formatContext(model.contextWindow);
   const facts = [size, model.quant, window ? `${window} context` : ""].filter((f) => f !== "");
@@ -160,10 +215,192 @@ function ModelRow({ model }: { model: MachineModel }) {
       <span className="os-fleet-machinemodel-id os-mono">{model.modelId}</span>
       <span className="os-fleet-machinemodel-readings">
         <span className="os-fleet-machinemodel-facts">
-          {facts.length > 0 ? facts.join(" · ") : "size not reported"}
+          {facts.length > 0 ? facts.join(" \u00b7 ") : "size not reported"}
         </span>
-        <span>{can.length > 0 ? can.join(" · ") : "no capabilities advertised"}</span>
+        <span>{can.length > 0 ? can.join(" \u00b7 ") : "no capabilities advertised"}</span>
+        <MeasuredLine measurement={measurement} />
       </span>
+      {isOwner ? (
+        <span className="os-fleet-machinemodel-act">
+          <Button
+            busy={probing}
+            busyLabel="Measuring..."
+            onClick={() => {
+              setRefusal("");
+              void onProbe(model.modelId).then(setRefusal);
+            }}
+          >
+            Probe this model
+          </Button>
+        </span>
+      ) : null}
+      {refusal ? (
+        <Notice
+          tone="error"
+          sentence="The probe did not start."
+          next="Nothing ran on the machine."
+          detail={refusal}
+        />
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * What a probe found.
+ *
+ * THREE FIGURES AND NOT FOUR. Time to first token is measured and is not here:
+ * it is a latency a person cannot act on from this page, where validity says
+ * whether to route structured work at all and throughput says how long a turn
+ * takes. A fourth number would spend a reader's attention without changing a
+ * decision.
+ *
+ * The suite version rides the line, because two figures scored by different
+ * suites are not comparable and a number with no provenance invites the
+ * comparison.
+ */
+function MeasuredLine({ measurement }: { measurement: Measurement | null }) {
+  if (measurement === null) {
+    return (
+      <span className="os-fleet-measured" data-unmeasured="true">
+        Not measured on this machine yet.
+      </span>
+    );
+  }
+  return (
+    <span className="os-fleet-measured">
+      <span className="os-fleet-measured-pair">
+        <span className="os-fleet-measured-label">Valid</span>
+        <FigureValue figure={measurement.structuredValidity} format={formatRate} />
+      </span>
+      <span className="os-fleet-measured-pair">
+        <span className="os-fleet-measured-label">Tools</span>
+        <FigureValue figure={measurement.toolCallCorrectness} format={formatRate} />
+      </span>
+      <span className="os-fleet-measured-pair">
+        <span className="os-fleet-measured-label">Speed</span>
+        <FigureValue figure={measurement.throughputTps} format={formatTps} suffix=" tok/s" />
+      </span>
+      <span
+        className="os-fleet-measured-when"
+        title={`Suite ${measurement.suiteVersion}, measured ${measurement.measuredAt}`}
+      >
+        suite {measurement.suiteVersion}
+      </span>
+      {measurement.probeError ? (
+        <span className="os-fleet-measured-partial">{measurement.probeError}</span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * What the catalog recommends for THIS machine, and one act that takes it.
+ *
+ * ===========================================================================
+ * ONE ACT, NOT A BUTTON PER MODEL
+ * ===========================================================================
+ * Somebody who has just paired a Mac Studio should not have to decide which
+ * four models to pull, in which order, and then press four buttons. The
+ * catalog knows which models suit a machine of this class and the engine knows
+ * the class; the whole of what is left for a person to say is yes.
+ *
+ * A BLOCKED ENTRY STAYS ON SCREEN with the sentence saying why. Dropping it
+ * would answer "why can my machine not do voice" with silence, which is
+ * indistinguishable from a catalog that never had one.
+ */
+function RecommendedBlock({
+  set,
+  isOwner,
+  busy,
+  blocked,
+  onPull,
+}: {
+  set: RecommendedSet;
+  isOwner: boolean;
+  busy: boolean;
+  blocked: boolean;
+  onPull: () => Promise<string>;
+}) {
+  const [refusal, setRefusal] = useState("");
+
+  // A machine that has not reported has nothing to recommend AND nothing to
+  // explain. The Hardware group above already says the cockpit has not spoken;
+  // repeating it here would be the same sentence twice, and rule 7 is that a
+  // thing is said once.
+  if (!set.reported || set.entries.length === 0) return null;
+
+  const pullable = set.entries.filter((e) => e.pullable);
+
+  return (
+    <div className="os-fleet-recommended">
+      <p className="os-fleet-recommended-lead">
+        For a {set.machineClass} GB machine, the catalog recommends:
+      </p>
+
+      <ul className="os-fleet-recommendedlist">
+        {set.entries.map((entry) => (
+          <RecommendedRow key={`${entry.level}:${entry.modelId}`} entry={entry} />
+        ))}
+      </ul>
+
+      {set.runtimeGap.length > 0 ? (
+        <p className="os-caption">
+          {set.runtimeGap.length === 1
+            ? `Installing the ${runtimeLabel(set.runtimeGap[0] ?? "")} runtime on this machine unblocks the entry above. `
+            : `Installing ${set.runtimeGap.map(runtimeLabel).join(" and ")} on this machine unblocks the entries above. `}
+          The cockpit installs runtimes; the cluster never puts software on somebody&apos;s machine.
+        </p>
+      ) : null}
+
+      {isOwner && pullable.length > 0 && !blocked ? (
+        <div className="os-fleet-recommended-act">
+          <Button
+            tone="primary"
+            busy={busy}
+            busyLabel="Starting..."
+            onClick={() => {
+              setRefusal("");
+              void onPull().then(setRefusal);
+            }}
+          >
+            Pull recommended set
+          </Button>
+          <p className="os-caption">
+            {pullable.length === 1
+              ? "One model, pulled in the background."
+              : `${pullable.length} models, pulled one after another in the background.`}{" "}
+            Leaving this page does not stop them.
+          </p>
+        </div>
+      ) : null}
+
+      {refusal ? (
+        <Notice
+          tone="error"
+          sentence="The set did not start."
+          next="Nothing was downloaded."
+          detail={refusal}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** One recommendation: what it is for, what it is, and what is in the way. */
+function RecommendedRow({ entry }: { entry: Recommendation }) {
+  return (
+    <li className="os-fleet-recommendedrow" data-blocked={!entry.pullable || undefined}>
+      <span className="os-fleet-recommended-level">{levelLabel(entry.level)}</span>
+      <span className="os-fleet-machinemodel-id os-mono">{entry.modelId}</span>
+      <span className="os-fleet-recommended-size">
+        {entry.sizeBytes > 0 ? formatBytes(entry.sizeBytes) : ""}
+      </span>
+      {entry.pullable ? (
+        <span className="os-fleet-recommended-note">{entry.notes}</span>
+      ) : (
+        <span className="os-fleet-recommended-blocked">{entry.blocked}</span>
+      )}
     </li>
   );
 }

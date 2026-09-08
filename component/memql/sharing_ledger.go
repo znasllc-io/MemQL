@@ -1,4 +1,4 @@
-package worker
+package memql
 
 import (
 	"sort"
@@ -28,6 +28,14 @@ import (
 // adding a column would have no reason to think twice. Folding first means the
 // content never reaches the surface at all, so the promise holds even if the
 // page is rewritten by somebody who never read this file.
+//
+// WHY IT LIVES IN component/memql RATHER THAN BESIDE THE SHARING CONSENT. The
+// consent is component/worker's, and that package cannot be imported by this
+// one -- worker reaches identity, which reaches here. The fold has to be
+// readable by the SURFACE, which is served by a bff, so it sits on the side of
+// the edge both can reach. There is one implementation, and the alternative
+// was two: one for the page and one for the wire, differing in exactly the way
+// this file exists to prevent.
 
 // LedgerCall is one decision record, narrowed to what the ledger may see.
 //

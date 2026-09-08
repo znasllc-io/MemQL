@@ -863,6 +863,50 @@ QueryClient.prototype.fleetPullRecommended = function (this: QueryClient, args: 
   return this.executeNamed("fleetPullRecommended", buildFleetPullRecommended(args), opts);
 };
 
+/** What the catalog recommends for one of YOUR OWN machines, and why anything is blocked: one entry per level, strongest first, each with the model, its size, and either a pullable flag or the sentence saying what is in the way. The act's answer without the act, so the machine page and fleetPullRecommended read ONE implementation -- a second one in the browser would drift, and the drift presents as a page offering a pull the act then refuses. Also carries the machine's computed class and the usable memory that produced it. A machine whose cockpit has not reported its hardware answers with an EMPTY class and an empty set rather than a list of blocked entries: there is nothing to recommend and nothing to explain, and a page listing every profile as blocked reads as a machine that failed rather than one that has not spoken. */
+export interface FleetRecommendedArgs {
+  /** v1:worker:registration.id of the machine to recommend for. It must be one of the caller's own. */
+  registrationId: string;
+}
+
+export function buildFleetRecommended(args: FleetRecommendedArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  return "builtin fleetRecommended(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetRecommended(args: FleetRecommendedArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetRecommended = function (this: QueryClient, args: FleetRecommendedArgs = {} as FleetRecommendedArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetRecommended", buildFleetRecommended(args), opts);
+};
+
+/** What one of YOUR OWN machines has done this week: how many calls ran on it, for how many people, and how those calls split across the four levels. COUNTS AND LEVELS, and nothing else -- somebody who lends their machine to the team is entitled to know it is being used and NOT entitled to read what it was used for, so the narrowing happens in the engine before anything leaves it rather than in a renderer that could later be rewritten. People are counted and never named. A read that FAILS answers `readable: false` rather than zero: telling somebody who lent their machine that nobody used it is a specific claim, and a failed read is not evidence for it. */
+export interface FleetSharingLedgerArgs {
+  /** v1:worker:registration.id of the machine to report on. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
+  registrationId: string;
+}
+
+export function buildFleetSharingLedger(args: FleetSharingLedgerArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  return "builtin fleetSharingLedger(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetSharingLedger(args: FleetSharingLedgerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetSharingLedger = function (this: QueryClient, args: FleetSharingLedgerArgs = {} as FleetSharingLedgerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetSharingLedger", buildFleetSharingLedger(args), opts);
+};
+
 /** Fork one of the caller's runs at a step: a NEW run that serves the shared prefix from the journal and runs live from the fork step on. The source run is untouched. Returns {runId}. */
 export interface ForkRunArgs {
   /** The run to fork. */

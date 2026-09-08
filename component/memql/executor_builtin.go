@@ -79,6 +79,12 @@ func (e *MemQLEngine) initBuiltinExecutorHandlers() error {
 		BuiltinExecutorFleetModelProbe: func(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
 			return e.evaluateFleetModelProbeExpression(ctx, args)
 		},
+		BuiltinExecutorFleetRecommended: func(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+			return e.evaluateFleetRecommendedExpression(ctx, args)
+		},
+		BuiltinExecutorFleetSharingLedger: func(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+			return e.evaluateFleetSharingLedgerExpression(ctx, args)
+		},
 		BuiltinExecutorModuleReadiness: func(ctx context.Context, _ map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
 			return e.evaluateModuleReadinessExpression(ctx)
 		},
