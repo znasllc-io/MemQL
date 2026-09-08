@@ -318,6 +318,33 @@ query account accountsForDomainWalk {
   shape   accountDomainWalk
 }
 
+/// Every active account that HOLDS a reserved MemQL name -- the account front door's work list
+/// (epic memql#5168).
+///
+/// IT RETURNS EVERY ACCOUNT WITH A NAME, HELD OR NOT, and the Go side splits them -- because the
+/// sweep has two jobs over one set and a second query would read the same rows twice. HELD is
+/// `memqlReservedAt`, NOT `memqlDomain`: the reservation is stamped in the SAME write that verifies
+/// the domain, and only when the name also passed the guardrails, so a non-empty memqlDomain with
+/// no memqlReservedAt is a name somebody typed that this cluster has not agreed to serve. Opening a
+/// door for one would request a certificate for three hosts whose ownership is unproven. The unheld
+/// ones get memqlReservationReason written instead, so the Accounts rail can say WHY rather than
+/// inferring it from the ownership stop beside it.
+///
+/// SHARES accountDomainWalk's shape rather than adding one: the sweep reads exactly the three
+/// fields that projection already carries (the id, the name, and whether it is held), and a second
+/// shape over the same three would be a second thing to keep in step.
+///
+/// actor.userId scoping is not the fix and is not available, accountsForDomainWalk's reasoning: the
+/// sweep runs from a scheduled automation under the engine's own actor, where actor.userId names
+/// nobody, and scoping it to one person would leave every other client's front door unreconciled.
+@actor
+@serverOnly
+@unbounded("the account front-door sweep must see EVERY held reservation -- a truncated page leaves a client's door unopened, or worse leaves a withdrawn one serving, and the person watching the stop has no way to tell either from a record they typed wrong")
+query account accountsWithAReservedName {
+  filter  actor.isClusterOwner==true && statusIsActive && memqlDomain!=""
+  shape   accountDomainWalk
+}
+
 /// The account, if any, that has PROVEN this domain and switched joining on.
 ///
 /// ALL THREE CONDITIONS ARE HERE rather than in the Go that calls it (epic

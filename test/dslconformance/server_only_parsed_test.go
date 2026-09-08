@@ -455,6 +455,11 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "platform/mutations.memql", Name: "markAccountFrontDoorRemoved"}:           true,
 		{Path: "platform/mutations.memql", Name: "recordAccountFrontDoorRemovalFailure"}:  true,
 		{Path: "platform/mutations.memql", Name: "recordAccountFrontDoorDrift"}:           true,
+		// The account front door's work list. actor.userId scoping is not
+		// available: the sweep runs from a scheduled automation under the
+		// engine's own actor, where actor.userId names nobody, and scoping it to
+		// one person would leave every other client's front door unreconciled.
+		{Path: "accounts/queries.memql", Name: "accountsWithAReservedName"}: true,
 		// epic memql#4794. The packages pipeline's writers, the D11 feeds'
 		// single write, and the two status setters behind the D10 archive
 		// capabilities. They divide into two arguments and neither is

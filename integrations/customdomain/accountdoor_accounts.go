@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/znasllc-io/memql/component/auth"
+	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
 
@@ -28,6 +30,12 @@ import (
 type Reservation struct {
 	AccountID    string
 	ReservedName string
+	// Reason is the reservation reason CURRENTLY on the row, so the sweep can
+	// skip a write that would change nothing. lastCheckedAt is not touched by
+	// this write, so a no-op write would still version the row -- and a row
+	// versioned every two minutes for every account is the strobe the arrival
+	// cue's own rule exists to prevent.
+	Reason string
 }
 
 // DoorAccountReader reads the account side of the walk.
@@ -46,26 +54,65 @@ func NewDoorAccountReader(engine Engine) *DoorAccountReader {
 // a non-empty `memqlDomain` with no `memqlReservedAt` is a name somebody typed
 // that this cluster has not agreed to serve, and opening a door for it would
 // request a certificate for a host whose ownership is unproven.
-func (s *DoorAccountReader) HeldReservations(ctx context.Context) ([]Reservation, error) {
-	rows, err := s.rows(ctx, "query accountsHoldingAReservedName()")
+func (s *DoorAccountReader) HeldReservations(ctx context.Context) ([]Reservation, []Reservation, error) {
+	rows, err := s.rows(ctx, "query accountsWithAReservedName()")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := make([]Reservation, 0, len(rows))
+	held := make([]Reservation, 0, len(rows))
+	unheld := make([]Reservation, 0)
 	for _, r := range rows {
 		name := rowString(r, "memqlDomain")
-		if name == "" || rowString(r, "memqlReservedAt") == "" {
-			// Defence in depth: the query filters on both, and a row reaching
-			// here without them would open a door with no hosts.
+		if name == "" {
+			// Defence in depth: the query filters on it, and a row reaching
+			// here without one would open a door with no hosts.
 			continue
 		}
-		out = append(out, Reservation{
+		res := Reservation{
 			AccountID:    memql.BareShortId(rowString(r, "id")),
 			ReservedName: name,
-		})
+			Reason:       rowString(r, "memqlReservationReason"),
+		}
+		if rowString(r, "memqlReservedAt") == "" {
+			unheld = append(unheld, res)
+			continue
+		}
+		held = append(held, res)
 	}
-	return out, nil
+	return held, unheld, nil
 }
+
+// RecordReservationReason writes WHY an account's name is not held, or clears
+// it when the name is held.
+//
+// IT RIDES recordAccountDomainCheck rather than a writer of its own, on
+// memql#5165's own instruction and because the alternative is two writers of
+// one row's domain fields. That is only correct if an omitted optional
+// argument in a `stamp` block leaves its field alone rather than blanking it,
+// which is a property the tree documented nowhere and two callers already
+// depended on -- so it is now proved by
+// TestAnOmittedStampArgumentLeavesTheFieldAlone in component/memql, with a
+// control so it cannot pass against a mutation that writes nothing.
+func (s *DoorAccountReader) RecordReservationReason(ctx context.Context, accountID, reason string) error {
+	if s == nil || s.engine == nil {
+		return fmt.Errorf("customdomain: no engine wired")
+	}
+	q := fmt.Sprintf("mutation recordAccountDomainCheck(accountId: %s, memqlReservationReason: %s)",
+		langparser.QuoteString(accountID), langparser.QuoteString(reason))
+	if _, err := s.engine.Execute(doorContext(ctx), q); err != nil {
+		return fmt.Errorf("customdomain: %s: %w", firstWord(q), err)
+	}
+	return nil
+}
+
+// The typed reasons a reserved name is not held (epic memql#5168, design C).
+//
+// The middle two are record A's own guard codes, reused verbatim rather than
+// re-spelled: the guard already emits them and the rail already has to key on
+// them, and a second spelling of one refusal is a second thing to keep in step.
+const (
+	ReasonOwnershipUnproven = "ownership_unproven"
+)
 
 // LiveAndPendingDoors returns every door that is not `removed` -- the set to
 // compare against the reservations above.
@@ -84,6 +131,15 @@ func (s *DoorAccountReader) LiveAndPendingDoors(ctx context.Context) ([]Door, er
 	}
 	return out, nil
 }
+
+// The reads and the write here run under doorContext, which stamps the
+// synthetic cluster-owner identity AND internal origin -- naming
+// auth.ContextWithInternalOrigin in this file as well is idempotent and
+// deliberate, for the reason accountdoor.go gives: both constructs this file
+// calls are @serverOnly, the engine refuses one whose origin is not internal,
+// and the conformance gate that catches that reads per FILE. Somebody grepping
+// here has to find the stamp rather than chase it two files over.
+var _ = auth.ContextWithInternalOrigin
 
 func (s *DoorAccountReader) rows(ctx context.Context, query string) ([]map[string]any, error) {
 	if s == nil || s.engine == nil {

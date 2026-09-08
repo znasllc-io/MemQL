@@ -139,7 +139,7 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // proof of ownership. Three added, none removed -- and the count is what
 // SAYS none was removed, which is exactly the check a diff of a list could
 // not have made.
-const shippedAutomationCount = 56
+const shippedAutomationCount = 57
 //
 // 56 -> 57 in epic memql#5168 (the per-account front door):
 // reconcileAccountFrontDoors, a SECOND sweep beside reconcileCustomDomains

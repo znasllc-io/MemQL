@@ -42,7 +42,7 @@ func (f *fakeDoorEngine) Execute(_ context.Context, query string) (any, error) {
 		return nil, f.err
 	}
 	switch {
-	case strings.HasPrefix(query, "query accountsHoldingAReservedName"):
+	case strings.HasPrefix(query, "query accountsWithAReservedName"):
 		if f.reservationErr != nil {
 			return nil, f.reservationErr
 		}
@@ -352,13 +352,9 @@ func TestAWithdrawnReservationTearsALiveDoorDown(t *testing.T) {
 // of one name is not proof of another.
 func TestAChangedReservationTearsTheOldDoorDown(t *testing.T) {
 	eng := &fakeDoorEngine{
-		t:     t,
-		doors: []map[string]any{doorRow(StatusLive)},
-		reservations: []map[string]any{{
-			"id":              testDoorAccount,
-			"memqlDomain":     "memql.newname.com",
-			"memqlReservedAt": "2026-09-08T00:00:00Z",
-		}},
+		t:            t,
+		doors:        []map[string]any{doorRow(StatusLive)},
+		reservations: []map[string]any{doorAccountRow("memql.newname.com", "2026-09-08T00:00:00Z", "")},
 	}
 
 	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
@@ -399,13 +395,9 @@ func TestADoorAlreadyRemovingIsNotAskedAgain(t *testing.T) {
 
 func TestAHeldReservationWithNoDoorOpensOne(t *testing.T) {
 	eng := &fakeDoorEngine{
-		t:     t,
-		doors: []map[string]any{},
-		reservations: []map[string]any{{
-			"id":              testDoorAccount,
-			"memqlDomain":     testDoorReserved,
-			"memqlReservedAt": "2026-09-08T00:00:00Z",
-		}},
+		t:            t,
+		doors:        []map[string]any{},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 
 	out, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background())
@@ -425,11 +417,8 @@ func TestAnUnstampedNameOpensNothing(t *testing.T) {
 	eng := &fakeDoorEngine{
 		t:     t,
 		doors: []map[string]any{},
-		reservations: []map[string]any{{
-			"id":          testDoorAccount,
-			"memqlDomain": testDoorReserved,
-			// no memqlReservedAt
-		}},
+		// A name with NO memqlReservedAt: recorded, not held.
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "", "")},
 	}
 
 	out, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background())
@@ -443,13 +432,9 @@ func TestAnUnstampedNameOpensNothing(t *testing.T) {
 
 func TestAReservationThatAlreadyHasADoorOpensNothing(t *testing.T) {
 	eng := &fakeDoorEngine{
-		t:     t,
-		doors: []map[string]any{doorRow(StatusLive)},
-		reservations: []map[string]any{{
-			"id":              testDoorAccount,
-			"memqlDomain":     testDoorReserved,
-			"memqlReservedAt": "2026-09-08T00:00:00Z",
-		}},
+		t:            t,
+		doors:        []map[string]any{doorRow(StatusLive)},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 
 	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
@@ -697,7 +682,7 @@ func TestALiveDoorIsRecheckedAndDemotedOnSustainedDrift(t *testing.T) {
 	eng := &fakeDoorEngine{
 		t:            t,
 		doors:        []map[string]any{liveDoorRow(staleCheck, 0)},
-		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 	out, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background())
 	if err != nil {
@@ -723,7 +708,7 @@ func TestALiveDoorIsRecheckedAndDemotedOnSustainedDrift(t *testing.T) {
 	eng = &fakeDoorEngine{
 		t:            t,
 		doors:        []map[string]any{liveDoorRow(staleCheck, DriftDemotionThreshold-1)},
-		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 	out, err = newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background())
 	if err != nil {
@@ -750,7 +735,7 @@ func TestAPassingRecheckResetsTheDriftCount(t *testing.T) {
 	eng := &fakeDoorEngine{
 		t:            t,
 		doors:        []map[string]any{liveDoorRow(staleCheck, DriftDemotionThreshold-1)},
-		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 	res := stubDoorResolver{pointing: map[string]bool{
 		"app." + testDoorReserved: true,
@@ -783,7 +768,7 @@ func TestARecentlyCheckedLiveDoorIsNotRecheckedAgain(t *testing.T) {
 	eng := &fakeDoorEngine{
 		t:            t,
 		doors:        []map[string]any{liveDoorRow("2026-09-08T11:59:30Z", 0)}, // 30s before the fixture clock
-		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -800,12 +785,92 @@ func TestALiveDoorWithNoRecordedCheckIsDueImmediately(t *testing.T) {
 	eng := &fakeDoorEngine{
 		t:            t,
 		doors:        []map[string]any{liveDoorRow("", 0)},
-		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+		reservations: []map[string]any{doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
 	}
 	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !eng.wrote("recordAccountFrontDoorDrift") {
 		t.Error("a live door that has never been checked was skipped")
+	}
+}
+
+// ===========================================================================
+// The reservation reason
+// ===========================================================================
+
+func doorAccountRow(reservedName, reservedAt, reason string) map[string]any {
+	return map[string]any{
+		"id":                     testDoorAccount,
+		"memqlDomain":            reservedName,
+		"memqlReservedAt":        reservedAt,
+		"memqlReservationReason": reason,
+	}
+}
+
+// THE ASK THE ACCOUNTS RAIL MADE: an absent memqlReservedAt meant two things,
+// and the rail inferred which from the ownership stop beside it.
+func TestAnUnheldNameGetsATypedReason(t *testing.T) {
+	eng := &fakeDoorEngine{t: t, doors: []map[string]any{}, reservations: []map[string]any{
+		doorAccountRow(testDoorReserved, "", ""),
+	}}
+	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var wrote string
+	for _, c := range eng.calls {
+		if strings.HasPrefix(c, "mutation recordAccountDomainCheck") {
+			wrote = c
+		}
+	}
+	if !strings.Contains(wrote, ReasonOwnershipUnproven) {
+		t.Errorf("an unheld name got no typed reason, so the rail is still inferring:\n  %s", wrote)
+	}
+	if eng.wrote("createAccountFrontDoor") {
+		t.Error("a door was opened for a name this cluster has not agreed to serve")
+	}
+}
+
+// A HELD NAME CARRIES NO REASON. Without the clear, a name that was refused and
+// then fixed keeps explaining a state it is no longer in.
+func TestAHeldNameHasItsReasonCleared(t *testing.T) {
+	eng := &fakeDoorEngine{t: t, doors: []map[string]any{}, reservations: []map[string]any{
+		doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", ReasonOwnershipUnproven),
+	}}
+	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var wrote string
+	for _, c := range eng.calls {
+		if strings.HasPrefix(c, "mutation recordAccountDomainCheck") {
+			wrote = c
+		}
+	}
+	if wrote == "" {
+		t.Fatal("a held name kept a stale reason: nothing cleared it")
+	}
+	if !strings.Contains(wrote, `memqlReservationReason: ""`) {
+		t.Errorf("the clear did not write an empty reason:\n  %s", wrote)
+	}
+}
+
+// A NO-OP WRITE IS NOT MADE. The sweep runs every two minutes over every
+// account with a name; writing a reason that already says what it says would
+// version each of those rows on a timer -- the strobe the arrival cue's own
+// rule exists to prevent.
+func TestAReasonThatIsAlreadyRightIsNotRewritten(t *testing.T) {
+	for name, res := range map[string][]map[string]any{
+		"unheld, reason already set": {doorAccountRow(testDoorReserved, "", ReasonOwnershipUnproven)},
+		"held, reason already empty": {doorAccountRow(testDoorReserved, "2026-09-08T00:00:00Z", "")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			eng := &fakeDoorEngine{t: t, doors: []map[string]any{}, reservations: res}
+			if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if eng.wrote("recordAccountDomainCheck") {
+				t.Error("the sweep rewrote a reason that was already correct, versioning the row on a two-minute timer")
+			}
+		})
 	}
 }

@@ -214,13 +214,41 @@ func (r *DoorReconciler) open(ctx context.Context, out *DoorPassResult) error {
 	if r.accounts == nil {
 		return nil
 	}
-	reservations, err := r.accounts.HeldReservations(ctx)
+	reservations, unheld, err := r.accounts.HeldReservations(ctx)
 	if err != nil {
 		return err
 	}
 	held := make(map[string]string, len(reservations))
 	for _, res := range reservations {
 		held[res.AccountID] = res.ReservedName
+		// A HELD NAME CARRIES NO REASON. Clearing it here is what makes the
+		// field mean "why it is not held" rather than "why it was not held
+		// once"; without it a name that was refused and then fixed would keep
+		// explaining a state it is no longer in.
+		if res.Reason != "" {
+			if err := r.accounts.RecordReservationReason(ctx, res.AccountID, ""); err != nil {
+				r.warn("could not clear a reservation reason", "account", res.AccountID, "error", err)
+			}
+		}
+	}
+
+	// THE UNHELD ONES GET A REASON, which is the ask the Accounts rail made:
+	// an absent memqlReservedAt meant two different things and the rail
+	// inferred which from the ownership stop beside it.
+	//
+	// ONE VALUE, and that is the whole vocabulary a ROW ever needs. The other
+	// four codes are REFUSALS -- the guard rejects the write, so no row is
+	// left to carry them, and the operator sees them as an error on the form
+	// at the moment they type the name, which is both sooner and more
+	// actionable than a row state. A name that is recorded but not held is
+	// recorded because its domain is not verified yet.
+	for _, res := range unheld {
+		if res.Reason == ReasonOwnershipUnproven {
+			continue
+		}
+		if err := r.accounts.RecordReservationReason(ctx, res.AccountID, ReasonOwnershipUnproven); err != nil {
+			r.warn("could not record a reservation reason", "account", res.AccountID, "error", err)
+		}
 	}
 
 	existing, err := r.accounts.LiveAndPendingDoors(ctx)
