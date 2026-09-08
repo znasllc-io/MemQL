@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/znasllc-io/memql/core/component"
 	nodev1 "github.com/znasllc-io/memql/component/node/gen"
 	"github.com/znasllc-io/memql/core/common"
+	"github.com/znasllc-io/memql/core/component"
 )
 
 const (
@@ -378,6 +378,26 @@ func (pc *ParentConnector) handleServerMessage(msg *nodev1.NodeServerMessage) {
 		pc.mu.Unlock()
 		if ppsink != nil {
 			ppsink.DispatchModelPullProgress(payload.ModelPullForwardProgress)
+		}
+
+	case *nodev1.NodeServerMessage_ModelProbeForwardResponse:
+		// Terminal answer for a model probe this node forwarded (epic
+		// memql#5146). It carries the FIGURES, so a dropped one is not a
+		// missing status -- it is a measurement that ran and was lost.
+		pc.mu.Lock()
+		qsink := pc.workerForwardSink
+		pc.mu.Unlock()
+		if qsink != nil {
+			qsink.DispatchModelProbe(payload.ModelProbeForwardResponse)
+		}
+
+	case *nodev1.NodeServerMessage_ModelProbeForwardProgress:
+		// One finished case, relayed across the hop.
+		pc.mu.Lock()
+		qpsink := pc.workerForwardSink
+		pc.mu.Unlock()
+		if qpsink != nil {
+			qpsink.DispatchModelProbeProgress(payload.ModelProbeForwardProgress)
 		}
 
 	case *nodev1.NodeServerMessage_DeployControlForwardResponse:

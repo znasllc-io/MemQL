@@ -192,7 +192,7 @@ func TestACorruptRowReadsAsAbsentRatherThanAsANumber(t *testing.T) {
 	for _, row := range []any{
 		nil,
 		map[string]any{},
-		map[string]any{"measured": true},                       // no median
+		map[string]any{"measured": true}, // no median
 		map[string]any{"measured": true, "median": "not a num"}, // wrong type
 	} {
 		if FigureFromRow(row).IsMeasured() {
