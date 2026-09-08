@@ -154,12 +154,25 @@ func (r *DoorReconciler) Run(ctx context.Context) (DoorPassResult, error) {
 		return out, fmt.Errorf("customdomain: door reconciler has no store")
 	}
 
-	if err := r.open(ctx, &out); err != nil {
-		// A failure to READ reservations is not a per-row failure -- it means
-		// this pass cannot know what should exist -- but it must not stop the
-		// doors that already exist from advancing, and in particular must not
-		// stop a teardown.
-		r.warn("could not read account reservations", "error", err)
+	// A FAILURE TO READ RESERVATIONS IS REPORTED, NOT SWALLOWED, and the first
+	// version of this got it exactly backwards.
+	//
+	// Its comment said the failure "must not stop the doors that already exist
+	// from advancing, and in particular must not stop a teardown" -- but BOTH
+	// directions of D9 live inside open(): the reservation comparison is the
+	// only code that can move a door to `removing`, and it is downstream of
+	// this read. So a failed read blocked opening AND teardown, and the pass
+	// then returned {0,0,0,0,0,0} with no error, which the automation records
+	// as a success every two minutes forever. A cluster that cannot see its
+	// reservations was indistinguishable from a cluster with nothing to do.
+	//
+	// The step loop still runs -- a door already `issuing` should keep
+	// advancing while the account read is broken -- but the pass ends in an
+	// error, so the automation step fails and somebody can see it.
+	openErr := r.open(ctx, &out)
+	if openErr != nil {
+		out.Failed++
+		r.warn("could not read account reservations; no door was opened or torn down this pass", "error", openErr)
 	}
 
 	doors, err := r.doors.ToReconcile(ctx)
@@ -180,6 +193,9 @@ func (r *DoorReconciler) Run(ctx context.Context) (DoorPassResult, error) {
 			r.warn("account front door reconciliation step failed",
 				"reservedName", d.ReservedName, "status", d.Status, "error", err)
 		}
+	}
+	if openErr != nil {
+		return out, fmt.Errorf("customdomain: account front door pass could not read reservations, so no door was opened or torn down: %w", openErr)
 	}
 	return out, nil
 }
@@ -364,10 +380,19 @@ func (r *DoorReconciler) unprovision(ctx context.Context, d Door, out *DoorPassR
 	now := r.now()
 	res, err := r.provisioner.UnbindDoor(ctx, r.request(d))
 	if err != nil {
-		return r.doors.RecordIssuanceFailure(ctx, d.ID, ReasonIssuanceFailed, err.Error(), now)
+		return r.doors.RecordRemovalFailure(ctx, d.ID, ReasonIssuanceFailed, err.Error(), now)
 	}
 	if res.Reason != "" {
-		return r.doors.RecordIssuanceFailure(ctx, d.ID, res.Reason, res.Detail, now)
+		return r.doors.RecordRemovalFailure(ctx, d.ID, res.Reason, res.Detail, now)
+	}
+	// APPLIED IS THE PROMOTION GATE, and reading only `err` and `Reason` was
+	// the defect: an envelope reporting applied:false with no reason closed the
+	// walk while the objects were still serving, and the row is the only thing
+	// anyone reads afterwards. Design D step 5 says `removing` -> `removed`
+	// when the envelope SAYS APPLIED.
+	if !res.Applied {
+		return r.doors.RecordRemovalFailure(ctx, d.ID, ReasonIssuanceFailed,
+			"the unbind reported no failure and did not report the objects as removed", now)
 	}
 	if err := r.doors.MarkRemoved(ctx, d.ID, now); err != nil {
 		return err

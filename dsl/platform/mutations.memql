@@ -1059,6 +1059,35 @@ mutate accountFrontDoor requestAccountFrontDoorRemoval {
   }
 }
 
+/// actor.userId scoping is not the fix, for recordAccountFrontDoorIssuanceFailure's reason: this
+/// records what the unbind's capability envelope came back with, which only the frame that ran it
+/// saw.
+///
+/// A SEPARATE MUTATION FROM recordAccountFrontDoorIssuanceFailure, and the separation is the whole
+/// point of it. That one stamps `status: "issuing"`, which is right for a bind that failed and
+/// catastrophic for an unbind that did: routing a failed teardown through it walked the row
+/// `removing` -> `issuing`, and the NEXT pass then re-applied the certificate and all four
+/// Ingresses for a name whose reservation had been withdrawn -- putting a door the cluster had
+/// stopped claiming back into service. Design D9 says removal is the only transition out of `live`;
+/// without this mutation that transition was reversible.
+@serverOnly
+@description("Record a typed failure during a front door's teardown, KEEPING it at removing so the next sweep retries the unbind rather than re-provisioning the door.")
+mutate accountFrontDoor recordAccountFrontDoorRemovalFailure {
+  args {
+    doorId         string!
+    failureReason  string!
+    failureDetail  string
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { failureReason, failureDetail, lastCheckedAt }
+    stamp {
+      id:      args.doorId
+      status:  "removing"
+    }
+  }
+}
+
 /// The unbind completed. Terminal, and the row stays -- the pair (issuedAt, removedAt) is how long
 /// this cluster served the client's name.
 /// actor.userId scoping is not the fix: this records that the unbind script's envelope came back

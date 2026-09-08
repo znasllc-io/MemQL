@@ -2,6 +2,7 @@ package customdomain
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,10 @@ type fakeDoorEngine struct {
 	reservations []map[string]any
 	calls        []string
 	err          error
+	// reservationErr fails ONLY the account read. `err` fails every query,
+	// which cannot express "the reservations are unreadable and the doors are
+	// fine" -- the exact state the pass has to report honestly.
+	reservationErr error
 }
 
 func (f *fakeDoorEngine) Execute(_ context.Context, query string) (any, error) {
@@ -38,6 +43,9 @@ func (f *fakeDoorEngine) Execute(_ context.Context, query string) (any, error) {
 	}
 	switch {
 	case strings.HasPrefix(query, "query accountsHoldingAReservedName"):
+		if f.reservationErr != nil {
+			return nil, f.reservationErr
+		}
 		return f.reservations, nil
 	case strings.HasPrefix(query, "query accountFrontDoor"):
 		// Every door read answers the same fixture, so a test can hand the
@@ -45,8 +53,25 @@ func (f *fakeDoorEngine) Execute(_ context.Context, query string) (any, error) {
 		// still being seen by the reservation comparison. Narrowing the way
 		// the real queries do would make that unmeasurable.
 		return f.doors, nil
-	default:
+	case strings.HasPrefix(query, "mutation "):
 		return []map[string]any{}, nil
+	default:
+		// AN UNRECOGNISED CONSTRUCT IS A TEST FAILURE, NOT AN EMPTY RESULT.
+		//
+		// The first version fell through to `[]map[string]any{}` here, and a
+		// review found what that hid: `accountsHoldingAReservedName` does not
+		// exist in the DSL yet, so on a real engine the sweep's reservation
+		// read fails -- and every test in this file passed anyway, because
+		// the fake answered a query no engine would. ParseExpression proves
+		// SYNTAX, never existence, so nothing else here could have noticed.
+		//
+		// This does not make the fake know the real registry. It makes it
+		// refuse to invent an answer for a name this file has not deliberately
+		// taught it, which is the property that was missing.
+		f.t.Fatalf("the engine was asked for a construct this fake does not know:\n  %s\n"+
+			"Teach it here deliberately, or fix the caller -- an empty result for an unknown "+
+			"name is how a query that exists nowhere passes a whole suite.", query)
+		return nil, nil
 	}
 }
 
@@ -561,5 +586,78 @@ func TestNoFrontDoorHostIsEverAnApex(t *testing.T) {
 	// The control: the predicate is not simply always false.
 	if !IsApex("acme.com") {
 		t.Fatal("IsApex returns false for a real apex -- this assertion would be vacuous")
+	}
+}
+
+// ===========================================================================
+// The teardown is not reversible
+// ===========================================================================
+
+// A FAILED UNBIND MUST NOT PROMOTE THE DOOR BACK TO `issuing`.
+//
+// The first version routed both of unprovision's failure paths through
+// RecordIssuanceFailure, whose mutation stamps `status: "issuing"`
+// unconditionally. Any unbind failure -- a missing RBAC verb, kubectl absent,
+// an unregistered script id, a transient API error -- walked the row
+// `removing` -> `issuing`, and the NEXT pass re-applied the certificate and
+// all four Ingresses for a name whose reservation had been withdrawn. When the
+// certificate reported Ready it went back to `live` and the edge served it
+// again. D9's "the only transition that can leave live" was reversible by any
+// transient failure.
+func TestAFailedUnbindKeepsTheDoorRemoving(t *testing.T) {
+	for name, prov := range map[string]*stubDoorProvisioner{
+		"a typed refusal":              {outcome: Outcome{Reason: ReasonIssuanceFailed, Detail: "kubectl is not installed"}},
+		"a substrate error":            {err: errStubUnbind},
+		"applied:false with no reason": {outcome: Outcome{Applied: false}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			eng := &fakeDoorEngine{t: t, doors: []map[string]any{doorRow(StatusRemoving)}, reservations: []map[string]any{}}
+			out, err := newDoorReconciler(t, eng, prov, stubDoorResolver{}).Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if out.Removed != 0 {
+				t.Errorf("removed = %d for a teardown that did not complete", out.Removed)
+			}
+			if eng.wrote("markAccountFrontDoorRemoved") {
+				t.Error("the door was marked removed while its objects are still serving")
+			}
+			if eng.wrote("recordAccountFrontDoorIssuanceFailure") {
+				t.Error("a failed teardown was recorded as an ISSUANCE failure, which stamps `issuing` -- the next pass would re-provision a door whose reservation was withdrawn")
+			}
+			if !eng.wrote("recordAccountFrontDoorRemovalFailure") {
+				t.Error("the failure was not recorded at all, so the sweep has nothing to retry and the rail nothing to show")
+			}
+		})
+	}
+}
+
+var errStubUnbind = fmt.Errorf("the substrate could not run")
+
+// A pass that cannot read reservations must REPORT that, not answer a healthy
+// zero. Both directions of D9 live in open(), so a failed read blocks opening
+// AND teardown -- and the first version returned {0,0,0,0,0,0} with no error,
+// which the automation records as a success every two minutes forever.
+func TestAFailedReservationReadIsReportedRatherThanLookingHealthy(t *testing.T) {
+	eng := &fakeDoorEngine{
+		t:              t,
+		doors:          []map[string]any{doorRow(StatusIssuing)},
+		reservationErr: errStubUnbind,
+	}
+	prov := &stubDoorProvisioner{outcome: Outcome{Applied: true, CertificateReady: true}}
+
+	out, err := newDoorReconciler(t, eng, prov, stubDoorResolver{}).Run(context.Background())
+
+	// The step loop still ran: a door already issuing keeps advancing while
+	// the account read is broken. That is the half the original comment got
+	// right, and it must survive the fix to the half it got wrong.
+	if out.Issued != 1 {
+		t.Errorf("issued = %d; an unreadable reservation list must not stop a door that is already issuing", out.Issued)
+	}
+	if err == nil {
+		t.Fatal("a pass that could not read reservations returned no error, so the automation records it as a success and a cluster that cannot see its reservations looks like one with nothing to do")
+	}
+	if !strings.Contains(err.Error(), "reservations") {
+		t.Errorf("the error does not name what could not be read: %v", err)
 	}
 }

@@ -453,6 +453,7 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "platform/mutations.memql", Name: "markAccountFrontDoorLive"}:              true,
 		{Path: "platform/mutations.memql", Name: "requestAccountFrontDoorRemoval"}:        true,
 		{Path: "platform/mutations.memql", Name: "markAccountFrontDoorRemoved"}:           true,
+		{Path: "platform/mutations.memql", Name: "recordAccountFrontDoorRemovalFailure"}:  true,
 		// epic memql#4794. The packages pipeline's writers, the D11 feeds'
 		// single write, and the two status setters behind the D10 archive
 		// capabilities. They divide into two arguments and neither is

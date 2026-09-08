@@ -117,9 +117,43 @@ func doorLabels(req DoorBindRequest) map[string]any {
 	}
 }
 
+// doorBackend is how ONE of a door's Ingresses reaches its Service, including
+// the annotations that decide how the proxy talks to it.
+//
+// # THE ANNOTATIONS ARE THE PART THAT WAS MISSING, AND THEY ARE NOT DECORATION
+//
+// The first version of this file set only `cert-manager.io/cluster-issuer` plus
+// the gRPC protocol flag, and both omissions were breakages rather than
+// oversights. The cluster's own generated front door carries the answers and
+// says why in its comments; a door has to carry the same ones, because it
+// reaches the same Services.
+//
+//   - identity serves TLS IN-CLUSTER under the internal CA
+//     (deploy/k8s/base/identity.yaml sets MEMQL_HTTP_TLS_CERT_FILE, and its
+//     probes use scheme: HTTPS), which the ingress controller's trust store
+//     does not carry. Without `backend-protocol: HTTPS` + `proxy-ssl-verify:
+//     off` the proxy speaks plain HTTP to a TLS port and every request to
+//     `id.<reserved>` answers 502. Nothing upstream would have caught it: the
+//     three-SAN certificate goes Ready on its own solver Ingress, the
+//     reconciler promotes on that alone, and the rail says `live` while
+//     sign-in -- the whole of the per-door surface -- is dead.
+//   - ingress-nginx's default `proxy-body-size` is 1m (memql#4782), which
+//     makes every documented upload cap on the api host quietly unreachable:
+//     the 413 comes from the proxy, names no knob, and a client uploading a
+//     5 MiB artifact through their own api host fails where the identical call
+//     to the cluster's own api host succeeds. Traefik enforces no default
+//     limit, so a local door is no evidence here.
+type doorBackend struct {
+	suffix      string
+	host        string
+	service     string
+	port        int
+	annotations map[string]string
+}
+
 // doorIngress renders one host -> one service Ingress with a `/` Prefix rule.
-func doorIngress(req DoorBindRequest, nameSuffix, host, service string, port int, grpc bool) map[string]any {
-	return doorIngressWithPaths(req, nameSuffix, host, []string{"/"}, service, port, grpc)
+func doorIngress(req DoorBindRequest, b doorBackend) map[string]any {
+	return doorIngressWithPaths(req, b, []string{"/"})
 }
 
 // doorIngressWithPaths renders an Ingress carrying one rule per path.
@@ -128,13 +162,13 @@ func doorIngress(req DoorBindRequest, nameSuffix, host, service string, port int
 // generator's comment carries the reasoning; repeating the choice here rather
 // than the reasoning is deliberate, because the place a decision is argued
 // should be the place that produces the list.
-func doorIngressWithPaths(req DoorBindRequest, nameSuffix, host string, paths []string, service string, port int, grpc bool) map[string]any {
+func doorIngressWithPaths(req DoorBindRequest, b doorBackend, paths []string) map[string]any {
 	annotations := map[string]any{}
 	if strings.TrimSpace(req.Issuer) != "" {
 		annotations["cert-manager.io/cluster-issuer"] = req.Issuer
 	}
-	if grpc {
-		annotations["nginx.ingress.kubernetes.io/backend-protocol"] = "GRPC"
+	for k, v := range b.annotations {
+		annotations[k] = v
 	}
 
 	rules := make([]any, 0, len(paths))
@@ -144,14 +178,14 @@ func doorIngressWithPaths(req DoorBindRequest, nameSuffix, host string, paths []
 			"pathType": "Prefix",
 			"backend": map[string]any{
 				"service": map[string]any{
-					"name": service,
-					"port": map[string]any{"number": port},
+					"name": b.service,
+					"port": map[string]any{"number": b.port},
 				},
 			},
 		})
 	}
 
-	name := doorObjectName(req.AccountID) + nameSuffix
+	name := doorObjectName(req.AccountID) + b.suffix
 	return map[string]any{
 		"apiVersion": "networking.k8s.io/v1",
 		"kind":       "Ingress",
@@ -164,11 +198,11 @@ func doorIngressWithPaths(req DoorBindRequest, nameSuffix, host string, paths []
 		"spec": map[string]any{
 			"ingressClassName": req.IngressClass,
 			"tls": []any{map[string]any{
-				"hosts":      []any{host},
+				"hosts":      []any{b.host},
 				"secretName": doorObjectName(req.AccountID) + "-tls",
 			}},
 			"rules": []any{map[string]any{
-				"host": host,
+				"host": b.host,
 				"http": map[string]any{"paths": rules},
 			}},
 		},
@@ -215,9 +249,18 @@ func doorIngressObjects(req DoorBindRequest, apiPaths []string) []map[string]any
 	idHost := frontdoor.AccountRoleHost(frontdoor.AccountRoleID, req.ReservedName)
 
 	out := []map[string]any{
-		doorIngress(req, "-app", appHost, req.EdgeService, req.EdgePort, false),
-		doorIngress(req, "-api-grpc", apiHost, req.BFFGRPCService, req.BFFGRPCPort, true),
-		doorIngress(req, "-id", idHost, req.IdentityService, req.IdentityPort, false),
+		// app. -> the edge, plain HTTP on :8085, exactly as the cluster's own
+		// os. rule reaches it.
+		doorIngress(req, doorBackend{suffix: "-app", host: appHost, service: req.EdgeService, port: req.EdgePort}),
+		// api. gRPC -> the bff's h2c edge.
+		doorIngress(req, doorBackend{suffix: "-api-grpc", host: apiHost, service: req.BFFGRPCService, port: req.BFFGRPCPort,
+			annotations: map[string]string{"nginx.ingress.kubernetes.io/backend-protocol": "GRPC"}}),
+		// id. -> identity, which speaks TLS in-cluster. See doorBackend.
+		doorIngress(req, doorBackend{suffix: "-id", host: idHost, service: req.IdentityService, port: req.IdentityPort,
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/backend-protocol": "HTTPS",
+				"nginx.ingress.kubernetes.io/proxy-ssl-verify": "off",
+			}}),
 	}
 	// NO HTTP INGRESS WHEN THERE ARE NO PATHS, rather than one with an empty
 	// rule list, which the API server rejects -- taking the other three hosts
@@ -225,7 +268,11 @@ func doorIngressObjects(req DoorBindRequest, apiPaths []string) []map[string]any
 	// what happens if it ever is, and it is a door missing its HTTP routes
 	// rather than a door that failed to come up.
 	if len(apiPaths) > 0 {
-		out = append(out, doorIngressWithPaths(req, "-api", apiHost, apiPaths, req.BFFHTTPService, req.BFFHTTPPort, false))
+		out = append(out, doorIngressWithPaths(req, doorBackend{
+			suffix: "-api", host: apiHost, service: req.BFFHTTPService, port: req.BFFHTTPPort,
+			// The upload cap. See doorBackend.
+			annotations: map[string]string{"nginx.ingress.kubernetes.io/proxy-body-size": doorProxyBodySize},
+		}, apiPaths))
 	}
 	return out
 }
@@ -266,7 +313,7 @@ func (p *apiProvisioner) BindDoor(ctx context.Context, req DoorBindRequest, apiP
 	for _, obj := range doorIngressObjects(req, apiPaths) {
 		meta, _ := obj["metadata"].(map[string]any)
 		objName, _ := meta["name"].(string)
-		if err := p.apply(ctx, ingressPath(req.Namespace, objName), obj); err != nil {
+		if err := p.applyAs(ctx, doorFieldManager, ingressPath(req.Namespace, objName), obj); err != nil {
 			return Outcome{Reason: ReasonIssuanceFailed, Detail: err.Error()}, nil
 		}
 	}
@@ -274,7 +321,7 @@ func (p *apiProvisioner) BindDoor(ctx context.Context, req DoorBindRequest, apiP
 	// Ingresses, so requesting it before they exist starts an order whose
 	// first attempt is guaranteed to fail -- and cert-manager backs off after
 	// a failure, which would make every door slower to come up for no reason.
-	if err := p.apply(ctx, certificatePath(req.Namespace, name), DoorCertificateObject(req)); err != nil {
+	if err := p.applyAs(ctx, doorFieldManager, certificatePath(req.Namespace, name), DoorCertificateObject(req)); err != nil {
 		return Outcome{Applied: true, Reason: ReasonIssuanceFailed, Detail: err.Error()}, nil
 	}
 
@@ -388,6 +435,12 @@ func SelectDoorProvisioner() (DoorProvisioner, error) {
 // Config, which already carries them because the wildcard rule and every
 // bound domain reach the same edge, and having two answers to "which edge" is
 // exactly what this block avoids for the other three.
+// doorProxyBodySize matches the cluster's own api Ingress. It is a constant
+// for the reason the Services are: a door whose upload cap differs from the
+// cluster's own api host is a client discovering that the same call works at
+// one address and 413s at another.
+const doorProxyBodySize = "48m"
+
 const (
 	doorBFFHTTPService  = "bff-http"
 	doorBFFHTTPPort     = 8085

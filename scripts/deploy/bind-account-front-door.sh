@@ -73,6 +73,7 @@ cap_spec_param          "identityService" "backend Service for id. (default: ide
 cap_spec_param          "identityPort"    "backend Service port for id. (default: 8085)"
 cap_spec_param          "waitSeconds"     "how long to wait for the certificate to become Ready before reporting not-ready (default: 15)"
 cap_spec_param          "dryRun"          "render and validate the objects without applying them"
+cap_spec_param          "renderTo"        "also write the rendered manifest to this file, for review with kubectl diff or for a test to parse"
 
 cap_handle_meta "$@"
 cap_parse_flags "$@"
@@ -94,8 +95,25 @@ IDENTITY_SERVICE="$(cap_param identityService "identity")"
 IDENTITY_PORT="$(cap_param identityPort "8085")"
 WAIT_SECONDS="$(cap_param waitSeconds "15")"
 DRY_RUN="$(cap_bool_str dryRun false)"
+RENDER_TO="$(cap_param renderTo "")"
+
+# FIELD_MANAGER is this feature's server-side-apply owner, and it is
+# DELIBERATELY DISTINCT from the custom-domain reconciler's. Server-side apply
+# tracks ownership per manager, so sharing one would make `kubectl get -o yaml`
+# unable to answer the single question managed-fields exists for: which of the
+# two reconcilers owns this field. It must equal doorFieldManager in
+# integrations/customdomain/accountdoor_provision.go, and
+# account_front_door_test.go pins the pair.
+readonly FIELD_MANAGER="memql-account-front-door"
+
+# Matches the cluster's own api Ingress and doorProxyBodySize in
+# integrations/customdomain/accountdoor_provision.go. A door whose upload cap
+# differs from the cluster's own api host is a client discovering that the same
+# call works at one address and 413s at another.
+readonly PROXY_BODY_SIZE="48m"
 
 OBJECT_NAME=""
+APPLIED=false
 APP_HOST=""
 API_HOST=""
 ID_HOST=""
@@ -123,6 +141,57 @@ function check_params() {
                 "waitSeconds:${WAIT_SECONDS}"; do
         [[ "${pair#*:}" =~ ^[0-9]+$ ]] || cap_fail 2 "--${pair%%:*} ${pair#*:} is not a number"
     done
+    [[ "$WAIT_SECONDS" -gt 0 ]] \
+        || cap_fail 2 "--waitSeconds must be at least 1; kubectl reads --timeout=0s as 'check once', which reports every certificate not Ready"
+
+    # EVERY VALUE THAT REACHES THE RENDER IS SHAPE-CHECKED HERE, and this is
+    # not defence in depth -- it is the ONLY check on the apply path.
+    #
+    # render_objects interpolates these into YAML. A value carrying a newline
+    # injects whatever follows it as sibling YAML, and the highest-value target
+    # is an Ingress annotation: an `--issuer` containing a newline and
+    # `nginx.ingress.kubernetes.io/server-snippet: "return 302 ..."` renders
+    # arbitrary nginx configuration on that server block, which is total
+    # request interception for the host.
+    #
+    # The engine path constrains reservedName through createAccountFrontDoor's
+    # @pattern, but this script's own header says it is ALSO the operator's
+    # manual path -- and an operator pastes values. So the check lives here,
+    # where both paths pass.
+    #
+    # Deliberately allow-list shapes rather than reject characters: a deny list
+    # is a list of the injections somebody thought of.
+    local label value
+    for pair in "reservedName:${RESERVED_NAME}"; do
+        label="${pair%%:*}"; value="${pair#*:}"
+        [[ "$value" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] \
+            || cap_fail 2 "--${label} ${value} is not a hostname: lowercase letters, digits, dots and hyphens only, starting and ending alphanumeric"
+    done
+    for pair in "accountId:${ACCOUNT_ID}" "doorId:${DOOR_ID}"; do
+        label="${pair%%:*}"; value="${pair#*:}"
+        [[ -z "$value" || "$value" =~ ^[A-Za-z0-9:_.-]+$ ]] \
+            || cap_fail 2 "--${label} carries a character that is not legal in a row id (letters, digits, and : _ . -)"
+    done
+    for pair in "namespace:${NAMESPACE}" "ingressClass:${INGRESS_CLASS}" \
+                "issuer:${ISSUER}" "edgeService:${EDGE_SERVICE}" \
+                "bffHttpService:${BFF_HTTP_SERVICE}" "bffGrpcService:${BFF_GRPC_SERVICE}" \
+                "identityService:${IDENTITY_SERVICE}"; do
+        label="${pair%%:*}"; value="${pair#*:}"
+        [[ -z "$value" || "$value" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] \
+            || cap_fail 2 "--${label} ${value} is not a Kubernetes name: lowercase letters, digits and hyphens only, starting and ending alphanumeric"
+    done
+
+    # Every api path must be ABSOLUTE. A relative entry is rendered into the
+    # Ingress by render_api_http_ingress but NOT counted by count_paths, so it
+    # would make the whole api. HTTP Ingress vanish while the door still
+    # promoted to `live` -- every HTTP route dropped, and the failure is the
+    # h2c protocol error naming nothing that this script exists to prevent.
+    local path
+    while IFS= read -r path || [[ -n "$path" ]]; do
+        [[ -n "$path" ]] || continue
+        [[ "$path" == /* ]] \
+            || cap_fail 2 "--apiPaths entry ${path} is not absolute. A relative entry renders into the Ingress and is not counted, which drops the whole api. HTTP rule set while the door still goes live"
+    done < <(printf '%s' "$API_PATHS" | tr ',' '\n')
 
     # THE THREE HOSTS ARE COMPOSED HERE AND IN component/frontdoor's
     # AccountHosts, and the two must agree. They are pinned by
@@ -190,8 +259,19 @@ YAML
 
 # render_simple_ingress emits one host -> one service Ingress with a `/` Prefix
 # rule. Used for app. and id.; api. needs the two-object treatment below.
+# render_simple_ingress emits one host -> one service Ingress with a `/` Prefix
+# rule. $5 onward are extra `key: "value"` annotation lines, emitted verbatim.
+#
+# THE EXTRA ANNOTATIONS ARE NOT DECORATION -- see doorBackend in
+# integrations/customdomain/accountdoor_provision.go for the two that matter
+# and why omitting them breaks the feature rather than degrading it: identity
+# serves TLS in-cluster, so `id.` without backend-protocol: HTTPS answers 502
+# on every request while the row says live; and ingress-nginx defaults
+# proxy-body-size to 1m, so `api.` without it 413s every upload past a
+# megabyte with a message naming no knob.
 function render_simple_ingress() {
     local name="$1" host="$2" service="$3" port="$4"
+    shift 4
     cat <<YAML
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -204,6 +284,12 @@ YAML
     cat <<YAML
   annotations:
     cert-manager.io/cluster-issuer: "${ISSUER}"
+YAML
+    local extra
+    for extra in "$@"; do
+        printf '    %s\n' "$extra"
+    done
+    cat <<YAML
 spec:
   ingressClassName: ${INGRESS_CLASS}
   tls:
@@ -245,6 +331,7 @@ YAML
     cat <<YAML
   annotations:
     cert-manager.io/cluster-issuer: "${ISSUER}"
+    nginx.ingress.kubernetes.io/proxy-body-size: "${PROXY_BODY_SIZE}"
 spec:
   ingressClassName: ${INGRESS_CLASS}
   tls:
@@ -344,14 +431,25 @@ YAML
     return 0
 }
 
+# render_objects emits every document, INGRESSES FIRST AND THE CERTIFICATE
+# LAST.
+#
+# `kubectl apply` honours stream order, and the order matters for the reason
+# the Go substrate's BindDoor states: the HTTP-01 challenge is served THROUGH
+# these Ingresses, so requesting the certificate before they exist starts an
+# order whose first attempt is guaranteed to fail -- and cert-manager backs off
+# after a failure, which makes every door slower to come up for no reason.
+#
+# The first version of this script emitted the Certificate first while the Go
+# path emitted it last, so one substrate documented why the other was wrong.
 function render_objects() {
-    render_certificate
-    printf -- '---\n'
     render_simple_ingress "${OBJECT_NAME}-app" "$APP_HOST" "$EDGE_SERVICE" "$EDGE_PORT"
     printf -- '---\n'
     render_api_grpc_ingress
     printf -- '---\n'
-    render_simple_ingress "${OBJECT_NAME}-id" "$ID_HOST" "$IDENTITY_SERVICE" "$IDENTITY_PORT"
+    render_simple_ingress "${OBJECT_NAME}-id" "$ID_HOST" "$IDENTITY_SERVICE" "$IDENTITY_PORT" \
+        'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' \
+        'nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"' 
     # THE HTTP RULE SET IS OMITTED WHEN THERE ARE NO PATHS, rather than emitted
     # empty. An Ingress whose rule carries a zero-length `paths` list is
     # rejected by the API server, so an empty --apiPaths would take the whole
@@ -363,6 +461,8 @@ function render_objects() {
         printf -- '---\n'
         render_api_http_ingress
     fi
+    printf -- '---\n'
+    render_certificate
     return 0
 }
 
@@ -377,49 +477,103 @@ function count_paths() {
     return 0
 }
 
+# check_render asserts the rendered documents are the ones this script exists
+# to apply.
+#
+# IT RUNS ON EVERY PATH, NOT ONLY THE DRY RUN, and that placement is the whole
+# point. The first version put all of this inside the `--dryRun` branch, so the
+# path that actually touches the cluster was checked by nothing -- the mode
+# whose job is to be safe was the only mode that looked.
+#
+# What it can catch is a RENDERING fault: a value that swallowed a line, a
+# document that did not come out, a host with no rule or no SAN. That is a real
+# class and it is the one this rendering can plausibly have. It is not schema
+# validation, and it is not a substitute for check_params, which is what stops
+# a hostile value reaching the render at all.
+function check_render() {
+    local rendered="$1"
+    local kinds
+    kinds="$(printf '%s\n' "$rendered" | grep -c '^kind: ' || true)"
+    if [[ "$kinds" != "$DOCUMENT_COUNT" ]]; then
+        cap_fail 5 "the rendered objects did not validate: expected ${DOCUMENT_COUNT} documents, found ${kinds}"
+    fi
+    printf '%s\n' "$rendered" | grep -q '^kind: Certificate$' \
+        || cap_fail 5 "the rendered objects did not validate: no Certificate document"
+
+    # EVERY PATH WE WERE GIVEN MUST HAVE A RULE. This exists because its
+    # absence hid a real defect: a `while read` loop dropped the last path,
+    # apiPathCount still reported the count it was HANDED, and the document
+    # count was unchanged -- so the check passed while one route went nowhere.
+    # A count taken only from the input cannot notice the render disagreeing.
+    local rendered_paths
+    rendered_paths="$(printf '%s\n' "$rendered" | grep -c '^          - path: /' || true)"
+    # +3 for the `/` rules on app., id. and api.-grpc.
+    if [[ "$rendered_paths" != "$((API_PATH_COUNT + 3))" ]]; then
+        cap_fail 5 "the rendered objects did not validate: ${API_PATH_COUNT} api path(s) plus 3 catch-alls were expected, but the render carries ${rendered_paths} rule(s)"
+    fi
+
+    # THE SAN CHECK IS ANCHORED, and the first version was not. Certificate
+    # dnsNames sit at four spaces and Ingress tls.hosts at eight, and an
+    # unanchored `    - ${host}$` matches BOTH -- so a Certificate naming one
+    # host instead of three satisfied it, because the other two matched their
+    # own Ingresses' tls entries. The host is also grep-escaped: an unescaped
+    # dot matches any character, which would let `app.acme.com` be satisfied by
+    # `appxacme.com`.
+    local host escaped
+    for host in "$APP_HOST" "$API_HOST" "$ID_HOST"; do
+        escaped="$(printf '%s' "$host" | sed 's/[.[\*^$]/\\&/g')"
+        printf '%s\n' "$rendered" | grep -qE "^    - host: ${escaped}\$" \
+            || cap_fail 5 "the rendered objects did not validate: ${host} has no Ingress rule"
+        printf '%s\n' "$rendered" | grep -qE "^    - ${escaped}\$" \
+            || cap_fail 5 "the rendered objects did not validate: ${host} is not a certificate dnsName"
+    done
+    return 0
+}
+
 function apply_objects() {
-    local out
+    local rendered out
+    rendered="$(render_objects)"
+    check_render "$rendered"
+
+    # --renderTo EXISTS BECAUSE THE ENVELOPE IS NOT THE OBJECTS.
+    #
+    # A review of this script mutation-tested its test suite and found that
+    # swapping the app./id. backend Services, renaming all four Ingress
+    # suffixes so bind and unbind disagree, and reducing the Certificate to a
+    # single SAN each produced a BYTE-IDENTICAL envelope -- so every assertion
+    # passed against three broken renders. That is what a suite asserting only
+    # `ok`, `apiPathCount` and `objectName` can do: it re-checks the input.
+    #
+    # So the render is made inspectable. account_front_door_test.go parses this
+    # file and asserts hosts, backends, ports, protocols and SANs, and an
+    # operator gets the same thing for `kubectl diff -f`.
+    if [[ -n "$RENDER_TO" ]]; then
+        printf '%s\n' "$rendered" > "$RENDER_TO" \
+            || cap_fail 5 "could not write the rendered manifest to ${RENDER_TO}"
+        cap_info "rendered manifest written to ${RENDER_TO}"
+    fi
+
     if [[ "$DRY_RUN" == "true" ]]; then
         # A DRY RUN TOUCHES NO CLUSTER. `kubectl apply --dry-run=client`
         # fetches the API server's OpenAPI schema and needs discovery to map a
         # kind to a resource, so it reaches the server regardless of
-        # --validate=false -- which fails on every CI runner. So the check is
-        # the one a machine with no cluster can honestly make: the render
-        # carries exactly the documents this script exists to apply, and every
-        # host appears in one. That catches the failure this rendering can
-        # plausibly have -- a quoting bug in a name that swallows a line --
-        # without importing a YAML parser that is not stdlib anywhere.
-        local rendered kinds
-        rendered="$(render_objects)"
-        kinds="$(printf '%s\n' "$rendered" | grep -c '^kind: ')"
-        if [[ "$kinds" != "$DOCUMENT_COUNT" ]]; then
-            cap_fail 5 "the rendered objects did not validate: expected ${DOCUMENT_COUNT} documents, found ${kinds}"
-        fi
-        printf '%s\n' "$rendered" | grep -q '^kind: Certificate$' \
-            || cap_fail 5 "the rendered objects did not validate: no Certificate document"
-        # EVERY PATH WE WERE GIVEN MUST HAVE A RULE. This assertion exists
-        # because its absence hid a real defect: a `while read` loop dropped
-        # the last path, apiPathCount still reported the count it was handed,
-        # and the document count was unchanged -- so the dry run passed while
-        # one route silently went nowhere. A count that is only ever taken from
-        # the input cannot notice the render disagreeing with it.
-        local rendered_paths
-        rendered_paths="$(printf '%s\n' "$rendered" | grep -c '^          - path: /' || true)"
-        # +3 for the `/` rules on app., id. and api.-grpc.
-        if [[ "$rendered_paths" != "$((API_PATH_COUNT + 3))" ]]; then
-            cap_fail 5 "the rendered objects did not validate: ${API_PATH_COUNT} api path(s) plus 3 catch-alls were expected, but the render carries ${rendered_paths} rule(s)"
-        fi
-        local host
-        for host in "$APP_HOST" "$API_HOST" "$ID_HOST"; do
-            printf '%s\n' "$rendered" | grep -q -- "- host: ${host}$" \
-                || cap_fail 5 "the rendered objects did not validate: ${host} has no Ingress rule"
-            printf '%s\n' "$rendered" | grep -q -- "    - ${host}$" \
-                || cap_fail 5 "the rendered objects did not validate: ${host} is not a certificate dnsName"
-        done
-        cap_info "dry run: parsed ${DOCUMENT_COUNT} document(s) covering ${APP_HOST}, ${API_HOST}, ${ID_HOST}"
+        # --validate=false -- which fails on every CI runner. check_render
+        # above is what a machine with no cluster can honestly make, and it is
+        # now the same check the real apply gets.
+        cap_info "dry run: ${DOCUMENT_COUNT} document(s) covering ${APP_HOST}, ${API_HOST}, ${ID_HOST}"
         return 0
     fi
-    if ! out="$(render_objects | kubectl apply -f - 2>&1)"; then
+
+    # SERVER-SIDE, UNDER THIS FEATURE'S OWN FIELD MANAGER, matching
+    # integrations/customdomain's apiProvisioner exactly. A client-side apply
+    # here and a server-side apply from the engine over the same object is the
+    # managed-fields conflict that leaves an operator's kubectl and the sweep
+    # arguing about who owns a field. --force-conflicts is the script's half of
+    # the engine's `force=true`, and it is right for the same reason: THIS is
+    # the owner, and a field somebody edited by hand must not make every
+    # subsequent reconciliation fail with a conflict nobody can see.
+    if ! out="$(printf '%s\n' "$rendered" | kubectl apply --server-side \
+        --field-manager="${FIELD_MANAGER}" --force-conflicts -f - 2>&1)"; then
         cap_fail 5 "could not apply the front door for ${RESERVED_NAME}: ${out}"
     fi
     cap_info "$out"
@@ -427,6 +581,7 @@ function apply_objects() {
         CHANGED_ANY=true
         cap_changed
     fi
+    APPLIED=true
     return 0
 }
 
@@ -472,7 +627,10 @@ function collect_result() {
     cap_result_set     "objectName"        "$OBJECT_NAME"
     cap_result_set     "issuer"            "$ISSUER"
     cap_result_set_raw "apiPathCount"      "$API_PATH_COUNT"
-    cap_result_set_raw "applied"           "true"
+    # HONEST ON A DRY RUN. The first version set this true unconditionally,
+    # including for a run that reached no cluster and requested nothing -- so
+    # a caller reading `applied` could not tell a real bind from a rehearsal.
+    cap_result_set_raw "applied"           "$APPLIED"
     cap_result_set_raw "certificateReady"  "$CERT_READY"
     cap_result_set     "certificateStatus" "$CERT_STATUS"
     cap_result_set_raw "objectsChanged"    "$CHANGED_ANY"

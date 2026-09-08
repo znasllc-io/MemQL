@@ -166,6 +166,23 @@ func (s *DoorStore) RequestRemoval(ctx context.Context, doorID, reason, detail s
 		langparser.QuoteString(stamp(at))))
 }
 
+// RecordRemovalFailure keeps a door in `removing` and records why.
+//
+// NOT RecordIssuanceFailure, which stamps `issuing`. Routing a failed teardown
+// through that one walked the row `removing` -> `issuing`, and the next pass
+// re-applied the certificate and all four Ingresses for a name whose
+// reservation had been withdrawn -- putting a door the cluster had stopped
+// claiming back into service, and making design D9's "the only transition out
+// of live" reversible by any transient unbind failure.
+func (s *DoorStore) RecordRemovalFailure(ctx context.Context, doorID, reason, detail string, at time.Time) error {
+	return s.exec(ctx, fmt.Sprintf(
+		"mutation recordAccountFrontDoorRemovalFailure(doorId: %s, failureReason: %s, failureDetail: %s, lastCheckedAt: %s)",
+		langparser.QuoteString(doorID),
+		langparser.QuoteString(reason),
+		langparser.QuoteString(detail),
+		langparser.QuoteString(stamp(at))))
+}
+
 // MarkRemoved closes the walk. Terminal; the row survives as the audit.
 func (s *DoorStore) MarkRemoved(ctx context.Context, doorID string, at time.Time) error {
 	return s.exec(ctx, fmt.Sprintf(

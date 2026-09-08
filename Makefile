@@ -549,7 +549,7 @@ frontdoor-paths:
 ## Also enforced by TestFrontDoorPathsAreNotStale so it runs in the ordinary
 ## `go test ./...` lane, which needs no workflow change.
 frontdoor-paths-check:
-	$(GO) test -count=1 -run 'TestFrontDoorPathsAreNotStale|TestFrontDoorHostsAreNotStale' ./deploy/k8s/overlays/
+	$(GO) test -count=1 -run 'FrontDoor|GeneratedPathSlice' ./deploy/k8s/overlays/
 
 ## DSL lint: load the embedded DSL tree through the same
 ## dslimports.Load pipeline the engine runs at boot and fail on any

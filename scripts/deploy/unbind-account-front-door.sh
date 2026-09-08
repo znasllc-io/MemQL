@@ -69,6 +69,7 @@ DRY_RUN="$(cap_bool_str dryRun false)"
 OBJECT_NAME=""
 REMOVED=()
 ABSENT=()
+PLANNED=()
 
 function check_params() {
     [[ -n "$ACCOUNT_ID" ]] \
@@ -85,11 +86,21 @@ function check_params() {
 }
 
 function check_prereqs() {
-    command -v kubectl &>/dev/null \
-        || cap_fail 4 "kubectl is not installed or not on PATH"
+    # A DRY RUN NEEDS NEITHER, matching bind-account-front-door.sh.
+    #
+    # The first version required kubectl even here and then called `kubectl
+    # get` per object inside the dry-run branch. Two things were wrong with
+    # that. It made the one mode whose job is to work without a cluster refuse
+    # on a machine that has no reason to have one -- including CI, where
+    # account_front_door_test.go drives it. And when the API server was
+    # unreachable the `get` failed, fell to the ABSENT branch, and reported
+    # `ok:true` with every object already gone: "could not look" rendered as
+    # "nothing to remove", which is the worst possible answer from a checker.
     if [[ "$DRY_RUN" == "true" ]]; then
         return 0
     fi
+    command -v kubectl &>/dev/null \
+        || cap_fail 4 "kubectl is not installed or not on PATH"
     kubectl cluster-info &>/dev/null \
         || cap_fail 4 "no reachable Kubernetes API -- fetch a kubeconfig first"
     return 0
@@ -99,12 +110,13 @@ function check_prereqs() {
 function remove_object() {
     local kind="$1" name="$2"
     if [[ "$DRY_RUN" == "true" ]]; then
-        if kubectl get "${kind}/${name}" -n "$NAMESPACE" &>/dev/null; then
-            cap_info "dry run: would delete ${kind}/${name} in ${NAMESPACE}"
-            REMOVED+=("${kind}/${name}")
-        else
-            ABSENT+=("${kind}/${name}")
-        fi
+        # NAMED, NOT PROBED. A dry run says what it WOULD delete, which is
+        # exactly this list -- it does not claim to know what is there, because
+        # finding out requires the cluster this mode exists to not need. The
+        # objects go in PLANNED rather than in REMOVED or ABSENT, so neither of
+        # those ever carries a guess.
+        PLANNED+=("${kind}/${name}")
+        cap_info "dry run: would delete ${kind}/${name} in ${NAMESPACE}"
         return 0
     fi
     local out
@@ -129,8 +141,10 @@ function collect_result() {
     cap_result_set "reservedName" "$RESERVED_NAME"
     cap_result_set "namespace"    "$NAMESPACE"
     cap_result_set "objectName"   "$OBJECT_NAME"
-    cap_result_set "removed"      "$(IFS=,; printf '%s' "${REMOVED[*]:-}")"
-    cap_result_set "absent"       "$(IFS=,; printf '%s' "${ABSENT[*]:-}")"
+    cap_result_set     "removed"      "$(IFS=,; printf '%s' "${REMOVED[*]:-}")"
+    cap_result_set     "absent"       "$(IFS=,; printf '%s' "${ABSENT[*]:-}")"
+    cap_result_set     "planned"      "$(IFS=,; printf '%s' "${PLANNED[*]:-}")"
+    cap_result_set_raw "dryRun"       "$DRY_RUN"
     return 0
 }
 

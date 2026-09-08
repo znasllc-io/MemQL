@@ -287,11 +287,18 @@ and before the miss is cached:
 siteByHostname  ->  SiteForCustomDomain  ->  SiteForAccountFrontDoor
 ```
 
-`SiteForAccountFrontDoor(ctx, host)` runs one query,
-`liveAccountFrontDoorByAppHost(host:)`, which returns the account id, the
-account name and the reserved name for a `live` row whose `app.<reservedName>`
-equals the host. It resolves to the OS site by the constant `frontdoor.OsSite`
--- no second read, because the OS site's id is not a lookup.
+`SiteForAccountFrontDoor(ctx, host)` strips the `app.` label and runs
+`liveAccountFrontDoorByReservedName(reservedName:)`, which returns the account
+id and the reserved name for a `live` row.
+
+**THREE CORRECTIONS TO THIS PARAGRAPH, all found by review.** The query is
+named for what it takes -- a reserved NAME, not a host -- because a DSL filter
+compiles to SQL over stored fields and cannot prepend a label. It returns no
+account NAME, for the reason two sections down. And it is TWO `Execute` calls,
+not one: the door row, then `siteById` for the OS site. What is true is that
+the SITE ID is a constant rather than a lookup, which is what makes the second
+call unconditional and cheap; the original sentence turned that into a claim
+about the number of reads, which was simply wrong.
 
 A site's own hostname still wins, then a custom domain, then this. That order
 is not arbitrary: a deployable already answering on a name must never lose
@@ -316,8 +323,9 @@ signed-in person to read it for, which is both fresher and narrower.
 Account *AccountContext `json:"account,omitempty"`
 ```
 
-with `{id, name, reservedName}`. Omitted entirely otherwise, so a document
-served on the cluster's own host is byte-identical to what it was.
+with `{id, reservedName}` -- see the correction above for why there is no
+account name. Omitted entirely otherwise, so a document served on the
+cluster's own host is byte-identical to what it was.
 
 **`IdentityURL` becomes per-door.** When `Account` is present it is
 `https://id.<reservedName>`; otherwise it is the env value, unchanged. This is
@@ -434,9 +442,24 @@ recursive resolver and an ACME endpoint.
   target, which would admit any host resolving to the same load balancer.
 - The reconciler's state machine, one transition per pass, and the D9
   transition proven by clearing the reservation under a `live` row.
+- **That the D9 transition is not REVERSIBLE.** A review found that routing a
+  failed unbind through `recordAccountFrontDoorIssuanceFailure` -- which stamps
+  `issuing` -- walked a `removing` row back to `issuing`, so the next pass
+  re-provisioned a door whose reservation had been withdrawn. There is a
+  separate `recordAccountFrontDoorRemovalFailure` now, and a test that reds
+  against the old routing.
+- **That a pass which cannot read reservations says so.** Both directions of D9
+  live in `open()`, so a failed read blocks opening AND teardown; the first
+  version then returned six zeroes and no error, which an automation records as
+  a success forever.
 - The guard's collision probes, db-gated, including the un-narrowed read (a
   hostname held by another user's site collides for a caller who cannot see
   it).
+- **NOT YET COVERED, and named here rather than left to be discovered:** that a
+  `pending_dns` door resolves to nothing. The `status=="live"` conjunct lives in
+  the DSL query, and `component/edge`'s stub executor is keyed by host and
+  bypasses it entirely, so nothing in that package can exercise it. It needs a
+  db-gated test in a tree that has one.
 - Edge resolution, **in-process against a stub executor**, not db-gated -- a
   correction to this record. `component/edge` has no db-gated tests at all
   (`scripts/ci/db-gated-packages.sh --trees` does not list it), so promising
