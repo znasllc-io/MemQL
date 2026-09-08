@@ -1,0 +1,50 @@
+{
+  "id": "amortizedCost.control-a-reasoning-step-does-reach-a-provider",
+  "family": "amortizedCost",
+  "title": "The control: a goal with a step that must reason DOES reach a provider",
+  "goal": "Summarise the {{account}} ledger with a judgement about what changed",
+  "variables": [
+    {
+      "account": "acme"
+    }
+  ],
+  "steps": [
+    {
+      "key": "read",
+      "type": "function",
+      "target": "ledgerLines"
+    },
+    {
+      "key": "summarise",
+      "type": "function",
+      "target": "summariseLedger",
+      "reasoning": true,
+      "dependsOn": [
+        "read"
+      ]
+    },
+    {
+      "key": "store",
+      "type": "function",
+      "target": "closeLedger",
+      "dependsOn": [
+        "summarise"
+      ]
+    }
+  ],
+  "world": {},
+  "inject": [],
+  "verify": [
+    {
+      "rows": "v1:work:run",
+      "where": {
+        "status": "succeeded"
+      },
+      "count": 1
+    }
+  ],
+  "claims": [
+    "amortizedCost.providerCalls"
+  ],
+  "negativeControlFor": "amortizedCost.providerCalls"
+}

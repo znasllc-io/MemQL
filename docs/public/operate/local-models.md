@@ -400,3 +400,144 @@ function that throws.
 - [Local apps as execution surfaces](local-apps.md) — the sibling delegation surface
 - [LLM cost control](../ai/llm-cost-control.md) — the guard layers
 - [Anthropic federation](auth/anthropic-federation.md) — door 2
+
+---
+
+## The curated catalog
+
+Epic [memql#5137](https://github.com/znasllc-io/memql/issues/5137) added a
+**catalog**: a short list of open-weight models worth running, organised by what
+you would use them for, seeded with the cluster and readable at **Fleet →
+Models**.
+
+It is a recommendation and it **gates nothing**. A model your machines already
+serve is used whether or not the catalog lists it; a model the catalog lists and
+nobody has pulled is not available to anything. What the catalog knows is what a
+machine class *should* pull, which is a different question from what the fleet
+*can* serve — and the Fleet page shows the two beside each other, so the gap is
+the thing you read rather than something you work out.
+
+### Nine categories
+
+| Category | What it is for |
+|---|---|
+| `text` | Everyday work: chat, tools, structured output |
+| `reasoning` | Problems worth spending thinking on |
+| `omni` | Every modality from one set of weights |
+| `vision` | Deliberately empty — the text entries see |
+| `audioIn` | Transcription |
+| `audioOut` | Speech |
+| `imageGen` | Making images |
+| `videoGen` | Listed, recommended nowhere |
+| `embeddings` | Search and memory |
+
+Two of those rows are decisions rather than gaps.
+
+**`vision` has no entries by design.** Every text model in the catalog carries
+vision, so a separate vision pull would be a second copy of weights the fleet
+already holds.
+
+**`videoGen` is recommended nowhere.** The entries are listed so you can see
+they exist and were considered; every one is a Linux GPU job measured in
+minutes, and putting one behind a level a chat turn resolves would be a
+multi-minute job answering a question somebody asked in a sentence.
+
+### Runtimes
+
+A model needs its runtime installed on a machine before that machine can serve
+it. `ollama` covers most of the catalog; the others are small separate installs
+the cockpit performs on consent.
+
+| Runtime | Serves |
+|---|---|
+| `ollama` | Text, reasoning, embeddings, and (macOS, experimental) image generation |
+| `mlx` | Apple Silicon models outside the Ollama library |
+| `whispercpp` | Whisper transcription |
+| `nemo` | NVIDIA Parakeet and Canary transcription |
+| `kokoro` | Speech synthesis |
+| `mflux` | Image generation on Apple Silicon |
+| `comfyui` | Video generation, Linux and a GPU |
+
+### What to pull, by machine class
+
+`minMachineClass` on each entry is a **floor** in gigabytes of unified memory or
+VRAM, so a machine runs everything at or below its own class. A 32 GB machine
+gets the 16 GB recommendations as well as its own.
+
+| Class | Text and reasoning | Embeddings |
+|---|---|---|
+| 16 GB | `qwen3.5:9b`, `gpt-oss:20b` | `qwen3-embedding:0.6b` |
+| 24 GB | adds `gemma4:12b`, `gemma4:e4b` | — |
+| 32 GB | adds `qwen3.8:27b`, `gemma4:26b` | adds `qwen3-embedding:4b` |
+| 64 GB | adds `qwen3.5:35b` | adds `qwen3-embedding:8b` |
+| 128 GB | adds `qwen3.5:122b`, `gpt-oss:120b` | — |
+
+A machine that has not reported its memory blocks nothing: unknown is not small,
+and telling somebody with an unreported 64 GB laptop that they have no machine
+of the class would be confidently wrong with no way for them to tell.
+
+### Adding one yourself
+
+`modelProfileAdd` takes a model id and marks the entry `curated: false`. It
+gates nothing either — a machine still has to advertise the model before
+anything routes to it — so the blast radius of a wrong entry is a recommendation
+nobody can act on.
+
+Removing a **curated** entry is refused rather than performed. Curated rows are
+re-seeded on every boot, so a removal would succeed, look correct, and be undone
+at the next restart with nothing anywhere to explain it. Retiring one is a
+release.
+
+---
+
+## The embedder is a binding, not a setting
+
+The embedding model used to be a string in five files and the vector column was
+declared at that model's width. Changing it meant editing five files **and** a
+migration, and doing either without the other produced a table of vectors at the
+wrong width — which is not an error anywhere. It is a search space that quietly
+returns the wrong neighbours.
+
+One row now says which embedder is active
+(`v1:platform:embedderBinding` at the id `active`), and the width belongs to the
+provider: a provider record declares it, and a fleet model's comes from its
+catalog row. Vectors live in one table per width, `node_vectors_<dims>`.
+
+**Switching is not an edit.** It creates the new width's table, records the
+binding as a plan, re-embeds the corpus, and flips `active` only when the counts
+match. Until then every read follows the binding that is still active — so a
+switch interrupted half way leaves a cluster that still works, rather than one
+whose vectors half mean one thing and half another.
+
+Two consequences worth knowing:
+
+- **Same width is not same meaning.** `bge-m3` and `qwen3-embedding:0.6b` are
+  both 1024 dimensions and share nothing else. Switching between them still
+  rebuilds the whole corpus.
+- **A model the catalog does not know cannot be bound**, even when a machine
+  offers it. This is a real state rather than a hypothetical: a cockpit
+  advertises the embedding capability for any model whose runtime reports it. The
+  model still serves embedding calls that name it; what it cannot be is the
+  cluster-wide binding, because a binding creates its table before the first
+  vector exists and a table at a guessed width returns wrong neighbours without
+  ever erroring. The refusal says so, and says the machine is fine.
+
+---
+
+## What this does and does not yet prove
+
+The proving suite
+([overview/proving](../overview/proving.md)) carries a scenario in which a goal
+whose steps are all deterministic is served end to end with **no provider call at
+all**, against a control — a goal with a step that must reason — which makes
+some. A call never made is never paid for, which is the load-bearing half of
+running locally.
+
+<!-- proving-pending: metric=amortizedCost.federationCalls reason=the CI tier replays from a cassette through a fake step registry, so no call reaches the router and no decision record names a door -->
+
+What is **not** proven yet is the other half: that of the calls a cluster *does*
+make, none went to a paid vendor. That needs a decision record naming the door
+each call took, and the replay tier has no door — both arms play recorded
+responses, so "no call went to a paid vendor" and "no call went anywhere" are the
+same zero. Reporting it would be a number that reads as the headline result and
+measures something else. The live tier can answer it and ships disarmed.
