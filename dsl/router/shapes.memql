@@ -53,6 +53,31 @@ shape call routerDecision {
   executionSurface
 }
 
+/// What the sharing ledger reads: WHERE a call went, WHO it was for, and how
+/// much intelligence it asked for. Nothing else, and the narrowness is the
+/// promise rather than an economy -- somebody who lends their machine is
+/// entitled to know it is being used and not to read what it was used for, so
+/// the projection that reaches the fold cannot carry a prompt to leak.
+///
+/// It is a SEPARATE shape from routerDecision and routerCallEvidence and must
+/// stay one. routerDecision answers "why did this go to a vendor" for an
+/// operator and projects promptName, model, considered and the costs;
+/// routerCallEvidence answers "how did this MODEL behave" for the nightly
+/// fold. This one answers "what happened on ONE MACHINE" for the person who
+/// lent it. Reusing either of the others would hand this reader fields the
+/// promise says they do not get.
+///
+/// `userId` is projected because PEOPLE ARE COUNTED, and never rendered. The
+/// fold turns it into a cardinality and drops it.
+@row
+shape call routerCallLedger {
+  row.id
+  executionSurface
+  userId
+  level
+  row.createdAt
+}
+
 /// Full projection of one router call, for the nightly evidence fold.
 ///
 /// NARROW ON PURPOSE. The fold counts calls, structured failures and outcomes; it does not read
@@ -63,6 +88,12 @@ shape call routerCallEvidence {
   row.id
   model
   promptName
+  // The fold groups by (model, level): a model that fails structured output at
+  // `reasoning` may be fine at `fast`, so a proposal that did not name a level
+  // would demote it everywhere on evidence from one rung. It was READ by the
+  // fold and not projected here, which is a value of "" -- every call folding
+  // into one empty-level bucket, silently.
+  level
   outcome
   errorCategory
   billing

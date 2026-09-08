@@ -6194,6 +6194,65 @@ QueryClient.prototype.routerBudgets = function (this: QueryClient, args: RouterB
   return this.executeNamed("routerBudgets", buildRouterBudgets(args), opts);
 };
 
+/** Every router call in a window, for the nightly evidence fold.
+It reads under `actor.isClusterOwner==true` because its only caller is the fold, running under the cluster's MAINTENANCE PRINCIPAL. The question is how a MODEL behaved across the fleet, not how it behaved for one person, so there is no owner to scope to -- and writing the conjunct is what makes the failure LOUD: strip the principal and this returns zero rows, and the filter says why. Without it a fold that proposes nothing is indistinguishable from a fleet where every model is behaving, which is the one shape of silence this feature exists to break. */
+// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerCallsInWindow"] in generated_concepts.ts).
+export interface RouterCallsInWindowArgs {
+  /** Inclusive lower bound, RFC3339. */
+  since: string;
+  /** Exclusive upper bound, RFC3339. */
+  until: string;
+}
+
+export function buildRouterCallsInWindow(args: RouterCallsInWindowArgs): string {
+  const parts: string[] = [];
+  parts.push("since: " + renderMemQLValue(args.since));
+  parts.push("until: " + renderMemQLValue(args.until));
+  return "query routerCallsInWindow(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    routerCallsInWindow(args: RouterCallsInWindowArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.routerCallsInWindow = function (this: QueryClient, args: RouterCallsInWindowArgs = {} as RouterCallsInWindowArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("routerCallsInWindow", buildRouterCallsInWindow(args), opts);
+};
+
+/** Every call served by ONE machine in a window, for that machine's sharing ledger.
+SCOPED BY SURFACE, NOT BY OWNER, and the difference is a wrong answer rather than a style choice. `machineOwnerUserId` is deliberately EMPTY for a call a person ran on their own machine -- it names whose machine served a call when that machine was somebody ELSE's -- so `machineOwnerUserId==actor.userId` would return only the calls OTHER people ran on your hardware and none of your own. The fold counts the owner's own calls alongside everybody else's, because the figure answers "how busy has this machine been" rather than "how much have I lent it out", so that filter would show near-zero on a machine its owner uses constantly.
+AUTHORIZATION IS THE CALLER'S OWNERSHIP OF THE MACHINE, checked in the builtin before this runs: `fleetSharingLedger` resolves the registration through the caller's own machines and refuses one that is not theirs, which is the same gate the pull and the probe use. The surface argument is then derived from a registration id the caller has already been proven to own, so it cannot be pointed at somebody else's machine by passing a different string.
+It is a SEPARATE query from routerCallsInWindow for that reason: the fold's read is gated on `actor.isClusterOwner`, which is right for a maintenance sweep and returns zero rows for the machine owner this one serves. */
+// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerCallsOnMachine"] in generated_concepts.ts).
+export interface RouterCallsOnMachineArgs {
+  /** The execution surface, as `fleet:<registrationId>`. */
+  surface: string;
+  /** Inclusive lower bound, RFC3339. */
+  since: string;
+  /** Exclusive upper bound, RFC3339. */
+  until: string;
+}
+
+export function buildRouterCallsOnMachine(args: RouterCallsOnMachineArgs): string {
+  const parts: string[] = [];
+  parts.push("surface: " + renderMemQLValue(args.surface));
+  parts.push("since: " + renderMemQLValue(args.since));
+  parts.push("until: " + renderMemQLValue(args.until));
+  return "query routerCallsOnMachine(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    routerCallsOnMachine(args: RouterCallsOnMachineArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.routerCallsOnMachine = function (this: QueryClient, args: RouterCallsOnMachineArgs = {} as RouterCallsOnMachineArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("routerCallsOnMachine", buildRouterCallsOnMachine(args), opts);
+};
+
 /** The recent AI routing decisions, newest first. This is how a rule is checked: a rule set nobody can read the consequences of is a set of assertions.
 FLOORED AT admin, WHICH ADMITS ADMIN, DEVELOPER AND OWNER. On this ladder developer (300) outranks admin (200), so an admin floor is the WIDER of the two readings and satisfies memql#5132's "owner or developer" rather than contradicting it.
 The width is a recorded ruling (the AI-settings record's D7): a decision record carries no prompt content, and an admin answering "why did this go to a vendor" needs it. The shape this query projects was built for exactly that reader -- it deliberately omits the prompt and the error message, which are the two fields most likely to carry something a reader of this list should not see -- so a floor that excluded admins would have been the shape and the gate disagreeing about who the list is for.

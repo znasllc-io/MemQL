@@ -779,6 +779,22 @@ type fleetProvider struct {
 // LastCall reports the machine and usage of this provider's most recent call.
 // The provider interfaces return a bare string, so the accounting has to be
 // read back rather than returned; memql#4681 stamps the ledger from it.
+// ExecutionSurface reports where the last call ran, for the router's decision
+// row (epic memql#5146).
+//
+// It satisfies a structural interface declared in component/router, which is
+// its own module and cannot name a method of this one -- see that file for
+// why the seam has this shape. The empty string is a real answer: it is what
+// this provider says before it has served anything.
+func (p *fleetProvider) ExecutionSurface() string {
+	if p == nil {
+		return ""
+	}
+	p.lastMu.Lock()
+	defer p.lastMu.Unlock()
+	return p.lastSurface
+}
+
 func (p *fleetProvider) LastCall() (surface string, usage FleetUsage) {
 	if p == nil {
 		return "", FleetUsage{}

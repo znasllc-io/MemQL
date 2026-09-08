@@ -2,6 +2,7 @@ package memql
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -171,32 +172,10 @@ func (e LedgerEntry) Sentence() string {
 	}
 	switch e.People {
 	case 0, 1:
-		return "Served " + itoa(e.Calls) + " " + calls + " this week."
+		return "Served " + strconv.Itoa(e.Calls) + " " + calls + " this week."
 	default:
-		return "Served " + itoa(e.Calls) + " " + calls + " for " + itoa(e.People) + " people this week."
+		return "Served " + strconv.Itoa(e.Calls) + " " + calls + " for " + strconv.Itoa(e.People) + " people this week."
 	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }
 
 func rowLedgerString(row map[string]any, key string) string {

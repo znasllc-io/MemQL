@@ -26,6 +26,37 @@ import (
 // SharingLedgerConcept is the canonical id of the read's answer.
 const SharingLedgerConcept = "v1:worker:sharingLedger"
 
+// LedgerQuery and LedgerShape name the DSL constructs this read depends on, and
+// ledgerProjection names the fields it takes off each returned row.
+//
+// THEY ARE NAMED HERE SO A GATE CAN WALK THEM. A query returns the shape it
+// declares and nothing else, so a field this file reads that the shape does not
+// project arrives as an empty string -- and an empty `executionSurface` fails
+// the surface-prefix check below, is skipped, and folds to "No calls have run
+// on this machine this week." That is a WRONG ANSWER WITH NO ERROR, told to the
+// one person who lent the hardware, and it is exactly what happened when this
+// read was first pointed at a shape built for the evidence fold.
+const (
+	LedgerQuery = "routerCallsOnMachine"
+	LedgerShape = "routerCallLedger"
+
+	// The three fields, named rather than positional: the slice below exists
+	// for the gate to walk, and reading a field out of it by INDEX would let a
+	// reorder swap the caller with the surface in silence.
+	ledgerFieldSurface = "executionSurface"
+	ledgerFieldUser    = "userId"
+	ledgerFieldLevel   = "level"
+)
+
+var ledgerProjection = []string{ledgerFieldSurface, ledgerFieldUser, ledgerFieldLevel}
+
+// LedgerProjection returns the fields the ledger read consumes, for the gate.
+func LedgerProjection() []string {
+	out := make([]string, len(ledgerProjection))
+	copy(out, ledgerProjection)
+	return out
+}
+
 // evaluateFleetSharingLedgerExpression serves the `fleetSharingLedger` builtin.
 func (e *MemQLEngine) evaluateFleetSharingLedgerExpression(ctx context.Context, args map[string]any) ([]memorynodes.MemoryNode, error) {
 	if e == nil {
@@ -44,9 +75,18 @@ func (e *MemQLEngine) evaluateFleetSharingLedgerExpression(ctx context.Context, 
 	week := isoWeekOf(now)
 	since := startOfISOWeek(now)
 
-	call, err := langparser.RenderCall("routerCallsInWindow", map[string]any{
-		"since": since.Format(time.RFC3339),
-		"until": now.Format(time.RFC3339),
+	// THE MACHINE'S OWN CALLS, not the fleet's. routerCallsInWindow is gated on
+	// `actor.isClusterOwner` because its caller is a maintenance sweep; running
+	// it here returns zero rows for every machine owner who is not also a
+	// cluster owner, which is most of them.
+	//
+	// The surface is derived from a registration id the check above has already
+	// proven belongs to the caller, so it cannot be pointed at anybody else's
+	// machine by passing a different string.
+	call, err := langparser.RenderCall(LedgerQuery, map[string]any{
+		"surface": FleetReferencePrefix + trimConceptPrefix(registrationId),
+		"since":   since.Format(time.RFC3339),
+		"until":   now.Format(time.RFC3339),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fleetSharingLedger: render the window read: %w", err)
@@ -70,15 +110,15 @@ func (e *MemQLEngine) evaluateFleetSharingLedgerExpression(ctx context.Context, 
 		// The surface a call ran on is `fleet:<registrationId>`, so the machine
 		// is derived rather than read: the decision record names WHERE a call
 		// went, and this is that field's one consumer.
-		surface := strings.TrimSpace(mapString(row, "executionSurface"))
-		machineId := strings.TrimPrefix(surface, "fleet:")
+		surface := strings.TrimSpace(mapString(row, ledgerFieldSurface))
+		machineId := strings.TrimPrefix(surface, FleetReferencePrefix)
 		if surface == machineId || machineId == "" {
 			continue
 		}
 		calls = append(calls, LedgerCall{
 			MachineId:    machineId,
-			ActingUserId: mapString(row, "userId"),
-			Level:        mapString(row, "level"),
+			ActingUserId: mapString(row, ledgerFieldUser),
+			Level:        mapString(row, ledgerFieldLevel),
 			Week:         week,
 		})
 	}

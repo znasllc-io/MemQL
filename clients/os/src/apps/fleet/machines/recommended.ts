@@ -1,4 +1,4 @@
-import { absent, figureOf, type Figure } from "../../../cluster/figure";
+import { absent, figureOf, type Figure } from "../../../kit/measure";
 import { rowArray, rowNumber, rowString, type Row } from "@znasllc-io/memql-sdk-core/client";
 
 // The recommended set and the measured figures (epic memql#5146, D2 and D4).

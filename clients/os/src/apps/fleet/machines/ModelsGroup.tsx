@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import { useSession } from "../../../chrome/access";
-import { FigureValue } from "../../../cluster/FigureValue";
+import { Measure } from "../../../kit/Measure";
 import { Button, Notice, Subhead } from "../../../kit";
 import { formatBytes, formatMoment } from "../../../kit/format";
 import { formatContext, formatParams } from "../models/ordering";
@@ -278,15 +278,15 @@ function MeasuredLine({ measurement }: { measurement: Measurement | null }) {
     <span className="os-fleet-measured">
       <span className="os-fleet-measured-pair">
         <span className="os-fleet-measured-label">Valid</span>
-        <FigureValue figure={measurement.structuredValidity} format={formatRate} />
+        <Measure figure={measurement.structuredValidity} format={formatRate} />
       </span>
       <span className="os-fleet-measured-pair">
         <span className="os-fleet-measured-label">Tools</span>
-        <FigureValue figure={measurement.toolCallCorrectness} format={formatRate} />
+        <Measure figure={measurement.toolCallCorrectness} format={formatRate} />
       </span>
       <span className="os-fleet-measured-pair">
         <span className="os-fleet-measured-label">Speed</span>
-        <FigureValue figure={measurement.throughputTps} format={formatTps} suffix=" tok/s" />
+        <Measure figure={measurement.throughputTps} format={formatTps} suffix=" tok/s" />
       </span>
       <span
         className="os-fleet-measured-when"

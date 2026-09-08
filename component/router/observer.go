@@ -31,7 +31,7 @@ func (o *observedStreamWithTools) CallChatStreamWithTools(
 
 	innerCh, err := o.inner.CallChatStreamWithTools(ctx, messages, tools)
 	if err != nil {
-		o.router.recordCall(buildRecord(o.req, o.resolved, inputTokens, 0, 0, start, time.Time{}, time.Now(), true, err, ctx.Err()))
+		o.router.recordCall(buildRecord(o.req, o.resolved, o.inner, inputTokens, 0, 0, start, time.Time{}, time.Now(), true, err, ctx.Err()))
 		return nil, err
 	}
 
@@ -68,7 +68,7 @@ func (o *observedStreamWithTools) CallChatStreamWithTools(
 
 		end := time.Now()
 		outputTokens := EstimateTokensFromChars(outputChars)
-		rec := buildRecord(o.req, o.resolved, inputTokens, outputTokens, 0, start, firstTokenAt, end, true, chunkErr, ctx.Err())
+		rec := buildRecord(o.req, o.resolved, o.inner, inputTokens, outputTokens, 0, start, firstTokenAt, end, true, chunkErr, ctx.Err())
 		// Tokens per second is only meaningful for streaming calls
 		// with a non-trivial duration. Guard both so voice-path
 		// one-second replies don't produce gigatokens/sec noise.
@@ -115,7 +115,7 @@ func (o *observedWithTools) CallChatWithTools(
 	outputTokens := EstimateTokensFromChars(outputChars)
 	// streaming=false, firstTokenAt=zero: a synchronous call has no
 	// meaningful TTFT, and buildRecord leaves timeToFirstTokenMs at 0.
-	o.router.recordCall(buildRecord(o.req, o.resolved, inputTokens, outputTokens, 0, start, time.Time{}, time.Now(), false, err, ctx.Err()))
+	o.router.recordCall(buildRecord(o.req, o.resolved, o.inner, inputTokens, outputTokens, 0, start, time.Time{}, time.Now(), false, err, ctx.Err()))
 	return result, err
 }
 
@@ -135,7 +135,7 @@ func (o *observedChat) CallChat(ctx context.Context, messages []common.ChatMessa
 
 	reply, err := o.inner.CallChat(ctx, messages)
 	outputTokens := EstimateTokensFromChars(len(reply))
-	o.router.recordCall(buildRecord(o.req, o.resolved, inputTokens, outputTokens, 0, start, time.Time{}, time.Now(), false, err, ctx.Err()))
+	o.router.recordCall(buildRecord(o.req, o.resolved, o.inner, inputTokens, outputTokens, 0, start, time.Time{}, time.Now(), false, err, ctx.Err()))
 	return reply, err
 }
 
@@ -145,6 +145,12 @@ func (o *observedChat) CallChat(ctx context.Context, messages []common.ChatMessa
 func buildRecord(
 	req ResolveRequest,
 	resolved Resolved,
+	// inner is the provider that actually served the call, taken only to ask
+	// it where the call RAN (execution_surface.go). It is deliberately `any`:
+	// the four observers wrap four different provider interfaces, and the one
+	// question asked of it here is satisfied structurally by whichever of them
+	// can answer.
+	inner any,
 	inputTokens, outputTokens, cachedInputTokens int,
 	start, firstTokenAt, end time.Time,
 	streaming bool,
@@ -217,5 +223,11 @@ func buildRecord(
 		Touches:            resolved.Decision.Touches,
 		MinContextTokens:   resolved.Decision.MinContextTokens,
 		MachineOwnerUserId: resolved.Decision.MachineOwnerUserId,
+
+		// WHERE IT RAN. See execution_surface.go: the field and the column
+		// both predate this line, and nothing ever assigned it -- so every
+		// decision row carried "" and the sharing ledger, which folds the
+		// calls that ran on ONE machine, had nothing to fold on.
+		ExecutionSurface: surfaceOf(inner),
 	}
 }

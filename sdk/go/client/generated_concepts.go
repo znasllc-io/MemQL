@@ -708,6 +708,8 @@ var BoundConcepts = map[string]string{
 	"roleBySlug":                                       "v1:rbac:role",
 	"rotateAuthSession":                                "v1:identity:authSession",
 	"routerBudgets":                                    "v1:router:budget",
+	"routerCallsInWindow":                              "v1:router:call",
+	"routerCallsOnMachine":                             "v1:router:call",
 	"routerDecisionsRecent":                            "v1:router:call",
 	"routingPolicyForOwner":                            "v1:worker:routingPolicy",
 	"salesRepsForStore":                                "v1:commerce:salesRep",
