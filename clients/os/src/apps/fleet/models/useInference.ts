@@ -6,6 +6,7 @@ import { useReading } from "../../../cluster/reading";
 import { boolOr, stringsOf } from "../../../kit";
 import { useRoutingPolicy } from "../routing/useRoutingPolicy";
 import type { RankedModel } from "./ordering";
+import type { ModelProfile } from "./catalog";
 
 // The Models section's two readings (epic memql#5096).
 //
@@ -132,6 +133,33 @@ export function doorsFromRow(row: Row | null): DoorsReading | null {
   };
 }
 
+/** Project one `v1:models:modelProfile` row. */
+export function modelProfileFromRow(row: Row): ModelProfile {
+  return {
+    modelId: stringOf(row, "modelId") || stringOf(row, "id"),
+    category: stringOf(row, "category"),
+    runtime: stringOf(row, "runtime"),
+    family: stringOf(row, "family"),
+    params: numberOf(row, "params"),
+    quant: stringOf(row, "quant"),
+    sizeBytes: numberOf(row, "sizeBytes"),
+    contextWindow: numberOf(row, "contextWindow"),
+    // `flags` is a LIST of the capability names that are true, deliberately the
+    // same shape the `model:<id>` label uses -- so this surface compares a
+    // profile against a machine field by field instead of translating between
+    // two vocabularies that mean one thing.
+    flags: stringsOf(row, "flags"),
+    dimensions: numberOf(row, "dimensions"),
+    license: stringOf(row, "license"),
+    recommendedFor: stringsOf(row, "recommendedFor"),
+    minMachineClass: stringOf(row, "minMachineClass"),
+    offeredOn: stringsOf(row, "offeredOn"),
+    notes: stringOf(row, "notes"),
+    curated: boolOr(row, "curated", true),
+    unavailable: boolOr(row, "unavailable", false),
+  };
+}
+
 export function useInference() {
   const connection = useOsConnection();
 
@@ -153,9 +181,32 @@ export function useInference() {
     [connection],
   );
 
+  // THE CURATED CATALOG IS A THIRD READING, and it settles on its own for the
+  // same reason the first two do (epic memql#5137, task memql#5140): it asks a
+  // different question of a different source, and a combined await lets the
+  // read that WILL be refused decide the state of the one that succeeded.
+  //
+  // It is also the only one of the three that is not a virtual projection --
+  // `modelProfiles` reads real seeded rows -- so it is the one reading here
+  // that would still answer on a cluster with no machines at all. That is the
+  // point of it: it says what this fleet SHOULD run before anybody has pulled
+  // anything.
+  const readProfiles = useCallback(
+    async (signal: AbortSignal): Promise<ModelProfile[]> => {
+      if (connection === null) throw new Error("not connected");
+      const result = await connection.query.modelProfiles({}, { signal });
+      return result.rows().map(modelProfileFromRow);
+    },
+    [connection],
+  );
+
   const catalog = useReading<CatalogModel[]>(
     "fleet:models:catalog",
     connection === null ? null : readCatalog,
+  );
+  const profiles = useReading<ModelProfile[]>(
+    "fleet:models:profiles",
+    connection === null ? null : readProfiles,
   );
   const doors = useReading<DoorsReading | null>(
     "fleet:models:doors",
@@ -172,5 +223,5 @@ export function useInference() {
     [routing.policy],
   );
 
-  return { catalog, doors, preference, policyError: routing.error };
+  return { catalog, doors, profiles, preference, policyError: routing.error };
 }

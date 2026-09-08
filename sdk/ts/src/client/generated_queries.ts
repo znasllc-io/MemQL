@@ -4204,6 +4204,61 @@ QueryClient.prototype.missingCapabilityByKindAndName = function (this: QueryClie
   return this.executeNamed("missingCapabilityByKindAndName", buildMissingCapabilityByKindAndName(args), opts);
 };
 
+/** One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it. */
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileById"] in generated_concepts.ts).
+export interface ModelProfileByIdArgs {
+  modelId: string;
+}
+
+export function buildModelProfileById(args: ModelProfileByIdArgs): string {
+  const parts: string[] = [];
+  parts.push("modelId: " + renderMemQLValue(args.modelId));
+  return "query modelProfileById(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelProfileById(args: ModelProfileByIdArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelProfileById = function (this: QueryClient, args: ModelProfileByIdArgs = {} as ModelProfileByIdArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelProfileById", buildModelProfileById(args), opts);
+};
+
+/** The catalog, optionally narrowed.
+Every argument is OPTIONAL and absent means "do not narrow". The Fleet models surface asks for the whole catalog and groups it client-side; a page that had to ask once per category would show nine loading states for one answer, and the set is a few dozen release-time rows. */
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfiles"] in generated_concepts.ts).
+export interface ModelProfilesArgs {
+  /** Narrow to one category. */
+  // Enum: text | reasoning | omni | vision | audioIn | audioOut | imageGen | videoGen | embeddings
+  category?: string;
+  /** Narrow to one runtime. */
+  // Enum: ollama | mlx | whispercpp | nemo | kokoro | mflux | comfyui
+  runtime?: string;
+  /** Narrow to entries whose declared floor is exactly this machine class. NOT "everything a machine of this class can run" -- that is a comparison across five values, and doing it here would make the answer depend on an ordering the caller cannot see. The Fleet surface holds the machine's class and filters. */
+  // Enum: 16 | 24 | 32 | 64 | 128
+  minMachineClass?: string;
+}
+
+export function buildModelProfiles(args: ModelProfilesArgs): string {
+  const parts: string[] = [];
+  if (args.category !== undefined) parts.push("category: " + renderMemQLValue(args.category));
+  if (args.runtime !== undefined) parts.push("runtime: " + renderMemQLValue(args.runtime));
+  if (args.minMachineClass !== undefined) parts.push("minMachineClass: " + renderMemQLValue(args.minMachineClass));
+  return "query modelProfiles(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelProfiles(args: ModelProfilesArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelProfiles = function (this: QueryClient, args: ModelProfilesArgs = {} as ModelProfilesArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelProfiles", buildModelProfiles(args), opts);
+};
+
 /** The CALLER'S model pulls for one machine, newest first. Backs the machine detail's Models group: a live pull renders its progress, and finished ones answer "why is this model here". */
 // Bound concept: v1:worker:modelPull (machine-readable: BoundConcepts["modelPullsForWorker"] in generated_concepts.ts).
 export interface ModelPullsForWorkerArgs {

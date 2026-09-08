@@ -17,6 +17,7 @@ import {
   Subhead,
 } from "../../../kit";
 import { figureFrom, type Figure } from "../../../kit/measure";
+import { CatalogSection } from "./CatalogSection";
 import { eligibleFor, formatContext, formatParams, orderModels, type ModelNeeds } from "./ordering";
 import { useInference, type CatalogModel, type DoorsReading } from "./useInference";
 
@@ -76,7 +77,7 @@ const TURNS: Array<{ id: string; label: string; needs: ModelNeeds }> = [
 ];
 
 export function ModelsSection() {
-  const { catalog, doors, preference } = useInference();
+  const { catalog, doors, profiles, preference } = useInference();
   const models = catalog.value ?? [];
   const reading = catalog.state === "reading" || doors.state === "reading";
 
@@ -281,6 +282,19 @@ export function ModelsSection() {
       {catalog.at === null ? null : (
         <Caption>Read {catalog.at.toLocaleTimeString()}.</Caption>
       )}
+
+      {/* THE CATALOG COMES SECOND, and the order is the argument. The list
+          above answers "what will be used", which is what somebody opens this
+          page to find out. This answers "what should I be running", which is
+          the question they have once they have seen the answer to the first
+          one -- and putting it first would make every visit start with a
+          recommendation nobody asked for. */}
+      <CatalogSection
+        profiles={profiles.value ?? []}
+        profilesState={profiles.state}
+        profilesError={profiles.error}
+        fleet={models}
+      />
     </div>
   );
 }

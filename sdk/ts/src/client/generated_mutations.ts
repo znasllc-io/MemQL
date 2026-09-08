@@ -4429,6 +4429,91 @@ QueryClient.prototype.mintSkill = function (this: QueryClient, args: MintSkillAr
   return this.executeNamed("mintSkill", buildMintSkill(args), opts);
 };
 
+/** Add a model to the catalog by id. The operator's entry, marked `curated: false`.
+The catalog is release-time curation; this is the escape hatch for a model an operator wants their fleet told about before the next release curates it. It gates nothing either -- a machine still has to advertise the model before anything routes to it -- so the blast radius of a wrong entry is a recommendation nobody can act on, which is why the floor is a rank rather than the cluster owner alone. */
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileAdd"] in generated_concepts.ts).
+export interface ModelProfileAddArgs {
+  profileId: string;
+  modelId: string;
+  // Enum: text | reasoning | omni | vision | audioIn | audioOut | imageGen | videoGen | embeddings
+  category: string;
+  // Enum: ollama | mlx | whispercpp | nemo | kokoro | mflux | comfyui
+  runtime: string;
+  // Enum: 16 | 24 | 32 | 64 | 128
+  minMachineClass: string;
+  family?: string;
+  params?: number;
+  quant?: string;
+  sizeBytes?: number;
+  memoryNeedBytes?: number;
+  contextWindow?: number;
+  /** The subset of {structured, tools, thinking, vision, audioIn, audioOut, imageGen, streaming} that is true. */
+  flags?: string[];
+  /** Vector width. Required in practice for an embeddings entry -- a binding cannot create its table without one -- and the seed gate says so; here it is an ordinary field, because an operator adding a text model has no dimensions to give. */
+  dimensions?: number;
+  license?: string;
+  source?: string;
+  recommendedFor?: string[];
+  offeredOn?: string[];
+  notes?: string;
+}
+
+export function buildModelProfileAdd(args: ModelProfileAddArgs): string {
+  const parts: string[] = [];
+  parts.push("profileId: " + renderMemQLValue(args.profileId));
+  parts.push("modelId: " + renderMemQLValue(args.modelId));
+  parts.push("category: " + renderMemQLValue(args.category));
+  parts.push("runtime: " + renderMemQLValue(args.runtime));
+  parts.push("minMachineClass: " + renderMemQLValue(args.minMachineClass));
+  if (args.family !== undefined) parts.push("family: " + renderMemQLValue(args.family));
+  if (args.params !== undefined) parts.push("params: " + renderMemQLValue(args.params));
+  if (args.quant !== undefined) parts.push("quant: " + renderMemQLValue(args.quant));
+  if (args.sizeBytes !== undefined) parts.push("sizeBytes: " + renderMemQLValue(args.sizeBytes));
+  if (args.memoryNeedBytes !== undefined) parts.push("memoryNeedBytes: " + renderMemQLValue(args.memoryNeedBytes));
+  if (args.contextWindow !== undefined) parts.push("contextWindow: " + renderMemQLValue(args.contextWindow));
+  if (args.flags !== undefined) parts.push("flags: " + renderMemQLValue(args.flags));
+  if (args.dimensions !== undefined) parts.push("dimensions: " + renderMemQLValue(args.dimensions));
+  if (args.license !== undefined) parts.push("license: " + renderMemQLValue(args.license));
+  if (args.source !== undefined) parts.push("source: " + renderMemQLValue(args.source));
+  if (args.recommendedFor !== undefined) parts.push("recommendedFor: " + renderMemQLValue(args.recommendedFor));
+  if (args.offeredOn !== undefined) parts.push("offeredOn: " + renderMemQLValue(args.offeredOn));
+  if (args.notes !== undefined) parts.push("notes: " + renderMemQLValue(args.notes));
+  return "mutation modelProfileAdd(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelProfileAdd(args: ModelProfileAddArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelProfileAdd = function (this: QueryClient, args: ModelProfileAddArgs = {} as ModelProfileAddArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelProfileAdd", buildModelProfileAdd(args), opts);
+};
+
+/** Remove an operator's catalog entry.
+REFUSES A CURATED ROW, and the refusal is the point rather than caution. A curated entry is re-materialized by the SeedMaterializer on every boot, so "removing" one succeeds, looks correct, and is undone at the next pod restart with nothing to explain it. A refusal that names the reason is the only honest answer; the way to retire a curated entry is a release. */
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileRemove"] in generated_concepts.ts).
+export interface ModelProfileRemoveArgs {
+  profileId: string;
+}
+
+export function buildModelProfileRemove(args: ModelProfileRemoveArgs): string {
+  const parts: string[] = [];
+  parts.push("profileId: " + renderMemQLValue(args.profileId));
+  return "mutation modelProfileRemove(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelProfileRemove(args: ModelProfileRemoveArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelProfileRemove = function (this: QueryClient, args: ModelProfileRemoveArgs = {} as ModelProfileRemoveArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelProfileRemove", buildModelProfileRemove(args), opts);
+};
+
 /** Re-file a Library artifact into a folder (memql#4781, design B2) -- the organizational write of the Files app, and deliberately a READ-MERGE update: labels, archived, provenance and every other index field survive a move untouched, which is what makes moving cheap enough to be the only filing operation the tree needs. An absent folderId (or an explicit "") files it at the root -- ?? is blank-coalescing, and no folder's id is "". updatedAt advances because a move IS a change a person made to the row, and the Library's default sort should say so. Works on every content kind (file, document, generated_output); the backing row's own folderId copy is the initial filing only and is deliberately not chased (the index is authoritative after promotion). */
 // Bound concept: v1:library:artifact (machine-readable: BoundConcepts["moveArtifactToFolder"] in generated_concepts.ts).
 export interface MoveArtifactToFolderArgs {

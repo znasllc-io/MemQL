@@ -1,0 +1,215 @@
+import { describe, expect, it } from "vitest";
+
+const { categorySentence, groupByCategory, joinCatalog } = await import(
+  "../../src/apps/fleet/models/catalog"
+);
+type FleetMachineFacts = import("../../src/apps/fleet/models/catalog").FleetMachineFacts;
+type FleetModelFacts = import("../../src/apps/fleet/models/catalog").FleetModelFacts;
+type ModelProfile = import("../../src/apps/fleet/models/catalog").ModelProfile;
+
+// The catalog join (epic memql#5137, task memql#5140).
+//
+// The join is the whole feature and it is PURE, so it is tested on fixtures
+// with no DOM. What the component adds on top is layout; what goes wrong in a
+// join is an operator told their fleet serves a model it does not have, or told
+// nothing at all about one it cannot.
+
+function profile(over: Partial<ModelProfile> = {}): ModelProfile {
+  return {
+    modelId: "qwen3.5:9b",
+    category: "text",
+    runtime: "ollama",
+    family: "qwen3.5",
+    params: 9_000_000_000,
+    quant: "Q4_K_M",
+    sizeBytes: 6_600_000_000,
+    contextWindow: 262_144,
+    flags: ["structured", "tools", "vision", "streaming"],
+    dimensions: 0,
+    license: "qwen",
+    recommendedFor: ["fast", "strong"],
+    minMachineClass: "16",
+    offeredOn: ["macos", "linux"],
+    notes: "The default local pick.",
+    curated: true,
+    unavailable: false,
+    ...over,
+  };
+}
+
+function machine(over: Partial<FleetMachineFacts> = {}): FleetMachineFacts {
+  return {
+    name: "studio",
+    runtimes: ["ollama"],
+    online: true,
+    platform: "macos",
+    memoryGb: 32,
+    ...over,
+  };
+}
+
+function served(modelId: string): FleetModelFacts {
+  return { modelId, online: true, machineCount: 1 };
+}
+
+describe("joinCatalog", () => {
+  it("marks a profile served when a fleet model matches its id exactly", () => {
+    const r = joinCatalog([profile()], [served("qwen3.5:9b")], [machine()]);
+    expect(r.rows[0]!.served).toBe(true);
+    expect(r.rows[0]!.blocked).toBeNull();
+    expect(r.rows[0]!.servedBy).toContain("studio");
+  });
+
+  it("does not fuzzy-match: qwen3.5:9b and qwen3.5:9b-q4 are different models", () => {
+    // Different weights, possibly different capabilities. Matching them would
+    // tell an operator their fleet serves a model it does not have.
+    const r = joinCatalog([profile()], [served("qwen3.5:9b-q4")], [machine()]);
+    expect(r.rows[0]!.served).toBe(false);
+    expect(r.uncatalogued.map((m) => m.modelId)).toEqual(["qwen3.5:9b-q4"]);
+  });
+
+  it("blocks with no-machine-of-class when every machine is below the floor", () => {
+    const r = joinCatalog(
+      [profile({ modelId: "qwen3.5:122b", minMachineClass: "128" })],
+      [],
+      [machine({ memoryGb: 32 })],
+    );
+    expect(r.rows[0]!.blocked?.kind).toBe("no-machine-of-class");
+    expect(r.rows[0]!.blocked?.detail).toContain("128 GB");
+    expect(r.rows[0]!.blocked?.detail).toContain("32 GB");
+  });
+
+  it("blocks with runtime-missing when no machine reports the runtime", () => {
+    const r = joinCatalog(
+      [profile({ modelId: "kokoro-82m", runtime: "kokoro", category: "audioOut" })],
+      [],
+      [machine({ runtimes: ["ollama"] })],
+    );
+    expect(r.rows[0]!.blocked?.kind).toBe("runtime-missing");
+    expect(r.rows[0]!.blocked?.detail).toContain("kokoro");
+  });
+
+  it("blocks with not-offered-on-platform for a linux-only entry on an all-macos fleet", () => {
+    const r = joinCatalog(
+      [profile({ modelId: "wan2.2:5b", category: "videoGen", offeredOn: ["linux"], runtime: "comfyui" })],
+      [],
+      [machine({ platform: "macos" })],
+    );
+    expect(r.rows[0]!.blocked?.kind).toBe("not-offered-on-platform");
+    expect(r.rows[0]!.blocked?.detail).toContain("linux");
+  });
+
+  it("reports a fleet model with no catalog hit rather than hiding it", () => {
+    // An operator who pulled a model by hand is entitled to see it
+    // acknowledged; silently omitting it reads as though the pull failed.
+    const r = joinCatalog([profile()], [served("qwen3.5:9b"), served("mistral-small:24b")], [machine()]);
+    expect(r.uncatalogued).toHaveLength(1);
+    expect(r.uncatalogued[0]!.modelId).toBe("mistral-small:24b");
+  });
+
+  it("does not block a profile the fleet could run and simply has not pulled", () => {
+    // Blocked and not-yet-pulled are different states, and only the second is
+    // an invitation. Conflating them would tell an operator to buy hardware
+    // when the answer is one pull.
+    const r = joinCatalog([profile()], [], [machine()]);
+    expect(r.rows[0]!.served).toBe(false);
+    expect(r.rows[0]!.blocked).toBeNull();
+  });
+
+  it("a machine that has not reported its memory blocks nothing", () => {
+    // Unknown is not small. Telling somebody with an unreported 64 GB laptop
+    // that they have no machine of the class would be confidently wrong, and
+    // they have no way to tell that from the truth.
+    const r = joinCatalog(
+      [profile({ minMachineClass: "128" })],
+      [],
+      [machine({ memoryGb: 0 })],
+    );
+    expect(r.rows[0]!.blocked).toBeNull();
+  });
+
+  it("an empty fleet blocks nothing, because there is nothing to compare against", () => {
+    const r = joinCatalog([profile({ minMachineClass: "128", runtime: "mflux" })], [], []);
+    expect(r.rows[0]!.blocked).toBeNull();
+    expect(r.rows[0]!.served).toBe(false);
+  });
+
+  it("platform is checked before runtime, so the sentence names the thing that cannot change", () => {
+    // A linux-only model on a mac fleet with no comfyui: both are true, and
+    // "install comfyui" is advice that would not help.
+    const r = joinCatalog(
+      [profile({ category: "videoGen", offeredOn: ["linux"], runtime: "comfyui" })],
+      [],
+      [machine({ platform: "macos", runtimes: ["ollama"] })],
+    );
+    expect(r.rows[0]!.blocked?.kind).toBe("not-offered-on-platform");
+  });
+});
+
+describe("groupByCategory", () => {
+  it("drops a category the catalog has no entry for", () => {
+    // `vision` has none by design: the text models see. An empty heading would
+    // read as a gap in the fleet rather than a decision about the catalog.
+    const groups = groupByCategory(joinCatalog([profile()], [], [machine()]));
+    expect(groups.map((g) => g.category)).toEqual(["text"]);
+  });
+
+  it("orders categories by CATEGORY_ORDER, not by the input order", () => {
+    const groups = groupByCategory(
+      joinCatalog(
+        [
+          profile({ modelId: "qwen3-embedding:0.6b", category: "embeddings" }),
+          profile({ modelId: "gpt-oss:20b", category: "reasoning" }),
+          profile({ modelId: "qwen3.5:9b", category: "text" }),
+        ],
+        [],
+        [machine()],
+      ),
+    );
+    expect(groups.map((g) => g.category)).toEqual(["text", "reasoning", "embeddings"]);
+  });
+
+  it("counts what the fleet serves per category", () => {
+    const groups = groupByCategory(
+      joinCatalog(
+        [profile({ modelId: "a" }), profile({ modelId: "b" })],
+        [served("a")],
+        [machine()],
+      ),
+    );
+    expect(groups[0]!.servedCount).toBe(1);
+  });
+});
+
+describe("categorySentence", () => {
+  it("says the state rather than only a count", () => {
+    // "3 of 4" tells a reader nothing about whether that is fine.
+    const all = groupByCategory(joinCatalog([profile({ modelId: "a" })], [served("a")], [machine()]));
+    expect(categorySentence(all[0]!)).toContain("every recommendation");
+
+    const none = groupByCategory(joinCatalog([profile({ modelId: "a" })], [], [machine()]));
+    expect(categorySentence(none[0]!)).toContain("runs on a machine you already have");
+  });
+
+  it("a fleet with no machines is told to pair one, not that these run on hardware it has", () => {
+    // Without this branch the page tells somebody who has paired nothing that
+    // these models run on a machine they already have -- because an unknown
+    // fleet blocks nothing, so every entry reads as pullable.
+    const empty = groupByCategory(joinCatalog([profile({ modelId: "a" })], [], []), false);
+    // The group falls SILENT and the section says it once above the list --
+    // saying it per category printed the same sentence nine times down one
+    // screen (rule 7).
+    expect(categorySentence(empty[0]!)).toBe("");
+  });
+
+  it("says each entry explains itself when the whole category is blocked", () => {
+    const blocked = groupByCategory(
+      joinCatalog(
+        [profile({ category: "videoGen", offeredOn: ["linux"], runtime: "comfyui" })],
+        [],
+        [machine({ platform: "macos" })],
+      ),
+    );
+    expect(categorySentence(blocked[0]!)).toContain("says why");
+  });
+});
