@@ -158,3 +158,43 @@ mutate account archiveClientAccount {
     }
   }
 }
+
+/// Record one pass of the account domain walk (epic memql#5165, section F).
+///
+/// EVERY FIELD IS OPTIONAL and only the ones supplied are written, because the
+/// walk advances a row by at most one state per pass and the fields it touches
+/// differ per state: minting writes a token and a status, a failure writes a
+/// reason and a detail, success writes two dates and possibly a reservation. A
+/// mutation taking the whole set would have to invent values for the ones the
+/// current state says nothing about, and the natural invention -- the empty
+/// string -- would clear the previous pass's answer on every tick.
+///
+/// @serverOnly, and actor.userId scoping is not the fix: the walk runs from a
+/// scheduled automation under the engine's own actor, so there is no caller to
+/// scope to. The account rows themselves stay on their composite owner tier,
+/// which is what decides who can READ what this writes.
+@serverOnly
+mutate account recordAccountDomainCheck {
+  args {
+    accountId            string!
+    domainToken          string
+    domainStatus         string
+    domainFailureReason  string
+    domainFailureDetail  string
+    domainLastCheckedAt  string
+    domainVerifiedAt     string
+    memqlReservedAt      string
+  }
+  update {
+    stamp {
+      id:                   args.accountId
+      domainToken:          args.domainToken
+      domainStatus:         args.domainStatus
+      domainFailureReason:  args.domainFailureReason
+      domainFailureDetail:  args.domainFailureDetail
+      domainLastCheckedAt:  args.domainLastCheckedAt
+      domainVerifiedAt:     args.domainVerifiedAt
+      memqlReservedAt:      args.memqlReservedAt
+    }
+  }
+}
