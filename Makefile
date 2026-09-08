@@ -551,6 +551,28 @@ frontdoor-paths:
 frontdoor-paths-check:
 	$(GO) test -count=1 -run 'FrontDoor|GeneratedPathSlice' ./deploy/k8s/overlays/
 
+## Regenerate the committed per-concept field snapshot
+## (component/conceptfields/concept-fields.snapshot.json), which records every
+## concept's top-level fields, its required set and its enum values.
+##
+## IT REFUSES TO WRITE when the tree has taken something away that the
+## retirement ledger does not record -- the one regeneration gate here that
+## does. Removing a field from a concept bricks its stored rows, and a
+## generator that absorbed the removal silently would be the same as not
+## running. The refusal prints the ledger line to add.
+concept-snapshot:
+	$(GO) run ./cmd/conceptsnapshot
+
+## CI gate: verify the committed concept-field snapshot is current and that
+## every retirement in it names a migration or a waiver. Fails when a field,
+## an enum value or an optional-ness disappeared without a record. Pair with
+## `make concept-snapshot` locally to fix.
+##
+## Also enforced by TestConceptFieldSnapshotIsNotStale so it runs in the
+## ordinary `make test` lane, which needs no workflow change.
+concept-snapshot-check:
+	$(GO) test -count=1 -run TestConceptFieldSnapshotIsNotStale .
+
 ## DSL lint: load the embedded DSL tree through the same
 ## dslimports.Load pipeline the engine runs at boot and fail on any
 ## parse / import / build diagnostics. Mirrors the CI gate so authors
@@ -659,7 +681,7 @@ test-cover:
 # ---------------------------------------------------------------------------
 
 ##@ Quality & codegen
-.PHONY: vet fmt lint tidy generate proto-gen proto-gen-check prs-stalled claims-stale arch-model arch-model-check frontdoor frontdoor-hosts frontdoor-hosts-check frontdoor-paths frontdoor-paths-check
+.PHONY: vet fmt lint tidy generate proto-gen proto-gen-check prs-stalled claims-stale arch-model arch-model-check frontdoor frontdoor-hosts frontdoor-hosts-check frontdoor-paths frontdoor-paths-check concept-snapshot concept-snapshot-check
 
 ## Run go vet on all packages
 vet:

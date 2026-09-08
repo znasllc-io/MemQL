@@ -1,0 +1,51 @@
+-- Retired concept fields: v1:agents:agent's four conversational controls
+-- (memql#5210, cluster 1 of 4).
+--
+--   gender  audioControl  videoControl  triggerBehavior
+--
+-- THE MECHANISM IS memql#5199's. Every concept builds its JSON schema with
+-- `additionalProperties: false`, and a mutation's read-merge validates the
+-- MERGED payload -- stored keys included. So deleting a field from a concept
+-- does not merely stop new writes carrying it: the next write to any row that
+-- has it is refused with
+--
+--   concept payload validation failed: jsonschema: '' does not validate with
+--   v1:agents:agent#/additionalProperties: additionalProperties 'gender' not allowed
+--
+-- WHERE THEY WENT. Commit 47e81134a, "remove cognition, spaces and voice -- the
+-- previous product's conversational substrate" (epic memql#4984 and its
+-- siblings #4988-#4991). MemQL's previous product was people and agents in a
+-- shared SPACE speaking over LiveKit with an avatar lip-syncing the reply; that
+-- commit removed all of it, including "the agent concept's conversational
+-- half". `gender` drove the avatar's voice selection, `audioControl` /
+-- `videoControl` were the per-agent media toggles, `triggerBehavior` decided
+-- when an agent spoke unprompted. None of the four has a reader left.
+--
+-- WHY THIS IS THE LARGEST OF THE FOUR CLUSTERS. Measured on the shared
+-- throwaway database: 73,376 versions carrying `audioControl` and 73,330 each
+-- carrying the other three -- two orders of magnitude above every other pair in
+-- the sweep. v1:agents:agent is a live, frequently-updated concept, so this is
+-- the cluster most likely to be hit first on a real installation: any cluster
+-- that ran the conversational product and then took the upgrade has agent rows
+-- that refuse their next write.
+--
+-- SCOPED BY CONCEPT, NEVER BY KEY NAME, AND `gender` IS THE MEASURED REASON.
+-- `gender` is a LIVE, DECLARED field on v1:identity:user. A migration that
+-- stripped by key name alone would delete it from every user row in the
+-- cluster -- personal data, from a concept this issue never touched, with no
+-- error and no way back. The other three are declared on no concept in the tree
+-- and are scoped anyway: the scoping is the discipline, not a reaction to a
+-- collision somebody happened to notice.
+--
+-- APPEND-ONLY ROWS, EVERY VERSION. The table is a time series and a row's
+-- history is its versions, so this rewrites all of them rather than the newest
+-- per id: a read-merge reads the newest, but the older versions are what an
+-- audit walk returns, and half a history validating is worse than none.
+--
+-- Idempotent: `payload ?| array[...]` matches nothing on a cluster whose agent
+-- rows were all written after the removal.
+
+UPDATE "MemoryNodes"
+SET payload = payload - 'gender' - 'audioControl' - 'videoControl' - 'triggerBehavior'
+WHERE concept = 'v1:agents:agent'
+  AND payload ?| array['gender', 'audioControl', 'videoControl', 'triggerBehavior'];

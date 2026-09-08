@@ -53,6 +53,18 @@ set -euo pipefail
 # rot: it fails loudly if the pinned path is not a module in scope.
 readonly MODULE_PATH="github.com/znasllc-io/memql"
 
+# `component/database` JOINED in memql#5210, and the reason is worth stating
+# because the package is the one you would assume was here already. It was not:
+# nothing under it imported dbtest, so it had no db-gated case for the lane to
+# run. The four retired-field migrations are the first thing here that has to be
+# executed against a real database rather than read as text -- a strip that
+# reaches past its concept deletes live data, and no regex over the SQL can show
+# that it does not.
+#
+# Its db-gated file is an EXTERNAL test package (`database_test`), forced rather
+# than chosen: dbtest imports memory-nodes, which imports component/database, so
+# an in-package test importing dbtest is an import cycle.
+#
 # DB_GATED_TREES is the canonical set. Keep in sync with the db-tests step in
 # .github/workflows/ci.yml -- enforced by TestDBGatedTreesMatchTheDBTestsLane.
 #
@@ -136,6 +148,7 @@ readonly DB_GATED_TREES=(
 	"component/memql"
 	"component/automations"
 	"component/backup"
+	"component/database"
 	"component/grpc"
 	"component/identity"
 	"component/logstore"

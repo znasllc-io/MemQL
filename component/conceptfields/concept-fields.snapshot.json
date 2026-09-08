@@ -1,0 +1,8116 @@
+{
+  "readme": [
+    "GENERATED plus HAND-AUTHORED. Run `make concept-snapshot` to refresh `concepts`.",
+    "`concepts` is every concept's top-level field surface, taken from the built JSON schema.",
+    "`retired` is the append-only ledger: what has been taken away from a concept, and what was done about it.",
+    "Removing a field from a concept BRICKS its stored rows -- additionalProperties is false and the read-merge validates the merged payload -- so a retirement needs a migration, or a waiver saying why it does not.",
+    "The generator REFUSES to drop a field from `concepts` until a `retired` entry covers it. That refusal is the gate (memql#5209)."
+  ],
+  "concepts": [
+    {
+      "concept": "v1:accounts:account",
+      "file": "accounts/concepts.memql",
+      "fields": [
+        "configuredAt",
+        "domain",
+        "domainFailureDetail",
+        "domainFailureReason",
+        "domainLastCheckedAt",
+        "domainStatus",
+        "domainToken",
+        "domainVerifiedAt",
+        "joinOnDomain",
+        "memqlDomain",
+        "memqlReservationReason",
+        "memqlReservedAt",
+        "name",
+        "notes",
+        "ownerUserId",
+        "primaryContactEmail",
+        "primaryContactName",
+        "status"
+      ],
+      "required": [
+        "domainStatus",
+        "name",
+        "status"
+      ],
+      "enums": {
+        "domainStatus": [
+          "unverified",
+          "verified",
+          "verifying"
+        ],
+        "status": [
+          "active",
+          "archived"
+        ]
+      }
+    },
+    {
+      "concept": "v1:actions:action",
+      "file": "actions/concepts.memql",
+      "fields": [
+        "argTemplate",
+        "calls",
+        "capability",
+        "inputFingerprint",
+        "intent",
+        "kind",
+        "lastReinforced",
+        "ownerUserId",
+        "paramBindings",
+        "params",
+        "provenanceMutation",
+        "provenancePlanId",
+        "provenanceStepId",
+        "recordedResult",
+        "recordedSurface",
+        "reinforceCount",
+        "reliability",
+        "resourceEdges",
+        "resultFingerprint",
+        "sideEffectClass",
+        "slug",
+        "status",
+        "steps",
+        "templateFingerprint",
+        "version"
+      ],
+      "required": [
+        "calls",
+        "inputFingerprint",
+        "intent",
+        "kind",
+        "ownerUserId",
+        "reinforceCount",
+        "reliability",
+        "sideEffectClass",
+        "slug",
+        "status",
+        "version"
+      ],
+      "enums": {
+        "kind": [
+          "composite",
+          "primitive"
+        ],
+        "sideEffectClass": [
+          "exec",
+          "read",
+          "write"
+        ],
+        "status": [
+          "active",
+          "candidate",
+          "deprecated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:actions:surface",
+      "file": "actions/concepts.memql",
+      "fields": [
+        "available",
+        "capabilities",
+        "kind",
+        "lastSeen",
+        "machineId",
+        "ownerUserId",
+        "priority",
+        "provenanceMutation",
+        "slug",
+        "status"
+      ],
+      "required": [
+        "available",
+        "capabilities",
+        "kind",
+        "ownerUserId",
+        "priority",
+        "slug",
+        "status"
+      ],
+      "enums": {
+        "kind": [
+          "cockpit-runner",
+          "computer-use",
+          "mcp",
+          "workbench"
+        ],
+        "status": [
+          "active",
+          "retired"
+        ]
+      }
+    },
+    {
+      "concept": "v1:agents:agent",
+      "file": "agents/concepts.memql",
+      "fields": [
+        "active",
+        "capabilities",
+        "colorIndex",
+        "deleted",
+        "description",
+        "groupIds",
+        "identity",
+        "kind",
+        "lineage",
+        "name",
+        "ownerUserId",
+        "personality",
+        "providerConfig",
+        "role",
+        "roleEmbedding",
+        "roleSlug",
+        "systemPrompt"
+      ],
+      "required": [
+        "kind",
+        "name"
+      ],
+      "enums": {
+        "kind": [
+          "assistant",
+          "specialist",
+          "system"
+        ],
+        "role": [
+          "assistant",
+          "specialist"
+        ]
+      }
+    },
+    {
+      "concept": "v1:agents:agentAuthorization",
+      "file": "agents/concepts.memql",
+      "fields": [
+        "action",
+        "active",
+        "agentId",
+        "computerUseScope",
+        "expiresAt",
+        "maxPerPlan",
+        "planKind",
+        "roleSlugAllowlist",
+        "skillTierAllowlist",
+        "spaceScope",
+        "tokenBudgetCap",
+        "userId"
+      ],
+      "required": [
+        "agentId",
+        "planKind",
+        "spaceScope",
+        "userId"
+      ],
+      "enums": {
+        "action": [
+          "createSpecialist",
+          "extendSpecialist",
+          "mintSkill",
+          "trainSpecialist",
+          "triggerPlan"
+        ],
+        "computerUseScope": [
+          "",
+          "full",
+          "interact",
+          "observe"
+        ]
+      }
+    },
+    {
+      "concept": "v1:agents:agentRole",
+      "file": "agents/concepts.memql",
+      "fields": [
+        "active",
+        "availableSkillIds",
+        "category",
+        "defaultSkillIds",
+        "description",
+        "forbiddenSkillIds",
+        "lockedSkillIds",
+        "maxSkills",
+        "name",
+        "predefined",
+        "slug",
+        "systemPromptHints",
+        "tier"
+      ],
+      "required": [
+        "category",
+        "maxSkills",
+        "name",
+        "slug"
+      ],
+      "enums": {
+        "category": [
+          "agriculture",
+          "civic",
+          "creative",
+          "education",
+          "energy",
+          "financial",
+          "hobby",
+          "hospitality",
+          "legal",
+          "medical",
+          "personal",
+          "professional",
+          "scientific",
+          "specialized",
+          "trades",
+          "transportation"
+        ],
+        "tier": [
+          "A",
+          "B",
+          "C"
+        ]
+      }
+    },
+    {
+      "concept": "v1:agents:operatorMemory",
+      "file": "agents/concepts.memql",
+      "fields": [
+        "entries",
+        "lastUpdatedAt",
+        "userId"
+      ],
+      "required": [
+        "userId"
+      ]
+    },
+    {
+      "concept": "v1:agents:skillChangeEvent",
+      "file": "agents/concepts.memql",
+      "fields": [
+        "actorAgentId",
+        "actorUserId",
+        "after",
+        "before",
+        "changeKind",
+        "runId",
+        "skillId",
+        "targetAgentId"
+      ],
+      "required": [
+        "changeKind",
+        "skillId",
+        "targetAgentId"
+      ],
+      "enums": {
+        "changeKind": [
+          "attached",
+          "skillReconfigured"
+        ]
+      }
+    },
+    {
+      "concept": "v1:authoring:bundle",
+      "file": "authoring/concepts.memql",
+      "fields": [
+        "activatedAt",
+        "dryRunReport",
+        "failureReason",
+        "ownerUserId",
+        "responsibilityId",
+        "retiredAt",
+        "reusedConstructRefs",
+        "sourceRunId",
+        "status",
+        "summary",
+        "supersedesBundleId",
+        "title",
+        "validationReport",
+        "version"
+      ],
+      "required": [
+        "ownerUserId",
+        "status",
+        "title"
+      ],
+      "enums": {
+        "status": [
+          "active",
+          "draft",
+          "dryRunPassed",
+          "failed",
+          "paused",
+          "retired",
+          "validated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:authoring:construct",
+      "file": "authoring/concepts.memql",
+      "fields": [
+        "bundleId",
+        "catalogKey",
+        "catalogMatchText",
+        "catalogedAt",
+        "catalogedFromBundleId",
+        "catalogued",
+        "compiledForm",
+        "conceptDataStaged",
+        "conceptRetired",
+        "goalSignature",
+        "grammarVersion",
+        "kind",
+        "lastReinforced",
+        "name",
+        "ownerUserId",
+        "reinforceCount",
+        "reliability",
+        "source",
+        "status",
+        "targetNamespace"
+      ],
+      "required": [
+        "bundleId",
+        "kind",
+        "name",
+        "ownerUserId",
+        "source",
+        "status",
+        "targetNamespace"
+      ],
+      "enums": {
+        "kind": [
+          "automation",
+          "concept",
+          "logic",
+          "mutation",
+          "policy",
+          "prompt",
+          "query",
+          "rule",
+          "shape",
+          "spec",
+          "trait"
+        ],
+        "status": [
+          "active",
+          "draft",
+          "retired",
+          "staged"
+        ]
+      }
+    },
+    {
+      "concept": "v1:authoring:dependencyEdge",
+      "file": "authoring/concepts.memql",
+      "fields": [
+        "bundleId",
+        "fromConstruct",
+        "fromKind",
+        "ownerUserId",
+        "toKind",
+        "toName",
+        "toSource"
+      ],
+      "required": [
+        "bundleId",
+        "fromConstruct",
+        "fromKind",
+        "ownerUserId",
+        "toKind",
+        "toName",
+        "toSource"
+      ],
+      "enums": {
+        "fromKind": [
+          "automation",
+          "logic",
+          "mutation",
+          "policy",
+          "prompt",
+          "query",
+          "shape",
+          "spec",
+          "trait"
+        ],
+        "toKind": [
+          "automation",
+          "logic",
+          "mutation",
+          "policy",
+          "prompt",
+          "query",
+          "shape",
+          "spec",
+          "trait"
+        ],
+        "toSource": [
+          "bundle",
+          "catalog",
+          "core"
+        ]
+      }
+    },
+    {
+      "concept": "v1:bench:run",
+      "file": "bench/concepts.memql",
+      "fields": [
+        "blockingFailures",
+        "commit",
+        "corpusFingerprint",
+        "costUsd",
+        "finishedAt",
+        "modelIds",
+        "runner",
+        "scenarioCount",
+        "startedAt",
+        "tier",
+        "verdict"
+      ],
+      "required": [
+        "commit",
+        "corpusFingerprint",
+        "scenarioCount",
+        "startedAt",
+        "tier",
+        "verdict"
+      ],
+      "enums": {
+        "tier": [
+          "ci",
+          "live"
+        ],
+        "verdict": [
+          "blocked",
+          "error",
+          "pass"
+        ]
+      }
+    },
+    {
+      "concept": "v1:bench:sample",
+      "file": "bench/concepts.memql",
+      "fields": [
+        "absentReason",
+        "arm",
+        "benchRunId",
+        "commit",
+        "detail",
+        "family",
+        "mad",
+        "maximum",
+        "measuredOn",
+        "median",
+        "metric",
+        "minimum",
+        "n",
+        "p10",
+        "p90",
+        "scenarioId",
+        "tier",
+        "unit"
+      ],
+      "required": [
+        "arm",
+        "benchRunId",
+        "commit",
+        "family",
+        "measuredOn",
+        "metric",
+        "scenarioId",
+        "tier",
+        "unit"
+      ],
+      "enums": {
+        "absentReason": [
+          "",
+          "belowFloor",
+          "ceilingReached",
+          "noProvider",
+          "notMeasurableOnReplay",
+          "seamNotBuilt",
+          "tierNotRun"
+        ],
+        "arm": [
+          "baseline",
+          "platform"
+        ],
+        "family": [
+          "amortizedCost",
+          "durability",
+          "governance",
+          "learningCurve",
+          "recovery",
+          "reliability",
+          "speed"
+        ],
+        "tier": [
+          "ci",
+          "live"
+        ],
+        "unit": [
+          "calls",
+          "count",
+          "ms",
+          "percent",
+          "ratio",
+          "steps",
+          "tokens",
+          "usd"
+        ]
+      }
+    },
+    {
+      "concept": "v1:calendar:booking",
+      "file": "calendar/concepts.memql",
+      "fields": [
+        "bookerEmail",
+        "bookerName",
+        "endsAt",
+        "hoursId",
+        "notes",
+        "ownerUserId",
+        "rescheduledToId",
+        "startsAt",
+        "status"
+      ],
+      "required": [
+        "bookerName",
+        "endsAt",
+        "ownerUserId",
+        "startsAt",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "booked",
+          "cancelled",
+          "rescheduled"
+        ]
+      }
+    },
+    {
+      "concept": "v1:calendar:bookingHours",
+      "file": "calendar/concepts.memql",
+      "fields": [
+        "endLocal",
+        "label",
+        "ownerUserId",
+        "published",
+        "slotMinutes",
+        "startLocal",
+        "timezone",
+        "weekday"
+      ],
+      "required": [
+        "endLocal",
+        "ownerUserId",
+        "published",
+        "startLocal",
+        "timezone",
+        "weekday"
+      ],
+      "enums": {
+        "weekday": [
+          "fri",
+          "mon",
+          "sat",
+          "sun",
+          "thu",
+          "tue",
+          "wed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:calendar:calendarEvent",
+      "file": "calendar/concepts.memql",
+      "fields": [
+        "allDay",
+        "deleted",
+        "endsAt",
+        "externalRef",
+        "location",
+        "notes",
+        "ownerUserId",
+        "recurrence",
+        "source",
+        "startsAt",
+        "title"
+      ],
+      "required": [
+        "ownerUserId",
+        "source",
+        "startsAt",
+        "title"
+      ],
+      "enums": {
+        "source": [
+          "externalSync",
+          "native"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:audience",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "description",
+        "name",
+        "ownerUserId",
+        "status"
+      ],
+      "required": [
+        "name",
+        "ownerUserId"
+      ],
+      "enums": {
+        "status": [
+          "active",
+          "archived"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:campaign",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "audienceId",
+        "completedAt",
+        "failedCount",
+        "fromName",
+        "lastError",
+        "name",
+        "ownerUserId",
+        "recipientCount",
+        "replyTo",
+        "scheduledAt",
+        "senderIdentityId",
+        "sentCount",
+        "skippedCount",
+        "startedAt",
+        "status",
+        "templateId",
+        "trackClicks",
+        "trackOpens"
+      ],
+      "required": [
+        "audienceId",
+        "name",
+        "ownerUserId",
+        "templateId"
+      ],
+      "enums": {
+        "status": [
+          "cancelled",
+          "draft",
+          "failed",
+          "paused",
+          "scheduled",
+          "sending",
+          "sent"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:consentEvent",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "campaignId",
+        "emailDigest",
+        "kind",
+        "occurredAt",
+        "ownerUserId",
+        "reason",
+        "recipientId",
+        "source"
+      ],
+      "required": [
+        "emailDigest",
+        "kind",
+        "occurredAt",
+        "ownerUserId",
+        "source"
+      ],
+      "enums": {
+        "kind": [
+          "bounce",
+          "complaint",
+          "grant",
+          "suppress",
+          "withdraw"
+        ],
+        "source": [
+          "import",
+          "one_click",
+          "operator",
+          "provider",
+          "rfc8058",
+          "signup"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:delivery",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "attempts",
+        "campaignId",
+        "email",
+        "emailRuleId",
+        "lastError",
+        "nextAttemptAt",
+        "outboundRequestId",
+        "ownerUserId",
+        "recipientId",
+        "sentAt",
+        "skipReason",
+        "status"
+      ],
+      "required": [
+        "campaignId",
+        "email",
+        "ownerUserId",
+        "recipientId",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "failed",
+          "pending",
+          "sent",
+          "skipped"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:emailRule",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "audienceId",
+        "bundleId",
+        "condition",
+        "constructName",
+        "description",
+        "eventKind",
+        "firedCount",
+        "lastError",
+        "lastFiredAt",
+        "name",
+        "ownerUserId",
+        "recipientField",
+        "recipientMode",
+        "recipientRoles",
+        "senderIdentityId",
+        "status",
+        "templateId",
+        "triggerConcept"
+      ],
+      "required": [
+        "eventKind",
+        "name",
+        "ownerUserId",
+        "recipientMode",
+        "templateId",
+        "triggerConcept"
+      ],
+      "enums": {
+        "eventKind": [
+          "created",
+          "updated"
+        ],
+        "recipientMode": [
+          "audience",
+          "cluster_roles",
+          "row_address"
+        ],
+        "status": [
+          "active",
+          "draft",
+          "failed",
+          "paused"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:engagementEvent",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "campaignId",
+        "deliveryId",
+        "kind",
+        "occurredAt",
+        "ownerUserId",
+        "url"
+      ],
+      "required": [
+        "campaignId",
+        "deliveryId",
+        "kind",
+        "occurredAt",
+        "ownerUserId"
+      ],
+      "enums": {
+        "kind": [
+          "click",
+          "open"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:recipient",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "audienceId",
+        "displayName",
+        "email",
+        "fields",
+        "ownerUserId",
+        "source",
+        "subscriptionStatus",
+        "unsubscribedAt"
+      ],
+      "required": [
+        "audienceId",
+        "email",
+        "ownerUserId"
+      ],
+      "enums": {
+        "source": [
+          "import",
+          "manual",
+          "signup"
+        ],
+        "subscriptionStatus": [
+          "bounced",
+          "complained",
+          "subscribed",
+          "unsubscribed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:reputationWindow",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accepted",
+        "complaint",
+        "domain",
+        "hardBounce",
+        "nodeId",
+        "sendingIdentity",
+        "softBounce",
+        "windowStart"
+      ],
+      "required": [
+        "domain",
+        "nodeId",
+        "sendingIdentity",
+        "windowStart"
+      ]
+    },
+    {
+      "concept": "v1:campaigns:sendJob",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "audienceId",
+        "campaignAccountId",
+        "campaignId",
+        "campaignOwnerUserId",
+        "completedAt",
+        "failedCount",
+        "lastError",
+        "recipientCount",
+        "rosterCursor",
+        "rosterOutstanding",
+        "scheduledAt",
+        "sentCount",
+        "skippedCount",
+        "startedAt",
+        "status",
+        "templateId",
+        "throttledUntil"
+      ],
+      "required": [
+        "audienceId",
+        "campaignId",
+        "campaignOwnerUserId",
+        "status",
+        "templateId"
+      ],
+      "enums": {
+        "status": [
+          "cancelled",
+          "completed",
+          "failed",
+          "paused",
+          "queued",
+          "running",
+          "scheduled"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:senderIdentity",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "address",
+        "fromName",
+        "notes",
+        "ownerUserId",
+        "replyTo",
+        "status"
+      ],
+      "required": [
+        "address",
+        "fromName",
+        "ownerUserId"
+      ],
+      "enums": {
+        "status": [
+          "active",
+          "disabled"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:suppression",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "domain",
+        "note",
+        "reason",
+        "sourceCampaignId",
+        "suppressedAt"
+      ],
+      "required": [
+        "reason",
+        "suppressedAt"
+      ],
+      "enums": {
+        "reason": [
+          "complaint",
+          "hard_bounce",
+          "manual",
+          "unsubscribed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:template",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "accountId",
+        "htmlBody",
+        "name",
+        "ownerUserId",
+        "status",
+        "subject",
+        "textBody"
+      ],
+      "required": [
+        "name",
+        "ownerUserId",
+        "subject",
+        "textBody"
+      ],
+      "enums": {
+        "status": [
+          "archived",
+          "draft",
+          "ready"
+        ]
+      }
+    },
+    {
+      "concept": "v1:campaigns:warmupState",
+      "file": "campaigns/concepts.memql",
+      "fields": [
+        "acceptedInStep",
+        "decision",
+        "evaluatedAt",
+        "ratePerMinute",
+        "reason",
+        "sendingIdentity",
+        "step",
+        "stepEnteredAt"
+      ],
+      "required": [
+        "sendingIdentity"
+      ],
+      "enums": {
+        "decision": [
+          "advanced",
+          "held",
+          "reduced",
+          "started"
+        ]
+      }
+    },
+    {
+      "concept": "v1:cluster:cluster",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "databaseId",
+        "identityProviderId",
+        "name",
+        "provider",
+        "region",
+        "seedNodeTypes",
+        "version"
+      ],
+      "required": [
+        "name"
+      ]
+    },
+    {
+      "concept": "v1:cluster:database",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "clusterId",
+        "dbName",
+        "engine",
+        "engineVersion",
+        "extensionVersions",
+        "extensions",
+        "host",
+        "port",
+        "sslMode"
+      ],
+      "required": [
+        "dbName",
+        "engine",
+        "host"
+      ]
+    },
+    {
+      "concept": "v1:cluster:deployment",
+      "file": "deployment/concepts.memql",
+      "fields": [
+        "changelog",
+        "clusterId",
+        "deploymentId",
+        "imageDigest",
+        "notes",
+        "previousDeploymentId",
+        "provider",
+        "region",
+        "status",
+        "triggeredBy",
+        "updatedAt",
+        "version"
+      ],
+      "required": [
+        "deploymentId"
+      ],
+      "enums": {
+        "status": [
+          "failed",
+          "in_progress",
+          "pending",
+          "rolled_back",
+          "succeeded",
+          "superseded"
+        ]
+      }
+    },
+    {
+      "concept": "v1:cluster:deploymentNodeSpec",
+      "file": "deployment/concepts.memql",
+      "fields": [
+        "deploymentId",
+        "imageDigest",
+        "nodeType",
+        "replicas",
+        "updatedAt",
+        "version"
+      ],
+      "required": [
+        "deploymentId",
+        "nodeType"
+      ]
+    },
+    {
+      "concept": "v1:cluster:identityProvider",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "acceptedAudiences",
+        "clientIdPrefix",
+        "clusterId",
+        "issuerUrl",
+        "jwksUrl",
+        "name",
+        "providerType",
+        "redirectUrl"
+      ],
+      "required": [
+        "issuerUrl",
+        "name",
+        "providerType"
+      ],
+      "enums": {
+        "providerType": [
+          "ldap",
+          "oidc",
+          "saml"
+        ]
+      }
+    },
+    {
+      "concept": "v1:cluster:node",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "address",
+        "capabilities",
+        "deploymentId",
+        "flavor",
+        "health",
+        "labels",
+        "lastSeen",
+        "nodeType",
+        "parentId",
+        "provider",
+        "region"
+      ],
+      "required": [
+        "address",
+        "nodeType"
+      ],
+      "enums": {
+        "health": [
+          "connecting",
+          "degraded",
+          "draining",
+          "healthy",
+          "offline",
+          "stopped"
+        ]
+      }
+    },
+    {
+      "concept": "v1:cluster:nodeType",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "capabilities",
+        "codeReference",
+        "defaultLabels",
+        "description",
+        "image",
+        "name"
+      ],
+      "required": [
+        "name"
+      ]
+    },
+    {
+      "concept": "v1:cluster:releaseCut",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "baseSha",
+        "bump",
+        "checkedAt",
+        "dispatchedAt",
+        "error",
+        "pinBumpNote",
+        "pinBumpPrUrl",
+        "releaseUrl",
+        "requestedBy",
+        "requestedByEmail",
+        "status",
+        "tagName",
+        "version"
+      ],
+      "required": [
+        "baseSha",
+        "bump",
+        "requestedBy",
+        "status",
+        "version"
+      ],
+      "enums": {
+        "bump": [
+          "major",
+          "minor",
+          "patch"
+        ],
+        "status": [
+          "dispatched",
+          "failed",
+          "images_available",
+          "tag_created_release_failed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:cluster:spawnEvent",
+      "file": "cluster/concepts.memql",
+      "fields": [
+        "action",
+        "initiatorId",
+        "metadata",
+        "nodeId",
+        "nodeType",
+        "reason"
+      ],
+      "required": [
+        "action",
+        "nodeId",
+        "nodeType"
+      ],
+      "enums": {
+        "action": [
+          "failed",
+          "spawned",
+          "stopped"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:approvalChain",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "companyGid",
+        "currencyCode",
+        "decidedAt",
+        "name",
+        "status",
+        "steps",
+        "storeId",
+        "subjectId",
+        "thresholdAmount"
+      ],
+      "required": [
+        "name",
+        "storeId"
+      ],
+      "enums": {
+        "status": [
+          "approved",
+          "inactive",
+          "pending",
+          "rejected"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:companyLocationNote",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "authoredBy",
+        "companyLocationGid",
+        "note",
+        "status",
+        "storeId"
+      ],
+      "required": [
+        "companyLocationGid",
+        "storeId"
+      ],
+      "enums": {
+        "status": [
+          "draft",
+          "failed",
+          "live"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:creditLimit",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "companyGid",
+        "companyLocationGid",
+        "currencyCode",
+        "limitAmount",
+        "outstandingAmount",
+        "reviewedAt",
+        "reviewedBy",
+        "status",
+        "storeId"
+      ],
+      "required": [
+        "companyGid",
+        "companyLocationGid",
+        "currencyCode",
+        "limitAmount",
+        "storeId"
+      ],
+      "enums": {
+        "status": [
+          "active",
+          "failed",
+          "hold",
+          "waived"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:customerNote",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "authoredBy",
+        "customerGid",
+        "note",
+        "status",
+        "storeId"
+      ],
+      "required": [
+        "customerGid",
+        "storeId"
+      ],
+      "enums": {
+        "status": [
+          "draft",
+          "failed",
+          "live"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:productContent",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "authoredBy",
+        "blocks",
+        "description",
+        "keywords",
+        "productGid",
+        "status",
+        "storeId",
+        "summary"
+      ],
+      "required": [
+        "productGid",
+        "storeId"
+      ],
+      "enums": {
+        "status": [
+          "draft",
+          "failed",
+          "live"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:quote",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "approvalChainId",
+        "companyContactGid",
+        "companyGid",
+        "companyLocationGid",
+        "currencyCode",
+        "draftOrderGid",
+        "lines",
+        "quoteNumber",
+        "respondedAt",
+        "salesRepId",
+        "sentAt",
+        "status",
+        "storeId",
+        "terms",
+        "totalAmount",
+        "validUntil"
+      ],
+      "required": [
+        "companyGid",
+        "currencyCode",
+        "quoteNumber",
+        "storeId"
+      ],
+      "enums": {
+        "status": [
+          "accepted",
+          "declined",
+          "draft",
+          "expired",
+          "sent"
+        ]
+      }
+    },
+    {
+      "concept": "v1:commerce:reorderList",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "active",
+        "companyContactGid",
+        "companyGid",
+        "companyLocationGid",
+        "lastOrderedAt",
+        "lines",
+        "name",
+        "storeId"
+      ],
+      "required": [
+        "companyGid",
+        "name",
+        "storeId"
+      ]
+    },
+    {
+      "concept": "v1:commerce:salesRep",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "active",
+        "displayName",
+        "email",
+        "storeId",
+        "territoryId",
+        "userId"
+      ],
+      "required": [
+        "displayName",
+        "storeId"
+      ]
+    },
+    {
+      "concept": "v1:commerce:territory",
+      "file": "commerce/concepts.memql",
+      "fields": [
+        "active",
+        "companyGids",
+        "companyLocationGids",
+        "name",
+        "storeId"
+      ],
+      "required": [
+        "name",
+        "storeId"
+      ]
+    },
+    {
+      "concept": "v1:common:attachment",
+      "file": "common/concepts.memql",
+      "fields": [
+        "blobUrl",
+        "fileName",
+        "fileSize",
+        "mimeType",
+        "status",
+        "summary",
+        "transcription",
+        "uploadedBy"
+      ],
+      "required": [
+        "blobUrl",
+        "fileName",
+        "mimeType",
+        "status",
+        "uploadedBy"
+      ],
+      "enums": {
+        "status": [
+          "error",
+          "processing",
+          "ready"
+        ]
+      }
+    },
+    {
+      "concept": "v1:compose:composeTemplate",
+      "file": "compose/concepts.memql",
+      "fields": [
+        "accountIds",
+        "archived",
+        "description",
+        "fileId",
+        "format",
+        "name",
+        "ownerUserId",
+        "placeholders"
+      ],
+      "required": [
+        "fileId",
+        "format",
+        "name",
+        "ownerUserId"
+      ],
+      "enums": {
+        "format": [
+          "csv",
+          "docx",
+          "html",
+          "json",
+          "markdown",
+          "pdf",
+          "txt"
+        ]
+      }
+    },
+    {
+      "concept": "v1:compose:composition",
+      "file": "compose/concepts.memql",
+      "fields": [
+        "accountIds",
+        "archived",
+        "deployableKind",
+        "failureReason",
+        "folderId",
+        "format",
+        "goalId",
+        "modelsUsed",
+        "name",
+        "outputFileId",
+        "ownerUserId",
+        "provenanceEmbedded",
+        "provenanceNote",
+        "recipeId",
+        "runId",
+        "sha256",
+        "sources",
+        "statement",
+        "status",
+        "templateId"
+      ],
+      "required": [
+        "format",
+        "name",
+        "ownerUserId",
+        "status"
+      ],
+      "enums": {
+        "deployableKind": [
+          "",
+          "shopify_storefront",
+          "spa",
+          "static"
+        ],
+        "format": [
+          "csv",
+          "docx",
+          "html",
+          "json",
+          "markdown",
+          "pdf",
+          "txt"
+        ],
+        "status": [
+          "cancelled",
+          "composing",
+          "draft",
+          "failed",
+          "ready",
+          "rendering"
+        ]
+      }
+    },
+    {
+      "concept": "v1:compose:recipe",
+      "file": "compose/concepts.memql",
+      "fields": [
+        "accountIds",
+        "archived",
+        "description",
+        "folderId",
+        "format",
+        "lastRunAt",
+        "name",
+        "ownerUserId",
+        "runCount",
+        "sourceSelectors",
+        "templateId"
+      ],
+      "required": [
+        "format",
+        "name",
+        "ownerUserId"
+      ],
+      "enums": {
+        "format": [
+          "csv",
+          "docx",
+          "html",
+          "json",
+          "markdown",
+          "pdf",
+          "txt"
+        ]
+      }
+    },
+    {
+      "concept": "v1:data:log",
+      "file": "data/concepts.memql",
+      "fields": [
+        "action",
+        "active",
+        "fromState",
+        "identityId",
+        "identityType",
+        "note",
+        "partitionId",
+        "recordId",
+        "toState"
+      ],
+      "required": [
+        "action",
+        "fromState",
+        "identityId",
+        "identityType",
+        "partitionId",
+        "recordId",
+        "toState"
+      ],
+      "enums": {
+        "action": [
+          "check",
+          "confirm",
+          "revert"
+        ],
+        "fromState": [
+          "checked",
+          "confirmed",
+          "draft"
+        ],
+        "identityType": [
+          "human",
+          "synthetic"
+        ],
+        "toState": [
+          "checked",
+          "confirmed",
+          "draft"
+        ]
+      }
+    },
+    {
+      "concept": "v1:data:policy",
+      "file": "data/concepts.memql",
+      "fields": [
+        "active",
+        "checkedDataUsable",
+        "partitionId",
+        "requiredChecks",
+        "requiredConfirmations",
+        "revertMinRole",
+        "targetRecordType"
+      ],
+      "required": [
+        "targetRecordType"
+      ],
+      "enums": {
+        "revertMinRole": [
+          "admin",
+          "owner",
+          "reader",
+          "writer"
+        ]
+      }
+    },
+    {
+      "concept": "v1:data:record",
+      "file": "data/concepts.memql",
+      "fields": [
+        "active",
+        "checkCount",
+        "confidence",
+        "confirmCount",
+        "data",
+        "importSource",
+        "importedBy",
+        "label",
+        "lastCheckedAt",
+        "lastCheckedBy",
+        "lastConfirmedAt",
+        "lastConfirmedBy",
+        "naturalKeyField",
+        "naturalKeyValue",
+        "partitionId",
+        "recordType",
+        "sourceAttachmentId",
+        "validationState"
+      ],
+      "required": [
+        "data",
+        "importSource",
+        "importedBy",
+        "label",
+        "partitionId",
+        "recordType"
+      ],
+      "enums": {
+        "importSource": [
+          "chat-ai-research",
+          "chat-file-upload",
+          "manual"
+        ],
+        "validationState": [
+          "checked",
+          "confirmed",
+          "draft"
+        ]
+      }
+    },
+    {
+      "concept": "v1:forge:project",
+      "file": "forge/concepts.memql",
+      "fields": [
+        "createdByUserId",
+        "description",
+        "name",
+        "provenanceMutation",
+        "repo",
+        "slug",
+        "status",
+        "targetApp"
+      ],
+      "required": [
+        "name",
+        "slug",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "active",
+          "archived"
+        ]
+      }
+    },
+    {
+      "concept": "v1:forge:request",
+      "file": "forge/concepts.memql",
+      "fields": [
+        "approvedByUserId",
+        "attachmentIds",
+        "body",
+        "priority",
+        "projectId",
+        "provenanceMutation",
+        "requestType",
+        "resolution",
+        "status",
+        "submitterRole",
+        "submitterUserId",
+        "targetEnv",
+        "title",
+        "validatedByUserId"
+      ],
+      "required": [
+        "body",
+        "priority",
+        "projectId",
+        "requestType",
+        "status",
+        "submitterRole",
+        "submitterUserId",
+        "targetEnv",
+        "title"
+      ],
+      "enums": {
+        "priority": [
+          "high",
+          "low",
+          "normal",
+          "urgent"
+        ],
+        "requestType": [
+          "bug",
+          "checkIn",
+          "chore",
+          "feature",
+          "question",
+          "timeOff"
+        ],
+        "status": [
+          "approved",
+          "changes_requested",
+          "needs_approval",
+          "needs_validation",
+          "queued",
+          "rejected",
+          "submitted",
+          "validated"
+        ],
+        "submitterRole": [
+          "admin",
+          "owner",
+          "reader",
+          "writer"
+        ],
+        "targetEnv": [
+          "production",
+          "staging"
+        ]
+      }
+    },
+    {
+      "concept": "v1:forge:requestEvent",
+      "file": "forge/concepts.memql",
+      "fields": [
+        "actorRole",
+        "actorUserId",
+        "fromStatus",
+        "kind",
+        "note",
+        "provenanceMutation",
+        "requestId",
+        "toStatus"
+      ],
+      "required": [
+        "actorUserId",
+        "kind",
+        "requestId"
+      ],
+      "enums": {
+        "kind": [
+          "approved",
+          "changes_requested",
+          "commented",
+          "mentored",
+          "rejected",
+          "routed",
+          "submitted",
+          "validated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:healing:healedOverride",
+      "file": "healing/concepts.memql",
+      "fields": [
+        "active",
+        "baseConstructId",
+        "blastRadius",
+        "overrideData",
+        "ownerUserId",
+        "reason",
+        "rejectionReason",
+        "sourcePreconditionId",
+        "tier",
+        "valid",
+        "validatedAt",
+        "validatedBy",
+        "validationStatus",
+        "version"
+      ],
+      "required": [
+        "baseConstructId",
+        "ownerUserId",
+        "tier"
+      ],
+      "enums": {
+        "blastRadius": [
+          "personal",
+          "shared",
+          "spine_adjacent"
+        ],
+        "tier": [
+          "base",
+          "overlay"
+        ],
+        "validationStatus": [
+          "proposed",
+          "rejected",
+          "validated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:accessRequest",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "additionalContext",
+        "email",
+        "invitationId",
+        "name",
+        "reviewedAt",
+        "reviewedBy",
+        "reviewerNote",
+        "riskScore",
+        "riskSignals",
+        "sourceIP",
+        "status",
+        "userAgent"
+      ],
+      "required": [
+        "email",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "approved",
+          "expired",
+          "pending",
+          "rejected"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:account",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "archivedAt",
+        "description",
+        "externalRef",
+        "name",
+        "ownerUserId",
+        "primaryContactEmail",
+        "primaryContactName",
+        "status",
+        "updatedAt"
+      ],
+      "required": [
+        "name",
+        "ownerUserId",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "active",
+          "archived",
+          "suspended"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:accountEntitlement",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "accountId",
+        "accountKind",
+        "maxConcurrentTasks",
+        "note",
+        "tier"
+      ],
+      "required": [
+        "accountId",
+        "accountKind",
+        "tier"
+      ],
+      "enums": {
+        "accountKind": [
+          "org",
+          "user"
+        ],
+        "tier": [
+          "enterprise",
+          "free",
+          "pro",
+          "team"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:auditEvent",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "action",
+        "actorEmail",
+        "actorIdentityId",
+        "actorRole",
+        "actorUserId",
+        "category",
+        "correlationId",
+        "detail",
+        "failureReason",
+        "occurredAt",
+        "outcome",
+        "prevEventHash",
+        "sourceIP",
+        "targetEmail",
+        "targetId",
+        "targetType",
+        "userAgent"
+      ],
+      "required": [
+        "action",
+        "category",
+        "occurredAt"
+      ],
+      "enums": {
+        "category": [
+          "admin",
+          "auth",
+          "authorization",
+          "configuration",
+          "data",
+          "identity"
+        ],
+        "outcome": [
+          "",
+          "blocked",
+          "failure",
+          "success"
+        ],
+        "targetType": [
+          "",
+          "accessRequest",
+          "appSession",
+          "authCode",
+          "badgeIdentity",
+          "clusterSettings",
+          "config",
+          "delegation",
+          "deviceCode",
+          "enrolmentToken",
+          "githubGrant",
+          "group",
+          "groupMembership",
+          "identity",
+          "invitation",
+          "magicLinkRequest",
+          "oauthClient",
+          "passkeyIdentity",
+          "releaseCut",
+          "role",
+          "rowOwnership",
+          "session",
+          "shopifyStore",
+          "upstreamIdentity",
+          "user",
+          "workerPairingCode"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:authActivity",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "action",
+        "actorEmail",
+        "actorIdentityId",
+        "actorRole",
+        "actorUserId",
+        "clientLabel",
+        "detail",
+        "failureReason",
+        "occurredAt",
+        "outcome",
+        "retiredTokenHash",
+        "sessionId",
+        "sourceIP",
+        "userAgent"
+      ],
+      "required": [
+        "action",
+        "actorUserId",
+        "occurredAt",
+        "outcome"
+      ],
+      "enums": {
+        "action": [
+          "grace_window_accept",
+          "pat_auth_accepted",
+          "session_refresh_blocked",
+          "session_refreshed"
+        ],
+        "outcome": [
+          "blocked",
+          "success"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:authCode",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "clientId",
+        "codeChallenge",
+        "codeChallengeMethod",
+        "codeHash",
+        "consumedAt",
+        "consumedFromIP",
+        "expiresAt",
+        "identityId",
+        "magicLinkRequestId",
+        "redirectURI",
+        "state",
+        "userId"
+      ],
+      "required": [
+        "clientId",
+        "codeHash",
+        "expiresAt",
+        "identityId",
+        "magicLinkRequestId",
+        "redirectURI",
+        "userId"
+      ]
+    },
+    {
+      "concept": "v1:identity:authSession",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "clientLabel",
+        "expiresAt",
+        "firstAuthenticatedAt",
+        "identityId",
+        "lastActivityAt",
+        "lastRefreshedAt",
+        "previousRefreshTokenHash",
+        "previousRotatedAt",
+        "refreshTokenHash",
+        "revokedAt",
+        "revokedReason",
+        "source",
+        "subject",
+        "tokenHash",
+        "userId"
+      ],
+      "required": [
+        "expiresAt",
+        "source",
+        "subject",
+        "tokenHash"
+      ],
+      "enums": {
+        "revokedReason": [
+          "",
+          "admin",
+          "all_sessions",
+          "reuse_detected",
+          "user_action"
+        ],
+        "source": [
+          "bff_exchange",
+          "device_code",
+          "oidc_cookie"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:clusterSettings",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "accessRequestNotifyEmails",
+        "accessRequestNotifyThrottleMins",
+        "accessTokenTTLSeconds",
+        "authoredAutomationsEnabled",
+        "bootstrapBirthdate",
+        "bootstrapEmail",
+        "bootstrapFirstName",
+        "bootstrapGender",
+        "bootstrapLastName",
+        "bootstrapPhone",
+        "bootstrapPrimaryRole",
+        "bootstrappedAt",
+        "brandIconDataURI",
+        "brandLogoDataURI",
+        "brandName",
+        "brandPrimaryColor",
+        "clusterDomain",
+        "internalDefaultRole",
+        "internalDomains",
+        "invitationTTLDays",
+        "magicLinkTTLSeconds",
+        "refreshCookieSameSite",
+        "refreshTokenTTLSeconds",
+        "registeredClientsJSON",
+        "registrationDomains",
+        "registrationMode"
+      ],
+      "required": [
+        "registrationMode"
+      ],
+      "enums": {
+        "refreshCookieSameSite": [
+          "",
+          "lax",
+          "none"
+        ],
+        "registrationMode": [
+          "domain_restricted",
+          "invite_only",
+          "open",
+          "waitlist"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:delegation",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "active",
+        "agentId",
+        "approvedBySubject",
+        "createdBySubject",
+        "expiresAt",
+        "identityId",
+        "identitySubject",
+        "identityType",
+        "note",
+        "revokedAt",
+        "revokedBySubject",
+        "roleCeiling",
+        "scopes"
+      ],
+      "required": [
+        "agentId",
+        "createdBySubject",
+        "identityId",
+        "identitySubject",
+        "identityType",
+        "roleCeiling"
+      ],
+      "enums": {
+        "identityType": [
+          "human",
+          "synthetic"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:deviceCode",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "approvedAt",
+        "approvedByUserId",
+        "clientId",
+        "codeChallenge",
+        "codeChallengeMethod",
+        "deniedAt",
+        "deviceCodeHash",
+        "expiresAt",
+        "intervalSeconds",
+        "lastPolledAt",
+        "redeemedAt",
+        "scope",
+        "sourceIP",
+        "status",
+        "userAgent",
+        "userCodeHash"
+      ],
+      "required": [
+        "clientId",
+        "deviceCodeHash",
+        "expiresAt",
+        "intervalSeconds",
+        "status",
+        "userCodeHash"
+      ],
+      "enums": {
+        "status": [
+          "approved",
+          "denied",
+          "pending",
+          "redeemed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:enrolmentToken",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "consumedAt",
+        "consumedFromIP",
+        "expiresAt",
+        "invitationId",
+        "issuedBy",
+        "revokedAt",
+        "sourceIP",
+        "tokenHash",
+        "userId"
+      ],
+      "required": [
+        "expiresAt",
+        "issuedBy",
+        "tokenHash",
+        "userId"
+      ]
+    },
+    {
+      "concept": "v1:identity:githubConnectState",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "consumedAt",
+        "consumedFromIP",
+        "expiresAt",
+        "returnPath",
+        "sourceIP",
+        "stateHash",
+        "userId"
+      ],
+      "required": [
+        "expiresAt",
+        "stateHash",
+        "userId"
+      ]
+    },
+    {
+      "concept": "v1:identity:group",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "accountId",
+        "archivedAt",
+        "description",
+        "kind",
+        "name",
+        "ownerUserId",
+        "status"
+      ],
+      "required": [
+        "kind",
+        "name",
+        "status"
+      ],
+      "enums": {
+        "kind": [
+          "account",
+          "custom"
+        ],
+        "status": [
+          "active",
+          "archived"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:groupMembership",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "addedBy",
+        "groupId",
+        "origin",
+        "ownerUserId",
+        "removedAt",
+        "removedBy",
+        "status",
+        "userId"
+      ],
+      "required": [
+        "groupId",
+        "origin",
+        "status",
+        "userId"
+      ],
+      "enums": {
+        "origin": [
+          "added",
+          "domain",
+          "invitation"
+        ],
+        "status": [
+          "active",
+          "removed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:identity",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "active",
+        "credentials",
+        "identityType",
+        "label",
+        "lastUsedAt",
+        "usableByAgents",
+        "userId"
+      ],
+      "required": [
+        "credentials",
+        "identityType",
+        "userId"
+      ],
+      "enums": {
+        "identityType": [
+          "account_token",
+          "api_key",
+          "badge",
+          "magic_link",
+          "node_token",
+          "oauth",
+          "oidc",
+          "passkey",
+          "recovery_key",
+          "service_account",
+          "worker_token"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:invitation",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "accountId",
+        "active",
+        "bindingHash",
+        "deliveryAttemptedAt",
+        "deliveryError",
+        "deliveryState",
+        "expiresAt",
+        "groupIds",
+        "inviteeEmail",
+        "inviteeId",
+        "inviteeName",
+        "inviteeRole",
+        "inviterId",
+        "inviterName",
+        "kind",
+        "previousTokenHash",
+        "respondedAt",
+        "status",
+        "tokenHash"
+      ],
+      "required": [
+        "inviterId",
+        "kind",
+        "status"
+      ],
+      "enums": {
+        "deliveryState": [
+          "failed",
+          "not_attempted",
+          "sent"
+        ],
+        "kind": [
+          "guest",
+          "user"
+        ],
+        "status": [
+          "accepted",
+          "dismissed",
+          "ignored",
+          "kicked",
+          "left",
+          "pending"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:magicLinkRequest",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "approvedAt",
+        "approvedFromIP",
+        "approvedUserAgent",
+        "bindingHash",
+        "consumedAt",
+        "consumedFromIP",
+        "email",
+        "expiresAt",
+        "invitationId",
+        "oauthCtxJSON",
+        "sourceIP",
+        "tokenHash",
+        "userAgent"
+      ],
+      "required": [
+        "email",
+        "expiresAt",
+        "tokenHash"
+      ]
+    },
+    {
+      "concept": "v1:identity:oauthClient",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "clientId",
+        "clientName",
+        "corsOriginsJSON",
+        "grantTypes",
+        "redirectURIsJSON",
+        "registeredAt",
+        "responseTypes",
+        "tokenEndpointAuthMethod"
+      ],
+      "required": [
+        "clientId",
+        "redirectURIsJSON"
+      ]
+    },
+    {
+      "concept": "v1:identity:user",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "active",
+        "birthdate",
+        "dataExportLastAt",
+        "deletionScheduledAt",
+        "displayName",
+        "firstName",
+        "gender",
+        "internal",
+        "lastName",
+        "lastSeenAt",
+        "legalAcceptance",
+        "phone",
+        "preferences",
+        "primaryEmail",
+        "primaryRole",
+        "revocationEpoch",
+        "role",
+        "sharedMailbox",
+        "signInPolicy",
+        "suspendedAt",
+        "suspendedReason"
+      ],
+      "required": [
+        "displayName",
+        "primaryEmail"
+      ],
+      "enums": {
+        "signInPolicy": [
+          "any",
+          "passkey_only"
+        ]
+      }
+    },
+    {
+      "concept": "v1:identity:workerPairingCode",
+      "file": "identity/concepts.memql",
+      "fields": [
+        "clusterURL",
+        "codeHash",
+        "expiresAt",
+        "ownerUserId",
+        "redeemedAt",
+        "redeemedBy",
+        "redeemedFromIP",
+        "sourceIP"
+      ],
+      "required": [
+        "clusterURL",
+        "codeHash",
+        "expiresAt",
+        "ownerUserId"
+      ]
+    },
+    {
+      "concept": "v1:install:installRun",
+      "file": "install/concepts.memql",
+      "fields": [
+        "completedSteps",
+        "currentStep",
+        "engineTag",
+        "failureReason",
+        "graph",
+        "hostArch",
+        "hostOs",
+        "receipts",
+        "runId",
+        "startedAt",
+        "status",
+        "triggeredBy",
+        "updatedAt"
+      ],
+      "required": [
+        "runId"
+      ],
+      "enums": {
+        "graph": [
+          "install",
+          "rebuild",
+          "uninstall"
+        ],
+        "status": [
+          "cancelled",
+          "failed",
+          "running",
+          "succeeded"
+        ]
+      }
+    },
+    {
+      "concept": "v1:knowledge:documentChunk",
+      "file": "knowledge/concepts.memql",
+      "fields": [
+        "documentId",
+        "domainId",
+        "seq",
+        "source",
+        "sourceAgentId",
+        "sourceRef",
+        "sourceTopic",
+        "superseded",
+        "supersededAt",
+        "supersededReason",
+        "text",
+        "tokenCount",
+        "validationStatus"
+      ],
+      "required": [
+        "domainId",
+        "source",
+        "text"
+      ],
+      "enums": {
+        "source": [
+          "appStructure",
+          "augment",
+          "crossDomainBridge",
+          "fileUpload",
+          "llmSeeded",
+          "trainerAgent"
+        ],
+        "validationStatus": [
+          "rejected",
+          "unvalidated",
+          "validated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:knowledge:knowledgeDomain",
+      "file": "knowledge/concepts.memql",
+      "fields": [
+        "accountId",
+        "active",
+        "category",
+        "description",
+        "name",
+        "predefined",
+        "relevantForRoles",
+        "requiredByToolSlugs",
+        "source",
+        "tier"
+      ],
+      "required": [
+        "name"
+      ],
+      "enums": {
+        "tier": [
+          "A",
+          "B",
+          "C"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:artifact",
+      "file": "library/concepts.memql",
+      "fields": [
+        "accountIds",
+        "agentId",
+        "archived",
+        "folderId",
+        "format",
+        "kind",
+        "labels",
+        "lens",
+        "live",
+        "mimeType",
+        "ownerUserId",
+        "partitionId",
+        "producedByRunId",
+        "producedByWorkerId",
+        "producedByWorkerName",
+        "scope",
+        "source",
+        "sourceConceptRef",
+        "summary",
+        "title",
+        "updatedAt",
+        "validationStatus"
+      ],
+      "required": [
+        "kind",
+        "lens",
+        "ownerUserId",
+        "source",
+        "sourceConceptRef",
+        "title"
+      ],
+      "enums": {
+        "format": [
+          "conversation",
+          "document",
+          "image",
+          "markdown",
+          "other",
+          "pdf",
+          "spreadsheet",
+          "text"
+        ],
+        "kind": [
+          "calendar_event",
+          "document",
+          "file",
+          "generated_output",
+          "live_source",
+          "memory",
+          "note",
+          "todo"
+        ],
+        "lens": [
+          "artifact",
+          "record"
+        ],
+        "scope": [
+          "private",
+          "workspace"
+        ],
+        "source": [
+          "agent_generated",
+          "computer_use",
+          "derived",
+          "exported",
+          "live",
+          "uploaded",
+          "user_created",
+          "workbench_generated"
+        ],
+        "validationStatus": [
+          "none",
+          "partiallyValidated",
+          "rejected",
+          "superseded",
+          "unvalidated",
+          "validated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:documentVersion",
+      "file": "library/concepts.memql",
+      "fields": [
+        "attachmentId",
+        "authorId",
+        "authorKind",
+        "content",
+        "documentId",
+        "note",
+        "ownerUserId",
+        "parentVersionId",
+        "partitionId",
+        "producedByRunId",
+        "versionNumber"
+      ],
+      "required": [
+        "authorKind",
+        "documentId",
+        "ownerUserId",
+        "versionNumber"
+      ],
+      "enums": {
+        "authorKind": [
+          "assistant",
+          "system",
+          "user"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:file",
+      "file": "library/concepts.memql",
+      "fields": [
+        "archived",
+        "blobUrl",
+        "embeddingStatus",
+        "failureReason",
+        "folderId",
+        "format",
+        "linkCheckedAt",
+        "linkState",
+        "mimeType",
+        "name",
+        "ownerUserId",
+        "sha256",
+        "size",
+        "source",
+        "status",
+        "summary",
+        "trainedIntoDomainIds",
+        "uploadedFromPath",
+        "uploadedFromWorkerId",
+        "uploadedFromWorkerName",
+        "versionNumber",
+        "versionUploadedAt"
+      ],
+      "required": [
+        "blobUrl",
+        "mimeType",
+        "name",
+        "ownerUserId",
+        "size",
+        "source",
+        "status"
+      ],
+      "enums": {
+        "embeddingStatus": [
+          "complete",
+          "none",
+          "partial"
+        ],
+        "format": [
+          "conversation",
+          "document",
+          "image",
+          "markdown",
+          "other",
+          "pdf",
+          "spreadsheet",
+          "text"
+        ],
+        "linkState": [
+          "origin_gone",
+          "stale",
+          "synced"
+        ],
+        "source": [
+          "agent_generated",
+          "derived",
+          "exported",
+          "uploaded"
+        ],
+        "status": [
+          "analyzing",
+          "failed",
+          "ready",
+          "stored"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:fileChunk",
+      "file": "library/concepts.memql",
+      "fields": [
+        "artifactId",
+        "fileId",
+        "ownerUserId",
+        "seq",
+        "text",
+        "tokenCount"
+      ],
+      "required": [
+        "artifactId",
+        "fileId",
+        "ownerUserId",
+        "seq",
+        "text"
+      ]
+    },
+    {
+      "concept": "v1:library:fileVersion",
+      "file": "library/concepts.memql",
+      "fields": [
+        "blobUrl",
+        "fileId",
+        "format",
+        "mimeType",
+        "name",
+        "ownerUserId",
+        "sha256",
+        "size",
+        "summary",
+        "supersededAt",
+        "uploadedAt",
+        "uploadedFromPath",
+        "uploadedFromWorkerId",
+        "uploadedFromWorkerName",
+        "versionNumber"
+      ],
+      "required": [
+        "blobUrl",
+        "fileId",
+        "mimeType",
+        "name",
+        "ownerUserId",
+        "size",
+        "supersededAt",
+        "uploadedAt",
+        "versionNumber"
+      ],
+      "enums": {
+        "format": [
+          "conversation",
+          "document",
+          "image",
+          "markdown",
+          "other",
+          "pdf",
+          "spreadsheet",
+          "text"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:folder",
+      "file": "library/concepts.memql",
+      "fields": [
+        "archived",
+        "deleted",
+        "name",
+        "ownerUserId",
+        "parentFolderId"
+      ],
+      "required": [
+        "name",
+        "ownerUserId"
+      ]
+    },
+    {
+      "concept": "v1:library:generatedOutput",
+      "file": "library/concepts.memql",
+      "fields": [
+        "attachmentId",
+        "body",
+        "format",
+        "mimeType",
+        "ownerUserId",
+        "partitionId",
+        "producedByAgentId",
+        "producedByRunId",
+        "producedByWorkerId",
+        "producedByWorkerName",
+        "source",
+        "summary",
+        "title"
+      ],
+      "required": [
+        "format",
+        "ownerUserId",
+        "source",
+        "title"
+      ],
+      "enums": {
+        "format": [
+          "document",
+          "image",
+          "markdown",
+          "other",
+          "pdf",
+          "spreadsheet",
+          "text"
+        ],
+        "source": [
+          "agent_generated",
+          "computer_use",
+          "derived",
+          "user_created",
+          "workbench_generated"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:memory",
+      "file": "library/concepts.memql",
+      "fields": [
+        "agentId",
+        "content",
+        "kind",
+        "ownerUserId",
+        "partitionId",
+        "summary",
+        "title"
+      ],
+      "required": [
+        "content",
+        "kind",
+        "ownerUserId",
+        "title"
+      ],
+      "enums": {
+        "kind": [
+          "episodic",
+          "fact",
+          "instruction",
+          "other",
+          "preference"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:uploadSession",
+      "file": "library/concepts.memql",
+      "fields": [
+        "blobPath",
+        "chunkSize",
+        "fileId",
+        "folderId",
+        "labels",
+        "mimeType",
+        "name",
+        "ownerUserId",
+        "size",
+        "status",
+        "targetArtifactId",
+        "uploadedFromPath",
+        "uploadedFromWorkerId",
+        "uploadedFromWorkerName"
+      ],
+      "required": [
+        "blobPath",
+        "chunkSize",
+        "fileId",
+        "name",
+        "ownerUserId",
+        "size",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "abandoned",
+          "completed",
+          "open"
+        ]
+      }
+    },
+    {
+      "concept": "v1:library:watchedFolder",
+      "file": "library/concepts.memql",
+      "fields": [
+        "archived",
+        "bytesSeen",
+        "excludeGlobs",
+        "filesSeen",
+        "folderId",
+        "includeHidden",
+        "lastSweepAt",
+        "lastSweepError",
+        "localPath",
+        "originState",
+        "ownerUserId",
+        "status",
+        "workerId"
+      ],
+      "required": [
+        "localPath",
+        "ownerUserId",
+        "status",
+        "workerId"
+      ],
+      "enums": {
+        "originState": [
+          "missing",
+          "ok",
+          "refused_by_policy",
+          "unreadable"
+        ],
+        "status": [
+          "active",
+          "paused"
+        ]
+      }
+    },
+    {
+      "concept": "v1:memory:belief",
+      "file": "memory/concepts.memql",
+      "fields": [
+        "confidence",
+        "content",
+        "embedding",
+        "kind",
+        "lastReinforced",
+        "ownerUserId",
+        "provenanceMutation",
+        "reinforceCount",
+        "sourceEpisodes",
+        "status"
+      ],
+      "required": [
+        "confidence",
+        "content",
+        "kind",
+        "lastReinforced",
+        "ownerUserId",
+        "reinforceCount",
+        "sourceEpisodes",
+        "status"
+      ],
+      "enums": {
+        "kind": [
+          "fact",
+          "outcome",
+          "preference"
+        ],
+        "status": [
+          "active",
+          "pruned"
+        ]
+      }
+    },
+    {
+      "concept": "v1:memory:consolidationCursor",
+      "file": "memory/concepts.memql",
+      "fields": [
+        "episodesSeen",
+        "lastRunAt",
+        "ownerUserId",
+        "provenanceMutation",
+        "watermark"
+      ],
+      "required": [
+        "ownerUserId",
+        "watermark"
+      ]
+    },
+    {
+      "concept": "v1:models:modelProfile",
+      "file": "models/concepts.memql",
+      "fields": [
+        "active",
+        "category",
+        "contextWindow",
+        "curated",
+        "dimensions",
+        "family",
+        "flags",
+        "license",
+        "measured",
+        "memoryNeedBytes",
+        "minMachineClass",
+        "modelId",
+        "notes",
+        "offeredOn",
+        "params",
+        "quant",
+        "recommendedFor",
+        "runtime",
+        "sizeBytes",
+        "source",
+        "unavailable"
+      ],
+      "required": [
+        "category",
+        "minMachineClass",
+        "modelId",
+        "runtime"
+      ],
+      "enums": {
+        "category": [
+          "audioIn",
+          "audioOut",
+          "embeddings",
+          "imageGen",
+          "omni",
+          "reasoning",
+          "text",
+          "videoGen",
+          "vision"
+        ],
+        "minMachineClass": [
+          "128",
+          "16",
+          "24",
+          "32",
+          "64"
+        ],
+        "runtime": [
+          "comfyui",
+          "kokoro",
+          "mflux",
+          "mlx",
+          "nemo",
+          "ollama",
+          "whispercpp"
+        ]
+      }
+    },
+    {
+      "concept": "v1:notes:note",
+      "file": "notes/concepts.memql",
+      "fields": [
+        "body",
+        "ownerUserId",
+        "tags",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "body",
+        "ownerUserId"
+      ]
+    },
+    {
+      "concept": "v1:observability:codeMetric",
+      "file": "observability/concepts.memql",
+      "fields": [
+        "bucket",
+        "callCount",
+        "codeReference",
+        "errorCount",
+        "errorRate",
+        "p50DurationNs",
+        "p95DurationNs",
+        "p99DurationNs",
+        "totalDurationNs",
+        "windowEnd",
+        "windowStart"
+      ],
+      "required": [
+        "bucket",
+        "callCount",
+        "codeReference",
+        "errorCount",
+        "windowEnd",
+        "windowStart"
+      ],
+      "enums": {
+        "bucket": [
+          "1h",
+          "1m"
+        ]
+      }
+    },
+    {
+      "concept": "v1:observability:codeProfile",
+      "file": "observability/concepts.memql",
+      "fields": [
+        "codeReference",
+        "expiresAt",
+        "level",
+        "reason",
+        "redactArgs",
+        "retentionDays",
+        "sampleRate",
+        "setBy"
+      ],
+      "required": [
+        "codeReference",
+        "level"
+      ],
+      "enums": {
+        "level": [
+          "count",
+          "meta",
+          "off",
+          "verbose"
+        ]
+      }
+    },
+    {
+      "concept": "v1:observability:invocation",
+      "file": "observability/concepts.memql",
+      "fields": [
+        "arguments",
+        "codeReference",
+        "durationNs",
+        "errorMessage",
+        "level",
+        "occurredAt",
+        "result",
+        "spanId",
+        "traceId"
+      ],
+      "required": [
+        "codeReference",
+        "durationNs",
+        "level",
+        "occurredAt"
+      ],
+      "enums": {
+        "level": [
+          "count",
+          "meta",
+          "verbose"
+        ]
+      }
+    },
+    {
+      "concept": "v1:observability:logLine",
+      "file": "observability/concepts.memql",
+      "fields": [
+        "app",
+        "attributes",
+        "component",
+        "level",
+        "message",
+        "node",
+        "nodeType",
+        "occurredAt",
+        "session",
+        "subject",
+        "subjectConcept",
+        "userId"
+      ],
+      "required": [
+        "component",
+        "level",
+        "message",
+        "nodeType",
+        "occurredAt"
+      ],
+      "enums": {
+        "level": [
+          "debug",
+          "error",
+          "info",
+          "warn"
+        ],
+        "nodeType": [
+          "agent",
+          "bff",
+          "edge",
+          "identity",
+          "mcp",
+          "os",
+          "planner",
+          "workbench"
+        ]
+      }
+    },
+    {
+      "concept": "v1:observability:siteTraffic",
+      "file": "observability/concepts.memql",
+      "fields": [
+        "bucket",
+        "bytesTotal",
+        "clientErrorCount",
+        "errorCount",
+        "lastServedAt",
+        "requestCount",
+        "siteId",
+        "windowEnd",
+        "windowStart"
+      ],
+      "required": [
+        "bucket",
+        "bytesTotal",
+        "clientErrorCount",
+        "errorCount",
+        "requestCount",
+        "siteId",
+        "windowEnd",
+        "windowStart"
+      ],
+      "enums": {
+        "bucket": [
+          "1h",
+          "1m"
+        ]
+      }
+    },
+    {
+      "concept": "v1:os:desktop",
+      "file": "os/concepts.memql",
+      "fields": [
+        "document",
+        "ownerUserId",
+        "revision"
+      ],
+      "required": [
+        "document",
+        "ownerUserId",
+        "revision"
+      ]
+    },
+    {
+      "concept": "v1:planner:responsibility",
+      "file": "planner/concepts.memql",
+      "fields": [
+        "assignedAgentId",
+        "assignedRoleSlug",
+        "condition",
+        "enabled",
+        "intakeRequest",
+        "intakeResponse",
+        "intakeStatus",
+        "lastEvaluatedAt",
+        "lastResult",
+        "notifyHow",
+        "ownerUserId",
+        "schedule",
+        "scopePartitionId",
+        "statement",
+        "status",
+        "successCriteria",
+        "targetKind",
+        "trigger"
+      ],
+      "required": [
+        "ownerUserId",
+        "statement",
+        "status",
+        "targetKind",
+        "trigger"
+      ],
+      "enums": {
+        "intakeStatus": [
+          "",
+          "applied",
+          "awaitingAnswers",
+          "clear",
+          "pending"
+        ],
+        "status": [
+          "active",
+          "archived",
+          "draft",
+          "paused"
+        ],
+        "targetKind": [
+          "assistant",
+          "specialist",
+          "unassigned"
+        ],
+        "trigger": [
+          "reactive",
+          "recurring",
+          "standing"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:accountFrontDoor",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "accountId",
+        "driftFailures",
+        "failureDetail",
+        "failureReason",
+        "hostChecks",
+        "issuedAt",
+        "lastCheckedAt",
+        "removedAt",
+        "reservedName",
+        "status",
+        "verifiedAt"
+      ],
+      "required": [
+        "accountId",
+        "reservedName",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "issuing",
+          "live",
+          "pending_dns",
+          "removed",
+          "removing",
+          "verifying"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:customDomain",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "accountId",
+        "failureDetail",
+        "failureReason",
+        "hostname",
+        "issuedAt",
+        "lastCheckedAt",
+        "removedAt",
+        "siteId",
+        "status",
+        "token",
+        "verifiedAt"
+      ],
+      "required": [
+        "hostname",
+        "siteId",
+        "status",
+        "token"
+      ],
+      "enums": {
+        "status": [
+          "issuing",
+          "live",
+          "pending_dns",
+          "removed",
+          "removing",
+          "verifying"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:dataOrigin",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "conceptId",
+        "connectors",
+        "dataState",
+        "mirroredTo",
+        "origin"
+      ],
+      "required": [
+        "conceptId",
+        "dataState",
+        "origin"
+      ],
+      "enums": {
+        "dataState": [
+          "mirror",
+          "native",
+          "origin"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:embedderBinding",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "activatedAt",
+        "dimensions",
+        "previousRef",
+        "providerRef",
+        "reembedRunId"
+      ],
+      "required": [
+        "dimensions",
+        "providerRef"
+      ]
+    },
+    {
+      "concept": "v1:platform:fleetModel",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "audioIn",
+        "audioOut",
+        "contextWindow",
+        "embeddings",
+        "imageGen",
+        "machineCount",
+        "machines",
+        "modelId",
+        "online",
+        "onlineCount",
+        "params",
+        "quant",
+        "structuredOutput",
+        "tools",
+        "vision"
+      ],
+      "required": [
+        "audioIn",
+        "audioOut",
+        "embeddings",
+        "imageGen",
+        "machineCount",
+        "modelId",
+        "online",
+        "onlineCount",
+        "structuredOutput",
+        "tools",
+        "vision"
+      ]
+    },
+    {
+      "concept": "v1:platform:globalSecret",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "active",
+        "addedBy",
+        "description",
+        "encryptedValue",
+        "fingerprint",
+        "kind",
+        "lastUsedAt",
+        "name",
+        "rotatedAt"
+      ],
+      "required": [
+        "encryptedValue",
+        "fingerprint",
+        "name"
+      ]
+    },
+    {
+      "concept": "v1:platform:globalVariable",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "active",
+        "description",
+        "name",
+        "value"
+      ],
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    {
+      "concept": "v1:platform:inboundRequest",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "body",
+        "contentType",
+        "dedupeKey",
+        "lastError",
+        "medium",
+        "processedAt",
+        "receivedAt",
+        "signatureVerified",
+        "source",
+        "status"
+      ],
+      "required": [
+        "body",
+        "medium",
+        "source"
+      ],
+      "enums": {
+        "medium": [
+          "mailbox",
+          "webhook"
+        ],
+        "status": [
+          "failed",
+          "processed",
+          "processing",
+          "received"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:inferenceStatus",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "appEligible",
+        "appSessionsInstalled",
+        "cloudConfigured",
+        "doorsOpen",
+        "eligible",
+        "eligibleModelIds",
+        "federationConfigured",
+        "fleetInferenceInstalled",
+        "localEligible",
+        "localModelCount",
+        "minimumContextWindow",
+        "runnableApps"
+      ],
+      "required": [
+        "appEligible",
+        "appSessionsInstalled",
+        "cloudConfigured",
+        "eligible",
+        "federationConfigured",
+        "fleetInferenceInstalled",
+        "localEligible",
+        "localModelCount",
+        "minimumContextWindow"
+      ]
+    },
+    {
+      "concept": "v1:platform:missingCapability",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "capability",
+        "description",
+        "exampleGoals",
+        "firstSeenAt",
+        "kind",
+        "lastSeenAt",
+        "partitionId",
+        "partitionScope",
+        "requestedByAgentId",
+        "requestedFromRunId",
+        "resolution",
+        "sightingCount",
+        "status"
+      ],
+      "required": [
+        "capability",
+        "description",
+        "kind"
+      ],
+      "enums": {
+        "kind": [
+          "connectorKind",
+          "integration",
+          "knowledgeDomain",
+          "liveSource",
+          "modelCapability",
+          "other",
+          "tool"
+        ],
+        "status": [
+          "in_progress",
+          "open",
+          "resolved",
+          "wontfix"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:modelEvidence",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "approvalId",
+        "calls",
+        "foldedAt",
+        "level",
+        "modelId",
+        "parks",
+        "proposal",
+        "repairs",
+        "retries",
+        "ruleHash",
+        "structuredFailures",
+        "week"
+      ],
+      "required": [
+        "calls",
+        "foldedAt",
+        "level",
+        "modelId",
+        "week"
+      ],
+      "enums": {
+        "level": [
+          "embeddings",
+          "fast",
+          "reasoning",
+          "strong"
+        ],
+        "proposal": [
+          "",
+          "declined",
+          "demotion",
+          "none",
+          "promotion"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:modelMeasurement",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "machineId",
+        "measuredAt",
+        "modelId",
+        "ownerUserId",
+        "probeError",
+        "structuredValidity",
+        "suiteVersion",
+        "throughputTps",
+        "toolCallCorrectness",
+        "ttftMs"
+      ],
+      "required": [
+        "machineId",
+        "measuredAt",
+        "modelId",
+        "ownerUserId",
+        "suiteVersion"
+      ]
+    },
+    {
+      "concept": "v1:platform:moduleReadiness",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "core",
+        "lanes",
+        "module",
+        "nodeId",
+        "nodeType",
+        "reportedAt",
+        "state"
+      ],
+      "required": [
+        "module",
+        "nodeId",
+        "nodeType",
+        "reportedAt",
+        "state"
+      ],
+      "enums": {
+        "state": [
+          "configured",
+          "notApplicable",
+          "partial",
+          "unconfigured"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:moduleVerdict",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "core",
+        "disagreement",
+        "module",
+        "nodes",
+        "state"
+      ],
+      "required": [
+        "module",
+        "state"
+      ],
+      "enums": {
+        "state": [
+          "configured",
+          "partial",
+          "unconfigured",
+          "unreported"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:outboundRequest",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "attempts",
+        "body",
+        "dedupeKey",
+        "lastError",
+        "medium",
+        "nextAttemptAt",
+        "requestedBy",
+        "sentAt",
+        "status",
+        "subject",
+        "target"
+      ],
+      "required": [
+        "body",
+        "medium",
+        "target"
+      ],
+      "enums": {
+        "medium": [
+          "email",
+          "webhook"
+        ],
+        "status": [
+          "failed",
+          "pending",
+          "retrying",
+          "sending",
+          "sent"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:outboxEntry",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "action",
+        "attempts",
+        "conceptId",
+        "deliveredAt",
+        "idempotencyKey",
+        "lastError",
+        "nextAttemptAt",
+        "rowRef",
+        "status",
+        "target",
+        "version"
+      ],
+      "required": [
+        "action",
+        "conceptId",
+        "idempotencyKey",
+        "rowRef",
+        "status",
+        "target",
+        "version"
+      ],
+      "enums": {
+        "action": [
+          "retire",
+          "upsert"
+        ],
+        "status": [
+          "dead",
+          "delivered",
+          "delivering",
+          "failed",
+          "pending"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:packState",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "enabled",
+        "packDomain",
+        "reason"
+      ],
+      "required": [
+        "enabled",
+        "packDomain"
+      ]
+    },
+    {
+      "concept": "v1:platform:package",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "artifactId",
+        "autoDeploy",
+        "credentialId",
+        "declares",
+        "deployedVersion",
+        "disabledDeployables",
+        "latestKnownVersion",
+        "name",
+        "ownerUserId",
+        "repoRef",
+        "repoUrl",
+        "sourceKind",
+        "status",
+        "updateAvailable"
+      ],
+      "required": [
+        "name",
+        "sourceKind",
+        "status"
+      ],
+      "enums": {
+        "sourceKind": [
+          "artifact",
+          "repo"
+        ],
+        "status": [
+          "active",
+          "archived"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:packageDeployment",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "automatic",
+        "buildLogTail",
+        "builtOn",
+        "cancelRequested",
+        "deployables",
+        "dslVersion",
+        "error",
+        "finishedAt",
+        "fromDeploymentId",
+        "heartbeatAt",
+        "nodeId",
+        "ownerUserId",
+        "packageId",
+        "report",
+        "requestedBy",
+        "scopedTo",
+        "snapshotArtifactId",
+        "sourceVersion",
+        "startedAt",
+        "status",
+        "stoppedAt"
+      ],
+      "required": [
+        "packageId",
+        "status"
+      ],
+      "enums": {
+        "status": [
+          "abandoned",
+          "analyzing",
+          "awaiting_confirm",
+          "building",
+          "cancelled",
+          "failed",
+          "publishing",
+          "refused",
+          "rolling",
+          "staging_dsl",
+          "succeeded"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:partitionSecret",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "active",
+        "addedBy",
+        "description",
+        "encryptedValue",
+        "fingerprint",
+        "kind",
+        "lastUsedAt",
+        "name",
+        "rotatedAt"
+      ],
+      "required": [
+        "encryptedValue",
+        "fingerprint",
+        "name"
+      ]
+    },
+    {
+      "concept": "v1:platform:partitionVariable",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "active",
+        "description",
+        "name",
+        "value"
+      ],
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    {
+      "concept": "v1:platform:providerAuthStatus",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "authSource",
+        "available",
+        "model",
+        "name",
+        "reason",
+        "vendor"
+      ],
+      "required": [
+        "authSource",
+        "available",
+        "name",
+        "vendor"
+      ],
+      "enums": {
+        "authSource": [
+          "env",
+          "federation",
+          "globalSecret",
+          "globalVariable",
+          "unresolved"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:providerConfigResult",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "applied",
+        "fingerprint",
+        "message",
+        "name",
+        "vendor",
+        "written"
+      ],
+      "required": [
+        "applied",
+        "name",
+        "vendor"
+      ]
+    },
+    {
+      "concept": "v1:platform:providerVerifyResult",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "authSource",
+        "model",
+        "modelsListed",
+        "provider",
+        "reason",
+        "vendor",
+        "verified"
+      ],
+      "required": [
+        "authSource",
+        "provider",
+        "vendor",
+        "verified"
+      ],
+      "enums": {
+        "authSource": [
+          "env",
+          "federation",
+          "globalSecret",
+          "globalVariable",
+          "unresolved"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:providersReloadResult",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "availableOnThisNode",
+        "broadcast",
+        "registered",
+        "requestId"
+      ],
+      "required": [
+        "availableOnThisNode",
+        "broadcast",
+        "registered",
+        "requestId"
+      ]
+    },
+    {
+      "concept": "v1:platform:readinessRecomputeResult",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "nodeId",
+        "written"
+      ],
+      "required": [
+        "nodeId",
+        "written"
+      ]
+    },
+    {
+      "concept": "v1:platform:site",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "accountId",
+        "apiProxy",
+        "artifactId",
+        "binding",
+        "bundleRef",
+        "deleted",
+        "hostname",
+        "kind",
+        "notes",
+        "ownerUserId",
+        "packageDeployableName",
+        "packageId",
+        "settings",
+        "status",
+        "systemOwned",
+        "title"
+      ],
+      "required": [
+        "bundleRef",
+        "hostname",
+        "kind",
+        "status"
+      ],
+      "enums": {
+        "kind": [
+          "shopify_storefront",
+          "spa",
+          "static"
+        ],
+        "status": [
+          "archived",
+          "disabled",
+          "draft",
+          "live"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:sourceCredential",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "encryptedValue",
+        "expiresAt",
+        "externalId",
+        "fingerprint",
+        "host",
+        "installationIds",
+        "kind",
+        "label",
+        "lastUsedAt",
+        "login",
+        "ownerUserId",
+        "refreshToken",
+        "revokedAt",
+        "status"
+      ],
+      "required": [
+        "encryptedValue",
+        "fingerprint",
+        "host",
+        "label",
+        "status"
+      ],
+      "enums": {
+        "kind": [
+          "github_app",
+          "token"
+        ],
+        "status": [
+          "active",
+          "revoked"
+        ]
+      }
+    },
+    {
+      "concept": "v1:platform:syncState",
+      "file": "platform/concepts.memql",
+      "fields": [
+        "backfillCursor",
+        "backfillStatus",
+        "conceptId",
+        "connector",
+        "deadLetterCount",
+        "direction",
+        "driftCount",
+        "lagSeconds",
+        "lastError",
+        "lastInboundAt",
+        "lastReconcileAt",
+        "outboxDepth",
+        "paused"
+      ],
+      "required": [
+        "conceptId",
+        "connector",
+        "direction"
+      ],
+      "enums": {
+        "backfillStatus": [
+          "complete",
+          "failed",
+          "none",
+          "running"
+        ],
+        "direction": [
+          "inbound",
+          "outbound"
+        ]
+      }
+    },
+    {
+      "concept": "v1:rbac:capability",
+      "file": "rbac/concepts.memql",
+      "fields": [
+        "active",
+        "description",
+        "effect",
+        "predefined",
+        "resourceType",
+        "roleSlug",
+        "verb"
+      ],
+      "required": [
+        "effect",
+        "resourceType",
+        "roleSlug",
+        "verb"
+      ],
+      "enums": {
+        "effect": [
+          "allow",
+          "deny"
+        ],
+        "verb": [
+          "create",
+          "delete",
+          "execute",
+          "read",
+          "update"
+        ]
+      }
+    },
+    {
+      "concept": "v1:rbac:role",
+      "file": "rbac/concepts.memql",
+      "fields": [
+        "accountId",
+        "active",
+        "aliases",
+        "description",
+        "name",
+        "predefined",
+        "rank",
+        "slug"
+      ],
+      "required": [
+        "name",
+        "rank",
+        "slug"
+      ]
+    },
+    {
+      "concept": "v1:router:budget",
+      "file": "router/concepts.memql",
+      "fields": [
+        "active",
+        "alertSent",
+        "alertThresholdPct",
+        "limitUSD",
+        "periodType",
+        "resetAt",
+        "scope",
+        "scopeId"
+      ],
+      "required": [
+        "limitUSD",
+        "periodType",
+        "scope"
+      ],
+      "enums": {
+        "periodType": [
+          "daily",
+          "monthly",
+          "weekly"
+        ],
+        "scope": [
+          "agent",
+          "partition"
+        ]
+      }
+    },
+    {
+      "concept": "v1:router:call",
+      "file": "router/concepts.memql",
+      "fields": [
+        "agentId",
+        "billing",
+        "cachedInputCost",
+        "cachedInputTokens",
+        "considered",
+        "degraded",
+        "door",
+        "errorCategory",
+        "errorMessage",
+        "executionSurface",
+        "fallbackFromModel",
+        "inputCost",
+        "inputTokens",
+        "level",
+        "machineOwnerUserId",
+        "minContextTokens",
+        "model",
+        "outcome",
+        "outputCost",
+        "outputTokens",
+        "policy",
+        "policyName",
+        "pricingConfigured",
+        "promptName",
+        "providerName",
+        "requestId",
+        "requestedLevel",
+        "rule",
+        "servedLevel",
+        "streaming",
+        "timeToFirstTokenMs",
+        "tokensEstimated",
+        "tokensPerSec",
+        "totalCost",
+        "totalDurationMs",
+        "touches",
+        "userId",
+        "vendor"
+      ],
+      "required": [
+        "model",
+        "outcome",
+        "providerName",
+        "requestId",
+        "totalDurationMs",
+        "vendor"
+      ],
+      "enums": {
+        "billing": [
+          "local",
+          "metered",
+          "subscription",
+          "unknown"
+        ],
+        "door": [
+          "app",
+          "federation",
+          "local"
+        ],
+        "level": [
+          "embeddings",
+          "fast",
+          "reasoning",
+          "strong"
+        ],
+        "outcome": [
+          "cancelled",
+          "error",
+          "fallback_used",
+          "ok"
+        ],
+        "requestedLevel": [
+          "embeddings",
+          "fast",
+          "reasoning",
+          "strong"
+        ],
+        "servedLevel": [
+          "embeddings",
+          "fast",
+          "reasoning",
+          "strong"
+        ]
+      }
+    },
+    {
+      "concept": "v1:router:modelCatalog",
+      "file": "router/concepts.memql",
+      "fields": [
+        "available",
+        "cachedInputCostPerMillion",
+        "contextWindow",
+        "description",
+        "inputCostPerMillion",
+        "isDefault",
+        "modality",
+        "model",
+        "outputCostPerMillion",
+        "pricingConfigured",
+        "providerName",
+        "providerType",
+        "vendor"
+      ]
+    },
+    {
+      "concept": "v1:router:policyCatalog",
+      "file": "router/concepts.memql",
+      "fields": [
+        "chain",
+        "description",
+        "fallbacks",
+        "name",
+        "primary"
+      ]
+    },
+    {
+      "concept": "v1:safety:approvalRequest",
+      "file": "safety/concepts.memql",
+      "fields": [
+        "action",
+        "agentId",
+        "argsRedacted",
+        "categories",
+        "correlationKey",
+        "decidedAt",
+        "decidedBy",
+        "decisionReason",
+        "expiresAt",
+        "ownerUserId",
+        "reason",
+        "runId",
+        "status",
+        "surface",
+        "tier"
+      ],
+      "required": [
+        "action",
+        "correlationKey",
+        "status",
+        "surface",
+        "tier"
+      ]
+    },
+    {
+      "concept": "v1:safety:classification",
+      "file": "safety/concepts.memql",
+      "fields": [
+        "action",
+        "agentId",
+        "argsRedacted",
+        "categories",
+        "confidence",
+        "correlationId",
+        "decision",
+        "latencyMs",
+        "mode",
+        "ownerUserId",
+        "reason",
+        "ruleId",
+        "runId",
+        "source",
+        "surface",
+        "tier"
+      ],
+      "required": [
+        "action",
+        "decision",
+        "mode",
+        "source",
+        "surface",
+        "tier"
+      ]
+    },
+    {
+      "concept": "v1:safety:outputScreening",
+      "file": "safety/concepts.memql",
+      "fields": [
+        "agentId",
+        "categories",
+        "confidence",
+        "contentLength",
+        "contentType",
+        "correlationId",
+        "latencyMs",
+        "mode",
+        "ownerUserId",
+        "reason",
+        "redactedSample",
+        "ruleId",
+        "runId",
+        "screener",
+        "tier",
+        "verdict"
+      ],
+      "required": [
+        "contentType",
+        "mode",
+        "screener",
+        "tier",
+        "verdict"
+      ]
+    },
+    {
+      "concept": "v1:shopify:abandonedCheckout",
+      "file": "shopify/generated/abandonedCheckout.memql",
+      "fields": [
+        "abandonedCheckoutUrl",
+        "billingAddress",
+        "completedAt",
+        "customAttributes",
+        "customerGid",
+        "defaultCursor",
+        "deleted",
+        "discountCodes",
+        "gid",
+        "name",
+        "note",
+        "shippingAddress",
+        "sourceCreatedAt",
+        "storeId",
+        "subtotalPriceSet",
+        "syncedAt",
+        "taxLines",
+        "taxesIncluded",
+        "totalDiscountSet",
+        "totalDutiesSet",
+        "totalLineItemsPriceSet",
+        "totalPriceSet",
+        "totalTaxSet",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:article",
+      "file": "shopify/generated/article.memql",
+      "fields": [
+        "author",
+        "blogGid",
+        "body",
+        "commentsCount",
+        "defaultCursor",
+        "deleted",
+        "gid",
+        "handle",
+        "image",
+        "isPublished",
+        "metafields",
+        "parentGid",
+        "publishedAt",
+        "sourceCreatedAt",
+        "storeId",
+        "summary",
+        "syncedAt",
+        "tags",
+        "templateSuffix",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:articleComment",
+      "file": "shopify/generated/articleComment.memql",
+      "fields": [
+        "articleGid",
+        "author",
+        "body",
+        "bodyHtml",
+        "deleted",
+        "gid",
+        "ip",
+        "isPublished",
+        "parentGid",
+        "publishedAt",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "syncedAt",
+        "updatedAt",
+        "userAgent"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "PENDING",
+          "PUBLISHED",
+          "REMOVED",
+          "SPAM",
+          "UNAPPROVED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:blog",
+      "file": "shopify/generated/blog.memql",
+      "fields": [
+        "articlesCount",
+        "commentPolicy",
+        "deleted",
+        "feed",
+        "gid",
+        "handle",
+        "metafields",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "tags",
+        "templateSuffix",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "commentPolicy": [
+          "AUTO_PUBLISHED",
+          "CLOSED",
+          "MODERATED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:businessEntity",
+      "file": "shopify/generated/businessEntity.memql",
+      "fields": [
+        "address",
+        "archived",
+        "companyName",
+        "deleted",
+        "displayName",
+        "gid",
+        "legalEntityId",
+        "primary",
+        "shopifyPaymentsAccount",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:catalog",
+      "file": "shopify/generated/catalog.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "operations",
+        "priceListGid",
+        "publicationGid",
+        "status",
+        "storeId",
+        "syncedAt",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "ACTIVE",
+          "ARCHIVED",
+          "DRAFT"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:channel",
+      "file": "shopify/generated/channel.memql",
+      "fields": [
+        "accountId",
+        "accountName",
+        "activeRegions",
+        "app",
+        "deleted",
+        "gid",
+        "handle",
+        "marketsCount",
+        "name",
+        "productsCount",
+        "resourceFeedback",
+        "specificationHandle",
+        "storeId",
+        "supportsFuturePublishing",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:collection",
+      "file": "shopify/generated/collection.memql",
+      "fields": [
+        "activeOperations",
+        "availablePublicationsCount",
+        "deleted",
+        "description",
+        "descriptionHtml",
+        "feedback",
+        "gid",
+        "handle",
+        "image",
+        "legacyResourceId",
+        "metafields",
+        "productsCount",
+        "productsGids",
+        "resourcePublicationsCount",
+        "resourcePublicationsGids",
+        "seo",
+        "sortOrder",
+        "sources",
+        "storeId",
+        "subCollectionEligibility",
+        "syncedAt",
+        "templateSuffix",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "sortOrder": [
+          "ALPHA_ASC",
+          "ALPHA_DESC",
+          "BEST_SELLING",
+          "CREATED",
+          "CREATED_DESC",
+          "MANUAL",
+          "MOST_RELEVANT",
+          "PRICE_ASC",
+          "PRICE_DESC"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:company",
+      "file": "shopify/generated/company.memql",
+      "fields": [
+        "contactsCount",
+        "customerSince",
+        "defaultCursor",
+        "defaultRole",
+        "deleted",
+        "draftOrdersGids",
+        "externalId",
+        "gid",
+        "hasTimelineComment",
+        "lifetimeDuration",
+        "locationsCount",
+        "mainContactGid",
+        "metafields",
+        "name",
+        "note",
+        "ordersCount",
+        "ordersGids",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "totalSpent",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:companyContact",
+      "file": "shopify/generated/companyContact.memql",
+      "fields": [
+        "companyGid",
+        "customerGid",
+        "deleted",
+        "gid",
+        "isMainContact",
+        "lifetimeDuration",
+        "locale",
+        "parentGid",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:companyLocation",
+      "file": "shopify/generated/companyLocation.memql",
+      "fields": [
+        "billingAddress",
+        "buyerExperienceConfiguration",
+        "catalogsCount",
+        "catalogsGids",
+        "companyGid",
+        "currency",
+        "defaultCursor",
+        "deleted",
+        "externalId",
+        "gid",
+        "hasTimelineComment",
+        "locale",
+        "metafields",
+        "name",
+        "note",
+        "ordersCount",
+        "parentGid",
+        "phone",
+        "shippingAddress",
+        "sourceCreatedAt",
+        "storeCreditAccountsGids",
+        "storeId",
+        "syncedAt",
+        "taxSettings",
+        "totalSpent",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:complianceJob",
+      "file": "shopify/overlay/concepts.memql",
+      "fields": [
+        "completedAt",
+        "customerGid",
+        "dueAt",
+        "lastError",
+        "outcome",
+        "requestId",
+        "shopDomain",
+        "status",
+        "storeId",
+        "topic"
+      ],
+      "required": [
+        "dueAt",
+        "storeId",
+        "topic"
+      ],
+      "enums": {
+        "status": [
+          "done",
+          "failed",
+          "pending"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:customer",
+      "file": "shopify/generated/customer.memql",
+      "fields": [
+        "amountSpent",
+        "canDelete",
+        "companyContactProfilesGids",
+        "dataSaleOptOut",
+        "defaultAddress",
+        "defaultEmailAddress",
+        "defaultPhoneNumber",
+        "deleted",
+        "displayName",
+        "firstName",
+        "gid",
+        "identityProviderSubjects",
+        "image",
+        "lastName",
+        "lastOrderGid",
+        "legacyResourceId",
+        "lifetimeDuration",
+        "locale",
+        "mergeable",
+        "metafields",
+        "multipassIdentifier",
+        "note",
+        "numberOfOrders",
+        "ordersGids",
+        "productSubscriberStatus",
+        "sourceCreatedAt",
+        "state",
+        "statistics",
+        "storeId",
+        "subscriptionContractsGids",
+        "syncedAt",
+        "tags",
+        "taxExempt",
+        "taxExemptions",
+        "taxSettings",
+        "updatedAt",
+        "verifiedEmail"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "productSubscriberStatus": [
+          "ACTIVE",
+          "CANCELLED",
+          "EXPIRED",
+          "FAILED",
+          "NEVER_SUBSCRIBED",
+          "PAUSED"
+        ],
+        "state": [
+          "DECLINED",
+          "DISABLED",
+          "ENABLED",
+          "INVITED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:customerPaymentMethod",
+      "file": "shopify/generated/customerPaymentMethod.memql",
+      "fields": [
+        "customerGid",
+        "deleted",
+        "gid",
+        "instrument",
+        "parentGid",
+        "revokedAt",
+        "revokedReason",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "revokedReason": [
+          "AUTHORIZE_NET_GATEWAY_NOT_ENABLED",
+          "AUTHORIZE_NET_RETURNED_NO_PAYMENT_METHOD",
+          "BRAINTREE_API_AUTHENTICATION_ERROR",
+          "BRAINTREE_GATEWAY_NOT_ENABLED",
+          "BRAINTREE_PAYMENT_METHOD_NOT_CARD",
+          "BRAINTREE_RETURNED_NO_PAYMENT_METHOD",
+          "CUSTOMER_REDACTED",
+          "CVV_ATTEMPTS_LIMIT_EXCEEDED",
+          "FAILED_TO_RETRIEVE_BILLING_ADDRESS",
+          "FAILED_TO_UPDATE_CREDIT_CARD",
+          "MANUALLY_REVOKED",
+          "MERGED",
+          "PAYMENT_METHOD_VERIFICATION_FAILED",
+          "STRIPE_API_AUTHENTICATION_ERROR",
+          "STRIPE_API_INVALID_REQUEST_ERROR",
+          "STRIPE_GATEWAY_NOT_ENABLED",
+          "STRIPE_PAYMENT_METHOD_NOT_CARD",
+          "STRIPE_RETURNED_NO_PAYMENT_METHOD",
+          "THREE_D_SECURE_FLOW_IN_VERIFICATION_NOT_IMPLEMENTED",
+          "TOO_MANY_CONSECUTIVE_FAILURES"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:deliveryCarrierService",
+      "file": "shopify/generated/deliveryCarrierService.memql",
+      "fields": [
+        "active",
+        "callbackUrl",
+        "deleted",
+        "formattedName",
+        "gid",
+        "icon",
+        "name",
+        "storeId",
+        "supportsServiceDiscovery",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:deliveryCustomization",
+      "file": "shopify/generated/deliveryCustomization.memql",
+      "fields": [
+        "deleted",
+        "enabled",
+        "errorHistory",
+        "functionId",
+        "gid",
+        "metafields",
+        "shopifyFunction",
+        "storeId",
+        "syncedAt",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:deliveryProfile",
+      "file": "shopify/generated/deliveryProfile.memql",
+      "fields": [
+        "activeMethodDefinitionsCount",
+        "coversAllItems",
+        "deleted",
+        "gid",
+        "locationsWithoutRatesCount",
+        "name",
+        "originLocationCount",
+        "productVariantsCount",
+        "profileLocationGroups",
+        "sourceDefault",
+        "storeId",
+        "syncedAt",
+        "unassignedLocationsGids",
+        "updatedAt",
+        "version",
+        "zoneCountryCount"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:discountNode",
+      "file": "shopify/generated/discountNode.memql",
+      "fields": [
+        "deleted",
+        "discount",
+        "gid",
+        "metafields",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:draftOrder",
+      "file": "shopify/generated/draftOrder.memql",
+      "fields": [
+        "acceptAutomaticDiscounts",
+        "allVariantPricesOverridden",
+        "allowDiscountCodesInCheckout",
+        "amountDueLaterSet",
+        "amountDueNowSet",
+        "anyVariantPricesOverridden",
+        "appliedDiscount",
+        "billingAddress",
+        "billingAddressMatchesShippingAddress",
+        "completedAt",
+        "currencyCode",
+        "customAttributes",
+        "customerGid",
+        "defaultCursor",
+        "deleted",
+        "deposit",
+        "discountCodes",
+        "email",
+        "gid",
+        "hasTimelineComment",
+        "invoiceEmailTemplateSubject",
+        "invoiceSentAt",
+        "invoiceUrl",
+        "legacyResourceId",
+        "lineItemsSubtotalPrice",
+        "metafields",
+        "name",
+        "note2",
+        "orderGid",
+        "paymentTerms",
+        "phone",
+        "platformDiscounts",
+        "poNumber",
+        "presentmentCurrencyCode",
+        "purchasingEntity",
+        "ready",
+        "reserveInventoryUntil",
+        "shippingAddress",
+        "shippingLine",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "subtotalPriceSet",
+        "syncedAt",
+        "tags",
+        "taxExempt",
+        "taxLines",
+        "taxesIncluded",
+        "totalDiscountsSet",
+        "totalLineItemsPriceSet",
+        "totalPriceSet",
+        "totalQuantityOfLineItems",
+        "totalShippingPriceSet",
+        "totalTaxSet",
+        "totalWeight",
+        "transformerFingerprint",
+        "updatedAt",
+        "visibleToCustomer",
+        "warnings"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "COMPLETED",
+          "INVOICE_SENT",
+          "OPEN"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:fulfillment",
+      "file": "shopify/generated/fulfillment.memql",
+      "fields": [
+        "deleted",
+        "deliveredAt",
+        "displayStatus",
+        "estimatedDeliveryAt",
+        "fulfillmentOrdersGids",
+        "gid",
+        "inTransitAt",
+        "legacyResourceId",
+        "locationGid",
+        "name",
+        "orderGid",
+        "originAddress",
+        "parentGid",
+        "requiresShipping",
+        "service",
+        "shippingLabel",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "syncedAt",
+        "totalQuantity",
+        "trackingInfo",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "displayStatus": [
+          "ATTEMPTED_DELIVERY",
+          "CANCELED",
+          "CARRIER_PICKED_UP",
+          "CONFIRMED",
+          "DELAYED",
+          "DELIVERED",
+          "FAILURE",
+          "FULFILLED",
+          "IN_TRANSIT",
+          "LABEL_PRINTED",
+          "LABEL_PURCHASED",
+          "LABEL_VOIDED",
+          "MARKED_AS_FULFILLED",
+          "NOT_DELIVERED",
+          "OUT_FOR_DELIVERY",
+          "PICKED_UP",
+          "READY_FOR_PICKUP",
+          "SUBMITTED"
+        ],
+        "status": [
+          "CANCELLED",
+          "ERROR",
+          "FAILURE",
+          "SUCCESS"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:fulfillmentOrder",
+      "file": "shopify/generated/fulfillmentOrder.memql",
+      "fields": [
+        "assignedLocation",
+        "deleted",
+        "deliveryMethod",
+        "destination",
+        "fulfillAt",
+        "fulfillBy",
+        "fulfillmentHolds",
+        "fulfillmentsGids",
+        "gid",
+        "internationalDuties",
+        "orderGid",
+        "orderId",
+        "orderName",
+        "orderProcessedAt",
+        "remainingLineItemsWeight",
+        "requestStatus",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "supportedActions",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "requestStatus": [
+          "ACCEPTED",
+          "CANCELLATION_ACCEPTED",
+          "CANCELLATION_REJECTED",
+          "CANCELLATION_REQUESTED",
+          "CLOSED",
+          "REJECTED",
+          "SUBMITTED",
+          "UNSUBMITTED"
+        ],
+        "status": [
+          "CANCELLED",
+          "CLOSED",
+          "INCOMPLETE",
+          "IN_PROGRESS",
+          "ON_HOLD",
+          "OPEN",
+          "SCHEDULED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:giftCard",
+      "file": "shopify/generated/giftCard.memql",
+      "fields": [
+        "balance",
+        "crossCurrencyRedemptionStrategy",
+        "customerGid",
+        "deactivatedAt",
+        "deleted",
+        "enabled",
+        "expiresOn",
+        "gid",
+        "initialValue",
+        "isRedeemable",
+        "lastCharacters",
+        "lineItemGid",
+        "maskedCode",
+        "note",
+        "orderGid",
+        "recipientAttributes",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "templateSuffix",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "crossCurrencyRedemptionStrategy": [
+          "MARKET_FX",
+          "NONE",
+          "SPOT_FX"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:inventoryItem",
+      "file": "shopify/generated/inventoryItem.memql",
+      "fields": [
+        "countryCodeOfOrigin",
+        "deleted",
+        "duplicateSkuCount",
+        "gid",
+        "harmonizedSystemCode",
+        "inventoryHistoryUrl",
+        "legacyResourceId",
+        "locationsCount",
+        "measurement",
+        "provinceCodeOfOrigin",
+        "requiresShipping",
+        "sku",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "tracked",
+        "trackedEditable",
+        "unitCost",
+        "updatedAt",
+        "variantsGids"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:inventoryLevel",
+      "file": "shopify/generated/inventoryLevel.memql",
+      "fields": [
+        "canDeactivate",
+        "deactivationAlert",
+        "deleted",
+        "gid",
+        "isActive",
+        "itemGid",
+        "locationGid",
+        "parentGid",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:inventoryShipment",
+      "file": "shopify/generated/inventoryShipment.memql",
+      "fields": [
+        "barcode",
+        "dateCreated",
+        "dateReceived",
+        "dateShipped",
+        "deleted",
+        "gid",
+        "lineItemTotalQuantity",
+        "lineItemsCount",
+        "name",
+        "status",
+        "storeId",
+        "syncedAt",
+        "totalAcceptedQuantity",
+        "totalReceivedQuantity",
+        "totalRejectedQuantity",
+        "tracking",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "DRAFT",
+          "IN_TRANSIT",
+          "OTHER",
+          "PARTIALLY_RECEIVED",
+          "RECEIVED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:inventoryTransfer",
+      "file": "shopify/generated/inventoryTransfer.memql",
+      "fields": [
+        "dateCreated",
+        "deleted",
+        "destination",
+        "gid",
+        "hasTimelineComment",
+        "lineItemsCount",
+        "metafields",
+        "name",
+        "note",
+        "origin",
+        "receivedQuantity",
+        "referenceName",
+        "status",
+        "storeId",
+        "syncedAt",
+        "tags",
+        "totalQuantity",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "CANCELED",
+          "DRAFT",
+          "IN_PROGRESS",
+          "OTHER",
+          "READY_TO_SHIP",
+          "TRANSFERRED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:location",
+      "file": "shopify/generated/location.memql",
+      "fields": [
+        "activatable",
+        "address",
+        "addressVerified",
+        "deactivatable",
+        "deactivatedAt",
+        "deletable",
+        "deleted",
+        "fulfillmentService",
+        "fulfillsOnlineOrders",
+        "gid",
+        "hasActiveInventory",
+        "hasUnfulfilledOrders",
+        "inventoryLevelsGids",
+        "isActive",
+        "isFulfillmentService",
+        "legacyResourceId",
+        "localPickupSettingsV2",
+        "metafields",
+        "name",
+        "shipsInventory",
+        "sourceCreatedAt",
+        "storeId",
+        "suggestedAddresses",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:market",
+      "file": "shopify/generated/market.memql",
+      "fields": [
+        "catalogsCount",
+        "conditions",
+        "currencySettings",
+        "deleted",
+        "delivery",
+        "discountsCount",
+        "gid",
+        "handle",
+        "metafields",
+        "name",
+        "priceInclusions",
+        "sourceType",
+        "status",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "sourceType": [
+          "CHANNEL",
+          "COMPANY_LOCATION",
+          "LOCATION",
+          "NONE",
+          "REGION"
+        ],
+        "status": [
+          "ACTIVE",
+          "DRAFT"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:marketWebPresence",
+      "file": "shopify/generated/marketWebPresence.memql",
+      "fields": [
+        "alternateLocalesGids",
+        "defaultLocaleGid",
+        "deleted",
+        "domain",
+        "gid",
+        "parentGid",
+        "rootUrls",
+        "storeId",
+        "subfolderSuffix",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:marketingActivity",
+      "file": "shopify/generated/marketingActivity.memql",
+      "fields": [
+        "activityListUrl",
+        "adSpend",
+        "app",
+        "appErrors",
+        "budget",
+        "deleted",
+        "formData",
+        "gid",
+        "hierarchyLevel",
+        "inMainWorkflowVersion",
+        "isExternal",
+        "marketingChannelType",
+        "marketingEventGid",
+        "parentActivityId",
+        "parentRemoteId",
+        "sourceAndMedium",
+        "sourceCreatedAt",
+        "status",
+        "statusBadgeTypeV2",
+        "statusLabel",
+        "statusTransitionedAt",
+        "storeId",
+        "syncedAt",
+        "tactic",
+        "targetStatus",
+        "title",
+        "updatedAt",
+        "urlParameterValue",
+        "utmParameters"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "hierarchyLevel": [
+          "AD",
+          "AD_GROUP",
+          "CAMPAIGN"
+        ],
+        "marketingChannelType": [
+          "DISPLAY",
+          "EMAIL",
+          "REFERRAL",
+          "SEARCH",
+          "SOCIAL"
+        ],
+        "status": [
+          "ACTIVE",
+          "DELETED",
+          "DELETED_EXTERNALLY",
+          "DISCONNECTED",
+          "DRAFT",
+          "FAILED",
+          "INACTIVE",
+          "PAUSED",
+          "PENDING",
+          "SCHEDULED",
+          "UNDEFINED"
+        ],
+        "statusBadgeTypeV2": [
+          "ATTENTION",
+          "CRITICAL",
+          "DEFAULT",
+          "INFO",
+          "SUCCESS",
+          "WARNING"
+        ],
+        "tactic": [
+          "ABANDONED_CART",
+          "AD",
+          "AFFILIATE",
+          "LINK",
+          "LOYALTY",
+          "MESSAGE",
+          "NEWSLETTER",
+          "NOTIFICATION",
+          "POST",
+          "RETARGETING",
+          "SEO",
+          "STOREFRONT_APP",
+          "TRANSACTIONAL"
+        ],
+        "targetStatus": [
+          "ACTIVE",
+          "DELETED",
+          "DELETED_EXTERNALLY",
+          "DISCONNECTED",
+          "DRAFT",
+          "FAILED",
+          "INACTIVE",
+          "PAUSED",
+          "PENDING",
+          "SCHEDULED",
+          "UNDEFINED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:marketingEvent",
+      "file": "shopify/generated/marketingEvent.memql",
+      "fields": [
+        "app",
+        "channelHandle",
+        "deleted",
+        "description",
+        "endedAt",
+        "gid",
+        "legacyResourceId",
+        "manageUrl",
+        "marketingChannelType",
+        "previewUrl",
+        "remoteId",
+        "scheduledToEndAt",
+        "sourceAndMedium",
+        "sourceType",
+        "startedAt",
+        "storeId",
+        "syncedAt",
+        "updatedAt",
+        "utmCampaign",
+        "utmMedium",
+        "utmSource"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "marketingChannelType": [
+          "DISPLAY",
+          "EMAIL",
+          "REFERRAL",
+          "SEARCH",
+          "SOCIAL"
+        ],
+        "sourceType": [
+          "ABANDONED_CART",
+          "AD",
+          "AFFILIATE",
+          "LINK",
+          "LOYALTY",
+          "MESSAGE",
+          "NEWSLETTER",
+          "NOTIFICATION",
+          "POST",
+          "RETARGETING",
+          "SEO",
+          "STOREFRONT_APP",
+          "TRANSACTIONAL"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:menu",
+      "file": "shopify/generated/menu.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "handle",
+        "isDefault",
+        "items",
+        "storeId",
+        "syncedAt",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:metafieldDefinition",
+      "file": "shopify/generated/metafieldDefinition.memql",
+      "fields": [
+        "access",
+        "capabilities",
+        "constraints",
+        "deleted",
+        "description",
+        "gid",
+        "key",
+        "metafields",
+        "metafieldsCount",
+        "name",
+        "namespace",
+        "ownerType",
+        "pinnedPosition",
+        "sourceType",
+        "standardTemplate",
+        "storeId",
+        "syncedAt",
+        "updatedAt",
+        "useAsCollectionCondition",
+        "validationStatus",
+        "validations"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "ownerType": [
+          "API_PERMISSION",
+          "ARTICLE",
+          "BLOG",
+          "CARTTRANSFORM",
+          "COLLECTION",
+          "COMPANY",
+          "COMPANY_LOCATION",
+          "CUSTOMER",
+          "DELIVERY_CUSTOMIZATION",
+          "DISCOUNT",
+          "DRAFTORDER",
+          "FULFILLMENT_CONSTRAINT_RULE",
+          "GIFT_CARD_TRANSACTION",
+          "LOCATION",
+          "MARKET",
+          "ORDER",
+          "ORDER_ROUTING_LOCATION_RULE",
+          "PAGE",
+          "PAYMENT_CUSTOMIZATION",
+          "PRODUCT",
+          "PRODUCTVARIANT",
+          "SELLING_PLAN",
+          "SHOP",
+          "TRANSFER",
+          "VALIDATION"
+        ],
+        "validationStatus": [
+          "ALL_VALID",
+          "IN_PROGRESS",
+          "SOME_INVALID"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:metaobject",
+      "file": "shopify/generated/metaobject.memql",
+      "fields": [
+        "capabilities",
+        "createdByApp",
+        "createdByStaffGid",
+        "definitionGid",
+        "deleted",
+        "displayName",
+        "fields",
+        "gid",
+        "handle",
+        "sourceCreatedAt",
+        "sourceCreatedBy",
+        "sourceType",
+        "storeId",
+        "syncedAt",
+        "thumbnailField",
+        "updatedAt",
+        "values"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:metaobjectDefinition",
+      "file": "shopify/generated/metaobjectDefinition.memql",
+      "fields": [
+        "access",
+        "capabilities",
+        "createdByApp",
+        "createdByStaffGid",
+        "deleted",
+        "description",
+        "displayNameKey",
+        "fieldDefinitions",
+        "gid",
+        "hasThumbnailField",
+        "metaobjectsCount",
+        "name",
+        "sourceCreatedAt",
+        "sourceType",
+        "standardTemplate",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:onlineStoreTheme",
+      "file": "shopify/generated/onlineStoreTheme.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "name",
+        "prefix",
+        "processing",
+        "processingFailed",
+        "role",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "themeStoreId",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "role": [
+          "ARCHIVED",
+          "DEMO",
+          "DEVELOPMENT",
+          "LOCKED",
+          "MAIN",
+          "UNPUBLISHED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:order",
+      "file": "shopify/generated/order.memql",
+      "fields": [
+        "additionalFees",
+        "agreementsGids",
+        "alerts",
+        "app",
+        "attribution",
+        "billingAddress",
+        "billingAddressMatchesShippingAddress",
+        "canMarkAsPaid",
+        "canNotifyCustomer",
+        "cancelReason",
+        "cancellation",
+        "cancelledAt",
+        "capturable",
+        "cartDiscountAmountSet",
+        "cartToken",
+        "checkoutToken",
+        "clientIp",
+        "closed",
+        "closedAt",
+        "confirmationNumber",
+        "confirmed",
+        "currencyCode",
+        "currentCartDiscountAmountSet",
+        "currentShippingPriceSet",
+        "currentSubtotalLineItemsQuantity",
+        "currentSubtotalPriceSet",
+        "currentTaxLines",
+        "currentTotalAdditionalFeesSet",
+        "currentTotalDiscountsSet",
+        "currentTotalDutiesSet",
+        "currentTotalPriceSet",
+        "currentTotalTaxSet",
+        "currentTotalWeight",
+        "customAttributes",
+        "customerAcceptsMarketing",
+        "customerGid",
+        "customerJourneySummary",
+        "customerLocale",
+        "deleted",
+        "discountApplicationsGids",
+        "discountCode",
+        "discountCodes",
+        "displayAddress",
+        "displayFinancialStatus",
+        "displayFulfillmentStatus",
+        "disputes",
+        "dutiesIncluded",
+        "edited",
+        "email",
+        "estimatedTaxes",
+        "fulfillable",
+        "fulfillmentOrdersGids",
+        "fulfillmentsCount",
+        "fullyPaid",
+        "gid",
+        "hasTimelineComment",
+        "legacyResourceId",
+        "merchantBusinessEntityGid",
+        "merchantEditable",
+        "merchantEditableErrors",
+        "merchantOfRecordApp",
+        "metafields",
+        "name",
+        "netPaymentSet",
+        "note",
+        "number",
+        "originalTotalAdditionalFeesSet",
+        "originalTotalDutiesSet",
+        "originalTotalPriceSet",
+        "paymentCollectionDetails",
+        "paymentGatewayNames",
+        "paymentTerms",
+        "phone",
+        "poNumber",
+        "presentmentCurrencyCode",
+        "processedAt",
+        "productNetwork",
+        "publicationGid",
+        "purchasingEntity",
+        "refundDiscrepancySet",
+        "refundable",
+        "registeredSourceUrl",
+        "requiresShipping",
+        "restockable",
+        "retailLocationGid",
+        "returnStatus",
+        "risk",
+        "shippingAddress",
+        "shippingLine",
+        "shippingLinesGids",
+        "shopifyProtect",
+        "sourceCreatedAt",
+        "sourceIdentifier",
+        "sourceName",
+        "staffMemberGid",
+        "statusPageUrl",
+        "storeId",
+        "subtotalLineItemsQuantity",
+        "subtotalPriceSet",
+        "suggestedRefund",
+        "syncedAt",
+        "tags",
+        "taxExempt",
+        "taxLines",
+        "taxesIncluded",
+        "test",
+        "totalCapturableSet",
+        "totalCashRoundingAdjustment",
+        "totalDiscountsSet",
+        "totalOutstandingSet",
+        "totalPriceSet",
+        "totalReceivedSet",
+        "totalRefundedSet",
+        "totalRefundedShippingSet",
+        "totalShippingPriceSet",
+        "totalTaxSet",
+        "totalTipReceivedSet",
+        "totalWeight",
+        "transactionsCount",
+        "unpaid",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "cancelReason": [
+          "CUSTOMER",
+          "DECLINED",
+          "FRAUD",
+          "INVENTORY",
+          "OTHER",
+          "STAFF"
+        ],
+        "displayFinancialStatus": [
+          "AUTHORIZED",
+          "EXPIRED",
+          "PAID",
+          "PARTIALLY_PAID",
+          "PARTIALLY_REFUNDED",
+          "PENDING",
+          "REFUNDED",
+          "VOIDED"
+        ],
+        "displayFulfillmentStatus": [
+          "FULFILLED",
+          "IN_PROGRESS",
+          "ON_HOLD",
+          "OPEN",
+          "PARTIALLY_FULFILLED",
+          "PENDING_FULFILLMENT",
+          "REQUEST_DECLINED",
+          "RESTOCKED",
+          "SCHEDULED",
+          "UNFULFILLED"
+        ],
+        "returnStatus": [
+          "INSPECTION_COMPLETE",
+          "IN_PROGRESS",
+          "NO_RETURN",
+          "RETURNED",
+          "RETURN_FAILED",
+          "RETURN_REQUESTED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:orderLineItem",
+      "file": "shopify/generated/orderLineItem.memql",
+      "fields": [
+        "contractGid",
+        "currentQuantity",
+        "customAttributes",
+        "deleted",
+        "discountAllocations",
+        "discountedTotalSet",
+        "discountedUnitPriceAfterAllDiscountsSet",
+        "discountedUnitPriceSet",
+        "duties",
+        "gid",
+        "image",
+        "isGiftCard",
+        "lineItemGroup",
+        "merchantEditable",
+        "name",
+        "nonFulfillableQuantity",
+        "originalTotalSet",
+        "originalUnitPriceSet",
+        "parentGid",
+        "priceAfterAllDiscountsBeforeTaxesSet",
+        "productGid",
+        "quantity",
+        "refundableQuantity",
+        "requiresShipping",
+        "restockable",
+        "sellingPlan",
+        "sku",
+        "staffMemberGid",
+        "storeId",
+        "syncedAt",
+        "taxLines",
+        "taxable",
+        "title",
+        "totalDiscountSet",
+        "unfulfilledDiscountedTotalSet",
+        "unfulfilledOriginalTotalSet",
+        "unfulfilledQuantity",
+        "updatedAt",
+        "variantGid",
+        "variantTitle",
+        "vendor",
+        "weight"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:orderTransaction",
+      "file": "shopify/generated/orderTransaction.memql",
+      "fields": [
+        "accountNumber",
+        "amountRoundingSet",
+        "amountSet",
+        "authorizationExpiresAt",
+        "currencyExchangeAdjustment",
+        "deleted",
+        "device",
+        "errorCode",
+        "fees",
+        "formattedGateway",
+        "gateway",
+        "gid",
+        "kind",
+        "locationGid",
+        "manualPaymentGateway",
+        "manuallyCapturable",
+        "maximumRefundableV2",
+        "multiCapturable",
+        "orderGid",
+        "parentGid",
+        "parentTransactionGid",
+        "paymentDetails",
+        "paymentIcon",
+        "paymentId",
+        "processedAt",
+        "receiptJson",
+        "settlementCurrency",
+        "settlementCurrencyRate",
+        "shopifyPaymentsSet",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "syncedAt",
+        "test",
+        "totalUnsettledSet",
+        "updatedAt",
+        "userGid"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "kind": [
+          "AUTHORIZATION",
+          "CAPTURE",
+          "CHANGE",
+          "EMV_AUTHORIZATION",
+          "REFUND",
+          "SALE",
+          "SUGGESTED_REFUND",
+          "VOID"
+        ],
+        "status": [
+          "AWAITING_RESPONSE",
+          "ERROR",
+          "FAILURE",
+          "PENDING",
+          "SUCCESS",
+          "UNKNOWN"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:page",
+      "file": "shopify/generated/page.memql",
+      "fields": [
+        "body",
+        "bodySummary",
+        "defaultCursor",
+        "deleted",
+        "gid",
+        "handle",
+        "isPublished",
+        "metafields",
+        "publishedAt",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "templateSuffix",
+        "title",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:paymentTermsTemplate",
+      "file": "shopify/generated/paymentTermsTemplate.memql",
+      "fields": [
+        "deleted",
+        "description",
+        "dueInDays",
+        "gid",
+        "name",
+        "paymentTermsType",
+        "storeId",
+        "syncedAt",
+        "translatedName",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "paymentTermsType": [
+          "FIXED",
+          "FULFILLMENT",
+          "NET",
+          "RECEIPT",
+          "UNKNOWN"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:priceList",
+      "file": "shopify/generated/priceList.memql",
+      "fields": [
+        "catalogGid",
+        "currency",
+        "deleted",
+        "fixedPricesCount",
+        "gid",
+        "name",
+        "parent",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:priceListPrice",
+      "file": "shopify/generated/priceListPrice.memql",
+      "fields": [
+        "compareAtPrice",
+        "deleted",
+        "gid",
+        "originType",
+        "parentGid",
+        "price",
+        "storeId",
+        "syncedAt",
+        "updatedAt",
+        "variantGid"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "originType": [
+          "FIXED",
+          "RELATIVE"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:product",
+      "file": "shopify/generated/product.memql",
+      "fields": [
+        "availablePublicationsCount",
+        "bundleConsolidatedOptions",
+        "category",
+        "collectionsGids",
+        "combinedListing",
+        "combinedListingRole",
+        "compareAtPriceRange",
+        "defaultCursor",
+        "deleted",
+        "description",
+        "descriptionHtml",
+        "featuredMedia",
+        "feedback",
+        "gid",
+        "giftCardSettings",
+        "giftCardTemplateSuffix",
+        "handle",
+        "hasOnlyDefaultVariant",
+        "hasOutOfStockVariants",
+        "hasVariantsThatRequiresComponents",
+        "isGiftCard",
+        "legacyResourceId",
+        "mediaCount",
+        "mediaGids",
+        "metafields",
+        "onlineStorePreviewUrl",
+        "onlineStoreUrl",
+        "options",
+        "priceRangeV2",
+        "productComponentsCount",
+        "productType",
+        "publishedAt",
+        "requiresSellingPlan",
+        "resourcePublicationsCount",
+        "resourcePublicationsGids",
+        "sellingPlanGroupsCount",
+        "sellingPlanGroupsGids",
+        "seo",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "syncedAt",
+        "tags",
+        "templateSuffix",
+        "title",
+        "totalInventory",
+        "tracksInventory",
+        "updatedAt",
+        "variantsCount",
+        "vendor"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "combinedListingRole": [
+          "CHILD",
+          "PARENT"
+        ],
+        "status": [
+          "ACTIVE",
+          "ARCHIVED",
+          "DRAFT",
+          "UNLISTED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:productFeed",
+      "file": "shopify/generated/productFeed.memql",
+      "fields": [
+        "channelId",
+        "country",
+        "deleted",
+        "gid",
+        "language",
+        "status",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "ACTIVE",
+          "INACTIVE"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:productVariant",
+      "file": "shopify/generated/productVariant.memql",
+      "fields": [
+        "availableForSale",
+        "availablePublicationsCount",
+        "barcode",
+        "compareAtPrice",
+        "defaultCursor",
+        "deleted",
+        "deliveryProfileGid",
+        "displayName",
+        "gid",
+        "inventoryItemGid",
+        "inventoryPolicy",
+        "inventoryQuantity",
+        "legacyResourceId",
+        "metafields",
+        "parentGid",
+        "position",
+        "price",
+        "productGid",
+        "requiresComponents",
+        "resourcePublicationsCount",
+        "selectedOptions",
+        "sellableOnlineQuantity",
+        "sellingPlanGroupsCount",
+        "sellingPlanGroupsGids",
+        "showUnitPrice",
+        "sku",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "taxable",
+        "title",
+        "unitPrice",
+        "unitPriceMeasurement",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "inventoryPolicy": [
+          "CONTINUE",
+          "DENY"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:publication",
+      "file": "shopify/generated/publication.memql",
+      "fields": [
+        "autoPublish",
+        "catalogGid",
+        "deleted",
+        "gid",
+        "includedProductsCount",
+        "operation",
+        "storeId",
+        "supportsFuturePublishing",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:quantityRule",
+      "file": "shopify/generated/quantityRule.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "increment",
+        "isDefault",
+        "maximum",
+        "minimum",
+        "originType",
+        "parentGid",
+        "productVariantGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "originType": [
+          "FIXED",
+          "RELATIVE"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:refund",
+      "file": "shopify/generated/refund.memql",
+      "fields": [
+        "deleted",
+        "duties",
+        "gid",
+        "legacyResourceId",
+        "note",
+        "orderGid",
+        "parentGid",
+        "processedAt",
+        "sourceCreatedAt",
+        "sourceReturnGid",
+        "staffMemberGid",
+        "storeId",
+        "syncedAt",
+        "totalRefundedSet",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:reverseDelivery",
+      "file": "shopify/generated/reverseDelivery.memql",
+      "fields": [
+        "deleted",
+        "deliverable",
+        "gid",
+        "parentGid",
+        "reverseFulfillmentOrderGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:reverseFulfillmentOrder",
+      "file": "shopify/generated/reverseFulfillmentOrder.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "orderGid",
+        "parentGid",
+        "status",
+        "storeId",
+        "syncedAt",
+        "thirdPartyConfirmation",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "CANCELED",
+          "CLOSED",
+          "OPEN"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:segment",
+      "file": "shopify/generated/segment.memql",
+      "fields": [
+        "creationDate",
+        "deleted",
+        "gid",
+        "lastEditDate",
+        "name",
+        "query",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:sellingPlan",
+      "file": "shopify/generated/sellingPlan.memql",
+      "fields": [
+        "billingPolicy",
+        "category",
+        "deleted",
+        "deliveryPolicy",
+        "description",
+        "gid",
+        "inventoryPolicy",
+        "metafields",
+        "name",
+        "options",
+        "parentGid",
+        "position",
+        "pricingPolicies",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "category": [
+          "OTHER",
+          "PRE_ORDER",
+          "SUBSCRIPTION",
+          "TRY_BEFORE_YOU_BUY"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:sellingPlanGroup",
+      "file": "shopify/generated/sellingPlanGroup.memql",
+      "fields": [
+        "appId",
+        "deleted",
+        "description",
+        "gid",
+        "merchantCode",
+        "name",
+        "options",
+        "position",
+        "productVariantsCount",
+        "productVariantsGids",
+        "productsCount",
+        "productsGids",
+        "sourceCreatedAt",
+        "storeId",
+        "summary",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:shop",
+      "file": "shopify/generated/shop.memql",
+      "fields": [
+        "accountOwnerGid",
+        "alerts",
+        "allProductCategoriesList",
+        "checkoutApiSupported",
+        "contactEmail",
+        "countriesInShippingZones",
+        "currencyCode",
+        "currencyFormats",
+        "customerAccounts",
+        "customerAccountsV2",
+        "deleted",
+        "description",
+        "email",
+        "enabledPresentmentCurrencies",
+        "entitlements",
+        "features",
+        "fulfillmentServices",
+        "gid",
+        "ianaTimezone",
+        "marketingSmsConsentEnabledAtCheckout",
+        "merchantApprovalSignals",
+        "metafields",
+        "myshopifyDomain",
+        "name",
+        "navigationSettings",
+        "orderNumberFormatPrefix",
+        "orderNumberFormatSuffix",
+        "paymentSettings",
+        "plan",
+        "primaryDomain",
+        "resourceLimits",
+        "richTextEditorUrl",
+        "searchFilters",
+        "setupRequired",
+        "shipsToCountries",
+        "shopAddress",
+        "shopOwnerName",
+        "shopPoliciesGids",
+        "sourceCreatedAt",
+        "storeId",
+        "syncedAt",
+        "taxShipping",
+        "taxesIncluded",
+        "timezoneAbbreviation",
+        "timezoneOffset",
+        "timezoneOffsetMinutes",
+        "transactionalSmsDisabled",
+        "unitSystem",
+        "updatedAt",
+        "url",
+        "weightUnit"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "customerAccounts": [
+          "DISABLED",
+          "OPTIONAL",
+          "REQUIRED"
+        ],
+        "unitSystem": [
+          "IMPERIAL_SYSTEM",
+          "METRIC_SYSTEM"
+        ],
+        "weightUnit": [
+          "GRAMS",
+          "KILOGRAMS",
+          "OUNCES",
+          "POUNDS"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:shopLocale",
+      "file": "shopify/generated/shopLocale.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "locale",
+        "marketWebPresencesGids",
+        "name",
+        "primary",
+        "published",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:shopPolicy",
+      "file": "shopify/generated/shopPolicy.memql",
+      "fields": [
+        "body",
+        "deleted",
+        "gid",
+        "sourceCreatedAt",
+        "sourceType",
+        "storeId",
+        "syncedAt",
+        "title",
+        "updatedAt",
+        "url"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "sourceType": [
+          "CONTACT_INFORMATION",
+          "LEGAL_NOTICE",
+          "PRIVACY_POLICY",
+          "REFUND_POLICY",
+          "SHIPPING_POLICY",
+          "SUBSCRIPTION_POLICY",
+          "TERMS_OF_SALE",
+          "TERMS_OF_SERVICE"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:shopifyPaymentsBalanceTransaction",
+      "file": "shopify/generated/shopifyPaymentsBalanceTransaction.memql",
+      "fields": [
+        "adjustmentReason",
+        "adjustmentsOrders",
+        "amount",
+        "associatedOrder",
+        "associatedPayout",
+        "deleted",
+        "fee",
+        "gid",
+        "net",
+        "sourceId",
+        "sourceOrderTransactionId",
+        "sourceType",
+        "sourceTypeField",
+        "storeId",
+        "syncedAt",
+        "test",
+        "transactionDate",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "sourceType": [
+          "ADJUSTMENT",
+          "ADJUSTMENT_REVERSAL",
+          "CHARGE",
+          "DISPUTE",
+          "REFUND",
+          "SYSTEM_ADJUSTMENT",
+          "TRANSFER"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:shopifyPaymentsDispute",
+      "file": "shopify/generated/shopifyPaymentsDispute.memql",
+      "fields": [
+        "amount",
+        "deleted",
+        "disputeEvidence",
+        "evidenceDueBy",
+        "evidenceSentOn",
+        "finalizedOn",
+        "gid",
+        "initiatedAt",
+        "legacyResourceId",
+        "orderGid",
+        "reasonDetails",
+        "sourceType",
+        "status",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "sourceType": [
+          "CHARGEBACK",
+          "INQUIRY"
+        ],
+        "status": [
+          "ACCEPTED",
+          "LOST",
+          "NEEDS_RESPONSE",
+          "PREVENTED",
+          "UNDER_REVIEW",
+          "WON"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:shopifyPaymentsPayout",
+      "file": "shopify/generated/shopifyPaymentsPayout.memql",
+      "fields": [
+        "businessEntityGid",
+        "deleted",
+        "externalTraceId",
+        "gid",
+        "issuedAt",
+        "legacyResourceId",
+        "net",
+        "status",
+        "storeId",
+        "summary",
+        "syncedAt",
+        "transactionType",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "CANCELED",
+          "FAILED",
+          "PAID",
+          "SCHEDULED"
+        ],
+        "transactionType": [
+          "DEPOSIT",
+          "WITHDRAWAL"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:shopifyReturn",
+      "file": "shopify/generated/shopifyReturn.memql",
+      "fields": [
+        "closedAt",
+        "decline",
+        "deleted",
+        "gid",
+        "name",
+        "orderGid",
+        "parentGid",
+        "refundsGids",
+        "requestApprovedAt",
+        "returnShippingFees",
+        "sourceCreatedAt",
+        "staffMemberGid",
+        "status",
+        "storeId",
+        "syncedAt",
+        "totalQuantity",
+        "transactionsGids",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "status": [
+          "CANCELED",
+          "CLOSED",
+          "DECLINED",
+          "OPEN",
+          "REQUESTED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:staffMember",
+      "file": "shopify/generated/staffMember.memql",
+      "fields": [
+        "accountType",
+        "active",
+        "avatar",
+        "deleted",
+        "email",
+        "exists",
+        "firstName",
+        "gid",
+        "initials",
+        "isShopOwner",
+        "lastName",
+        "locale",
+        "name",
+        "phone",
+        "privateData",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "accountType": [
+          "COLLABORATOR",
+          "COLLABORATOR_TEAM_MEMBER",
+          "INVITED",
+          "INVITED_STORE_OWNER",
+          "REGULAR",
+          "REQUESTED",
+          "RESTRICTED",
+          "SAML"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:store",
+      "file": "shopify/overlay/concepts.memql",
+      "fields": [
+        "adminTokenRef",
+        "apiVersion",
+        "appClientId",
+        "domain",
+        "health",
+        "name",
+        "ownerUserId",
+        "plan",
+        "protectedDataLevel",
+        "redactedAt",
+        "scopesGranted",
+        "status",
+        "storefrontTokenRef",
+        "subscriptionsCheckedAt",
+        "webhookSecretRef"
+      ],
+      "required": [
+        "domain"
+      ],
+      "enums": {
+        "protectedDataLevel": [
+          "level1",
+          "level2",
+          "none"
+        ],
+        "status": [
+          "backfilling",
+          "configured",
+          "error",
+          "live",
+          "paused"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:storeCreditAccount",
+      "file": "shopify/generated/storeCreditAccount.memql",
+      "fields": [
+        "balance",
+        "deleted",
+        "gid",
+        "owner",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "parentGid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:subscriptionContract",
+      "file": "shopify/generated/subscriptionContract.memql",
+      "fields": [
+        "app",
+        "appAdminUrl",
+        "billingPolicy",
+        "currencyCode",
+        "customAttributes",
+        "customerGid",
+        "customerPaymentMethodGid",
+        "deleted",
+        "deliveryMethod",
+        "deliveryPolicy",
+        "deliveryPrice",
+        "gid",
+        "lastBillingAttemptErrorType",
+        "lastPaymentStatus",
+        "linesCount",
+        "nextBillingDate",
+        "note",
+        "originOrderGid",
+        "revisionId",
+        "sourceCreatedAt",
+        "status",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ],
+      "enums": {
+        "lastBillingAttemptErrorType": [
+          "CUSTOMER_ERROR",
+          "INVENTORY_ERROR",
+          "OTHER",
+          "PAYMENT_ERROR"
+        ],
+        "lastPaymentStatus": [
+          "FAILED",
+          "SUCCEEDED"
+        ],
+        "status": [
+          "ACTIVE",
+          "CANCELLED",
+          "EXPIRED",
+          "FAILED",
+          "PAUSED"
+        ]
+      }
+    },
+    {
+      "concept": "v1:shopify:tenderTransaction",
+      "file": "shopify/generated/tenderTransaction.memql",
+      "fields": [
+        "amount",
+        "deleted",
+        "gid",
+        "orderGid",
+        "paymentMethod",
+        "processedAt",
+        "remoteReference",
+        "storeId",
+        "syncedAt",
+        "test",
+        "transactionDetails",
+        "updatedAt",
+        "userGid"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:shopify:urlRedirect",
+      "file": "shopify/generated/urlRedirect.memql",
+      "fields": [
+        "deleted",
+        "gid",
+        "path",
+        "storeId",
+        "syncedAt",
+        "target",
+        "updatedAt"
+      ],
+      "required": [
+        "gid",
+        "storeId",
+        "syncedAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "concept": "v1:skills:skill",
+      "file": "skills/concepts.memql",
+      "fields": [
+        "active",
+        "category",
+        "constructRefs",
+        "description",
+        "domainIds",
+        "effects",
+        "instructions",
+        "lastReinforced",
+        "liveSourceIds",
+        "mintedByRunId",
+        "name",
+        "originatingGoalId",
+        "ownerUserId",
+        "predefined",
+        "reinforceCount",
+        "reliability",
+        "resources",
+        "scripts",
+        "slug",
+        "status",
+        "tags",
+        "tier",
+        "toolSlugs",
+        "version"
+      ],
+      "required": [
+        "name",
+        "slug",
+        "tier"
+      ],
+      "enums": {
+        "category": [
+          "agriculture",
+          "civic",
+          "creative",
+          "education",
+          "energy",
+          "engineering",
+          "financial",
+          "foundational",
+          "hobby",
+          "hospitality",
+          "legal",
+          "medical",
+          "personal",
+          "product",
+          "professional",
+          "scientific",
+          "specialized",
+          "trades",
+          "transportation"
+        ],
+        "status": [
+          "active",
+          "candidate",
+          "deprecated"
+        ],
+        "tier": [
+          "A",
+          "B",
+          "C"
+        ]
+      }
+    },
+    {
+      "concept": "v1:skills:skillEdge",
+      "file": "skills/concepts.memql",
+      "fields": [
+        "edgeType",
+        "evidence",
+        "fromSkillId",
+        "ownerUserId",
+        "proposedBy",
+        "status",
+        "toSkillId"
+      ],
+      "required": [
+        "edgeType",
+        "fromSkillId",
+        "proposedBy",
+        "status",
+        "toSkillId"
+      ],
+      "enums": {
+        "edgeType": [
+          "conflictsWith",
+          "dependsOn",
+          "duplicates",
+          "specializes"
+        ],
+        "proposedBy": [
+          "system",
+          "user"
+        ],
+        "status": [
+          "committed",
+          "proposed"
+        ]
+      }
+    },
+    {
+      "concept": "v1:todos:todo",
+      "file": "todos/concepts.memql",
+      "fields": [
+        "done",
+        "dueAt",
+        "ownerUserId",
+        "priority",
+        "sourceResponsibilityId",
+        "title"
+      ],
+      "required": [
+        "ownerUserId",
+        "title"
+      ],
+      "enums": {
+        "priority": [
+          "high",
+          "low",
+          "medium"
+        ]
+      }
+    },
+    {
+      "concept": "v1:work:approval",
+      "file": "work/concepts.memql",
+      "fields": [
+        "answer",
+        "artifactHash",
+        "decidedAt",
+        "decidedBy",
+        "decision",
+        "evidence",
+        "expiresAt",
+        "kind",
+        "options",
+        "ownerUserId",
+        "question",
+        "requestedAt",
+        "runId",
+        "stepKey",
+        "subject"
+      ],
+      "required": [
+        "artifactHash",
+        "kind",
+        "requestedAt"
+      ],
+      "enums": {
+        "decision": [
+          "",
+          "answered",
+          "approved",
+          "rejected"
+        ],
+        "kind": [
+          "budget",
+          "feedback",
+          "inferenceUnavailable",
+          "planReview",
+          "routingReview",
+          "scopeElevation",
+          "sideEffect",
+          "skillMint"
+        ]
+      }
+    },
+    {
+      "concept": "v1:work:goal",
+      "file": "work/concepts.memql",
+      "fields": [
+        "accountIds",
+        "ceilings",
+        "closeReason",
+        "closedAt",
+        "input",
+        "origin",
+        "ownerUserId",
+        "requestedVia",
+        "responsibilityId",
+        "statement",
+        "status"
+      ],
+      "required": [
+        "origin",
+        "statement",
+        "status"
+      ],
+      "enums": {
+        "origin": [
+          "responsibility",
+          "system",
+          "user"
+        ],
+        "requestedVia": [
+          "",
+          "agent",
+          "api",
+          "ask",
+          "library",
+          "materializer",
+          "nexus",
+          "responsibility"
+        ],
+        "status": [
+          "active",
+          "closed",
+          "open"
+        ]
+      }
+    },
+    {
+      "concept": "v1:work:modelCall",
+      "file": "work/concepts.memql",
+      "fields": [
+        "cost",
+        "error",
+        "inputTokens",
+        "latencyMs",
+        "model",
+        "outputTokens",
+        "ownerUserId",
+        "promptRef",
+        "promptVersion",
+        "provider",
+        "requestHash",
+        "response",
+        "runId",
+        "served",
+        "settings",
+        "stepKey"
+      ],
+      "required": [
+        "model",
+        "provider",
+        "requestHash",
+        "runId",
+        "served"
+      ],
+      "enums": {
+        "served": [
+          "journal",
+          "live",
+          "local"
+        ]
+      }
+    },
+    {
+      "concept": "v1:work:observation",
+      "file": "work/concepts.memql",
+      "fields": [
+        "content",
+        "data",
+        "embedding",
+        "kind",
+        "ownerUserId",
+        "runId",
+        "stepKey"
+      ],
+      "required": [
+        "content",
+        "kind",
+        "runId"
+      ],
+      "enums": {
+        "kind": [
+          "decision",
+          "error",
+          "note",
+          "tool_result"
+        ]
+      }
+    },
+    {
+      "concept": "v1:work:run",
+      "file": "work/concepts.memql",
+      "fields": [
+        "actualFootprint",
+        "automationName",
+        "callerSuppliedPayload",
+        "cancelRequested",
+        "cancelledBy",
+        "chainHead",
+        "errorCode",
+        "errorMessage",
+        "expectedFootprint",
+        "finishedAt",
+        "forkAtStepKey",
+        "forkedFromRunId",
+        "goalId",
+        "heartbeatAt",
+        "initialChainHead",
+        "input",
+        "inputFingerprint",
+        "mode",
+        "nodeId",
+        "outcome",
+        "ownerUserId",
+        "replayPolicy",
+        "spent",
+        "startedAt",
+        "status",
+        "stepOrder",
+        "summary",
+        "templateConstructId",
+        "templateFingerprint",
+        "templateVersion",
+        "triggerEvent",
+        "triggeredBy",
+        "variables",
+        "waitingOn"
+      ],
+      "required": [
+        "automationName",
+        "mode",
+        "startedAt",
+        "status",
+        "templateFingerprint"
+      ],
+      "enums": {
+        "mode": [
+          "fork",
+          "live",
+          "replay"
+        ],
+        "replayPolicy": [
+          "permissive",
+          "strict"
+        ],
+        "status": [
+          "abandoned",
+          "cancelled",
+          "compiling",
+          "failed",
+          "running",
+          "succeeded",
+          "waiting"
+        ]
+      }
+    },
+    {
+      "concept": "v1:work:step",
+      "file": "work/concepts.memql",
+      "fields": [
+        "actualFootprint",
+        "approvalId",
+        "attempt",
+        "binding",
+        "call",
+        "childRunId",
+        "cost",
+        "dependsOn",
+        "durationMs",
+        "errorCode",
+        "errorMessage",
+        "expectedFootprint",
+        "externalKey",
+        "finishedAt",
+        "idempotencyKey",
+        "input",
+        "key",
+        "kind",
+        "ownerUserId",
+        "postcondition",
+        "result",
+        "resultFingerprint",
+        "resumeAt",
+        "runId",
+        "seq",
+        "startedAt",
+        "status",
+        "stepType",
+        "symptom",
+        "tokens"
+      ],
+      "required": [
+        "attempt",
+        "key",
+        "runId",
+        "seq",
+        "status",
+        "stepType"
+      ],
+      "enums": {
+        "kind": [
+          "",
+          "decision",
+          "deterministic",
+          "human",
+          "loop",
+          "reasoning",
+          "subrun"
+        ],
+        "status": [
+          "cancelled",
+          "done",
+          "failed",
+          "pending",
+          "ready",
+          "running",
+          "skipped",
+          "waiting"
+        ],
+        "symptom": [
+          "",
+          "contract",
+          "environment",
+          "human",
+          "plan",
+          "transient"
+        ]
+      }
+    },
+    {
+      "concept": "v1:workbench:workspace",
+      "file": "workbench/concepts.memql",
+      "fields": [
+        "lastUsedAt",
+        "nodeId",
+        "ownerUserId",
+        "releasedAt",
+        "releasedReason",
+        "runId",
+        "status",
+        "storageRoot"
+      ],
+      "required": [
+        "ownerUserId",
+        "runId",
+        "status",
+        "storageRoot"
+      ],
+      "enums": {
+        "releasedReason": [
+          "",
+          "explicit",
+          "node_lost",
+          "run_terminal",
+          "ttl_expired"
+        ],
+        "status": [
+          "provisioned",
+          "released"
+        ]
+      }
+    },
+    {
+      "concept": "v1:worker:appSession",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "app",
+        "appSessionRef",
+        "billing",
+        "cancelReason",
+        "credentialExpiresAt",
+        "credentialRef",
+        "endedAt",
+        "errorMessage",
+        "exitCode",
+        "inputArtifactIds",
+        "kind",
+        "mcpEndpoint",
+        "ownerUserId",
+        "producedArtifactIds",
+        "prompt",
+        "responseSchema",
+        "result",
+        "resultSubmittedAt",
+        "runId",
+        "startedAt",
+        "status",
+        "stepId",
+        "transcript",
+        "transcriptBytes",
+        "transcriptTruncated",
+        "usage",
+        "workerId",
+        "workspace"
+      ],
+      "required": [
+        "app",
+        "billing",
+        "kind",
+        "ownerUserId",
+        "startedAt",
+        "status",
+        "workerId"
+      ],
+      "enums": {
+        "app": [
+          "claude-code",
+          "codex"
+        ],
+        "billing": [
+          "metered",
+          "subscription",
+          "unknown"
+        ],
+        "kind": [
+          "attach",
+          "open",
+          "run"
+        ],
+        "status": [
+          "cancelled",
+          "ended",
+          "failed",
+          "running",
+          "starting"
+        ]
+      }
+    },
+    {
+      "concept": "v1:worker:delegationPolicy",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "appOrder",
+        "credentialLifetimeSeconds",
+        "eligibleKinds",
+        "maxConcurrentSessions",
+        "ownerUserId",
+        "preferSubscriptionApps",
+        "updatedAt",
+        "workspaceRoot"
+      ],
+      "required": [
+        "ownerUserId"
+      ]
+    },
+    {
+      "concept": "v1:worker:invocation",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "action",
+        "agentId",
+        "argsRedacted",
+        "bytesIn",
+        "bytesOut",
+        "completedAt",
+        "correlationId",
+        "deleted",
+        "durationMs",
+        "errorCode",
+        "errorMessage",
+        "exitCode",
+        "outcome",
+        "outputPreview",
+        "ownerUserId",
+        "routing",
+        "runId",
+        "signal",
+        "startedAt",
+        "stepId",
+        "tool",
+        "workerId"
+      ],
+      "required": [
+        "action",
+        "agentId",
+        "outcome",
+        "ownerUserId",
+        "startedAt",
+        "tool",
+        "workerId"
+      ],
+      "enums": {
+        "outcome": [
+          "cancelled",
+          "denied_by_classifier",
+          "denied_by_policy",
+          "denied_by_scope",
+          "failure",
+          "kill_switch_engaged",
+          "no_worker_available",
+          "rerouted",
+          "success",
+          "timeout"
+        ],
+        "tool": [
+          "workerComputer",
+          "workerHost"
+        ]
+      }
+    },
+    {
+      "concept": "v1:worker:modelProbe",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "completedCases",
+        "currentCase",
+        "endedAt",
+        "errorMessage",
+        "measurementId",
+        "model",
+        "ownerUserId",
+        "requestedAt",
+        "status",
+        "suiteVersion",
+        "targetNodeId",
+        "totalCases",
+        "updatedAt",
+        "workerId"
+      ],
+      "required": [
+        "model",
+        "ownerUserId",
+        "requestedAt",
+        "status",
+        "suiteVersion",
+        "workerId"
+      ],
+      "enums": {
+        "status": [
+          "cancelled",
+          "failed",
+          "requested",
+          "running",
+          "succeeded"
+        ]
+      }
+    },
+    {
+      "concept": "v1:worker:modelPull",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "completedBytes",
+        "endedAt",
+        "errorMessage",
+        "layer",
+        "model",
+        "ownerUserId",
+        "readvertised",
+        "requestedAt",
+        "status",
+        "statusLine",
+        "targetNodeId",
+        "totalBytes",
+        "updatedAt",
+        "workerId"
+      ],
+      "required": [
+        "model",
+        "ownerUserId",
+        "requestedAt",
+        "status",
+        "workerId"
+      ],
+      "enums": {
+        "status": [
+          "cancelled",
+          "failed",
+          "requested",
+          "running",
+          "succeeded"
+        ]
+      }
+    },
+    {
+      "concept": "v1:worker:registration",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "activeCount",
+        "appDescriptors",
+        "apps",
+        "buildTag",
+        "capabilities",
+        "capabilityDescriptor",
+        "concurrency",
+        "connectedNodeId",
+        "displayName",
+        "hardware",
+        "identityId",
+        "labels",
+        "lastConnectedFromIP",
+        "lastSeenAt",
+        "lastSelectedAt",
+        "name",
+        "operatorLabels",
+        "ownerUserId",
+        "permissions",
+        "platformInfo",
+        "registeredAt",
+        "revokeReason",
+        "revokedAt",
+        "revokedBy",
+        "sharing",
+        "version"
+      ],
+      "required": [
+        "capabilities",
+        "concurrency",
+        "identityId",
+        "name",
+        "ownerUserId",
+        "registeredAt"
+      ]
+    },
+    {
+      "concept": "v1:worker:routingPolicy",
+      "file": "worker/concepts.memql",
+      "fields": [
+        "active",
+        "fallback",
+        "modelPreference",
+        "ownerUserId",
+        "preferLabels",
+        "requireLabels",
+        "strategy"
+      ],
+      "required": [
+        "active",
+        "fallback",
+        "ownerUserId",
+        "strategy"
+      ],
+      "enums": {
+        "fallback": [
+          "nextMatching",
+          "none"
+        ],
+        "strategy": [
+          "firstFit",
+          "labelMatch",
+          "leastLoaded",
+          "roundRobin"
+        ]
+      }
+    }
+  ],
+  "retired": [
+    {
+      "concept": "v1:agents:agent",
+      "field": "audioControl",
+      "kind": "field",
+      "migration": "20260908020000_agent_conversational_fields_retired.up.sql",
+      "note": "commit 47e81134a removed the previous product's conversational substrate (epic memql#4984 and siblings #4988-#4991), including the agent concept's conversational half. Measured by memql#5210. NOTE `gender` is LIVE on v1:identity:user, which is why the strip is concept-scoped."
+    },
+    {
+      "concept": "v1:agents:agent",
+      "field": "gender",
+      "kind": "field",
+      "migration": "20260908020000_agent_conversational_fields_retired.up.sql",
+      "note": "commit 47e81134a removed the previous product's conversational substrate (epic memql#4984 and siblings #4988-#4991), including the agent concept's conversational half. Measured by memql#5210. NOTE `gender` is LIVE on v1:identity:user, which is why the strip is concept-scoped."
+    },
+    {
+      "concept": "v1:agents:agent",
+      "field": "triggerBehavior",
+      "kind": "field",
+      "migration": "20260908020000_agent_conversational_fields_retired.up.sql",
+      "note": "commit 47e81134a removed the previous product's conversational substrate (epic memql#4984 and siblings #4988-#4991), including the agent concept's conversational half. Measured by memql#5210. NOTE `gender` is LIVE on v1:identity:user, which is why the strip is concept-scoped."
+    },
+    {
+      "concept": "v1:agents:agent",
+      "field": "videoControl",
+      "kind": "field",
+      "migration": "20260908020000_agent_conversational_fields_retired.up.sql",
+      "note": "commit 47e81134a removed the previous product's conversational substrate (epic memql#4984 and siblings #4988-#4991), including the agent concept's conversational half. Measured by memql#5210. NOTE `gender` is LIVE on v1:identity:user, which is why the strip is concept-scoped."
+    },
+    {
+      "concept": "v1:agents:agentRole",
+      "field": "recommendedPolicySlug",
+      "kind": "field",
+      "migration": "20260908050000_agent_role_recommended_policy_slug_retired.up.sql",
+      "note": "commit 4812ec5c4 (memql#5130, #5128) removed the last two places a retired AI Router policy survived; epic memql#5127 replaced per-call policy slugs with levels. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:cluster:cluster",
+      "field": "status",
+      "kind": "field",
+      "migration": "20260908010000_cluster_status_retired.up.sql",
+      "note": "memql#4772 removed the field; memql#5199 found the 18 stored versions and wrote the migration."
+    },
+    {
+      "concept": "v1:cluster:deployment",
+      "field": "environment",
+      "kind": "field",
+      "migration": "20260908040000_deployment_environment_retired.up.sql",
+      "note": "commit 9cd492f19 collapsed the environment split to one installation (epic memql#3943 / #3949); the deploy TARGET carries `provider` instead. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:cluster:node",
+      "field": "environment",
+      "kind": "field",
+      "migration": "20260908040000_deployment_environment_retired.up.sql",
+      "note": "commit 9cd492f19 collapsed the environment split to one installation (epic memql#3943 / #3949); the deploy TARGET carries `provider` instead. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:common:attachment",
+      "field": "gcsURL",
+      "kind": "field",
+      "migration": "20260603000000_attachment_rename_gcsurl_to_bloburl.up.sql",
+      "note": "memql#810 renamed gcsURL to blobUrl after the GCS->Azure move (memql#801). The migration copies the value across before dropping the old key."
+    },
+    {
+      "concept": "v1:identity:group",
+      "field": "active",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165. This is the field the epic's own note records as MISSED until a per-concept field sweep found it -- the case memql#5209 exists to make impossible."
+    },
+    {
+      "concept": "v1:identity:group",
+      "field": "agentIds",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165: membership moved to v1:identity:groupMembership rows."
+    },
+    {
+      "concept": "v1:identity:group",
+      "field": "externalId",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165."
+    },
+    {
+      "concept": "v1:identity:group",
+      "field": "maxAgents",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165."
+    },
+    {
+      "concept": "v1:identity:group",
+      "field": "maxHumans",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165."
+    },
+    {
+      "concept": "v1:identity:group",
+      "field": "memberIds",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165: membership moved to v1:identity:groupMembership rows."
+    },
+    {
+      "concept": "v1:identity:user",
+      "field": "groupIds",
+      "kind": "field",
+      "migration": "20260908000000_user_group_ids_retired.up.sql",
+      "note": "epic memql#5165: membership moved to v1:identity:groupMembership rows. NOTE the name collision the migration warns about -- groupIds is live on v1:agents:agent, which is why the strip is concept-scoped."
+    },
+    {
+      "concept": "v1:library:artifact",
+      "field": "producedByPlanId",
+      "kind": "field",
+      "migration": "20260908030000_planner_retirement_row_keys.up.sql",
+      "note": "epic memql#5000 (commit f8b0126d6) deleted v1:planner:plan, task and taskState and swept the fields pointing at them. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:workbench:workspace",
+      "field": "planId",
+      "kind": "field",
+      "migration": "20260908030000_planner_retirement_row_keys.up.sql",
+      "note": "epic memql#5000 (commit f8b0126d6) deleted v1:planner:plan, task and taskState and swept the fields pointing at them. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:worker:appSession",
+      "field": "planId",
+      "kind": "field",
+      "migration": "20260908030000_planner_retirement_row_keys.up.sql",
+      "note": "epic memql#5000 (commit f8b0126d6) deleted v1:planner:plan, task and taskState and swept the fields pointing at them. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:worker:appSession",
+      "field": "taskId",
+      "kind": "field",
+      "migration": "20260908030000_planner_retirement_row_keys.up.sql",
+      "note": "epic memql#5000 (commit f8b0126d6) deleted v1:planner:plan, task and taskState and swept the fields pointing at them. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:worker:invocation",
+      "field": "planId",
+      "kind": "field",
+      "migration": "20260908030000_planner_retirement_row_keys.up.sql",
+      "note": "epic memql#5000 (commit f8b0126d6) deleted v1:planner:plan, task and taskState and swept the fields pointing at them. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:worker:invocation",
+      "field": "taskId",
+      "kind": "field",
+      "migration": "20260908030000_planner_retirement_row_keys.up.sql",
+      "note": "epic memql#5000 (commit f8b0126d6) deleted v1:planner:plan, task and taskState and swept the fields pointing at them. Measured by memql#5210."
+    }
+  ]
+}

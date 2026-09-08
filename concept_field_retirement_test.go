@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/znasllc-io/memql/component/conceptfields"
 )
 
 // TestRetiredConceptFieldsAreMigratedSafely -- memql#5199.
@@ -137,138 +138,48 @@ func checkStrip(label, stmt string, declared map[string]map[string]bool, concept
 	return failures, checked
 }
 
-// sqlComment strips `--` line comments. It runs FIRST and it is load-bearing:
-// these migrations carry long prose explaining what they strip and why, and
-// every such comment quotes the very pattern this gate matches on.
-var sqlComment = regexp.MustCompile(`(?m)--.*$`)
-
-// payloadStrip matches `payload - 'key'`, including the chained form
-// `payload - 'a' - 'b'` (each `- 'x'` matches separately).
-var payloadStrip = regexp.MustCompile(`-\s*'([^']+)'`)
-var payloadMinus = regexp.MustCompile(`payload\s*-\s*'`)
-
-// sqlStatements splits on `;` after removing comments. The statement is the
-// right unit: the concept predicate that makes a strip safe has to be in the
-// same one, and a WHERE clause two statements away protects nothing.
-func sqlStatements(sql string) []string {
-	return strings.Split(sqlComment.ReplaceAllString(sql, ""), ";")
-}
-
-// strippedPayloadKeys reads every key a `payload - 'x'` expression removes,
-// including the chained `payload - 'a' - 'b'` form.
-func strippedPayloadKeys(stmt string) []string {
-	loc := payloadMinus.FindStringIndex(stmt)
-	if loc == nil {
-		return nil
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, m := range payloadStrip.FindAllStringSubmatch(stmt[loc[0]:], -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			out = append(out, m[1])
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-var conceptEq = regexp.MustCompile(`concept\s*=\s*'([^']+)'`)
-var conceptIn = regexp.MustCompile(`concept\s+IN\s*\(([^)]*)\)`)
-var quoted = regexp.MustCompile(`'([^']*)'`)
-
-// scopedConcepts reads every concept id the statement pins itself to, handling
-// `concept = 'x'` and `concept IN ('x', 'y')`.
+// THE MIGRATION READERS LIVE IN component/conceptfields NOW (memql#5209).
 //
-// EVERY id in an IN-list, not just the first. One statement can be right about
-// one concept and wrong about the next, and a reader that stopped at the first
-// would clear exactly that migration.
-func scopedConcepts(stmt string) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(v string) {
-		v = strings.TrimSpace(v)
-		if v != "" && !seen[v] {
-			seen[v] = true
-			out = append(out, v)
-		}
-	}
-	for _, m := range conceptEq.FindAllStringSubmatch(stmt, -1) {
-		add(m[1])
-	}
-	for _, m := range conceptIn.FindAllStringSubmatch(stmt, -1) {
-		for _, q := range quoted.FindAllStringSubmatch(m[1], -1) {
-			add(q[1])
-		}
-	}
-	sort.Strings(out)
-	return out
-}
+// This gate asks "is this strip safe"; conceptfields.VerifyLedger asks "does
+// this strip have a record, and does this record have a strip". They are
+// opposite directions over the SAME corpus, so two readers of `payload - 'x'`
+// would be two definitions of what a strip IS -- and a migration could satisfy
+// one gate's parse while falling outside the other's, with nothing saying so.
+// One reader, two questions. The thin wrappers below keep this file's own
+// prose and its planted-violation tests reading as they did.
 
-var conceptDecl = regexp.MustCompile(`(?m)^concept\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
-var namespaceDecl = regexp.MustCompile(`(?m)^@namespace\("([^"]+)"\)`)
-var fieldDecl = regexp.MustCompile(`^\s+([a-zA-Z_][a-zA-Z0-9_]*)\s`)
+func sqlStatements(sql string) []string        { return conceptfields.SQLStatements(sql) }
+func strippedPayloadKeys(stmt string) []string { return conceptfields.StrippedPayloadKeys(stmt) }
+func scopedConcepts(stmt string) []string      { return conceptfields.ScopedConcepts(stmt) }
 
-// declaredConceptFields reads every concept's TOP-LEVEL field names out of
-// dsl/**/concepts.memql, keyed by the full `v1:<namespace>:<name>` id the
-// migrations spell.
+// declaredConceptFields reads every concept's TOP-LEVEL field names, keyed by
+// the full `v1:<namespace>:<name>` id the migrations spell.
 //
-// Top-level only, and nested object blocks are tracked by brace depth so their
-// members are not mistaken for fields -- a nested key is not a top-level payload
-// key and `payload - 'x'` cannot reach one.
+// IT IS conceptfields.Scan, not a reader of its own (memql#5209). The regex
+// that stood here globbed `dsl/*/concepts.memql`, which missed the 65
+// per-file concepts under `dsl/shopify/generated/` entirely -- so a migration
+// stripping a live shopify field would have been cleared by the
+// unknown-concept branch below rather than caught by the still-declares-it
+// branch, which is the exact inversion this gate exists to prevent. The
+// shared scanner walks the tree the LOADER walks and builds each concept's
+// real JSON schema, so "declared" here means what it means at runtime.
 func declaredConceptFields(t *testing.T) (map[string]map[string]bool, map[string]string) {
 	t.Helper()
-	out := map[string]map[string]bool{}
+	snap, err := conceptfields.Scan(conceptfields.DefaultDSLRoot)
+	if err != nil {
+		t.Fatalf("scanning %s: %v", conceptfields.DefaultDSLRoot, err)
+	}
+	fields := map[string]map[string]bool{}
 	files := map[string]string{}
-
-	matches, err := filepath.Glob("dsl/*/concepts.memql")
-	if err != nil {
-		t.Fatalf("globbing concepts: %v", err)
-	}
-	nested, err := filepath.Glob("dsl/*/*/concepts.memql")
-	if err != nil {
-		t.Fatalf("globbing nested concepts: %v", err)
-	}
-	for _, path := range append(matches, nested...) {
-		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			t.Fatalf("reading %s: %v", path, readErr)
+	for _, entry := range snap.Concepts {
+		set := make(map[string]bool, len(entry.Fields))
+		for _, f := range entry.Fields {
+			set[f] = true
 		}
-		body := string(raw)
-		ns := filepath.Base(filepath.Dir(path))
-		if m := namespaceDecl.FindStringSubmatch(body); m != nil {
-			ns = m[1]
-		}
-
-		lines := strings.Split(body, "\n")
-		name, depth := "", 0
-		for _, line := range lines {
-			if name == "" {
-				if m := conceptDecl.FindStringSubmatch(line); m != nil {
-					name = m[1]
-					depth = 1
-					id := "v1:" + ns + ":" + name
-					out[id] = map[string]bool{}
-					files[id] = path
-				}
-				continue
-			}
-			code := line
-			if i := strings.Index(code, "//"); i >= 0 {
-				code = code[:i]
-			}
-			if depth == 1 {
-				if m := fieldDecl.FindStringSubmatch(code); m != nil {
-					out["v1:"+ns+":"+name][m[1]] = true
-				}
-			}
-			depth += strings.Count(code, "{") - strings.Count(code, "}")
-			if depth <= 0 {
-				name = ""
-			}
-		}
+		fields[entry.Concept] = set
+		files[entry.Concept] = conceptfields.DefaultDSLRoot + "/" + entry.File
 	}
-	return out, files
+	return fields, files
 }
 
 func quoteAll(keys []string) string {
