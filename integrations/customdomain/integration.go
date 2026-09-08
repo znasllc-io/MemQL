@@ -74,6 +74,13 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			},
 		},
 		{
+			Name: "reconcileAccountDomains",
+			Description: "Run one pass of the ACCOUNT domain walk: mint an ownership token, check " +
+				"the TXT record, and stamp verification and the reserved MemQL name on success.",
+			Handler:    i.handleReconcileAccountDomains,
+			ArgsSchema: map[string]string{},
+		},
+		{
 			Name: "reconcile",
 			Description: "Run one custom-domain reconciliation pass: verify DNS, provision what is " +
 				"ready, and remove what was asked to come down.",
@@ -228,6 +235,21 @@ func (i *Integration) handleReleaseForSite(ctx context.Context, args map[string]
 }
 
 // handleReconcile runs one sweep.
+// handleReconcileAccountDomains is the account walk's dispatch point (epic
+// memql#5165). Beside handleReconcile because the two ask DNS the same
+// question of two different rows, and sharing the resolver, the token mint and
+// the schedule is the whole reason the walk lives in this package.
+func (i *Integration) handleReconcileAccountDomains(ctx context.Context, _ map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+	res, err := i.ReconcileAccountDomains(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return i.node(fmt.Sprintf("accountDomains:%d", time.Now().UnixNano()), map[string]any{
+		"checked": res.Checked, "minted": res.Minted, "verified": res.Verified,
+		"failed": res.Failed, "reserved": res.Reserved,
+	})
+}
+
 func (i *Integration) handleReconcile(ctx context.Context, _ map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
 	res, err := i.reconciler.Run(ctx)
 	if err != nil {

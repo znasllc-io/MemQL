@@ -196,6 +196,32 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// to reach their work.
 		{Path: "accounts/queries.memql", Name: "accountsForGroupSweep"}: true,
 
+		// epic memql#5165, section F. The domain walk's work list. It runs
+		// from a scheduled automation under the engine's own actor, so
+		// actor.userId names nobody -- and scoping it to one person would
+		// leave every other client's domain unverified forever, which
+		// presents as "our DNS record is not being seen" with the record
+		// published correctly.
+		{Path: "accounts/queries.memql", Name: "accountsForDomainWalk"}: true,
+
+		// epic memql#5165, D9. Domain join's lookup, and caller-scoping it
+		// would break the feature outright rather than merely being
+		// unavailable: it runs at ARRIVAL, from invitation acceptance and
+		// first sign-in, where the caller IS the person being provisioned
+		// and they own no account at all. All three of its conditions --
+		// active, verified, joining -- are in the filter rather than in the
+		// Go that reads it, because a condition checked after a broader read
+		// is one somebody can drop while the read keeps working.
+		{Path: "accounts/queries.memql", Name: "accountForDomainJoin"}: true,
+
+		// epic memql#5165, section F. The walk's writer. Every field is
+		// optional because the walk advances a row by one state per pass and
+		// the fields differ per state; a caller-scoped version is meaningless
+		// because the writer is the reconciler, not a person. The account
+		// rows keep their composite owner tier, which is what decides who can
+		// READ what this writes.
+		{Path: "accounts/mutations.memql", Name: "recordAccountDomainCheck"}: true,
+
 		// epic memql#5165, D2. Both group writers, and the argument is the
 		// concept's shape rather than the caller's: v1:identity:group and
 		// v1:identity:groupMembership are UNOWNED -- ownerUserId is present

@@ -286,3 +286,50 @@ query account accountsForGroupSweep {
   filter  statusIsActive
   shape   accountIdRef
 }
+
+/// Every active account whose domain is set and whose ownership is not yet proven.
+///
+/// THE WALK'S WHOLE COST CONTROL. A verified account never comes back from this
+/// read, so a cluster whose clients are all verified spends one query per tick
+/// and no DNS lookups at all -- which is what makes a two-minute schedule
+/// affordable. The Go walk re-states the same two conditions as a guard rather
+/// than trusting this filter, so a future widening here cannot silently start
+/// spending lookups on rows that are done.
+///
+/// actor.userId scoping is not the fix and is not available: the walk runs from
+/// a scheduled automation under the engine's own actor, where actor.userId names
+/// nobody -- and scoping it to one person would leave every other client's
+/// domain unverified forever.
+@serverOnly
+@unbounded("the domain walk must see EVERY account still waiting on its DNS record -- a truncated page leaves a client's domain unverified indefinitely, and the person watching the panel has no way to tell that from a record they typed wrong")
+query account accountsForDomainWalk {
+  filter  statusIsActive && domainStatus!="verified" && domain!=""
+  shape   accountDomainWalk
+}
+
+/// The account, if any, that has PROVEN this domain and switched joining on.
+///
+/// ALL THREE CONDITIONS ARE HERE rather than in the Go that calls it (epic
+/// memql#5165, D9): active, `domainStatus == "verified"`, and joinOnDomain. A
+/// condition checked in Go after a broader read is one somebody can drop while
+/// the read keeps working -- and each of these is the difference between a
+/// client's group and a stranger's.
+///
+/// SORTED, so a cluster where two accounts happen to name one domain gives one
+/// stable answer rather than a different one per replica. Two accounts CAN name
+/// the same domain -- nothing stops an operator typing it twice -- and joining
+/// somebody to both would hand one person reach into two clients on an
+/// ambiguity nobody declared.
+///
+/// actor.userId scoping is not the fix and would break the feature: this runs at
+/// ARRIVAL, from the invitation-acceptance and first-sign-in seams, where the
+/// caller is the person being provisioned and they own no account at all.
+@serverOnly
+query account accountForDomainJoin {
+  args {
+    domain  string!
+  }
+  filter  domain==args.domain && statusIsActive && domainStatus=="verified" && joinOnDomain==true
+  shape   accountIdRef
+  sort    "row.createdAt", "asc"
+}

@@ -392,3 +392,7 @@ builtin moduleReadiness { }
 @executor("readinessRecompute")
 @description("Re-evaluate every module on this node and rewrite its moduleReadiness rows; answers one row naming how many modules were written.")
 builtin readinessRecompute { }
+
+@executor("integration.customDomain.reconcileAccountDomains")
+@description("Run one pass of the ACCOUNT domain walk (epic memql#5165, section F): mint an ownership token for a client's domain that has none, check the TXT record at _memql-verify.<domain>, and on success stamp the verification and the reserved MemQL name. Distinct from customDomainReconcile, which walks v1:platform:customDomain bindings toward a certificate -- an account's domain stops at `verified`, because nothing is served from it yet. Returns {checked, minted, verified, failed, reserved}.")
+builtin accountDomainReconcile { }

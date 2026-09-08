@@ -286,3 +286,32 @@ func firstWord(q string) string {
 	}
 	return q
 }
+
+// AccountByVerifiedJoinDomain answers which active account has PROVEN this
+// domain and switched joining on -- empty when none has.
+//
+// The three conditions are in the QUERY rather than here, so a row that fails
+// one of them never reaches this package at all. That is deliberate: a
+// condition checked in Go after a broader read is a condition somebody can
+// drop while the read keeps working.
+func (s *Store) AccountByVerifiedJoinDomain(ctx context.Context, domain string) (string, error) {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return "", nil
+	}
+	rows, err := s.rows(ctx, fmt.Sprintf(
+		"query accountForDomainJoin(domain: %s)", langparser.QuoteString(domain)))
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+	// MORE THAN ONE is a cluster where two accounts proved the same domain,
+	// which the walk cannot produce (a domain is verified per account, and
+	// two accounts CAN name one domain). Taking the first is a stable answer
+	// only because the query sorts; the alternative -- joining them to both
+	// -- would give one person reach into two clients on an ambiguity nobody
+	// declared.
+	return memql.BareShortId(rowString(rows[0], "id")), nil
+}
