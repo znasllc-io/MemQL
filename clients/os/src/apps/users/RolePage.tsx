@@ -3,7 +3,6 @@ import { ArrowLeft, UserRound } from "lucide-react";
 
 import {
   Button,
-  Chip,
   Fact,
   Facts,
   Head,
@@ -177,9 +176,7 @@ export function RolePage({
         detail={role.active ? undefined : "People who held it keep it; nobody new gets it."}
         tone={role.active ? "live" : "paused"}
         acts={acts}
-      >
-        {role.accountId === "" ? null : <Chip tone="accent">scoped</Chip>}
-      </ActionBar>
+      />
     </div>
   );
 }

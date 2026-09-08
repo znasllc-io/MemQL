@@ -183,42 +183,78 @@ after it:
   (`fleet/settings.ts`) rather than a corner of the desktop document, so an
   app learning a checkbox cannot cost anyone their desks.
 
-## Users, the second app (memql#4733)
+## Users, the second app (memql#4733, rebuilt by epic memql#5167)
 
-`src/apps/users/` is the People list, the invitations, and the three admin
-actions the identity service exposes. Four things about it are the rules a
-THIRD app gets wrong by default.
+`src/apps/users/` is People, Groups, Roles, Logs and Settings: three nouns,
+three lists, and a page for every record. It was a roster, a separate
+invitations list and three admin actions in a panel appended beneath the list;
+nothing in the shell created a role, drew a group, or connected a person to
+either without switching sections.
 
+Five things about it are the rules a FOURTH app gets wrong by default.
+
+- **The roster is TWO FEEDS, and there is no Invites section.** An invitation
+  is a person who has not arrived, so `PeopleSection.tsx` joins `searchUsers`
+  and `pendingUserInvitations` through `useTwoFeedView` and `roster.ts` folds
+  them into one list. Answering "who is on this cluster" in two places made
+  somebody looking for a colleague know first whether that colleague had
+  accepted -- which is the thing they were trying to find out. The join must
+  go through `useTwoFeedView`: a `useLiveView` transform that read the second
+  feed caches against the FIRST snapshot, so a row arriving on the second one
+  while the first is unchanged is folded into nothing, silently.
 - **Read the routing rules for BOTH your concepts, and expect them to
   differ.** `v1:identity:user` carries a `created` broadcast and deliberately
   NO `updated` one -- the row churns on `lastSeenAt`, so broadcasting updates
   would strobe the mesh forever. `v1:identity:invitation` carries both,
-  because an invitation is a human action. That asymmetry is the whole
-  exemplar (an acceptance moves a row off one list and onto the other live)
-  AND the whole cost: an admin action produces no event, so the detail panel
-  re-reads **on open** and every write hands its accepted value back to the
-  panel. Do not add the missing rule.
-- **A query with NO shape projects every field of its concept.**
-  `pendingUserInvitations` declared none, so it handed `tokenHash`,
-  `previousTokenHash` and `bindingHash` to every admin browser that opened a
-  people list. Before rendering a concept you have not rendered before, read
-  what its shape actually projects -- and if it is credential-adjacent, add
-  the narrow shape rather than ignoring the field. `authSessionAdminSummary`
-  and `invitationAdminSummary` are what that looks like.
-- **A server read and a browser read are not the same read.**
-  the session read was filtered on its argument and nothing else, which is
-  safe when the one caller passes the caller's own JWT `sub` and unsafe the
-  moment a browser passes an id somebody clicked. It became two queries:
-  `sessionsForSubjectAdmin` for the operator surface, gated and hash-free, and
-  `authSessionsForSelfIncludingRevoked` for the revoke handlers, which now
-  take no argument at all (memql#4768). Neither is a narrowing of the old one
-  -- gating it would have refused the self-service revoke path for every
-  non-admin in the cluster.
-- **Promote on the second use, which is now.** Fleet's row, live view, clock
-  and time formatters moved into `kit/` and `live/` rather than being imported
-  across apps or copied. `.os-machine` and `.os-fleet` remain as CSS aliases,
-  because the shared behaviour is what had to move. The measure that it was
-  the right size: Users ships two classes of its own.
+  because an invitation is a human action, and so do `v1:identity:group` and
+  `v1:identity:groupMembership`. That asymmetry is the whole exemplar (an
+  acceptance moves a row off the list live) AND the whole cost: a role change
+  produces no event, so `PersonPage.tsx` re-reads **on open** and every write
+  hands its accepted value back. Do not add the missing rule.
+- **The offered rungs mirror `auth.MayAssignRole`, and rank alone gets it
+  wrong.** `assign.ts` is that mirror, rule by rule, and two of them are the
+  reason it cannot be `rank < myRank`: developer (300) ranks ABOVE admin (200)
+  and holds strictly fewer `principal` verbs, so rank alone would let a
+  developer mint an admin who can then re-role anybody; and an account-scoped
+  role is holdable only by a member of that account. An unoffered rung is
+  DRAWN and dashed with its reason as a title -- never dropped, because a
+  ladder with a different number of rungs on two people's pages leaves the
+  reader nothing to explain the difference. The server is the authority
+  either way; this decides what is offered.
+- **There is NO membership feed, and there must not be.**
+  `v1:identity:groupMembership` is one row per person per group in the
+  cluster, forever, including the removed ones the concept keeps as history --
+  so `useGroups.ts` reads `membersOfGroup` per opened group and
+  `groupsForUser` per opened person. Both are still LIVE: the subscription is
+  scoped by CONCEPT and cannot be scoped by argument, which is exactly what
+  `inScope` is for. The roster's group facet costs one read of the ONE group
+  somebody picked, and none when they pick nothing. The standing staff --
+  developer rank and above, in every account's group by rule -- are NOT rows:
+  no query returns them, so the group page's "Managed by" band comes from the
+  roster it already holds and offers no controls, because there is nothing to
+  remove.
+- **The grid's vocabulary is pinned to the seeds.**
+  `ROLE_GRID_VOCABULARY` in `apps/users/grid.ts` is a single-line literal, and
+  `component/memql/role_grid_os_parity_test.go` holds it equal to the (verb,
+  resourceType) pairs `dsl/rbac/seeds.memql` grants -- the way `OFFERED_KINDS`
+  is pinned to the site enum. A pair the OS offers that no seed names is a
+  checkbox nothing can store: the write succeeds, the row lands, no resolver
+  asks that question, and the person sees a permission that does nothing. A
+  pair the seeds grow that the grid does not draw is a permission nobody can
+  grant from the shell. Both sides keep working, which is why it is a gate and
+  not a review note.
+
+Two shapes this app owns and other apps import: `PeoplePicker`, `GroupPicker`
+and `RoleLadderPicker` are built here and exported (the `AccountPicker`
+precedent -- the kit gains nothing domain-shaped), and `refusals.ts` keys copy
+on the typed codes `integrations/groups` and `integrations/rbac` raise, with
+`test/users/refusals.test.ts` reading those Go files so a code the engine grows
+cannot arrive unnamed.
+
+Every section is a view union with ONE `Head` per view, the
+`DeployablesSection` sibling-views form, and `test/users/layout.test.tsx`
+walks all of them: two Heads in one scroller is the tell DESIGN.md rule 11
+names, and this app was one of the two that appended a panel beneath its list.
 
 ## Deployables, the third app (memql#4725, recomposed by epic memql#4885)
 
@@ -909,6 +945,45 @@ rules rather than repetitions of the five before it.
   exactly one and passes it down. `apps/accounts/tie.tsx` is the long form of
   this and is the account to trust -- this bullet claimed the opposite until
   memql#4827.
+
+- **THE PEOPLE BAND IS FIRST, AND IT COUNTS PEOPLE RATHER THAN ROWS** (epic
+  memql#5167). It is the band the other five are about: the people are who the
+  deployables, the files, the knowledge and the campaigns are FOR. Two reads
+  fill it -- `groupsForAccount`, then `membersOfGroup` per group -- and it
+  counts DISTINCT people, because somebody in two of a client's groups is one
+  person and summing memberships would report a number nobody could reconcile.
+  It does NOT count the standing staff: developer rank and above reach every
+  client's work by rule with no rows anywhere, so including them would mean
+  this band deciding who the cluster's staff are, on a screen about a client.
+  Opening it hands off to Users on the group by intent rather than listing
+  members here -- membership is managed on the group's own page, and a members
+  list in this ledger would be a second place to manage it.
+
+- **THE DOMAIN RAIL IS A RAIL BECAUSE ITS STOPS DEPEND ON EACH OTHER** (epic
+  memql#5167, and the walk it draws is epic memql#5165's). There is a domain,
+  ownership of it is proven, joining can THEN be turned on, and a MemQL name
+  can then be reserved; four panels would draw the same fields and say nothing
+  about that order. Three things in it are decisions rather than layout: the
+  ownership record is three SEPARATELY copyable parts, because a person is
+  pasting them into three fields of a registrar's form; the Joining stop shows
+  NO CONTROL before the proof rather than a disabled one, because the engine
+  refuses `domain_not_verified` and a checkbox that can only fail is one
+  somebody has to read past; and nothing anywhere has a Check-now button,
+  because the reconciler walks on its own schedule and a button could only lie
+  about DNS propagating. `domainLastCheckedAt` is written on EVERY pass, so it
+  is out of the arrival fingerprint -- while `domainStatus` and `joinOnDomain`
+  are in it, because a domain that became proven is what a person would call a
+  change.
+
+- **THE TIE PICKER FALLS BACK TO MyAccess, AND ONLY WHEN THE READ IS EMPTY.**
+  A client-rank person cannot read `v1:accounts:account` at all, so
+  `useAccountOptions` answers nothing for them -- and a picker with no options
+  would let a Member of Acme tie their campaign to nobody, landing their work
+  where their colleagues cannot see it. What they CAN be told is which groups
+  they are in, because MyAccess tells them as part of who they are, and each
+  group carries the client's id and NAME so the option is nameable without a
+  second read that would be refused for the same reason the first one was. It
+  is a fallback, never a merge: a caller who can read accounts gets the rows.
 
 - **THE LEDGER IS AN ON-DEMAND READ, AND ALL FOUR BANDS ARE, DELIBERATELY.**
   Three of the four rolled-up concepts DO broadcast (`v1:platform:site`,

@@ -9,6 +9,7 @@ import {
   CopyValue,
   Fact,
   Facts,
+  FormRow,
   Head,
   LiveList,
   Notice,
@@ -292,7 +293,7 @@ export function PersonPage({
             />
             {governable ? (
               adding ? (
-                <>
+                <FormRow>
                   <GroupPicker
                     groups={groups.filter(
                       (g) => !held.some((m) => m.groupId === g.id && m.status === "active"),
@@ -310,9 +311,15 @@ export function PersonPage({
                     single
                   />
                   <Button onClick={() => setAdding(false)}>Cancel</Button>
-                </>
+                </FormRow>
               ) : (
-                <Button onClick={() => setAdding(true)}>Add to a group</Button>
+                // A `FormRow` around it, so the control HUGS its label rather
+                // than stretching the panel's whole width: a Panel is a flex
+                // column, so a bare button in one becomes a full-width bar
+                // that reads as a banner rather than as an act.
+                <FormRow>
+                  <Button onClick={() => setAdding(true)}>Add to a group</Button>
+                </FormRow>
               )
             ) : null}
           </>
@@ -434,6 +441,10 @@ function MembershipLine({
           domain: account?.domain,
         })}
       </span>
+      {/* The act sits at the row's trailing edge, where every other row in
+          this shell puts one, rather than beside the sentence it is not
+          about. */}
+      <span className="os-membership-gap" />
       {removable ? (
         <Button onClick={onRemove} busy={busy} busyLabel="Removing..." ariaLabel={`Remove from ${group?.name ?? "this group"}`}>
           Remove

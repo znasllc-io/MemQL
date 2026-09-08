@@ -225,6 +225,12 @@ export function PeopleSection({
         </Notice>
       ) : null}
 
+      {/* NO FILTER CHROME OVER NO CONTENT (rule 2). A cluster with nobody in
+          it gets its empty state and nothing else -- except when a REFINEMENT
+          is why it looks empty, where the controls have to stay or there is no
+          way to clear what is hiding everything. */}
+      {count === 0 && !filterIsNarrowing(filter) ? null : (
+        <>
       <Refine
         search={filter.search}
         onSearch={(next) => setFilter((f) => ({ ...f, search: next }))}
@@ -282,6 +288,8 @@ export function PeopleSection({
           descLabel="By last seen"
         />
       </div>
+        </>
+      )}
 
       <LiveList<RosterRow>
         key={`people:${filter.showDeactivated}:${filter.group}`}

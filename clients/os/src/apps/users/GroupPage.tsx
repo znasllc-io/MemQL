@@ -5,6 +5,7 @@ import { ArrowLeft, UserRound } from "lucide-react";
 import {
   Button,
   Chip,
+  FormRow,
   Head,
   Input,
   LiveList,
@@ -127,10 +128,6 @@ export function GroupPage({
         )}
       </Head>
 
-      {group.kind === "account" && accountStillActive ? (
-        <p className="os-caption">Archive the account to archive this group.</p>
-      ) : null}
-
       {adding ? (
         <Panel label="Add people to this group">
           <PeoplePicker
@@ -243,7 +240,9 @@ export function GroupPage({
               ? `Joins on @${account.domain}.`
               : "Joining is off."}
           </p>
-          <Button onClick={() => onOpenAccount(account.id)}>Open in Accounts</Button>
+          <FormRow>
+            <Button onClick={() => onOpenAccount(account.id)}>Open in Accounts</Button>
+          </FormRow>
         </Panel>
       )}
 
@@ -255,7 +254,21 @@ export function GroupPage({
         />
       ) : null}
 
-      <ActionBar state={archived ? "Archived" : "Active"} tone={archived ? "paused" : "live"} acts={acts} />
+      {/* THE ABSENT ACT IS EXPLAINED WHERE THE ACTS ARE (rule 12). Archive is
+          missing from this bar for an account-kind group whose client is still
+          active, and the sentence that says why belongs beside the acts rather
+          than floating under the Head -- a person looking for the control is
+          looking here. */}
+      <ActionBar
+        state={archived ? "Archived" : "Active"}
+        detail={
+          group.kind === "account" && accountStillActive
+            ? "Archive the account to archive this group."
+            : undefined
+        }
+        tone={archived ? "paused" : "live"}
+        acts={acts}
+      />
     </div>
   );
 }

@@ -152,6 +152,30 @@ export function AccountDomainRail({
             It applies at arrival and to nobody already here. Somebody already on this cluster is
             placed by hand, in Users.
           </p>
+          {/* THE REFUSAL LANDS AT THE STOP THAT OWNS THE VALUE, and it has a
+              typed one worth naming: the engine's validation reads the MERGED
+              payload, so flipping this on a row whose STORED status is not
+              verified is refused `domain_not_verified` -- which happens when
+              somebody changes the domain and turns joining on in the same
+              sitting, where the walk has not yet run against the new name. A
+              generic "that did not go through" would leave them looking at a
+              checkbox that will not stay on with nothing to act on. */}
+          {update.error === "" ? null : (
+            <Notice
+              tone="error"
+              sentence={
+                update.error.includes("domain_not_verified")
+                  ? "This domain is not proven yet."
+                  : "Joining was not changed."
+              }
+              next={
+                update.error.includes("domain_not_verified")
+                  ? "The walk checks again on its own. Joining can be turned on once it has seen the record."
+                  : undefined
+              }
+              detail={update.error}
+            />
+          )}
         </>
       ) : (
         // NO CONTROL AT ALL before the proof, rather than a disabled one: the

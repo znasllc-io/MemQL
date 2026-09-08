@@ -27,6 +27,16 @@ import type { LiveCollectionHandle } from "../../live/useLiveCollection";
 //
 // THREE SIBLING VIEWS, one at a time, one Head each: the list, a group's page,
 // and the New group form in place of the list.
+//
+// ===========================================================================
+// THE ROW CARRIES NO MEMBER COUNT, AND THAT IS THE NO-MEMBERSHIP-FEED RULE
+// ===========================================================================
+// A count per row would mean one `membersOfGroup` read PER GROUP on every
+// render of this list -- which is the cluster-wide membership feed the design
+// forbids, arrived at one read at a time. The count belongs where the members
+// already are: the group's own page, which reads exactly the one group
+// somebody opened. The Accounts ledger's People band does fan out, and it is
+// bounded by the groups of ONE client.
 
 export function GroupsSection({
   groups,
@@ -162,7 +172,10 @@ export function GroupsSection({
         </Notice>
       ) : null}
 
-      <Refine search={search} onSearch={setSearch} chips={chips} label="Refine the groups list" />
+      {/* No filter chrome over no content (rule 2); see PeopleSection. */}
+      {count === 0 && search.trim() === "" ? null : (
+        <Refine search={search} onSearch={setSearch} chips={chips} label="Refine the groups list" />
+      )}
 
       <LiveList<GroupRow>
         key={`groups:${showArchived}`}
@@ -201,6 +214,10 @@ function GroupLine({
 }) {
   const account = accounts.find((a) => a.id === group.accountId) ?? null;
   const archived = group.status === "archived";
+  // The client's name only when it SAYS something the group's name does not:
+  // an account-kind group is named after its client, so a chip beside it reads
+  // "Acme Acme". The kind word carries the tie in that case.
+  const clientName = account === null ? "" : accountName(account);
   return (
     <ListRow
       icon={<Users size={16} aria-hidden />}
@@ -215,7 +232,7 @@ function GroupLine({
         </>
       }
     >
-      {account === null ? null : <AccountChip name={accountName(account)} />}
+      {clientName === "" || clientName === group.name ? null : <AccountChip name={clientName} />}
       <span className="os-caption">{kindWord(group, account)}</span>
       {group.description === "" ? null : <span className="os-caption">{group.description}</span>}
     </ListRow>

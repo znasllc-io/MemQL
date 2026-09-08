@@ -157,6 +157,31 @@ describe("the domain rail", () => {
     );
   });
 
+  it("names the domain_not_verified refusal at the Joining stop", async () => {
+    // The engine's validation reads the MERGED payload, so flipping the flag
+    // on a row whose STORED status is not verified is refused by code -- which
+    // is what happens when somebody changes the domain and turns joining on in
+    // the same sitting. A generic failure would leave them with a checkbox
+    // that will not stay on and nothing to act on.
+    const conn = fakeConnection({
+      clientAccountsAll: [
+        accountRow({ id: "a1", domain: "acme.com", domainStatus: "verified" }),
+      ],
+    });
+    conn.query.updateClientAccount.mockRejectedValue(
+      new Error("domain_not_verified: joinOnDomain may only be set once domainStatus is verified"),
+    );
+    const rail = await openDetail(conn);
+    const joining = await openStop(rail, "Joining");
+    await act(async () => {
+      fireEvent.click(within(joining).getByRole("checkbox"));
+    });
+    expect(await screen.findByText("This domain is not proven yet.")).toBeTruthy();
+    expect(
+      screen.getByText(/joinOnDomain may only be set once domainStatus is verified/),
+    ).toBeTruthy();
+  });
+
   it("reads the self account's stops as the cluster's own", async () => {
     const rail = await openDetail(
       fakeConnection({

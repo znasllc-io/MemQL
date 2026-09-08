@@ -97,6 +97,15 @@ export interface FakeQuery {
   activeCapabilities: ReturnType<typeof vi.fn>;
   clientAccountsAll: ReturnType<typeof vi.fn>;
   revokeAuthSession: ReturnType<typeof vi.fn>;
+  groupsAll: ReturnType<typeof vi.fn>;
+  membersOfGroup: ReturnType<typeof vi.fn>;
+  groupsForUser: ReturnType<typeof vi.fn>;
+  groupsForAccount: ReturnType<typeof vi.fn>;
+  groupCreate: ReturnType<typeof vi.fn>;
+  groupUpdate: ReturnType<typeof vi.fn>;
+  groupArchive: ReturnType<typeof vi.fn>;
+  groupMemberAdd: ReturnType<typeof vi.fn>;
+  groupMemberRemove: ReturnType<typeof vi.fn>;
   /**
    * The one entry point for everything without a generated builder yet: the
    * group reads and every group and role BUILTIN (`useGroups.ts` and

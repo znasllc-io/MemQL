@@ -163,7 +163,12 @@ export function InvitePage({
     {
       id: "role",
       name: "Role",
-      state: draft.role === "" ? (draft.email.trim() === "" ? "pending" : "open") : "done",
+      // `waiting`, never `pending`: on a COMPOSE rail every stop renders its
+      // body, and `pending` means NOT REACHABLE -- it dims the stop, so a form
+      // somebody may legitimately fill in reads as one they may not. Nothing
+      // here depends on the address having been typed first; the ORDER is
+      // advice, not a gate.
+      state: draft.role === "" ? "waiting" : "done",
       sentence: "What they can do once they are here.",
       answer: draft.role,
       body: (
@@ -188,7 +193,7 @@ export function InvitePage({
     {
       id: "groups",
       name: "Groups",
-      state: draft.groupIds.length > 0 ? "done" : draft.role === "" ? "pending" : "waiting",
+      state: draft.groupIds.length > 0 ? "done" : "waiting",
       sentence: "The groups they join the moment they accept. None is the ordinary case.",
       answer:
         draft.groupIds.length === 0

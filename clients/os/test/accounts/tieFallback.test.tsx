@@ -22,7 +22,9 @@ const { accountRow, fakeConnection, withSession } = await import("./harness");
 // would land where their colleagues cannot see it: the opposite of what the
 // tie is for.
 
-function options(connection: unknown, groups?: Parameters<typeof withSession>[1]["groups"]) {
+type Groups = NonNullable<Parameters<typeof withSession>[1]>["groups"];
+
+function options(connection: unknown, groups?: Groups) {
   h.connection = connection;
   return renderHook(() => useAccountOptions(), {
     wrapper: ({ children }) => withSession(children, groups === undefined ? {} : { groups }),

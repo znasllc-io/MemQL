@@ -151,7 +151,11 @@ export function GroupPicker({
     <div className="os-group-picker" role="group" aria-label={label}>
       {offered.map((group) => {
         const on = selected.includes(group.id);
-        const account = accountNameOf?.(group.accountId) ?? "";
+        // The client's name only when it SAYS something the group's name does
+        // not: an account-kind group is named after its client, so rendering
+        // both reads "Acme Acme".
+        const named = accountNameOf?.(group.accountId) ?? "";
+        const account = named === group.name ? "" : named;
         return (
           <button
             key={group.id}
@@ -200,7 +204,10 @@ export function RoleLadderPicker({
   busy?: boolean;
 }) {
   return (
-    <ul className="os-role-ladder" aria-label={label}>
+    // `data-picker` is what turns an unoffered rung dashed: the same markup
+    // draws a RECORD on the role page, where nothing is being offered and
+    // every rung would otherwise read as refused.
+    <ul className="os-role-ladder" data-picker="" aria-label={label}>
       {rungs.map((rung) => {
         const refusal = rungRefusal(rung, context);
         const offered = refusal === "";

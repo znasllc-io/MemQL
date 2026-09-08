@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
 import {
   Button,
+  Field,
   Head,
   Input,
   Panel,
@@ -86,6 +87,15 @@ export function NewRolePage({
   const [grants, setGrants] = useState<string[]>([]);
   const [accountId, setAccountId] = useState("");
 
+  // A RANK IS PROPOSED BEFORE ANYBODY CHOOSES A BASE. The rail opens with the
+  // ladder already read, and a rank of 0 would draw the new rung below every
+  // existing one and make the Head's action refuse until somebody typed a
+  // number -- a form that is answered and still will not go.
+  useEffect(() => {
+    if (rank !== 0 || ladder.length === 0) return;
+    setRank(proposeRank(null, ladder, callerRank));
+  }, [rank, ladder, callerRank]);
+
   const base = ladder.find((r) => r.slug === baseSlug) ?? null;
   const derived = slug === "" ? slugFrom(name) : slug;
   const developerRank = catalog.roles.find((r) => r.slug === "developer")?.rank ?? Number.MAX_SAFE_INTEGER;
@@ -109,19 +119,46 @@ export function NewRolePage({
       answer: name.trim() === "" ? "" : `${name.trim()} (${derived})`,
       body: (
         <>
-          <Input id="role-name" label="Name" value={name} onChange={setName} placeholder="Field engineer" />
-          <p className="os-caption">
-            The slug is <span className="os-role-slug">{derived || "..."}</span>, and it is what the
-            cluster stores. It never changes once the role exists.
-          </p>
-          <Input id="role-slug" label="Slug" value={derived} onChange={setSlug} />
+          {/* NO `Field` label here: the STOP is called Name, and rule 7 is
+              that a scope is named in one place. The two below carry labels
+              because the stop they sit in is called something else. */}
+          <Input
+            id="role-name"
+            label="Name"
+            value={name}
+            onChange={setName}
+            placeholder="Field engineer"
+          />
+          {/* THE SLUG APPEARS ONCE THERE IS ONE. Before a name is typed the
+              sentence would read "the slug is ..." and the box below it would
+              be an empty field for a value nothing derives -- two controls
+              asking for the same thing, one of which cannot be answered. */}
+          {derived === "" ? (
+            <p className="os-caption">
+              The slug derives from the name. It is what the cluster stores, and it never changes
+              once the role exists.
+            </p>
+          ) : (
+            <>
+              <p className="os-caption">
+                The slug is <span className="os-role-slug">{derived}</span>, and it is what the
+                cluster stores. It never changes once the role exists.
+              </p>
+              <Field label="Slug">
+                <Input id="role-slug" label="Slug" value={derived} onChange={setSlug} />
+              </Field>
+            </>
+          )}
         </>
       ),
     },
     {
       id: "base",
       name: "Start from",
-      state: baseSlug === "" ? (name.trim() === "" ? "pending" : "open") : "done",
+      // `waiting` rather than `pending`, for InvitePage's reason: a compose
+      // rail renders every stop's body, and a dimmed one reads as a form
+      // somebody may not fill in.
+      state: baseSlug === "" ? "waiting" : "done",
       sentence: "A role to copy, and where the new one sits beside it.",
       answer: base === null ? "" : `${base.name}, rank ${rank}`,
       body: (
@@ -151,12 +188,14 @@ export function NewRolePage({
                 </li>
               ))}
           </ul>
-          <Input
-            id="role-rank"
-            label="Rank"
-            value={String(rank)}
-            onChange={(next) => setRank(Number(next.replace(/[^0-9]/g, "")) || 0)}
-          />
+          <Field label="Rank">
+            <Input
+              id="role-rank"
+              label="Rank"
+              value={String(rank)}
+              onChange={(next) => setRank(Number(next.replace(/[^0-9]/g, "")) || 0)}
+            />
+          </Field>
           <p className="os-caption">{placementSentence(rank, ladder)}</p>
           {rank >= developerRank ? (
             <p className="os-caption">
@@ -181,7 +220,7 @@ export function NewRolePage({
     {
       id: "permissions",
       name: "Permissions",
-      state: grants.length > 0 ? "done" : baseSlug === "" && name.trim() === "" ? "pending" : "waiting",
+      state: grants.length > 0 ? "done" : "waiting",
       sentence: "What somebody holding it can do.",
       answer: grants.length === 0 ? "" : `${grants.length} permissions`,
       body: (

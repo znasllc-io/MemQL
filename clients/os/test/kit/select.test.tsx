@@ -150,8 +150,10 @@ describe("reading options out of `<option>` children", () => {
   });
 
   it("carries `disabled` through", () => {
-    // PersonDetail disables a grant above the viewer's own rank, and the
-    // option has to stay in the list -- it may be the person's CURRENT role.
+    // A picker over the role ladder disables a grant above the viewer's own
+    // rank, and the option has to stay in the list -- it may be the person's
+    // CURRENT role. (The Users app draws that as a rung ladder now rather than
+    // a Select; the kit's rule is unchanged and other pickers rely on it.)
     const options = selectOptionsFrom(
       <>
         <option value="admin">admin</option>
