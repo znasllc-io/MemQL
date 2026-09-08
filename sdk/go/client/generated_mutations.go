@@ -2081,7 +2081,7 @@ type CreateAuditEventArgs struct {
 	ActorEmail      string
 	ActorRole       string
 	ActorIdentityId string
-	// Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant
+	// Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant | group | groupMembership
 	TargetType    string
 	TargetId      string
 	TargetEmail   string
@@ -6434,7 +6434,6 @@ type CreateUserArgs struct {
 	PrimaryEmail string
 	// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole.
 	Role        string
-	GroupIds    map[string]any
 	Preferences map[string]any
 }
 
@@ -6466,13 +6465,6 @@ func CreateUserBuild(args CreateUserArgs) string {
 		b.WriteString("role: ")
 		b.WriteString(quoteMemQL(args.Role))
 	}
-	if args.GroupIds != nil {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("groupIds: ")
-		b.WriteString(renderMemQLValue(args.GroupIds))
-	}
 	if args.Preferences != nil {
 		if b.Len() > 20 {
 			b.WriteString(", ")
@@ -6502,7 +6494,6 @@ type CreateUserOnFirstLoginArgs struct {
 	Internal         bool
 	SharedMailbox    bool
 	SharedMailboxSet bool // set true to send sharedMailbox; required because zero-value bool is ambiguous
-	GroupIds         map[string]any
 	Preferences      map[string]any
 }
 
@@ -6587,13 +6578,6 @@ func CreateUserOnFirstLoginBuild(args CreateUserOnFirstLoginArgs) string {
 		}
 		b.WriteString("sharedMailbox: ")
 		b.WriteString(fmt.Sprintf("%v", args.SharedMailbox))
-	}
-	if args.GroupIds != nil {
-		if b.Len() > 32 {
-			b.WriteString(", ")
-		}
-		b.WriteString("groupIds: ")
-		b.WriteString(renderMemQLValue(args.GroupIds))
 	}
 	if args.Preferences != nil {
 		if b.Len() > 32 {
@@ -13039,6 +13023,12 @@ type UpdateClientAccountArgs struct {
 	PrimaryContactName  string
 	PrimaryContactEmail string
 	Notes               string
+	// Whether a person arriving with a VERIFIED address on this domain joins this account's group (epic memql#5165, D9). It is a DECISION somebody makes, so it needs a caller-reachable path -- the Accounts app's Domain rail is the one that sets it, and without this argument the flag the engine already validates could be set by nothing.
+	// The guard is Go, not here: component/memql's account_domain_validation refuses `domain_not_verified` on a row whose status is not "verified", which is a comparison against the STORED row that a mutation body cannot make.
+	JoinOnDomain    bool
+	JoinOnDomainSet bool // set true to send joinOnDomain; required because zero-value bool is ambiguous
+	// The name this account is reserved under on this cluster (D10). Refused under the cluster's own domain or equal to a front-door host, by the same Go validation.
+	MemqlDomain string
 }
 
 // UpdateClientAccount calls the engine mutation updateClientAccount.
@@ -13086,6 +13076,20 @@ func UpdateClientAccountBuild(args UpdateClientAccountArgs) string {
 		}
 		b.WriteString("notes: ")
 		b.WriteString(quoteMemQL(args.Notes))
+	}
+	if args.JoinOnDomainSet {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("joinOnDomain: ")
+		b.WriteString(fmt.Sprintf("%v", args.JoinOnDomain))
+	}
+	if args.MemqlDomain != "" {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("memqlDomain: ")
+		b.WriteString(quoteMemQL(args.MemqlDomain))
 	}
 	b.WriteString(")")
 	return b.String()

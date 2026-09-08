@@ -1,9 +1,4 @@
-import {
-  getRowByConceptAndId,
-  renderMemQLValue,
-  type QueryClient,
-  type Row,
-} from "@znasllc-io/memql-sdk-core/client";
+import { getRowByConceptAndId, type QueryClient, type Row } from "@znasllc-io/memql-sdk-core/client";
 
 import { useLiveCollection, type LiveCollectionHandle } from "../../live/useLiveCollection";
 import { membershipFromRow } from "./rows";
@@ -28,16 +23,9 @@ import { membershipFromRow } from "./rows";
 // read's own filter said server-side. Without it, adding somebody to any group
 // in the cluster would fold a row into the page you happen to have open.
 //
-// ===========================================================================
-// HAND-RENDERED CALLS
-// ===========================================================================
-// `groupsAll`, `membersOfGroup` and `groupsForUser` have no generated builder
-// in this tree yet -- epic memql#5165's own last task regenerates the SDKs.
-// The text below is exactly what that builder will render, so switching to
-// `connection.query.groupsAll({ includeArchived: true })` is a one-line change
-// with no behaviour in it. Every value that is not a literal goes through
-// `renderMemQLValue`, because a group id and a user id are both text that
-// reached this browser from somewhere else.
+// The reads go through the GENERATED builders (`make sdk-gen`), which is what
+// keeps the argument names in step with the DSL: a query whose argument was
+// renamed fails to compile here rather than answering nothing at runtime.
 
 export const GROUP_CONCEPT = "v1:identity:group";
 export const MEMBERSHIP_CONCEPT = "v1:identity:groupMembership";
@@ -56,11 +44,7 @@ export function useGroups(): LiveCollectionHandle<Row> {
     concept: GROUP_CONCEPT,
     actions: ["created", "updated"],
     seed: async (_cursor, signal) => {
-      const result = await connection.query.executeNamed(
-        "groupsAll",
-        "query groupsAll(includeArchived: true)",
-        { signal },
-      );
+      const result = await connection.query.groupsAll({ includeArchived: true }, { signal });
       return { rows: result.rows(), nextCursor: "" };
     },
     reread: async (rowId, signal) => {
@@ -83,9 +67,8 @@ export function useMembersOfGroup(groupId: string): LiveCollectionHandle<Row> {
     actions: ["created", "updated"],
     seed: async (_cursor, signal) => {
       if (groupId === "") return { rows: [], nextCursor: "" };
-      const result = await connection.query.executeNamed(
-        "membersOfGroup",
-        `query membersOfGroup(groupId: ${renderMemQLValue(groupId)}, includeRemoved: false)`,
+      const result = await connection.query.membersOfGroup(
+        { groupId, includeRemoved: false },
         { signal },
       );
       return { rows: result.rows(), nextCursor: "" };
@@ -112,9 +95,8 @@ export function useGroupsForUser(userId: string): LiveCollectionHandle<Row> {
     actions: ["created", "updated"],
     seed: async (_cursor, signal) => {
       if (userId === "") return { rows: [], nextCursor: "" };
-      const result = await connection.query.executeNamed(
-        "groupsForUser",
-        `query groupsForUser(userId: ${renderMemQLValue(userId)}, includeRemoved: false)`,
+      const result = await connection.query.groupsForUser(
+        { userId, includeRemoved: false },
         { signal },
       );
       return { rows: result.rows(), nextCursor: "" };

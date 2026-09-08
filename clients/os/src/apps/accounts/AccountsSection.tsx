@@ -30,6 +30,7 @@ export function AccountsSection({
   create,
   update,
   archive,
+  onOpenGroup,
 }: {
   /** The app root's ONE feed. Not retained here -- see AccountsApp for why a
    *  second collection over this concept is the failure to avoid. */
@@ -38,6 +39,8 @@ export function AccountsSection({
   create: CreateAccountState;
   update: UpdateAccountState;
   archive: ArchiveAccountState;
+  /** Opens the Users app on one of this client's groups, by intent. */
+  onOpenGroup?: (groupId: string) => void;
 }) {
   const { source: collection, snapshot, reseed } = feed;
   const [openId, setOpenId] = useState("");
@@ -123,6 +126,7 @@ export function AccountsSection({
           update={update}
           archive={archive}
           onArchived={() => setOpenId("")}
+          onOpenGroup={onOpenGroup}
         />
       )}
     </div>

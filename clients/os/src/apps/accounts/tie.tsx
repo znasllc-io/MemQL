@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 
+import { useSession } from "../../chrome/access";
 import { useLiveCollection } from "../../live/useLiveCollection";
 import { ACCOUNT_CONCEPT, accountFromRow, type AccountRow } from "./rows";
 
@@ -52,9 +53,79 @@ export function useAccountOptions(): AccountRow[] {
     },
     paged: false,
   }));
+  const { access } = useSession();
 
-  return useMemo(
-    () => snapshot.rows.map(accountFromRow).filter((a) => a.id !== ""),
-    [snapshot],
-  );
+  return useMemo(() => {
+    const readable = snapshot.rows.map(accountFromRow).filter((a) => a.id !== "");
+    if (readable.length > 0) return readable;
+
+    // ===================================================================
+    // THE FALLBACK: THE CALLER'S OWN CLIENTS, FROM MyAccess
+    // ===================================================================
+    // A client-rank person cannot read `v1:accounts:account` -- the row's
+    // composite owner tier admits its owner and a cluster owner, and they
+    // are neither -- so this read answers EMPTY for them, and a picker with
+    // no options would let a Member of Acme tie their campaign to nobody.
+    // Their work would then land where their colleagues cannot see it, which
+    // is the opposite of what the tie is for.
+    //
+    // What they CAN be told is which groups they are in, because MyAccess
+    // tells them as part of who they are (epic memql#5165, section H). Each
+    // group carries the client's id AND name, so the option is nameable
+    // without a second read that would be refused for the same reason the
+    // first one was.
+    //
+    // IT IS A FALLBACK, NOT A MERGE, and only when the read came back with
+    // NOTHING. A caller who can read accounts gets the rows -- those are
+    // richer, current, and include clients they are not a member of.
+    const seen = new Set<string>();
+    const fromGroups: AccountRow[] = [];
+    for (const group of access?.groups ?? []) {
+      if (group.accountId === "" || seen.has(group.accountId)) continue;
+      seen.add(group.accountId);
+      fromGroups.push({
+        ...EMPTY_ACCOUNT,
+        id: group.accountId,
+        // The group's own name is the fallback for a client whose name the
+        // cluster did not carry: it is what this person calls that client,
+        // and it beats rendering an id.
+        name: group.accountName || group.name,
+        // ACTIVE, because a group that grants an archived client is archived
+        // with it (the cascade) -- so a group this person is in names a
+        // client that is still active by construction.
+        status: "active",
+      });
+    }
+    return fromGroups;
+  }, [snapshot, access]);
 }
+
+/**
+ * The zero row a fallback option is built from.
+ *
+ * Every field a picker does not know is BLANK rather than invented: this
+ * person cannot read the client's row, so its domain, its contact and its
+ * walk state are things this window does not know -- and a plausible default
+ * for any of them would be a fact about somebody's client that nobody stated.
+ */
+const EMPTY_ACCOUNT: AccountRow = {
+  id: "",
+  name: "",
+  domain: "",
+  primaryContactName: "",
+  primaryContactEmail: "",
+  notes: "",
+  status: "",
+  configuredAt: "",
+  ownerUserId: "",
+  createdAt: "",
+  domainToken: "",
+  domainStatus: "",
+  domainFailureReason: "",
+  domainFailureDetail: "",
+  domainLastCheckedAt: "",
+  domainVerifiedAt: "",
+  joinOnDomain: false,
+  memqlDomain: "",
+  memqlReservedAt: "",
+};

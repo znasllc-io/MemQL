@@ -130,6 +130,21 @@ export interface UpdateAccountState extends WriteState {
    * so the read-merge inherits -- see `omitBlank`.
    */
   update: (accountId: string, patch: Partial<AccountFacts>) => Promise<boolean>;
+  /**
+   * Turn domain joining on or off (epic memql#5167, section C).
+   *
+   * SEPARATE FROM `update`, because it is not one of the profile's facts: the
+   * profile is what somebody knows about a client, and this is a decision
+   * about who reaches their work. Folding it into `AccountFacts` would put it
+   * in the Edit-profile form, where it would be saved by somebody correcting a
+   * phone number.
+   *
+   * The guard is the engine's: `joinOnDomain: true` is refused while
+   * `domainStatus != "verified"` (`domain_not_verified`), which is a
+   * comparison against the STORED row. The rail's stop offers no control at
+   * all before verification, which is the courtesy half.
+   */
+  setJoining: (accountId: string, on: boolean) => Promise<boolean>;
 }
 
 export function useUpdateAccount(): UpdateAccountState {
@@ -175,7 +190,29 @@ export function useUpdateAccount(): UpdateAccountState {
     [connection],
   );
 
-  return { busy, error, update, reset: () => setError("") };
+  const setJoining = useCallback(
+    async (accountId: string, on: boolean): Promise<boolean> => {
+      const query = connection?.query ?? null;
+      if (query === null) {
+        setError("Not connected to the cluster, so nothing was written.");
+        return false;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        await query.updateClientAccount({ accountId, joinOnDomain: on });
+        return true;
+      } catch (err: unknown) {
+        setError(describe(err));
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [connection],
+  );
+
+  return { busy, error, update, setJoining, reset: () => setError("") };
 }
 
 export interface ArchiveAccountState extends WriteState {

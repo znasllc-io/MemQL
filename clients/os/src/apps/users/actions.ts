@@ -303,19 +303,15 @@ export function useUsersActions(): UsersActions {
 
   // ---- groups -------------------------------------------------------------
   //
-  // HAND-RENDERED, for the reason `useGroups.ts` states: epic memql#5165's last
-  // task regenerates the SDKs, and the text below is exactly what the generated
-  // builder will render. Every value that is not a literal goes through
-  // `renderMemQLValue`, because a name somebody typed and an id that reached
-  // this browser from somewhere else are both text.
+  // The GENERATED builders (`make sdk-gen`), which is what keeps the argument
+  // names in step with the DSL: a builtin whose argument was renamed fails to
+  // compile here rather than being refused at runtime for a reason no sentence
+  // on screen would explain.
 
   const groupCreate = useCallback(
     async (name: string, description: string, accountId: string) => {
       const result: Result | null = await runQuery(`group:new:${name}`, (q) =>
-        q.executeNamed(
-          "groupCreate",
-          `builtin groupCreate(name: ${renderMemQLValue(name)}, description: ${renderMemQLValue(description)}, accountId: ${renderMemQLValue(accountId)})`,
-        ),
+        q.groupCreate({ name, description, accountId }),
       );
       if (result === null) return null;
       const row = result.rows()[0];
@@ -327,10 +323,7 @@ export function useUsersActions(): UsersActions {
   const groupUpdate = useCallback(
     async (groupId: string, name: string, description: string) =>
       (await runQuery(groupId, (q) =>
-        q.executeNamed(
-          "groupUpdate",
-          `builtin groupUpdate(groupId: ${renderMemQLValue(groupId)}, name: ${renderMemQLValue(name)}, description: ${renderMemQLValue(description)})`,
-        ),
+        q.groupUpdate({ groupId, name, description }),
       )) !== null,
     [runQuery],
   );
@@ -338,7 +331,7 @@ export function useUsersActions(): UsersActions {
   const groupArchive = useCallback(
     async (groupId: string) =>
       (await runQuery(groupId, (q) =>
-        q.executeNamed("groupArchive", `builtin groupArchive(groupId: ${renderMemQLValue(groupId)})`),
+        q.groupArchive({ groupId }),
       )) !== null,
     [runQuery],
   );
@@ -346,10 +339,7 @@ export function useUsersActions(): UsersActions {
   const groupMemberAdd = useCallback(
     async (groupId: string, userId: string) =>
       (await runQuery(userId, (q) =>
-        q.executeNamed(
-          "groupMemberAdd",
-          `builtin groupMemberAdd(groupId: ${renderMemQLValue(groupId)}, userId: ${renderMemQLValue(userId)})`,
-        ),
+        q.groupMemberAdd({ groupId, userId }),
       )) !== null,
     [runQuery],
   );
@@ -357,10 +347,7 @@ export function useUsersActions(): UsersActions {
   const groupMemberRemove = useCallback(
     async (groupId: string, userId: string) =>
       (await runQuery(userId, (q) =>
-        q.executeNamed(
-          "groupMemberRemove",
-          `builtin groupMemberRemove(groupId: ${renderMemQLValue(groupId)}, userId: ${renderMemQLValue(userId)})`,
-        ),
+        q.groupMemberRemove({ groupId, userId }),
       )) !== null,
     [runQuery],
   );

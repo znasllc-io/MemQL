@@ -57,7 +57,10 @@ export function accessFromSummary(summary: AccessSummary | null): ProfileAccess 
   const primaryEmail = summary.primaryEmail.trim();
   const clusterRole = String(summary.clusterRole ?? "").trim();
   if (userId === "" && clusterRole === "") return null;
-  return { userId, primaryEmail, clusterRole };
+  // The groups ride through unchanged: the SDK already answers an empty list
+  // for a cluster that does not report them, and this layer must not turn that
+  // into a claim of its own.
+  return { userId, primaryEmail, clusterRole, groups: summary.groups ?? [] };
 }
 
 /**

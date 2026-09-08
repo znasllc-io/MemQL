@@ -735,6 +735,16 @@ export interface MyAccessResultPayload {
   clusterRole?: UserRoleWire | null;
   sessionId?: string;
   displayName?: string;
+  /** The groups this caller is in (epic memql#5165, section H). */
+  groups?: AccessGroupPayload[];
+}
+
+export interface AccessGroupPayload {
+  id?: string;
+  name?: string;
+  kind?: string;
+  accountId?: string;
+  accountName?: string;
 }
 
 export interface RotateAuthResultPayload {

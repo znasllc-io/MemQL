@@ -26,6 +26,22 @@ import type {
 // name. Consumers must treat it as "unknown", never as "least privileged".
 export type Role = "" | "owner" | "admin" | "developer" | "writer" | "reader";
 
+/**
+ * One group the caller is in, as MyAccess reports it (epic memql#5165).
+ *
+ * It carries the ACCOUNT's name as well as the group's, because the surfaces
+ * that read it are naming a client -- and a client whose name needs a second,
+ * gated read to resolve is one a member could not see the name of.
+ */
+export interface AccessGroup {
+  id: string;
+  name: string;
+  /** `account` for the group the cluster makes per client, `custom` otherwise. */
+  kind: string;
+  accountId: string;
+  accountName: string;
+}
+
 export interface AccessSummary {
   requestId: string;
   userId: string;
@@ -40,6 +56,12 @@ export interface AccessSummary {
   // for a credential with no session behind it (a PAT, an operator key, a
   // service account), which is not an error; there is simply no row to name.
   sessionId: string;
+  /**
+   * The groups this caller is in. EMPTY means "not reported" as well as "none"
+   * -- see accessSummaryFromWire -- so a reader must not conclude from an
+   * empty list that somebody belongs to nobody.
+   */
+  groups: AccessGroup[];
   // displayName is the person's name off their v1:identity:user row
   // (memql#4317), resolved server-side by the same read that produces
   // primaryEmail.
@@ -539,6 +561,20 @@ export function accessSummaryFromWire(p: MyAccessResultPayload | undefined): Acc
     clusterRole: roleFromWire(p.clusterRole),
     sessionId: p.sessionId ?? "",
     displayName: p.displayName ?? "",
+    // The groups this caller is in (epic memql#5165, section H). ABSENT is not
+    // "no groups": a cluster whose engine predates the field sends nothing, and
+    // a consumer that read absence as emptiness would tell a member of Acme
+    // they belong to nobody. Every reader here treats the empty list as "not
+    // reported" and falls back to what it can read for itself.
+    groups: Array.isArray(p.groups)
+      ? p.groups.map((g) => ({
+          id: g.id ?? "",
+          name: g.name ?? "",
+          kind: g.kind ?? "",
+          accountId: g.accountId ?? "",
+          accountName: g.accountName ?? "",
+        }))
+      : [],
   };
 }
 

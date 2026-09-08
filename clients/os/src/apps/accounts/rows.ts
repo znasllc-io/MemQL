@@ -180,6 +180,15 @@ export function accountFingerprint(account: AccountRow): string {
     account.primaryContactEmail,
     account.notes,
     account.status,
+    // THE WALK'S ANSWERS, and only its answers (epic memql#5167, section C). A
+    // domain that became proven and joining that was switched on are both what
+    // a person would call a change, and the account list SHOULD ring for them.
+    account.domainStatus,
+    account.joinOnDomain,
+    // `domainLastCheckedAt` is deliberately ABSENT, and it is the one field on
+    // this row that moves on a timer: the walk writes it on EVERY pass, so a
+    // digest built over it would change every two minutes and turn the list
+    // into a strobe -- the standing badge the cue exists not to be.
   ].join("|");
 }
 

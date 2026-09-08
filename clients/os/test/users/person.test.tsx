@@ -298,10 +298,9 @@ describe("the groups panel", () => {
     await openAda(connection);
 
     expect(await screen.findByText("joined on @acme.com")).toBeTruthy();
-    const calls = connection.query.executeNamed.mock.calls.filter(
-      (c: unknown[]) => c[0] === "groupsForUser",
-    );
-    expect(calls[0]?.[1]).toContain('userId: "v1:identity:user:ada"');
+    expect(connection.query.groupsForUser.mock.calls[0]?.[0]).toMatchObject({
+      userId: "v1:identity:user:ada",
+    });
   });
 
   it("says the standing rule instead of rows for staff", async () => {

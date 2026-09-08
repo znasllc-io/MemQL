@@ -3386,6 +3386,106 @@ func GlobalVariablesBuild(args GlobalVariablesArgs) string {
 	return b.String()
 }
 
+// GroupById -- One group by id, for its page.
+//
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupById"] in generated_concepts.go).
+type GroupByIdArgs struct {
+	GroupId string
+}
+
+// GroupById calls the engine query groupById.
+func (qc *QueryClient) GroupById(ctx context.Context, args GroupByIdArgs) (*Result, error) {
+	call := GroupByIdBuild(args)
+	return qc.executeNamed(ctx, "groupById", call)
+}
+
+func GroupByIdBuild(args GroupByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupById(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupsAll -- Every group in the cluster, for the Users app's Groups section.
+//
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupsAll"] in generated_concepts.go).
+type GroupsAllArgs struct {
+	IncludeArchived    bool
+	IncludeArchivedSet bool // set true to send includeArchived; required because zero-value bool is ambiguous
+}
+
+// GroupsAll calls the engine query groupsAll.
+func (qc *QueryClient) GroupsAll(ctx context.Context, args GroupsAllArgs) (*Result, error) {
+	call := GroupsAllBuild(args)
+	return qc.executeNamed(ctx, "groupsAll", call)
+}
+
+func GroupsAllBuild(args GroupsAllArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupsAll(")
+	if args.IncludeArchivedSet {
+		b.WriteString("includeArchived: ")
+		b.WriteString(fmt.Sprintf("%v", args.IncludeArchived))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupsForAccount -- The groups tied to one account -- the Accounts ledger's People band.
+//
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupsForAccount"] in generated_concepts.go).
+type GroupsForAccountArgs struct {
+	AccountId string
+}
+
+// GroupsForAccount calls the engine query groupsForAccount.
+func (qc *QueryClient) GroupsForAccount(ctx context.Context, args GroupsForAccountArgs) (*Result, error) {
+	call := GroupsForAccountBuild(args)
+	return qc.executeNamed(ctx, "groupsForAccount", call)
+}
+
+func GroupsForAccountBuild(args GroupsForAccountArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupsForAccount(")
+	b.WriteString("accountId: ")
+	b.WriteString(quoteMemQL(args.AccountId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupsForUser -- The membership rows of one person, for their page in the Users app.
+//
+// Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["groupsForUser"] in generated_concepts.go).
+type GroupsForUserArgs struct {
+	UserId            string
+	IncludeRemoved    bool
+	IncludeRemovedSet bool // set true to send includeRemoved; required because zero-value bool is ambiguous
+}
+
+// GroupsForUser calls the engine query groupsForUser.
+func (qc *QueryClient) GroupsForUser(ctx context.Context, args GroupsForUserArgs) (*Result, error) {
+	call := GroupsForUserBuild(args)
+	return qc.executeNamed(ctx, "groupsForUser", call)
+}
+
+func GroupsForUserBuild(args GroupsForUserArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupsForUser(")
+	b.WriteString("userId: ")
+	b.WriteString(quoteMemQL(args.UserId))
+	if args.IncludeRemovedSet {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("includeRemoved: ")
+		b.WriteString(fmt.Sprintf("%v", args.IncludeRemoved))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // HostedBookings -- The host's bookings, newest first. Owned. Projects @pii bookerEmail, so the caller constraint is load-bearing.
 //
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["hostedBookings"] in generated_concepts.go).
@@ -4171,6 +4271,37 @@ func MagicLinkRequestByTokenHashBuild(args MagicLinkRequestByTokenHashArgs) stri
 	b.WriteString("query magicLinkRequestByTokenHash(")
 	b.WriteString("tokenHash: ")
 	b.WriteString(quoteMemQL(args.TokenHash))
+	b.WriteString(")")
+	return b.String()
+}
+
+// MembersOfGroup -- The membership rows of one group. Removed members are history and are excluded unless asked for -- the row stays, because who left and when is the question the versions exist to answer.
+//
+// Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["membersOfGroup"] in generated_concepts.go).
+type MembersOfGroupArgs struct {
+	GroupId           string
+	IncludeRemoved    bool
+	IncludeRemovedSet bool // set true to send includeRemoved; required because zero-value bool is ambiguous
+}
+
+// MembersOfGroup calls the engine query membersOfGroup.
+func (qc *QueryClient) MembersOfGroup(ctx context.Context, args MembersOfGroupArgs) (*Result, error) {
+	call := MembersOfGroupBuild(args)
+	return qc.executeNamed(ctx, "membersOfGroup", call)
+}
+
+func MembersOfGroupBuild(args MembersOfGroupArgs) string {
+	var b strings.Builder
+	b.WriteString("query membersOfGroup(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	if args.IncludeRemovedSet {
+		if b.Len() > 21 {
+			b.WriteString(", ")
+		}
+		b.WriteString("includeRemoved: ")
+		b.WriteString(fmt.Sprintf("%v", args.IncludeRemoved))
+	}
 	b.WriteString(")")
 	return b.String()
 }

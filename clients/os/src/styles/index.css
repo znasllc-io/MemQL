@@ -12696,3 +12696,42 @@ a.os-button {
   align-items: center;
   gap: 8px;
 }
+
+/* ---- the account page's domain rail (epic memql#5167, section C) --------- */
+
+/* The ownership record as three parts: a person is pasting them into three
+ * different fields of a registrar's form, so each is copyable on its own and
+ * the pairs read down rather than across. The Deployables domains stop set
+ * this shape and this is the same reading. */
+.os-dns-record {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.os-dns-record > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.os-dns-record dt {
+  width: 52px;
+  flex: none;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+
+.os-dns-record dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.os-account-hosts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 0;
+}

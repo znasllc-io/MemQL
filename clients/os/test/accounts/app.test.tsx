@@ -252,8 +252,14 @@ describe("the ledger", () => {
       invitationsForAccount: new Error("reading invitations is owner and admin only"),
     });
     const ledger = await openDetail(conn);
-    await waitFor(() => expect(within(ledger).getByText("Not yours to read")).toBeTruthy());
-    expect(within(ledger).getByText("reading invitations is owner and admin only")).toBeTruthy();
+    // SCOPED TO THE BAND, because the People band refuses in this harness too
+    // (its two reads are not stubbed here) and "Not yours to read" is
+    // deliberately the same sentence for every band: a refusal reads the same
+    // whichever population it was about.
+    await waitFor(() =>
+      expect(within(ledger).getByText("reading invitations is owner and admin only")).toBeTruthy(),
+    );
+    expect(within(ledger).getAllByText("Not yours to read").length).toBeGreaterThan(0);
   });
 
   it("one band refusing does not take the other three down with it", async () => {

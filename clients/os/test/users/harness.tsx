@@ -148,6 +148,14 @@ export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
     return m?.[1] ?? "";
   };
 
+  /** A generated builtin's reply, or the seeded refusal. */
+  const builtin = (name: string, reply: Record<string, unknown>) =>
+    vi.fn(async (_args: Record<string, unknown>) => {
+      const seeded = seed.builtins?.[name];
+      if (seeded instanceof Error) throw seeded;
+      return rowsResult([(seeded ?? reply) as Row]);
+    });
+
   return {
     query: {
       searchUsers: read("searchUsers"),
@@ -157,6 +165,29 @@ export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
       activeCapabilities: read("activeCapabilities"),
       clientAccountsAll: read("clientAccountsAll"),
       revokeAuthSession: vi.fn(async () => rowsResult([])),
+      // The group reads, through the GENERATED builders the app calls (`make
+      // sdk-gen`). They were hand-rendered through `executeNamed` until epic
+      // memql#5165's own last task regenerated the SDKs; a harness that
+      // answered only the old shape would leave every group surface reading an
+      // empty list, which is a completely plausible answer and is what makes
+      // that kind of miss survive review.
+      groupsAll: vi.fn(async (_args: Record<string, unknown>) => rowsResult(seed.groupsAll ?? [])),
+      membersOfGroup: vi.fn(async (args: Record<string, unknown>) => {
+        const groupId = typeof args["groupId"] === "string" ? args["groupId"] : "";
+        return rowsResult(seed.membersOfGroup?.[groupId] ?? []);
+      }),
+      groupsForUser: vi.fn(async (args: Record<string, unknown>) => {
+        const userId = typeof args["userId"] === "string" ? args["userId"] : "";
+        return rowsResult(seed.groupsForUser?.[userId] ?? []);
+      }),
+      groupsForAccount: vi.fn(async (_args: Record<string, unknown>) => rowsResult([])),
+      // The five group WRITES, likewise generated. A thrown seed value is the
+      // refusal path.
+      groupCreate: builtin("groupCreate", { groupId: "g-new" }),
+      groupUpdate: builtin("groupUpdate", { ok: "true" }),
+      groupArchive: builtin("groupArchive", { ok: "true" }),
+      groupMemberAdd: builtin("groupMemberAdd", { ok: "true" }),
+      groupMemberRemove: builtin("groupMemberRemove", { ok: "true" }),
       executeNamed: vi.fn(async (name: string, call: string) => {
         if (name === "groupsAll") return rowsResult(seed.groupsAll ?? []);
         if (name === "membersOfGroup") {

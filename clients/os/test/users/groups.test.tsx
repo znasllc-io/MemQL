@@ -79,11 +79,8 @@ describe("the groups list", () => {
     });
     await click(screen.getByRole("button", { name: "Create group" }));
 
-    await waitFor(() =>
-      expect(
-        connection.query.executeNamed.mock.calls.filter((c: unknown[]) => c[0] === "groupCreate"),
-      ).toHaveLength(1),
-    );
+    await waitFor(() => expect(connection.query.groupCreate.mock.calls).toHaveLength(1));
+    expect(connection.query.groupCreate.mock.calls[0]?.[0]).toMatchObject({ name: "Reviewers" });
     // Back on the list, and the row is NOT there until the cluster says so.
     await screen.findByRole("button", { name: "New group" });
     expect(screen.queryByRole("button", { name: /Reviewers/ })).toBeNull();

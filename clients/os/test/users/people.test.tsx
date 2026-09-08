@@ -195,8 +195,7 @@ describe("refining by group", () => {
     await screen.findByRole("button", { name: /Ada/ });
 
     // Nothing has been picked, so no membership has been read at all.
-    const membersCalls = () =>
-      connection.query.executeNamed.mock.calls.filter((c: unknown[]) => c[0] === "membersOfGroup");
+    const membersCalls = () => connection.query.membersOfGroup.mock.calls;
     expect(membersCalls()).toHaveLength(0);
 
     await click(screen.getByRole("button", { name: /Refine/ }));
@@ -207,7 +206,7 @@ describe("refining by group", () => {
     await act(async () => {});
 
     await waitFor(() => expect(membersCalls().length).toBeGreaterThan(0));
-    expect(membersCalls()[0]?.[1]).toContain('groupId: "g1"');
+    expect(membersCalls()[0]?.[0]).toMatchObject({ groupId: "g1" });
     await waitFor(() => expect(screen.queryByRole("button", { name: /Kit/ })).toBeNull());
     expect(screen.getByRole("button", { name: /Ada/ })).toBeTruthy();
   });
