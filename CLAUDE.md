@@ -148,6 +148,21 @@ without one is normal.
 - [Architecture](docs/public/concepts/architecture.md) · [Events](docs/public/concepts/events.md) · [Tech stack](docs/public/overview/tech-stack.md)
 - [MemQL Language](docs/public/language/memql.md) · [Functions](docs/public/language/functions.md)
 - [MemQL Authoring Rules & Gotchas](docs/public/language/authoring-rules.md) -- read before writing `.memql` files
+- **Removing a field from a concept BRICKS its stored rows** (memql#5199,
+  memql#5209). Every concept's schema is `additionalProperties: false` and a
+  mutation's read-merge validates the MERGED payload, so a stored key the
+  concept no longer declares makes that row unwritable on its NEXT WRITE --
+  `additionalProperties '<field>' not allowed`. CI cannot see it: `db-tests`
+  runs against a fresh database whose boot seed writes clean rows, so it
+  appears first on a real installation. The same is true of dropping an enum
+  value and of adding a `@required` field to a concept that already has rows.
+  `make concept-snapshot` is the seventh regeneration gate and the only one
+  that REFUSES to regenerate: it will not drop a field from
+  `component/conceptfields/concept-fields.snapshot.json` until the `retired`
+  ledger records a migration that repairs the rows, or a waiver saying why none
+  is needed. Write the migration SCOPED BY CONCEPT, never by key name -- a
+  payload key is not unique to one concept, and `gender` is retired on
+  `v1:agents:agent` while live on `v1:identity:user`
 - [Node Identifier Conventions](docs/public/concepts/identifiers.md) -- canonical `{concept}:{shortId}` internally vs the BARE-ids client contract at every wire seam (the engine bare-ifies on egress and resolves bare args on inbound; clients never compose, parse or compare canonical ids), the `(concept, id)` keying rule, anti-patterns
 - [`core/num`](core/num/num.go) -- the ONE narrowing from a decoded payload
   number to a Go `int`, in three NAMED answers (saturate / zero /
