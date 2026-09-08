@@ -1,47 +1,56 @@
 // Reads over the proving suite's published record.
 //
-// Every one is cluster-owner tier, matching the concepts: a benchmark is a
-// fact about the deployment, and there is no per-person slice of it to offer.
-// The MemQL OS's Benchmarks section is gated at admin for exactly that reason
-// -- a reader below the floor would see an empty list with no explanation.
+// ADMIN AND ABOVE, on BOTH halves (memql#5216). The concepts declare
+// `@rowAuthz(clusterOwner, rankFloor="admin")` -- administrative to write,
+// readable from admin down -- and every read here carries the surface floor to
+// match. Epic memql#4832's D6 says the two are both permanent and neither
+// stands in for the other: `@requiresRank` gates WHO MAY CALL, the tier decides
+// WHICH ROWS COME BACK.
+//
+// THEY USED TO DISAGREE, and that is what this file is a fix for. The filters
+// read `actor.isClusterOwner==true` while MemQL OS's Benchmarks section admits
+// `{ min: "admin" }`, so a non-owner admin was let into the screen and served
+// nothing -- rendered, on a surface built to make absence legible, as every
+// figure being UNMEASURED. This header used to assert the opposite, that the OS
+// floor was gated at admin "for exactly that reason": the claim was that the
+// two agreed, and they did not.
 
 /// Every benchmark run, newest first. The trend across releases is read from this.
-@actor
+@requiresRank("admin")
 query run benchRuns {
-  filter  actor.isClusterOwner==true
   sort    "row.createdAt", "desc"
   shape   benchRunFull
 }
 
 /// One benchmark run by id.
-@actor
+@requiresRank("admin")
 query run benchRunById {
   args {
     benchRunId  string!
   }
-  filter  row.id==args.benchRunId && actor.isClusterOwner==true
+  filter  row.id==args.benchRunId
   shape   benchRunFull
 }
 
 /// Every published figure for one benchmark run.
-@actor
+@requiresRank("admin")
 query sample benchSamplesForRun {
   args {
     benchRunId  string!
   }
-  filter  benchRunId==args.benchRunId && actor.isClusterOwner==true
+  filter  benchRunId==args.benchRunId
   sort    "metric", "asc"
   shape   benchSampleFull
 }
 
 /// One metric's figures across runs, which is how a trend is drawn.
-@actor
+@requiresRank("admin")
 query sample benchSamplesForMetric {
   args {
     metric  string!
     arm     string
   }
-  filter  metric==args.metric && actor.isClusterOwner==true && when(args.arm) { arm==args.arm }
+  filter  metric==args.metric && when(args.arm) { arm==args.arm }
   sort    "row.createdAt", "desc"
   shape   benchSampleFull
 }

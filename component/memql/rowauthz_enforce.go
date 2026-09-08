@@ -119,7 +119,7 @@ func rowAuthzPredicateExpr(decl *langparser.RowAuthzDecl) (ExpressionNode, error
 		rowAuthzPredicateCache.Store(rendered, parsed.Root)
 		base = cloneRowAuthzPredicate(parsed.Root)
 	}
-	return orAccountScope(orRankScope(base, decl), decl), nil
+	return orReadFloor(orAccountScope(orRankScope(base, decl), decl), decl), nil
 }
 
 // orRankScope ORs the rank branch onto a rendered tier predicate
@@ -430,6 +430,18 @@ func rowAuthzAdmitsMode(ctx context.Context, conceptName string, id string, payl
 
 	case langparser.RowAuthzClusterOwner:
 		if rowAuthzIsClusterOwner(ctx) {
+			return rowAuthzAdmit
+		}
+		// The READ FLOOR (memql#5216), OR-ed on exactly as the injected
+		// predicate ORs it: a concept may say its rows are administrative to
+		// WRITE and readable from a rank down. Absent a floor this is the
+		// pre-existing deny, unchanged.
+		//
+		// Reads only. rowAuthzAdmitsWrite reaches this same switch, so the
+		// guard against a floor becoming a write permission is one rung up --
+		// see rowAuthzWriteEscapeFor's caller, which never consults this arm
+		// for a write.
+		if !write && readFloorAdmitsRow(ctx, decl) {
 			return rowAuthzAdmit
 		}
 		return rowAuthzDeny

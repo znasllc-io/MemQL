@@ -2585,12 +2585,19 @@ never a best case" is unrepresentable rather than merely discouraged.
   the same automation run twice in one process with `Engine` set and nil --
   `newWorkJournal` returns nil for a nil executor, so the only difference is
   whether journal rows are written.
-- Rows: `v1:bench:run` and `v1:bench:sample`, `@rowAuthz(clusterOwner)`,
-  broadcast, every mutation `@serverOnly` -- a client-reachable write here is a
-  primitive for forging the numbers the README rests on. Surfaced at MemQL OS
-  Settings -> Benchmarks (`{ min: "admin" }`), where an absence takes the same
-  room as a number and an unmeasured run draws an OPEN NOTCH rather than a bar
-  of height zero.
+- Rows: `v1:bench:run` and `v1:bench:sample`,
+  `@rowAuthz(clusterOwner, rankFloor="admin")`, broadcast, every mutation
+  `@serverOnly` -- a client-reachable write here is a primitive for forging the
+  numbers the README rests on. Surfaced at MemQL OS Settings -> Benchmarks
+  (`{ min: "admin" }`), where an absence takes the same room as a number and an
+  unmeasured run draws an OPEN NOTCH rather than a bar of height zero.
+  **`rankFloor=` relaxes the READ and leaves the WRITE at clusterOwner**
+  (memql#5216) -- it is an argument of that tier for exactly that reason, since
+  on `public` a floor would have had to carry the write question too. Until it
+  landed the tier said both things at once, so a non-owner admin was admitted to
+  the screen and served nothing: on a surface built to make an absence legible,
+  the refusal rendered as UNMEASURED. The four reads carry `@requiresRank("admin")`
+  to match, and are adjudicated in `tierDecidesTheRead`.
 
 ### Planner / Knowledge / Validation
 

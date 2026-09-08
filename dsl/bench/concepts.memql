@@ -9,10 +9,21 @@
 /// One invocation of the proving suite. Written by `memql-bench --do=run`,
 /// once per run, before any sample.
 ///
-/// CLUSTER-OWNER TIER, and it has no owner field at all. A benchmark is a fact
-/// about the DEPLOYMENT rather than about a person: there is nobody whose row
-/// this is, so the composite `owner=..., clusterOwner` form other operator
-/// surfaces use would have an owner key that nothing could ever fill.
+/// CLUSTER-OWNER TIER WITH A READ FLOOR AT ADMIN (memql#5216), and it has no
+/// owner field at all. A benchmark is a fact about the DEPLOYMENT rather than
+/// about a person: there is nobody whose row this is, so the composite
+/// `owner=..., clusterOwner` form other operator surfaces use would have an
+/// owner key that nothing could ever fill.
+///
+/// THE FLOOR RELAXES THE READ AND LEAVES THE WRITE WHERE IT WAS, and that
+/// asymmetry is why it exists. `clusterOwner` alone said two things at once --
+/// only the deployment writes these, AND only the cluster owner reads them --
+/// and the second was never intended. MemQL OS surfaces these rows at
+/// Settings -> Benchmarks with `roles: { min: "admin" }`, so a non-owner admin
+/// was admitted to the screen and served nothing. On a surface built so that
+/// an absence takes the same room as a number, that refusal rendered as
+/// UNMEASURED: a permission answer wearing the costume of a measurement, on
+/// the one screen whose design principle is that an absence must be legible.
 ///
 /// EVERY MUTATION BOUND TO THIS CONCEPT IS @serverOnly, and that is the
 /// load-bearing part. These rows are what the README's published claims rest
@@ -22,7 +33,7 @@
 /// internal origin and takes an entry in call_origin_conformance_test.go's
 /// allowlist saying exactly that.
 @displayCard(primary="tier", secondary="verdict", tertiary="commit", status="verdict")
-@rowAuthz(clusterOwner)
+@rowAuthz(clusterOwner, rankFloor="admin")
 concept run {
   tier               enum("ci", "live")!  @description("Which lane produced this run. `ci` replays from recorded responses and reaches no provider; `live` runs against real providers. The two measure different things about the same metric names, which is why a figure from one is never compared against a figure from the other -- component/proving/figure.Compare returns `undecidable` across a tier boundary rather than pretending.")
   commit             string!  @description("Short SHA the suite ran at. Required on every figure: a number nobody can reproduce is a number nobody should act on.")
@@ -51,7 +62,7 @@ concept run {
 /// honesty rule is medians and spread, never a best case, and a schema that
 /// offered a bare number is a schema somebody would eventually publish from.
 @displayCard(primary="metric", secondary="arm", tertiary="scenarioId", status="arm")
-@rowAuthz(clusterOwner)
+@rowAuthz(clusterOwner, rankFloor="admin")
 concept sample {
   benchRunId    string!  @description("v1:bench:run.id this sample belongs to.")
   family        enum("amortizedCost", "reliability", "recovery", "durability", "learningCurve", "speed", "governance")!  @description("Which of the six families this belongs to, or `governance` -- which is carried by the same rows and is deliberately NOT a family in the epic's sense: it is pass-or-fail and has no statistics, so there is no governance score to be tempted by.")
