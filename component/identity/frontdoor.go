@@ -78,6 +78,14 @@ type DoorResolver struct {
 // NewDoorResolver wraps an engine. A nil engine resolves nothing, which is the
 // correct behaviour for a node with no graph handle: every host falls back to
 // the cluster's own values.
+//
+// PASS A NIL INTERFACE, NEVER A TYPED NIL. Handing a nil *memql.MemQLEngine to
+// this parameter produces a non-nil interface holding a nil pointer, and the
+// `engine == nil` check below reads FALSE for it -- so the first request to
+// reach a refresh dereferences the engine's own fields and panics. The one
+// production caller (app/integrations_identity.go) guards on the concrete
+// value before constructing, which is where that knowledge belongs; there is
+// no check possible here that would not be a reflection trick.
 func NewDoorResolver(engine EngineExecutor) *DoorResolver {
 	return &DoorResolver{engine: engine, names: map[string]bool{}}
 }

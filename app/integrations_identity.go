@@ -153,7 +153,17 @@ func (a *App) integrationsIdentity() {
 	// process with none installed does (exactly what happened before doors
 	// existed: every redirect falls back to the static set, every ceremony to
 	// the cluster's own relying party).
-	identity.InstallDoorResolver(identity.NewDoorResolver(a.engine))
+	//
+	// GUARDED ON a.engine BECAUSE A TYPED NIL IS NOT A NIL INTERFACE. a.engine
+	// is a *memql.MemQLEngine, and handing a nil one to a parameter of
+	// interface type produces a NON-nil interface holding a nil pointer -- so
+	// the resolver's own `engine == nil` check would read false and the first
+	// sign-in to reach it would dereference `e.functions` inside Execute. Other
+	// call sites in this package check a.engine for nil, so it is a state this
+	// binary genuinely reaches.
+	if a.engine != nil {
+		identity.InstallDoorResolver(identity.NewDoorResolver(a.engine))
+	}
 
 	mlIssuer := &magiclink.Issuer{
 		Cfg:            cfg,
