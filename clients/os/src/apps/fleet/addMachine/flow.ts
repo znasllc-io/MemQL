@@ -187,10 +187,17 @@ export function checksFor(
   return checks;
 }
 
-/** The cluster's own round trip, in words, or "" when never measured. */
-export function roundTripSentence(machine: MachineRow, now: Date): string {
+/** The cluster's own round trip as a figure -- "11 ms, checked 40s ago" --
+ *  or "" when never measured. */
+export function roundTripFigure(machine: MachineRow, now: Date): string {
   if (!hasRoundTrip(machine)) return "";
-  return `round trip ${machine.rttMs} ms, checked ${formatFreshness(machine.rttAt, now)}`;
+  return `${machine.rttMs} ms, checked ${formatFreshness(machine.rttAt, now)}`;
+}
+
+/** The same, named, for a sentence that carries other figures too. */
+export function roundTripSentence(machine: MachineRow, now: Date): string {
+  const figure = roundTripFigure(machine, now);
+  return figure === "" ? "" : `round trip ${figure}`;
 }
 
 function connectionCheck(machine: MachineRow, beats: number, now: Date): Check {
@@ -220,7 +227,7 @@ function connectionCheck(machine: MachineRow, beats: number, now: Date): Check {
     state: "current",
     answer:
       beats === 0
-        ? "Connected. Listening for its first heartbeat."
+        ? "Listening for its first heartbeat."
         : `Heartbeat ${beats} of ${STEADY_BEATS} heard, last ${last}.`,
   };
 }
@@ -496,7 +503,7 @@ function checksAnswer(checks: readonly Check[]): string {
   if (settled === checks.length) return "All settled";
   const next = checks.find((c) => !checkIsSettled(c) && c.state !== "ahead");
   const count = `${settled} of ${checks.length} settled`;
-  return next === undefined ? count : `${count} -- ${next.name.toLowerCase()}`;
+  return next === undefined ? count : `${count} -- ${next.name} next`;
 }
 
 /** The stop the rail opens when nobody has chosen one: the person's own
@@ -610,7 +617,7 @@ export function barFor(facts: FlowFacts, checks: readonly Check[]): FlowBar {
       ? `${shown} is online and steady, and every check settled`
       : pending === undefined
         ? `${shown} is online`
-        : `${pending.name.toLowerCase()}: ${pending.answer}`,
+        : `${pending.name}: ${pending.answer}`,
     tone: settled ? "live" : stopped ? "paused" : "busy",
     question: "",
     acts: [

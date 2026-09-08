@@ -299,7 +299,7 @@ describe("the stops", () => {
     });
     const waitingOnHand = stopsFor(facts({ draft: MAC_CU, mint: MINT, machine: cu, beats: 2 }), checksFor(MAC_CU, cu, 2, NOW));
     expect(waitingOnHand[3]!.state).toBe("open");
-    expect(waitingOnHand[3]!.answer).toBe("2 of 3 settled -- macos permissions");
+    expect(waitingOnHand[3]!.answer).toBe("2 of 3 settled -- macOS permissions next");
 
     const done = stopsFor(facts({ mint: MINT, machine: machine(), beats: 2 }), checksFor(MAC, machine(), 2, NOW));
     expect(done[3]!.state).toBe("done");

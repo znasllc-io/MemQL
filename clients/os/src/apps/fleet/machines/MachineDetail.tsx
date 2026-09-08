@@ -4,7 +4,7 @@ import { CallHistory } from "../routing/CallHistory";
 import { Button, Caption, Chip, Chips, CopyField, Fact, Facts, Notice, Panel, Subhead } from "../../../kit";
 import { formatFreshness, formatMoment } from "../../../kit/format";
 import { uninstallCommand, type InstallPlatform } from "../addMachine/install";
-import { roundTripSentence } from "../addMachine/flow";
+import { roundTripFigure } from "../addMachine/flow";
 import { isWorkerOnline } from "../online";
 import { hasRoundTrip, machineName, type MachineRow } from "../rows";
 import { HardwareGroup } from "./HardwareGroup";
@@ -55,7 +55,7 @@ export function MachineDetail({
             never slow -- a cockpit that predates the ping never answers one. */}
         <Fact
           label="Round trip"
-          value={hasRoundTrip(machine) ? roundTripSentence(machine, now) : "not measured -- this cockpit does not answer pings"}
+          value={hasRoundTrip(machine) ? roundTripFigure(machine, now) : "not measured -- this cockpit does not answer pings"}
           title={machine.rttAt || undefined}
         />
         <Fact label="Calls in flight" value={String(machine.activeCount)} />
