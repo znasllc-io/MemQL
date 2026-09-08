@@ -106,7 +106,17 @@ type Candidate struct {
 	// app id AND harness word this engine knows are stored, so an entry here
 	// is one the engine can act on. An app with NO entry is not an app whose
 	// harness does neither -- see workerservice.DescriptorFor.
-	AppDescriptors  []workerservice.AppDescriptor
+	AppDescriptors []workerservice.AppDescriptor
+	// Hardware is what the machine IS, as its cockpit reported it (epic
+	// memql#5146, D1). The ZERO VALUE is the absent case and Hardware.Present()
+	// is how to ask -- a machine whose cockpit predates the field is not a
+	// machine with no memory, and every reader must take it that way.
+	//
+	// It steers no dispatch. It decides the machine's CLASS, which decides what
+	// the machine is RECOMMENDED to pull; eligibility for a call is still the
+	// advertised label, which is a fact about a running process where this is a
+	// fact about hardware.
+	Hardware        workerservice.Inventory
 	Concurrency     map[string]uint32
 	ActiveCount     int
 	ConnectedNodeId string

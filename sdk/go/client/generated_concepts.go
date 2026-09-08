@@ -953,6 +953,7 @@ var BoundConcepts = map[string]string{
 	"updateTemplate":                                   "v1:campaigns:template",
 	"updateTodo":                                       "v1:todos:todo",
 	"updateWorkerApps":                                 "v1:worker:registration",
+	"updateWorkerHardware":                             "v1:worker:registration",
 	"updateWorkerLastSeen":                             "v1:worker:registration",
 	"uploadSessionById":                                "v1:library:uploadSession",
 	"upsertApprovalChain":                              "v1:commerce:approvalChain",

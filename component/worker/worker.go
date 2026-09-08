@@ -99,7 +99,22 @@ type Store interface {
 	// two fields that only mean anything while a stream is live --
 	// connectedNodeId (which replica holds it) and activeCount (how many
 	// calls are in flight on it).
-	UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int) error
+	//
+	// `hardware` rides along, and NIL MEANS LEAVE IT ALONE (epic memql#5146).
+	// It is here rather than in a method of its own because a non-material
+	// inventory refresh -- free disk moved, nothing else -- must not cost a
+	// second write to the same row: it is exactly as fresh as the heartbeat it
+	// arrived with, so it belongs in the heartbeat's write. A change that
+	// alters what the machine can RUN does not wait for this window at all;
+	// UpdateHardware is that path.
+	UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any) error
+	// UpdateHardware re-stamps the reported inventory and the labels derived
+	// from it (epic memql#5146, D1). Separate from UpdateLastSeen for the
+	// reason UpdateApps is separate: an inventory change that alters what the
+	// machine can run is a ROUTING change -- it moves the `runtime:` labels --
+	// and it must land on the row even inside the heartbeat's throttle window,
+	// or the router reads labels that disagree with the live registry entry.
+	UpdateHardware(ctx context.Context, registrationId, ownerUserId string, hardware map[string]any, labels map[string]string, at time.Time, sourceIP string) error
 	// ClearConnectedNode is the disconnect half of connectedNodeId.
 	// Without it a machine whose stream dropped keeps naming the replica
 	// that used to hold it, and a router forwards a dispatch to a node
@@ -174,6 +189,11 @@ type RegistrationRow struct {
 	// cockpit's hostname and is re-stamped on every reconnect, so a
 	// rename kept there would not survive one.
 	DisplayName string
+	// Hardware is what the machine IS, as its cockpit reported it (epic
+	// memql#5146, D1), in the shape v1:worker:registration.hardware stores.
+	// NIL is the absent case and means "this cockpit predates the field" --
+	// never a machine with no memory. See component/worker/hardware.go.
+	Hardware map[string]any
 	// ConnectedNodeId is the MEMQL_NODE_ID of the agent replica currently
 	// holding this worker's stream, or empty when no replica does. It is
 	// what makes a machine reachable from a replica that is NOT holding

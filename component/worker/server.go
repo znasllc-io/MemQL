@@ -165,6 +165,10 @@ func (s *server) admitRegistration(
 		SourceIP:             sourceIP,
 	}
 	w.SetApps(registration.Apps)
+	// From the ROW rather than from the Register message, so the registry entry
+	// and the row are the same object by construction. Idempotent against the
+	// label merge upsertRegistration already did.
+	w.SetHardware(InventoryFromRow(registration.Hardware))
 
 	streamCtx, cancel := context.WithCancel(stream.Context())
 	session := newStreamSession(s, stream, w, streamCtx, cancel)
@@ -245,6 +249,10 @@ func (s *server) upsertRegistration(
 
 	apps := AppsFromProto(register.GetApps())
 	descriptors := AppDescriptorsFromProto(register.GetAppDescriptors())
+	// The inventory was validated in validateRegister, which refuses the
+	// registration on a malformed one; by here it can only be well-formed or
+	// absent, and absent is the ordinary case for a cockpit that predates it.
+	hardware, _ := InventoryFromProto(register.GetHardware())
 	registration := RegistrationRow{
 		IdentityId:           identity.IdentityId,
 		OwnerUserId:          identity.OwnerUserId,
@@ -256,9 +264,14 @@ func (s *server) upsertRegistration(
 		// decision made against the ROW agrees with one made against the
 		// live registry entry -- which is what lets a planner node, with
 		// no registry at all, answer the same question.
-		Labels:              mergeAppLabels(copyStringMap(register.GetLabels()), apps),
+		// The `runtime:` labels ride the same reasoning one layer down: they are
+		// derived from the inventory rather than reported, they live on the ROW
+		// as well as in the registry, and a machine that reported no inventory
+		// keeps whatever the cockpit sent under that prefix untouched.
+		Labels:              mergeRuntimeLabels(mergeAppLabels(copyStringMap(register.GetLabels()), apps), hardware),
 		Apps:                apps,
 		AppDescriptors:      descriptors,
+		Hardware:            hardware.Row(),
 		Concurrency:         register.GetConcurrency(),
 		Platform:            platformInfoToMap(register.GetPlatform()),
 		Permissions:         permissionStatusToMap(register.GetPermissions()),
@@ -339,6 +352,14 @@ type streamSession struct {
 	// handleHeartbeat, which runs on the single stream-recv
 	// goroutine, so it needs no lock.
 	lastPersistedAt time.Time
+	// hardwarePending is a non-material inventory refresh that has reached the
+	// registry and not yet the row (epic memql#5146). It is a FLAG ON THE
+	// SESSION rather than a local in the beat handler, and that is the whole
+	// point of it: the cockpit reports hardware on every tenth beat, so a
+	// change arriving inside the throttle window would otherwise be dropped by
+	// the nine beats that carry no inventory and only reach the row at the
+	// tenth. The flag makes the very next flush carry it.
+	hardwarePending bool
 }
 
 func newStreamSession(
@@ -611,6 +632,45 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 		}
 	}
 
+	// The hardware inventory, on the same terms and with one extra distinction
+	// (epic memql#5146, D1). hardware_present is apps_present's twin: a beat
+	// that says nothing leaves the stored inventory alone rather than clearing
+	// it.
+	//
+	// A MALFORMED inventory on a beat is DROPPED, where the same thing on
+	// Register refuses the registration. The asymmetry is deliberate: refusing
+	// here would drop a live stream and take the machine offline over a field
+	// that decides a recommendation, and the previous good inventory is still
+	// on the row. It is logged so the cockpit bug is findable.
+	//
+	// The change is split in two because the two halves have different costs.
+	// A MATERIAL change -- the chip, the memory, the accelerator, the runtime
+	// set -- moves the `runtime:` labels and must land on the row now, even
+	// inside the throttle window, or the row disagrees with the registry and a
+	// planner node reads the stale one. Anything else is free disk moving,
+	// which happens on every report and decides nothing, so it rides the
+	// throttled write below.
+	hardwareMaterial := false
+	if hb.GetHardwarePresent() {
+		reported, err := InventoryFromProto(hb.GetHardware())
+		switch {
+		case err != nil:
+			if s.server != nil && s.server.logger != nil {
+				s.server.logger.Warn("worker: heartbeat carried a malformed hardware inventory; keeping the stored one",
+					"registration_id", s.worker.RegistrationId,
+					"error", err,
+				)
+			}
+		default:
+			current := s.worker.Hardware()
+			if !InventoriesEqual(current, reported) {
+				hardwareMaterial = MaterialChange(current, reported)
+				s.worker.SetHardware(reported)
+				s.hardwarePending = true
+			}
+		}
+	}
+
 	// Persist lastSeenAt at most once per HeartbeatBatchInterval
 	// (memql#1340). The FIRST heartbeat of a stream always persists
 	// (lastPersistedAt zero value), so a (re)connected worker's row is
@@ -636,6 +696,28 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 	// derived app: labels live on the registration row as well as in
 	// the registry, and a row that disagrees with the live entry is
 	// exactly the split a reader cannot detect.
+	// A material inventory change lands NOW, for the reason the app inventory
+	// does one branch below: both move routing labels that live on the row as
+	// well as in the registry, and a planner node holds no registry at all.
+	// This runs before the apps branch so that a beat carrying both writes the
+	// inventory rather than returning early on the apps write; the two write
+	// different fields through different mutations and neither subsumes the
+	// other.
+	if hardwareMaterial {
+		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+		defer cancel()
+		if err := s.server.store.UpdateHardware(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, s.worker.Hardware().Row(), s.worker.LabelsSnapshot(), at, sourceIP); err != nil {
+			if s.server.logger != nil {
+				s.server.logger.Warn("worker: persist hardware inventory failed",
+					"registration_id", s.worker.RegistrationId,
+					"error", err,
+				)
+			}
+			return
+		}
+		s.lastPersistedAt = at
+		s.hardwarePending = false
+	}
 	if appsChanged {
 		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 		defer cancel()
@@ -665,9 +747,17 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 	if active == 0 {
 		active = s.worker.ActiveCount()
 	}
+	// A non-material inventory refresh rides this write rather than buying one
+	// of its own. It is exactly as fresh as the beat that carried it, and free
+	// disk moving on every report is not worth a second write to the same row.
+	// NIL when nothing changed, which the store reads as "leave it alone".
+	var hardware map[string]any
+	if s.hardwarePending {
+		hardware = s.worker.Hardware().Row()
+	}
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
-	if err := s.server.store.UpdateLastSeen(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, at, sourceIP, s.server.nodeId, active); err != nil {
+	if err := s.server.store.UpdateLastSeen(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, at, sourceIP, s.server.nodeId, active, hardware); err != nil {
 		if s.server.logger != nil {
 			s.server.logger.Warn("worker: persist heartbeat failed",
 				"registration_id", s.worker.RegistrationId,
@@ -799,6 +889,16 @@ func validateRegister(r *memqlv1.Register) (*CapabilityDescriptor, error) {
 	}
 	descriptor, err := ParseCapabilityDescriptor(r.GetCapabilityDescriptorJson())
 	if err != nil {
+		return nil, fmt.Errorf("register: %w", err)
+	}
+	// A MALFORMED INVENTORY REFUSES THE REGISTRATION rather than being dropped
+	// (epic memql#5146, D1). The inventory decides the machine's class, which
+	// decides what the machine is told to pull, so one silently discarded
+	// leaves a machine unclassifiable forever with nothing anywhere to read --
+	// and an unclassifiable machine looks exactly like one whose cockpit
+	// predates the field, which is a state nobody investigates. An ABSENT
+	// inventory is not malformed and registers exactly as before.
+	if _, err := InventoryFromProto(r.GetHardware()); err != nil {
 		return nil, fmt.Errorf("register: %w", err)
 	}
 	return descriptor, nil

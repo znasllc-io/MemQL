@@ -7004,7 +7004,9 @@ type CreateWorkerRegistrationArgs struct {
 	// Local-app inventory the cockpit reported (memql#4359): a list of {id, version, signedIn, subscription, allowed}. Stored verbatim, including apps this engine cannot drive.
 	Apps []any
 	// How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for.
-	AppDescriptors      []any
+	AppDescriptors []any
+	// What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes, reportedAt}. OMITTED by a cockpit that predates the field, which is not the same as a machine with nothing -- see the concept's field doc.
+	Hardware            map[string]any
 	RegisteredAt        string
 	LastSeenAt          string
 	LastConnectedFromIP string
@@ -7097,6 +7099,13 @@ func CreateWorkerRegistrationBuild(args CreateWorkerRegistrationArgs) string {
 		}
 		b.WriteString("appDescriptors: ")
 		b.WriteString(renderMemQLValue(args.AppDescriptors))
+	}
+	if args.Hardware != nil {
+		if b.Len() > 34 {
+			b.WriteString(", ")
+		}
+		b.WriteString("hardware: ")
+		b.WriteString(renderMemQLValue(args.Hardware))
 	}
 	if b.Len() > 34 {
 		b.WriteString(", ")
@@ -9982,7 +9991,9 @@ type RefreshWorkerRegistrationArgs struct {
 	// Local-app inventory from the latest Register (memql#4359). An omitted list CLEARS the persisted one, the same way the capability descriptor does: the worker no longer reports apps.
 	Apps []any
 	// How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for.
-	AppDescriptors      []any
+	AppDescriptors []any
+	// What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes, reportedAt}. OMITTED by a cockpit that predates the field, which is not the same as a machine with nothing -- see the concept's field doc.
+	Hardware            map[string]any
 	LastSeenAt          string
 	LastConnectedFromIP string
 	ConnectedNodeId     string
@@ -10069,6 +10080,13 @@ func RefreshWorkerRegistrationBuild(args RefreshWorkerRegistrationArgs) string {
 		}
 		b.WriteString("appDescriptors: ")
 		b.WriteString(renderMemQLValue(args.AppDescriptors))
+	}
+	if args.Hardware != nil {
+		if b.Len() > 35 {
+			b.WriteString(", ")
+		}
+		b.WriteString("hardware: ")
+		b.WriteString(renderMemQLValue(args.Hardware))
 	}
 	if b.Len() > 35 {
 		b.WriteString(", ")
@@ -15165,6 +15183,58 @@ func UpdateWorkerAppsBuild(args UpdateWorkerAppsArgs) string {
 	return b.String()
 }
 
+// UpdateWorkerHardware -- Re-stamp a machine's hardware inventory and the labels derived from it. NOT @serverOnly, for clearWorkerConnectedNode's reason: its caller is component/worker, whose every context descends from a worker's own inbound stream, so the concept's owner tier is the gate -- the store stamps auth.ContextWithUserActor for the registration's owner and the write guard refuses any other actor.
+//
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["updateWorkerHardware"] in generated_concepts.go).
+type UpdateWorkerHardwareArgs struct {
+	RegistrationId string
+	// The full inventory as component/worker/hardware.go renders it.
+	Hardware map[string]any
+	// The complete label set, operator labels included. Replaces the stored one wholesale, exactly as updateWorkerApps does -- a merge here could not REMOVE the label of a runtime that was just uninstalled.
+	Labels              map[string]any
+	LastSeenAt          string
+	LastConnectedFromIP string
+}
+
+// UpdateWorkerHardware calls the engine mutation updateWorkerHardware.
+func (qc *QueryClient) UpdateWorkerHardware(ctx context.Context, args UpdateWorkerHardwareArgs) (*Result, error) {
+	call := UpdateWorkerHardwareBuild(args)
+	return qc.executeNamed(ctx, "updateWorkerHardware", call)
+}
+
+func UpdateWorkerHardwareBuild(args UpdateWorkerHardwareArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation updateWorkerHardware(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	if b.Len() > 30 {
+		b.WriteString(", ")
+	}
+	b.WriteString("hardware: ")
+	b.WriteString(renderMemQLValue(args.Hardware))
+	if args.Labels != nil {
+		if b.Len() > 30 {
+			b.WriteString(", ")
+		}
+		b.WriteString("labels: ")
+		b.WriteString(renderMemQLValue(args.Labels))
+	}
+	if b.Len() > 30 {
+		b.WriteString(", ")
+	}
+	b.WriteString("lastSeenAt: ")
+	b.WriteString(quoteMemQL(args.LastSeenAt))
+	if args.LastConnectedFromIP != "" {
+		if b.Len() > 30 {
+			b.WriteString(", ")
+		}
+		b.WriteString("lastConnectedFromIP: ")
+		b.WriteString(quoteMemQL(args.LastConnectedFromIP))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // UpdateWorkerLastSeen -- Bump lastSeenAt + lastConnectedFromIP on a worker registration.
 //
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["updateWorkerLastSeen"] in generated_concepts.go).
@@ -15174,6 +15244,9 @@ type UpdateWorkerLastSeenArgs struct {
 	LastConnectedFromIP string
 	ConnectedNodeId     string
 	ActiveCount         int
+	// A non-material inventory refresh riding the heartbeat's own write (epic memql#5146). Free disk moves on every report and decides nothing, so it is not worth a second write to this row; an inventory change that moves the `runtime:` labels does not come through here at all, it goes through updateWorkerHardware and does not wait.
+	// OMITTED, never sent empty. update{} is a read-merge and `??` is blank-coalescing, so an absent key keeps the stored inventory while an empty object would overwrite it with a machine that reports nothing -- turning a cockpit's silence into a statement.
+	Hardware map[string]any
 }
 
 // UpdateWorkerLastSeen calls the engine mutation updateWorkerLastSeen.
@@ -15212,6 +15285,13 @@ func UpdateWorkerLastSeenBuild(args UpdateWorkerLastSeenArgs) string {
 		}
 		b.WriteString("activeCount: ")
 		b.WriteString(fmt.Sprintf("%v", args.ActiveCount))
+	}
+	if args.Hardware != nil {
+		if b.Len() > 30 {
+			b.WriteString(", ")
+		}
+		b.WriteString("hardware: ")
+		b.WriteString(renderMemQLValue(args.Hardware))
 	}
 	b.WriteString(")")
 	return b.String()

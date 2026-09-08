@@ -50,6 +50,7 @@ shape registration workerRegistrationFull {
   activeCount
   concurrency
   platformInfo
+  hardware
   permissions
   apps
   appDescriptors

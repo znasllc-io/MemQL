@@ -587,10 +587,19 @@ func (w *Worker) StartModelCall(ctx context.Context, req ModelCallRequest) (*Mod
 // between what the cockpit reports and what a policy names.
 const ModelLabelPrefix = "model:"
 
-// RuntimeLabelPrefix names the runtime serving a model (ollama,
-// openai-compatible). Reported for the operator's benefit; it steers no
-// selection, because two machines running the same model through
-// different runtimes are interchangeable to a caller.
+// RuntimeLabelPrefix names a runtime the machine has (ollama,
+// openai-compatible). Reported for the operator's benefit; it steers no MODEL
+// selection, because two machines running the same model through different
+// runtimes are interchangeable to a caller.
+//
+// It has a second reader since epic memql#5146: the machine's hardware
+// inventory refreshes these labels and puts the runtime's VERSION in the value
+// (hardware.go, mergeRuntimeLabels), and the catalog compares a profile's
+// required runtime against them so the machine page can say "needs the Kokoro
+// runtime" instead of leaving an unpullable profile unexplained. The value was
+// a placeholder before that and some cockpits still send one, so a reader that
+// needs the version must treat an empty value as "not stated" rather than as a
+// version of "".
 const RuntimeLabelPrefix = "runtime:"
 
 // ModelLabel renders the advertisement label for a model id.
