@@ -144,6 +144,27 @@ func (a *App) integrationsIdentity() {
 		return store.IsClusterBootstrapped(ctx)
 	}
 
+	// THE ONE DOOR RESOLVER FOR THIS PROCESS (epic memql#5168, design G).
+	//
+	// Installed before anything that resolves a redirect URI or builds a
+	// WebAuthn relying party, because both consult it through
+	// identity.Doors() rather than through a threaded dependency -- see
+	// component/identity/frontdoor.go for why that shape, and for what a
+	// process with none installed does (exactly what happened before doors
+	// existed: every redirect falls back to the static set, every ceremony to
+	// the cluster's own relying party).
+	//
+	// GUARDED ON a.engine BECAUSE A TYPED NIL IS NOT A NIL INTERFACE. a.engine
+	// is a *memql.MemQLEngine, and handing a nil one to a parameter of
+	// interface type produces a NON-nil interface holding a nil pointer -- so
+	// the resolver's own `engine == nil` check would read false and the first
+	// sign-in to reach it would dereference `e.functions` inside Execute. Other
+	// call sites in this package check a.engine for nil, so it is a state this
+	// binary genuinely reaches.
+	if a.engine != nil {
+		identity.InstallDoorResolver(identity.NewDoorResolver(a.engine))
+	}
+
 	mlIssuer := &magiclink.Issuer{
 		Cfg:            cfg,
 		Store:          store,

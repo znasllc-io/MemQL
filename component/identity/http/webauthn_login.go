@@ -185,7 +185,7 @@ func (s *Server) handleWebAuthnLoginBegin(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ceremony, err := s.webauthnCeremony()
+	ceremony, err := s.webauthnCeremonyFor(r)
 	if err != nil {
 		s.auditPasskey(r, "passkey_login_challenge_denied", "", "", identity.AuditOutcomeFailure, "relying_party_unavailable", nil)
 		writeJSON(w, http.StatusInternalServerError, WebAuthnLoginBeginResponse{
@@ -333,7 +333,7 @@ func (s *Server) handleWebAuthnLoginFinish(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ceremony, err := s.webauthnCeremony()
+	ceremony, err := s.webauthnCeremonyFor(r)
 	if err != nil {
 		s.auditPasskey(r, "passkey_login_denied", "", "", identity.AuditOutcomeFailure, "relying_party_unavailable", nil)
 		writeJSON(w, http.StatusInternalServerError, WebAuthnLoginFinishResponse{

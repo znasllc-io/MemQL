@@ -128,4 +128,5 @@ const EMPTY_ACCOUNT: AccountRow = {
   joinOnDomain: false,
   memqlDomain: "",
   memqlReservedAt: "",
+      memqlReservationReason: "",
 };

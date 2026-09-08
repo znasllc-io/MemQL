@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import { FileText, GraduationCap, Rocket, Send, UserPlus, UserRound } from "lucide-react";
 
@@ -12,6 +12,9 @@ import type { ArchiveAccountState, UpdateAccountState } from "./actions";
 import { accountIsArchived, accountIsSelf, accountName, type AccountRow } from "./rows";
 import { useSession } from "../../chrome/access";
 import { AccountDomainRail } from "./AccountDomainRail";
+import { frontDoorFromRow, type FrontDoorRow } from "./frontDoor";
+import { useAccountFrontDoors } from "./useAccountFrontDoors";
+import { useLiveView } from "../../live/liveView";
 import { useAccountPeople, useAccountRollups, type Rollup } from "./useAccounts";
 
 // One client: their facts, and everything of this cluster's that is theirs.
@@ -36,6 +39,10 @@ import { useAccountPeople, useAccountRollups, type Rollup } from "./useAccounts"
 // see different numbers, and that is correct: the client is shared, the rows
 // are not.
 
+// A stable empty array: useSyncExternalStore compares snapshots by identity,
+// and a fresh `[]` on every read is an infinite render loop.
+const EMPTY_DOORS: FrontDoorRow[] = [];
+
 export function AccountDetail({
   account,
   update,
@@ -54,6 +61,39 @@ export function AccountDetail({
   const archived = accountIsArchived(account);
   const self = accountIsSelf(account);
 
+  // The front doors, live (epic memql#5168). RETAINED here rather than inside
+  // the rail: a collection does nothing until retain() (clients/os/README.md),
+  // and the rail is one of several stops that unmounts as somebody clicks
+  // between them -- a subscription torn down and re-seeded on every click is
+  // the arrival cue claiming news that did not arrive.
+  const { source: doorSource } = useAccountFrontDoors();
+  const doorView = useLiveView<Record<string, unknown>, FrontDoorRow>(
+    doorSource,
+    // KEYED ON NOTHING THAT CHANGES. `accountFrontDoorsOpen` takes no
+    // arguments, so selecting a different account changes no read -- folding
+    // the account id in would tear the subscription down and re-seed from
+    // empty on every click, and the arrival cue would announce rows nobody
+    // sent (clients/os/README.md).
+    "accounts:frontDoors",
+    (rows) => rows.map(frontDoorFromRow).filter((d) => d.id !== ""),
+  );
+  const doorSnapshot = useSyncExternalStore(
+    useMemo(
+      () => (doorView ? doorView.subscribe.bind(doorView) : () => () => {}),
+      [doorView],
+    ),
+    () => doorView?.snapshot.rows ?? EMPTY_DOORS,
+  );
+  const doors = doorSnapshot as FrontDoorRow[];
+
+  const { access: doorAccess, config: doorConfig } = useSession();
+  // `role === "owner"` rather than a rank floor, the ProfilePanel's reasoning
+  // forty lines down: v1:platform:accountFrontDoor is clusterOwner tier, which
+  // mirrors auth.IsClusterOwner -- one role, not a rung. An admin reads zero
+  // rows and no error, so the stop has to be told which kind of empty it is
+  // looking at rather than rendering "not held" about a serving door.
+  const canReadDoors = (doorAccess?.role ?? "") === "owner";
+
   return (
     <div className="os-account-detail">
       <ProfilePanel account={account} update={update} />
@@ -61,7 +101,13 @@ export function AccountDetail({
           first stop's value is edited: the domain is a profile fact, and what
           it BUYS -- proof, joining, a reserved name -- is what the rail
           answers. */}
-      <AccountDomainRail account={account} update={update} />
+      <AccountDomainRail
+        account={account}
+        update={update}
+        clusterDomain={doorConfig.domain}
+        doors={doors}
+        canReadDoors={canReadDoors}
+      />
       <Ledger account={account} rollups={rollups} onOpenGroup={onOpenGroup} />
       {/* NO CREDENTIALS PANEL HERE, AND THAT IS THE POINT (memql#5013).
           A credential is minted against a `v1:identity:account` -- the paying

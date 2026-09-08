@@ -69,6 +69,8 @@ function fakeSubscriptions(): FakeSubscriptions {
 
 export interface FakeSeed {
   clientAccountsAll?: Row[];
+  /** v1:platform:accountFrontDoor rows, for the MemQL address stop. */
+  accountFrontDoorsOpen?: Row[];
   sitesForAccount?: Row[];
   libraryItemsForAccount?: Row[];
   domainsForAccount?: Row[];
@@ -107,6 +109,10 @@ export function fakeConnection(seed: FakeSeed = {}) {
   return {
     query: {
       clientAccountsAll: vi.fn(async () => rowsResult(seed.clientAccountsAll ?? [])),
+      // The account front-door feed (epic memql#5168). Seeded like every other
+      // rollup so a harness that says nothing about doors gets an empty feed
+      // rather than an unstubbed call.
+      accountFrontDoorsOpen: vi.fn(async () => rowsResult(seed.accountFrontDoorsOpen ?? [])),
       sitesForAccount: rollup(seed.sitesForAccount),
       libraryItemsForAccount: rollup(seed.libraryItemsForAccount),
       domainsForAccount: rollup(seed.domainsForAccount),

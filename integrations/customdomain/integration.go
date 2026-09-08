@@ -20,6 +20,7 @@ import (
 //	integration.customDomain.add             the reachable create (dsl builtin customDomainAdd)
 //	integration.customDomain.releaseForSite  the delete cascade's domain half (dsl builtin customDomainReleaseForSite)
 //	integration.customDomain.reconcile       one sweep pass (dsl builtin customDomainReconcile)
+//	integration.customDomain.reconcileFrontDoors  one account front-door pass (dsl builtin accountFrontDoorReconcile)
 
 // resultConcept is the synthetic MemoryNode concept these capabilities return.
 // An in-flight integration result, never persisted -- the same shape
@@ -33,19 +34,43 @@ type Integration struct {
 	resolver   Resolver
 	cfg        Config
 	logger     *slog.Logger
+
+	// doors is the account front-door sweep (epic memql#5168). A SECOND
+	// reconciler on the same integration rather than a second integration,
+	// because it is the same job one level up -- same resolver, same
+	// provisioning substrate, same script seam -- and a second plug-in would
+	// select its substrate independently and could disagree with this one
+	// about what this node can do.
+	//
+	// Nil when this build has no engine to read accounts through, in which
+	// case the capability answers a pass that did nothing rather than
+	// failing: a node that cannot sweep is not a node that should refuse the
+	// automation.
+	doors *DoorReconciler
 }
 
 // NewIntegration builds the integration over an engine and the provisioning
 // substrate this process can use.
 func NewIntegration(engine Engine, cfg Config, provisioner Provisioner, logger *slog.Logger) *Integration {
 	store := NewStore(engine)
-	return &Integration{
+	i := &Integration{
 		store:      store,
 		reconciler: NewReconciler(store, cfg, provisioner, logger),
 		resolver:   NewSystemResolver(),
 		cfg:        cfg,
 		logger:     logger,
 	}
+	// The SAME substrate value, asserted rather than re-selected. Both
+	// reconcilers apply Ingresses and Certificates through one process's one
+	// capability; a node that provisions custom domains through the API server
+	// and front doors through a script would be two answers to one question.
+	if dp, ok := provisioner.(DoorProvisioner); ok {
+		i.doors = NewDoorReconciler(NewDoorStore(engine), NewDoorAccountReader(engine), cfg.doorConfig(), dp, logger)
+	} else if logger != nil {
+		logger.Warn("account front doors: this node's provisioning substrate cannot serve them; doors will verify but not issue",
+			"component", "accountFrontDoor", "substrate", provisioner.Describe())
+	}
+	return i
 }
 
 // IntegrationName implements memql.IntegrationProvider.
@@ -87,7 +112,42 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Handler:    i.handleReconcile,
 			ArgsSchema: map[string]string{},
 		},
+		{
+			Name: "reconcileFrontDoors",
+			Description: "Run one account front-door pass: open a door for every held reservation, " +
+				"check the three CNAMEs, provision what is ready, and take down every door whose " +
+				"reservation was withdrawn.",
+			Handler:    i.handleReconcileFrontDoors,
+			ArgsSchema: map[string]string{},
+		},
 	}
+}
+
+// handleReconcileFrontDoors runs one account front-door pass.
+//
+// A NODE WITH NO SWEEP ANSWERS A PASS THAT DID NOTHING rather than failing.
+// The automation fires on every replica's cron leader election, and a build
+// that cannot provision must not turn that into an error the scheduler retries
+// -- the honest report is a pass with five zeroes, which is exactly what it
+// did.
+func (i *Integration) handleReconcileFrontDoors(ctx context.Context, _ map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+	var res DoorPassResult
+	if i.doors != nil {
+		var err error
+		res, err = i.doors.Run(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return i.node(fmt.Sprintf("reconcileFrontDoors:%d", time.Now().UnixNano()), map[string]any{
+		"opened":   res.Opened,
+		"checked":  res.Checked,
+		"verified": res.Verified,
+		"issued":   res.Issued,
+		"removed":  res.Removed,
+		"demoted":  res.Demoted,
+		"failed":   res.Failed,
+	})
 }
 
 // mintToken returns the ownership token a client publishes in DNS.

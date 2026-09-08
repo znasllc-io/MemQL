@@ -108,6 +108,108 @@ func AccountEntitlementBuild(args AccountEntitlementArgs) string {
 	return b.String()
 }
 
+// AccountFrontDoorById -- One front door by its own row id -- the seam the sweep re-reads through.
+//
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorById"] in generated_concepts.go).
+type AccountFrontDoorByIdArgs struct {
+	DoorId string
+}
+
+// AccountFrontDoorById calls the engine query accountFrontDoorById.
+func (qc *QueryClient) AccountFrontDoorById(ctx context.Context, args AccountFrontDoorByIdArgs) (*Result, error) {
+	call := AccountFrontDoorByIdBuild(args)
+	return qc.executeNamed(ctx, "accountFrontDoorById", call)
+}
+
+func AccountFrontDoorByIdBuild(args AccountFrontDoorByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query accountFrontDoorById(")
+	b.WriteString("doorId: ")
+	b.WriteString(quoteMemQL(args.DoorId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// AccountFrontDoorsAll -- Every front door this cluster knows about. The Accounts rail's live seed and the operator's fleet-wide read.
+// NO STATUS FILTER, customDomainsAll's reasoning: a subscription delivers every row the concept writes, so a seed narrowed to non-terminal rows would give the browser a list that grows a `live` row the first time one is touched and never has one on load.
+//
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsAll"] in generated_concepts.go).
+type AccountFrontDoorsAllArgs struct {
+}
+
+// AccountFrontDoorsAll calls the engine query accountFrontDoorsAll.
+func (qc *QueryClient) AccountFrontDoorsAll(ctx context.Context, args AccountFrontDoorsAllArgs) (*Result, error) {
+	call := AccountFrontDoorsAllBuild(args)
+	return qc.executeNamed(ctx, "accountFrontDoorsAll", call)
+}
+
+func AccountFrontDoorsAllBuild(args AccountFrontDoorsAllArgs) string {
+	_ = args
+	return "query accountFrontDoorsAll()"
+}
+
+// AccountFrontDoorsForAccount -- Every front door ever opened for one account, including removed ones. What the Accounts app's MemQL address stop reads.
+// REMOVED ROWS ARE INCLUDED, customDomainsForSite's reasoning: the rows survive removal because the history is the audit, and a list that hid them would make "we stopped serving their name last Tuesday" a fact only the database remembers. There is one LIVE door per account; there may be several removed ones, because changing a client's domain tears the old one down (design D9).
+//
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsForAccount"] in generated_concepts.go).
+type AccountFrontDoorsForAccountArgs struct {
+	AccountId string
+}
+
+// AccountFrontDoorsForAccount calls the engine query accountFrontDoorsForAccount.
+func (qc *QueryClient) AccountFrontDoorsForAccount(ctx context.Context, args AccountFrontDoorsForAccountArgs) (*Result, error) {
+	call := AccountFrontDoorsForAccountBuild(args)
+	return qc.executeNamed(ctx, "accountFrontDoorsForAccount", call)
+}
+
+func AccountFrontDoorsForAccountBuild(args AccountFrontDoorsForAccountArgs) string {
+	var b strings.Builder
+	b.WriteString("query accountFrontDoorsForAccount(")
+	b.WriteString("accountId: ")
+	b.WriteString(quoteMemQL(args.AccountId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// AccountFrontDoorsOpen -- Every front door that is not `removed` -- what the sweep compares against the accounts holding a reservation, in both directions (design D9).
+// INCLUDES `live`, which is the whole point and is what `accountFrontDoorsToReconcile` deliberately leaves out. A door only ever leaves `live` because the RESERVATION behind it went away, and noticing that is a question about the account rather than about the door -- so the sweep reads the reservations, reads this, and takes the difference. Re-checking every live door's DNS on every tick would make the steady state of a healthy cluster the most expensive one; reading this costs a row per account an operator typed.
+// Includes `removing` too, so a door already coming down is not asked to come down again on every pass.
+// UNPAGINATED for accountFrontDoorsToReconcile's reason: a sweep that read a page would silently never notice the withdrawn reservations past it, and the symptom is a cluster still answering on a client's name after their domain changed. NO `sort`, and the parser is right to insist: a sorted query is a bounded one.
+//
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsOpen"] in generated_concepts.go).
+type AccountFrontDoorsOpenArgs struct {
+}
+
+// AccountFrontDoorsOpen calls the engine query accountFrontDoorsOpen.
+func (qc *QueryClient) AccountFrontDoorsOpen(ctx context.Context, args AccountFrontDoorsOpenArgs) (*Result, error) {
+	call := AccountFrontDoorsOpenBuild(args)
+	return qc.executeNamed(ctx, "accountFrontDoorsOpen", call)
+}
+
+func AccountFrontDoorsOpenBuild(args AccountFrontDoorsOpenArgs) string {
+	_ = args
+	return "query accountFrontDoorsOpen()"
+}
+
+// AccountFrontDoorsToReconcile -- Every front door the reconciliation sweep still has work for: everything but `live` and `removed`.
+// UNPAGINATED for customDomainsToReconcile's reason -- a sweep that read a page would silently never reconcile the doors past it, and the symptom is a client's name that verifies for nobody with nothing in any log to say why. Bounded by how many doors are in flight at once, not by how many the cluster has ever served.
+// `live` IS EXCLUDED, and the teardown still works, because the sweep does not discover a cleared reservation by walking live doors -- it walks accounts, and a reservation that has gone missing moves its door to `removing` through the account side of the pass. Reading every live door on every tick to ask whether its account still wants it would make the steady state of a healthy cluster the most expensive one. NO `sort`, and the parser is right to insist: a sorted query is a bounded one. Order costs nothing here -- each door advances independently of the others.
+//
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsToReconcile"] in generated_concepts.go).
+type AccountFrontDoorsToReconcileArgs struct {
+}
+
+// AccountFrontDoorsToReconcile calls the engine query accountFrontDoorsToReconcile.
+func (qc *QueryClient) AccountFrontDoorsToReconcile(ctx context.Context, args AccountFrontDoorsToReconcileArgs) (*Result, error) {
+	call := AccountFrontDoorsToReconcileBuild(args)
+	return qc.executeNamed(ctx, "accountFrontDoorsToReconcile", call)
+}
+
+func AccountFrontDoorsToReconcileBuild(args AccountFrontDoorsToReconcileArgs) string {
+	_ = args
+	return "query accountFrontDoorsToReconcile()"
+}
+
 // AccountTokenById -- Fetch one account-token identity by id, gated to the calling user. Owned: userId==actor.userId, so an operator can never read (or, via the revoke handler that calls this, revoke) a credential another operator issued. Backs the pre-revoke ownership check.
 //
 // Bound concept: v1:identity:identity (machine-readable: BoundConcepts["accountTokenById"] in generated_concepts.go).
@@ -4210,6 +4312,30 @@ func LineItemsForOrderBuild(args LineItemsForOrderArgs) string {
 	}
 	b.WriteString("orderGid: ")
 	b.WriteString(quoteMemQL(args.OrderGid))
+	b.WriteString(")")
+	return b.String()
+}
+
+// LiveAccountFrontDoorByReservedName -- One LIVE front door by the name it serves beneath -- the edge's third and last resolution step.
+// TAKES THE RESERVED NAME, NOT THE HOST, and that split is deliberate. A row stores `memql.acme.com`; the host the edge was asked for is `app.memql.acme.com`. A filter compiles to SQL over stored fields and cannot prepend a label, so one side has to compose -- and doing it in Go (frontdoor.AccountReservedNameFromAppHost, the pinned inverse of AccountRoleHost) keeps the label spelled once. A denormalized appHost column would be a second spelling that drifts the first time the label changes, and the symptom would be every client's door resolving to nothing.
+// `status=="live"` carries the whole security property, liveCustomDomainByHostname's reasoning one domain over: a door reaches `live` only after all three of its hosts pointed at this cluster AND its certificate came back Ready. Every other status resolves to nothing, so a teardown takes effect at the speed of a row write rather than at the speed of an Ingress deletion.
+//
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["liveAccountFrontDoorByReservedName"] in generated_concepts.go).
+type LiveAccountFrontDoorByReservedNameArgs struct {
+	ReservedName string
+}
+
+// LiveAccountFrontDoorByReservedName calls the engine query liveAccountFrontDoorByReservedName.
+func (qc *QueryClient) LiveAccountFrontDoorByReservedName(ctx context.Context, args LiveAccountFrontDoorByReservedNameArgs) (*Result, error) {
+	call := LiveAccountFrontDoorByReservedNameBuild(args)
+	return qc.executeNamed(ctx, "liveAccountFrontDoorByReservedName", call)
+}
+
+func LiveAccountFrontDoorByReservedNameBuild(args LiveAccountFrontDoorByReservedNameArgs) string {
+	var b strings.Builder
+	b.WriteString("query liveAccountFrontDoorByReservedName(")
+	b.WriteString("reservedName: ")
+	b.WriteString(quoteMemQL(args.ReservedName))
 	b.WriteString(")")
 	return b.String()
 }

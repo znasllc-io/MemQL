@@ -95,6 +95,117 @@ QueryClient.prototype.accountEntitlement = function (this: QueryClient, args: Ac
   return this.executeNamed("accountEntitlement", buildAccountEntitlement(args), opts);
 };
 
+/** One front door by its own row id -- the seam the sweep re-reads through. */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorById"] in generated_concepts.ts).
+export interface AccountFrontDoorByIdArgs {
+  doorId: string;
+}
+
+export function buildAccountFrontDoorById(args: AccountFrontDoorByIdArgs): string {
+  const parts: string[] = [];
+  parts.push("doorId: " + renderMemQLValue(args.doorId));
+  return "query accountFrontDoorById(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    accountFrontDoorById(args: AccountFrontDoorByIdArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.accountFrontDoorById = function (this: QueryClient, args: AccountFrontDoorByIdArgs = {} as AccountFrontDoorByIdArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("accountFrontDoorById", buildAccountFrontDoorById(args), opts);
+};
+
+/** Every front door this cluster knows about. The Accounts rail's live seed and the operator's fleet-wide read.
+NO STATUS FILTER, customDomainsAll's reasoning: a subscription delivers every row the concept writes, so a seed narrowed to non-terminal rows would give the browser a list that grows a `live` row the first time one is touched and never has one on load. */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsAll"] in generated_concepts.ts).
+export interface AccountFrontDoorsAllArgs {
+}
+
+export function buildAccountFrontDoorsAll(args: AccountFrontDoorsAllArgs): string {
+  void args;
+  return "query accountFrontDoorsAll()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    accountFrontDoorsAll(args?: AccountFrontDoorsAllArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.accountFrontDoorsAll = function (this: QueryClient, args: AccountFrontDoorsAllArgs = {} as AccountFrontDoorsAllArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("accountFrontDoorsAll", buildAccountFrontDoorsAll(args), opts);
+};
+
+/** Every front door ever opened for one account, including removed ones. What the Accounts app's MemQL address stop reads.
+REMOVED ROWS ARE INCLUDED, customDomainsForSite's reasoning: the rows survive removal because the history is the audit, and a list that hid them would make "we stopped serving their name last Tuesday" a fact only the database remembers. There is one LIVE door per account; there may be several removed ones, because changing a client's domain tears the old one down (design D9). */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsForAccount"] in generated_concepts.ts).
+export interface AccountFrontDoorsForAccountArgs {
+  accountId: string;
+}
+
+export function buildAccountFrontDoorsForAccount(args: AccountFrontDoorsForAccountArgs): string {
+  const parts: string[] = [];
+  parts.push("accountId: " + renderMemQLValue(args.accountId));
+  return "query accountFrontDoorsForAccount(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    accountFrontDoorsForAccount(args: AccountFrontDoorsForAccountArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.accountFrontDoorsForAccount = function (this: QueryClient, args: AccountFrontDoorsForAccountArgs = {} as AccountFrontDoorsForAccountArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("accountFrontDoorsForAccount", buildAccountFrontDoorsForAccount(args), opts);
+};
+
+/** Every front door that is not `removed` -- what the sweep compares against the accounts holding a reservation, in both directions (design D9).
+INCLUDES `live`, which is the whole point and is what `accountFrontDoorsToReconcile` deliberately leaves out. A door only ever leaves `live` because the RESERVATION behind it went away, and noticing that is a question about the account rather than about the door -- so the sweep reads the reservations, reads this, and takes the difference. Re-checking every live door's DNS on every tick would make the steady state of a healthy cluster the most expensive one; reading this costs a row per account an operator typed.
+Includes `removing` too, so a door already coming down is not asked to come down again on every pass.
+UNPAGINATED for accountFrontDoorsToReconcile's reason: a sweep that read a page would silently never notice the withdrawn reservations past it, and the symptom is a cluster still answering on a client's name after their domain changed. NO `sort`, and the parser is right to insist: a sorted query is a bounded one. */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsOpen"] in generated_concepts.ts).
+export interface AccountFrontDoorsOpenArgs {
+}
+
+export function buildAccountFrontDoorsOpen(args: AccountFrontDoorsOpenArgs): string {
+  void args;
+  return "query accountFrontDoorsOpen()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    accountFrontDoorsOpen(args?: AccountFrontDoorsOpenArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.accountFrontDoorsOpen = function (this: QueryClient, args: AccountFrontDoorsOpenArgs = {} as AccountFrontDoorsOpenArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("accountFrontDoorsOpen", buildAccountFrontDoorsOpen(args), opts);
+};
+
+/** Every front door the reconciliation sweep still has work for: everything but `live` and `removed`.
+UNPAGINATED for customDomainsToReconcile's reason -- a sweep that read a page would silently never reconcile the doors past it, and the symptom is a client's name that verifies for nobody with nothing in any log to say why. Bounded by how many doors are in flight at once, not by how many the cluster has ever served.
+`live` IS EXCLUDED, and the teardown still works, because the sweep does not discover a cleared reservation by walking live doors -- it walks accounts, and a reservation that has gone missing moves its door to `removing` through the account side of the pass. Reading every live door on every tick to ask whether its account still wants it would make the steady state of a healthy cluster the most expensive one. NO `sort`, and the parser is right to insist: a sorted query is a bounded one. Order costs nothing here -- each door advances independently of the others. */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["accountFrontDoorsToReconcile"] in generated_concepts.ts).
+export interface AccountFrontDoorsToReconcileArgs {
+}
+
+export function buildAccountFrontDoorsToReconcile(args: AccountFrontDoorsToReconcileArgs): string {
+  void args;
+  return "query accountFrontDoorsToReconcile()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    accountFrontDoorsToReconcile(args?: AccountFrontDoorsToReconcileArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.accountFrontDoorsToReconcile = function (this: QueryClient, args: AccountFrontDoorsToReconcileArgs = {} as AccountFrontDoorsToReconcileArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("accountFrontDoorsToReconcile", buildAccountFrontDoorsToReconcile(args), opts);
+};
+
 /** Fetch one account-token identity by id, gated to the calling user. Owned: userId==actor.userId, so an operator can never read (or, via the revoke handler that calls this, revoke) a credential another operator issued. Backs the pre-revoke ownership check. */
 // Bound concept: v1:identity:identity (machine-readable: BoundConcepts["accountTokenById"] in generated_concepts.ts).
 export interface AccountTokenByIdArgs {
@@ -4181,6 +4292,30 @@ declare module "./query.js" {
 
 QueryClient.prototype.lineItemsForOrder = function (this: QueryClient, args: LineItemsForOrderArgs = {} as LineItemsForOrderArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("lineItemsForOrder", buildLineItemsForOrder(args), opts);
+};
+
+/** One LIVE front door by the name it serves beneath -- the edge's third and last resolution step.
+TAKES THE RESERVED NAME, NOT THE HOST, and that split is deliberate. A row stores `memql.acme.com`; the host the edge was asked for is `app.memql.acme.com`. A filter compiles to SQL over stored fields and cannot prepend a label, so one side has to compose -- and doing it in Go (frontdoor.AccountReservedNameFromAppHost, the pinned inverse of AccountRoleHost) keeps the label spelled once. A denormalized appHost column would be a second spelling that drifts the first time the label changes, and the symptom would be every client's door resolving to nothing.
+`status=="live"` carries the whole security property, liveCustomDomainByHostname's reasoning one domain over: a door reaches `live` only after all three of its hosts pointed at this cluster AND its certificate came back Ready. Every other status resolves to nothing, so a teardown takes effect at the speed of a row write rather than at the speed of an Ingress deletion. */
+// Bound concept: v1:platform:accountFrontDoor (machine-readable: BoundConcepts["liveAccountFrontDoorByReservedName"] in generated_concepts.ts).
+export interface LiveAccountFrontDoorByReservedNameArgs {
+  reservedName: string;
+}
+
+export function buildLiveAccountFrontDoorByReservedName(args: LiveAccountFrontDoorByReservedNameArgs): string {
+  const parts: string[] = [];
+  parts.push("reservedName: " + renderMemQLValue(args.reservedName));
+  return "query liveAccountFrontDoorByReservedName(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    liveAccountFrontDoorByReservedName(args: LiveAccountFrontDoorByReservedNameArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.liveAccountFrontDoorByReservedName = function (this: QueryClient, args: LiveAccountFrontDoorByReservedNameArgs = {} as LiveAccountFrontDoorByReservedNameArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("liveAccountFrontDoorByReservedName", buildLiveAccountFrontDoorByReservedName(args), opts);
 };
 
 /** liveAppSessionsForUser wraps the query named "liveAppSessionsForUser". */

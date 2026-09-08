@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import { describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ connection: null as unknown }));
@@ -196,7 +197,14 @@ describe("the domain rail", () => {
     ).toBeTruthy();
   });
 
-  it("says the MemQL name is recorded and served by nothing yet", async () => {
+  // The stop used to say "Recorded now; served when the per-account front door
+  // lands". Epic memql#5168 landed it, so the stop now says what the door is
+  // actually doing -- and with no door row yet, that is the records to create.
+  // HELD WITH NO DOOR IS ITS OWN STATE. The sweep opens the door on its own
+  // schedule, so for up to one pass a held name has no row -- and the first
+  // version of this stop rendered that as "Not held", which is the exact
+  // conflation the reservation reason exists to end, reintroduced one layer up.
+  it("says a held name is reserved and waiting, not unheld, before its door exists", async () => {
     const rail = await openDetail(
       fakeConnection({
         clientAccountsAll: [
@@ -211,10 +219,72 @@ describe("the domain rail", () => {
       }),
     );
     const memql = await openStop(rail, "MemQL address");
-    expect(within(memql).getByText("app.memql.acme.com")).toBeTruthy();
-    expect(
-      within(memql).getByText(/Recorded now; served when the per-account front door lands/),
-    ).toBeTruthy();
+    expect(within(memql).getByText("Reserved")).toBeTruthy();
+    expect(within(memql).getByText(/Held for this client/)).toBeTruthy();
+    // And NOT the unheld sentence, which would be false about this account.
+    expect(within(memql).queryByText("Not held")).toBeNull();
+  });
+
+  // The other half of the same split: a name the cluster has NOT agreed to
+  // serve says why, from the typed reason rather than by inference.
+  it("says why an unheld name is unheld", async () => {
+    const rail = await openDetail(
+      fakeConnection({
+        clientAccountsAll: [
+          accountRow({
+            id: "a1",
+            domain: "acme.com",
+            domainStatus: "unverified",
+            memqlDomain: "memql.acme.com",
+            memqlReservedAt: "",
+            memqlReservationReason: "ownership_unproven",
+          }),
+        ],
+      }),
+    );
+    const memql = await openStop(rail, "MemQL address");
+    expect(within(memql).getByText("Not held")).toBeTruthy();
+    expect(within(memql).getByText(/not verified yet/)).toBeTruthy();
+  });
+
+  // A LIVE DOOR SHOWS ADDRESSES, NOT RECORDS. Once all three point here the
+  // "create this CNAME" instruction is finished work, and the hosts stop being
+  // a list of records to make and become a list of things to open.
+  it("shows the three hosts as addresses once the door is serving", async () => {
+    const rail = await openDetail(
+      fakeConnection({
+        clientAccountsAll: [
+          accountRow({
+            id: "a1",
+            domain: "acme.com",
+            domainStatus: "verified",
+            memqlDomain: "memql.acme.com",
+            memqlReservedAt: "2026-09-06T00:00:00Z",
+          }),
+        ],
+        accountFrontDoorsOpen: [
+          {
+            id: "door-1",
+            accountId: "a1",
+            reservedName: "memql.acme.com",
+            status: "live",
+            issuedAt: "2026-09-08T09:00:00Z",
+            hostChecks: {
+              app: { ok: true },
+              api: { ok: true },
+              id: { ok: true },
+            },
+          } as unknown as Row,
+        ],
+      }),
+    );
+    const memql = await openStop(rail, "MemQL address");
+    expect(within(memql).getByText("Serving")).toBeTruthy();
+    for (const host of ["app.memql.acme.com", "api.memql.acme.com", "id.memql.acme.com"]) {
+      expect(within(memql).getByText(host)).toBeTruthy();
+    }
+    // The guidance is GONE: a served door has no records left to create.
+    expect(within(memql).queryByText("CNAME")).toBeNull();
   });
 });
 

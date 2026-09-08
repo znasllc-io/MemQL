@@ -47,6 +47,7 @@ shape account clientAccountFull {
   joinOnDomain
   memqlDomain
   memqlReservedAt
+  memqlReservationReason
   configuredAt
   row.createdAt
 }

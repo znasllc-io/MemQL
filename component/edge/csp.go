@@ -3,6 +3,8 @@ package edge
 
 import (
 	"net/http"
+
+	"github.com/znasllc-io/memql/component/frontdoor"
 	"net/url"
 	"strings"
 )
@@ -58,7 +60,7 @@ import (
 func policyForSite(r *http.Request, site *Site, env func(string) string) string {
 	origin := siteOriginOf(site)
 	connectSrc := "connect-src 'self' " + origin + " " + wsOriginOf(origin)
-	if identity := identityOriginFromEnv(env); identity != "" {
+	if identity := identityOriginForSite(site, env); identity != "" {
 		connectSrc += " " + identity
 	}
 	return "default-src 'self'; " +
@@ -109,10 +111,50 @@ func originOf(raw string) string {
 // siteOriginOf is the site's own https origin, or "" for a nil site or an
 // unusable hostname. Always https -- see policyForSite's second reason.
 func siteOriginOf(site *Site) string {
-	if site == nil || !validHost(site.Hostname) {
+	if site == nil {
+		return ""
+	}
+	// THROUGH AN ACCOUNT'S FRONT DOOR THE SITE'S OWN HOSTNAME IS NOT THE
+	// ORIGIN (epic memql#5168). The OS resolves through a door as the same
+	// `os` site row it always is, so site.Hostname is still
+	// `os.<cluster-domain>` -- but the page was served at
+	// `app.<reservedName>`, and that is the origin this policy is about.
+	//
+	// Naming the wrong one is not merely untidy: wsOriginOf composes the
+	// WebSocket origin from this value, so a door would advertise
+	// `wss://os.<cluster-domain>` while the page opens
+	// `wss://app.<reservedName>`. That survives only on the CSP3 reading of
+	// 'self' covering same-origin ws:/wss: -- which is exactly the belt this
+	// explicit origin exists to be the braces for.
+	if site.Account != nil && site.Account.ReservedName != "" {
+		host := frontdoor.AccountRoleHost(frontdoor.AccountRoleApp, site.Account.ReservedName)
+		if validHost(host) {
+			return "https://" + host
+		}
+		return ""
+	}
+	if !validHost(site.Hostname) {
 		return ""
 	}
 	return "https://" + site.Hostname
+}
+
+// identityOriginForSite is the identity origin this page's own sign-in flow
+// will reach: the cluster's, or the door's `id.` host when the page was served
+// through an account's reserved front door.
+//
+// It must agree with RuntimeConfig.IdentityURL for the same site, and
+// TestTheCspNamesTheSameIdentityOriginTheRuntimeConfigDoes asserts it does.
+// The failure it prevents is the one csp.go's header paragraph already
+// describes, one domain over: the top-level /authorize navigation succeeds
+// (connect-src does not govern navigation), so sign-in appears to proceed and
+// then fails silently at the callback fetch -- with a CSP violation naming an
+// origin nobody configured anywhere.
+func identityOriginForSite(site *Site, env func(string) string) string {
+	if site != nil && site.Account != nil && site.Account.ReservedName != "" {
+		return "https://" + frontdoor.AccountRoleHost(frontdoor.AccountRoleID, site.Account.ReservedName)
+	}
+	return identityOriginFromEnv(env)
 }
 
 // httpOriginOf is the request's own origin in http(s) form, ported unchanged

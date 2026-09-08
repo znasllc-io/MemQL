@@ -34,6 +34,24 @@ type Site struct {
 	// the thing they would have to be allowed to read.
 	Binding map[string]any
 
+	// Account is the account whose reserved front door this request arrived
+	// through, or nil (epic memql#5168, design D4).
+	//
+	// PRESENT ONLY ON THE THIRD RESOLUTION PATH. A request to a site's own
+	// hostname or to a live custom domain leaves it nil, and the
+	// runtime-config document then omits the key entirely -- so a document
+	// served on the cluster's own host is byte-identical to what it was before
+	// this field existed, which is the additive-only rule RuntimeConfig
+	// already documents.
+	//
+	// It is CONTEXT, never authorization. What a client's member may read is
+	// decided by each concept's own @rowAuthz declaration and by record A's
+	// account grant, on the server, for every request regardless of which host
+	// it arrived on. This field is what lets the shell say whose door you came
+	// through and default its pickers to that account -- and nothing else
+	// reads it to decide anything.
+	Account *SiteAccount
+
 	// Settings is the site row's runtime settings (epic memql#4906, P7): the
 	// plain string values a bundle reads at load, merged into the site's
 	// runtime-config document under `settings` by runtimeconfig.go. Empty
@@ -45,6 +63,25 @@ type Site struct {
 	Settings map[string]string
 }
 
+// SiteAccount is the account behind a reserved front door, as the served page
+// needs to know it.
+//
+// TWO FIELDS, AND THE MISSING ONE IS THE DECISION. There is no account NAME
+// here. The obvious third field would be denormalized onto the door row and
+// then be wrong the first time somebody renamed the client -- and it would be
+// served in an UNAUTHENTICATED document, telling any passer-by which company
+// this cluster serves at this name. The OS reads the display name through its
+// own authorized query once somebody has signed in, which is both fresher and
+// narrower.
+type SiteAccount struct {
+	// ID is the v1:accounts:account row id.
+	ID string
+	// ReservedName is the name the door serves beneath (memql.acme.com), not
+	// the host the request arrived on. The shell composes what it needs from
+	// it through frontdoor.AccountRoleHost.
+	ReservedName string
+}
+
 // QueryExecutor is the narrow read the resolver needs. Narrow deliberately:
 // the edge should not be able to reach the rest of the graph.
 type QueryExecutor interface {
@@ -54,6 +91,11 @@ type QueryExecutor interface {
 	// design D8). A miss -- no binding, or one that is not live -- is
 	// (nil, nil), exactly like SiteByHostname's.
 	SiteForCustomDomain(ctx context.Context, hostname string) (*Site, error)
+	// SiteForAccountFrontDoor resolves an `app.<reservedName>` host through a
+	// LIVE v1:platform:accountFrontDoor row to the OS site, with the account
+	// attached (epic memql#5168, design D4/F). A miss is (nil, nil), exactly
+	// like the two above.
+	SiteForAccountFrontDoor(ctx context.Context, hostname string) (*Site, error)
 }
 
 // Resolver maps a request Host to a Site.
@@ -152,6 +194,31 @@ func (r *resolver) Resolve(ctx context.Context, hostname string) (*Site, error) 
 		// amplifier rather than a lookup.
 		if site == nil {
 			site, err = r.exec.SiteForCustomDomain(ctx, key)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// THE ACCOUNT FRONT DOOR (epic memql#5168, design D4/F). The third and
+		// last step, asked only after both misses, and the ORDER is the whole
+		// of its safety.
+		//
+		// A site's own hostname wins first, because a deployable already
+		// answering on a name must never lose traffic to a door. A live custom
+		// domain wins second, because a client's OWN domain is a more specific
+		// claim than a name reserved under ours -- and if the two ever collide
+		// it is the client's that a person typed deliberately.
+		//
+		// It resolves to the OS site, which is not a lookup: the shell's row id
+		// is the frontdoor.OsSite constant, known before any operator creates
+		// anything. So this is ONE query on a miss, not two, and it returns the
+		// account context in the same read.
+		//
+		// The miss is cached by the shared write below, for the reason the
+		// alias step gives: without it, a scanner walking hostnames against the
+		// wildcard would drive THREE queries per request instead of one.
+		if site == nil {
+			site, err = r.exec.SiteForAccountFrontDoor(ctx, key)
 			if err != nil {
 				return nil, err
 			}

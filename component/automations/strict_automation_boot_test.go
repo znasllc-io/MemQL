@@ -139,7 +139,19 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // proof of ownership. Three added, none removed -- and the count is what
 // SAYS none was removed, which is exactly the check a diff of a list could
 // not have made.
-const shippedAutomationCount = 56
+const shippedAutomationCount = 57
+//
+// 56 -> 57 in epic memql#5168 (the per-account front door):
+// reconcileAccountFrontDoors, a SECOND sweep beside reconcileCustomDomains
+// rather than a step inside it -- steps run in order and a failing one stops
+// what follows, so folding them would make one client's DNS provider timing
+// out the reason another client's front door stopped being reconciled.
+//
+// MEASURED, NOT ADDED. This rebase landed on top of #5165, which had taken the
+// same constant 53 -> 56 while this branch took it 53 -> 54. Adding the two
+// intentions gives 57 and so does measuring, but only one of those is evidence
+// -- the loader was asked, the way #5165's own author asked it about the
+// embedded-file count for the same reason.
 
 // TestStrictAutomationBoot_MalformedAutomationRefusesBoot is the core
 // acceptance test: a malformed automation injected as a throwaway domain (the

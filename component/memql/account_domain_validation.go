@@ -59,14 +59,22 @@ const (
 // `joinOnDomain` on a row whose stored status is `unverified` sends a delta
 // naming only the flag.
 func (e *MemQLEngine) validateAccountDomainPolicy(ctx context.Context, payload map[string]any) error {
-	_ = ctx
 	if payload == nil {
 		return nil
 	}
 	if err := validateAccountJoinOnDomain(payload); err != nil {
 		return err
 	}
-	return validateAccountMemqlDomain(payload)
+	if err := validateAccountMemqlDomain(payload); err != nil {
+		return err
+	}
+	// The two refusals that need a READ, and therefore an engine (epic
+	// memql#5168, design D7/H): the three hosts a reserved name would serve
+	// must not already be answered by a live deployable or a live custom
+	// domain. They run LAST because the two above are answerable from the name
+	// alone and cost nothing -- there is no reason to query the database about
+	// a name that is refused for its shape.
+	return e.validateAccountFrontDoorHosts(ctx, payload)
 }
 
 // validateAccountJoinOnDomain refuses joining before ownership is proven (D9).

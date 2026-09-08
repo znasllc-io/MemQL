@@ -370,6 +370,29 @@ func defaultRoutingRules() []RoutingRule {
 		// on. The sweep's no-change passes write no row at all.
 		{Pattern: "graph.node.created.v1:platform:customDomain", TargetType: ""},
 		{Pattern: "graph.node.updated.v1:platform:customDomain", TargetType: ""},
+		// Account front doors (epic memql#5168), for BOTH of the reasons above
+		// and with the same shape.
+		//
+		// The resolver-cache half: component/edge's third resolution step
+		// reads a live door, per replica, behind the same TTL-backstopped
+		// cache -- so a door reaching `removing` stops resolving at the row
+		// write on the replica that wrote it and keeps being served by every
+		// other one until the TTL expires. That window is a cluster answering
+		// on a client's name after its reservation was withdrawn, which is the
+		// exact state design D9 exists to end promptly.
+		//
+		// The surface half: the Accounts app's MemQL address stop is watched
+		// by an operator WHILE THEY CREATE THREE CNAMEs. The rows are written
+		// by the sweep on whichever replica the cron leader elected, and read
+		// on the bff-served window. Default-deny leaves the stop correct on
+		// load and frozen after -- a person pastes three records, watches
+		// nothing happen, and concludes the records are wrong.
+		//
+		// Volume is the same handful: one event per state transition per
+		// account, over the minutes a door takes to come up, then nothing. The
+		// sweep's no-change passes write no row.
+		{Pattern: "graph.node.created.v1:platform:accountFrontDoor", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:platform:accountFrontDoor", TargetType: ""},
 		// Packages (epic memql#4794, D7). Both concepts broadcast, both
 		// verbs, and the reason is the epic's headline rather than a cache:
 		// the rows are written on whichever node is RUNNING THE PIPELINE and

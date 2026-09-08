@@ -125,6 +125,26 @@ shape customDomain customDomainFull {
   row.createdAt
 }
 
+/// Every field of a front-door row. One shape, because every reader of this concept -- the sweep,
+/// the edge's resolution step and the Accounts rail -- needs the whole walk: the status alone says
+/// nothing an operator can act on without hostChecks and the failure pair beside it.
+@row
+shape accountFrontDoor accountFrontDoorFull {
+  row.id
+  accountId
+  reservedName
+  status
+  driftFailures
+  hostChecks
+  failureReason
+  failureDetail
+  lastCheckedAt
+  verifiedAt
+  issuedAt
+  removedAt
+  row.createdAt
+}
+
 /// Full projection of v1:platform:outboxEntry -- what the drain worker needs to deliver an entry
 /// and what the operator's dead-letter queue renders.
 @row

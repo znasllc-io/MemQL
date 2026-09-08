@@ -2,10 +2,16 @@
 
 - **Date:** 2026-09-07
 - **Epic:** memql#5168 (the design-session task #5191), filed 2026-09-08
-- **Status:** scope agreed with the owner in the 2026-09-07 brainstorm; **the design is a
-  session of its own**, to be held after sub-project A ships. This file fixes what that
-  session must answer and what it inherits, so it starts in the right place. It is not
-  implementation-ready and no epic is filed from it.
+- **Status:** ANSWERED. The design session was held on 2026-09-08 and its record is
+  [2026-09-08-per-account-front-door-design.md](2026-09-08-per-account-front-door-design.md),
+  whose D1-D7 are numbered to match the seven questions below. This file is kept rather
+  than deleted because it is the account of what that session was ASKED -- including the
+  things it was told were already out of scope, which is why the design record does not
+  argue them again. Read this for the question and that for the answer.
+- **Superseded by:** the design record above. Where the two differ, the design record is
+  what shipped: notably the host labels, which this file writes as `os.` / `api.` /
+  `identity.` and which the session settled as `app.` / `api.` / `id.` -- these hosts
+  appear under a CLIENT's brand and are read by their employees.
 - **What it is:** serving this cluster's host set under an account's reserved MemQL name:
   `os.memql.acme.com`, `api.memql.acme.com`, `identity.memql.acme.com`, so a client's
   people reach the OS, the API and sign-in under their own company's domain.

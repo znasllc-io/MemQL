@@ -285,6 +285,18 @@ func (p *apiProvisioner) Unbind(ctx context.Context, req BindRequest) (Outcome, 
 // re-running the sweep over an already-bound domain free. A second apply of an
 // unchanged object is a no-op at the API server and creates no new ACME order.
 func (p *apiProvisioner) apply(ctx context.Context, path string, obj map[string]any) error {
+	return p.applyAs(ctx, fieldManager, path, obj)
+}
+
+// applyAs is apply under a NAMED field manager (epic memql#5168).
+//
+// Server-side apply tracks ownership per manager, so the account front door
+// declares its own rather than borrowing the custom-domain one: sharing would
+// make `kubectl get -o yaml` unable to answer the single question
+// managed-fields exists for -- which of the two reconcilers owns this field.
+// The two features never write the same object, so nothing is lost by
+// separating them and one diagnostic is gained.
+func (p *apiProvisioner) applyAs(ctx context.Context, manager, path string, obj map[string]any) error {
 	body, err := json.Marshal(obj)
 	if err != nil {
 		return err
@@ -294,7 +306,7 @@ func (p *apiProvisioner) apply(ctx context.Context, path string, obj map[string]
 	// subsequent apply fail with a conflict the sweep cannot resolve and a
 	// person cannot see, and the binding sticks in `issuing` for a reason
 	// nothing on the panel can explain.
-	q := path + "?fieldManager=" + fieldManager + "&force=true"
+	q := path + "?fieldManager=" + manager + "&force=true"
 	_, err = p.api.Do(ctx, http.MethodPatch, q, "application/apply-patch+yaml", body)
 	return err
 }

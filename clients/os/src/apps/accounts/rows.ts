@@ -86,6 +86,7 @@ export interface AccountRow {
   memqlDomain: string;
   /** When the reservation was recorded. Absent means the name is not held. */
   memqlReservedAt: string;
+  memqlReservationReason: string;
 }
 
 export function accountFromRow(row: Row): AccountRow {
@@ -122,6 +123,7 @@ export function accountFromRow(row: Row): AccountRow {
     joinOnDomain: boolOr(flat, "joinOnDomain", false),
     memqlDomain: rowString(flat, "memqlDomain"),
     memqlReservedAt: rowString(flat, "memqlReservedAt"),
+    memqlReservationReason: rowString(flat, "memqlReservationReason"),
   };
 }
 

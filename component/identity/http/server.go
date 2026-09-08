@@ -142,6 +142,20 @@ type Server struct {
 	webauthnCeremonyErr   error
 	webauthnCeremonyOnce  sync.Once
 
+	// Doors resolves a request Host to an account's LIVE reserved front
+	// door (epic memql#5168, design G). Nil on a node with no graph
+	// handle, which resolves nothing and leaves every request on the
+	// cluster's own relying party and redirect set -- the correct
+	// degradation, since a door that cannot be verified must not be
+	// honoured.
+	Doors *identity.DoorResolver
+
+	// doorCeremonies caches one Ceremony per reserved name. A ceremony is
+	// immutable once built and a door's RP id never changes while it is
+	// live, so this is a build-once-per-name cache rather than a mutable
+	// registry; a torn-down door simply stops being asked for.
+	doorCeremonies sync.Map
+
 	// DeviceCodes backs the RFC 8628 device authorization grant
 	// (memql#3410): POST /device/code here, the verification page in
 	// component/identity/web, and the device_code grant on

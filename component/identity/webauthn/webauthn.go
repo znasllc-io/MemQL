@@ -39,6 +39,8 @@ import (
 
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
+	"github.com/znasllc-io/memql/component/frontdoor"
+
 	"github.com/go-webauthn/webauthn/protocol"
 )
 
@@ -143,6 +145,17 @@ func New(cfg Config) (*Ceremony, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newCeremony(rpID, origin, cfg)
+}
+
+// newCeremony is the shared constructor: everything New does after the
+// relying party has been DERIVED.
+//
+// Extracted so NewForDoor (epic memql#5168) reaches the same challenge TTL,
+// the same authenticator selection and the same resident-key requirement
+// rather than a second configuration that could drift. The derivation is the
+// only thing that differs between a cluster ceremony and a door's.
+func newCeremony(rpID, origin string, cfg Config) (*Ceremony, error) {
 	displayName := strings.TrimSpace(cfg.DisplayName)
 	if displayName == "" {
 		displayName = DefaultRPDisplayName
@@ -315,4 +328,52 @@ func (c *Ceremony) FinishRegistration(challengeId, userId string, body io.Reader
 		return nil, ErrUserVerification
 	}
 	return newRegisteredCredential(credential), nil
+}
+
+// RelyingPartyForDoor derives the relying party for an account's reserved
+// front door (epic memql#5168, design G).
+//
+// # THE RP ID IS THE RESERVED NAME, NOT THE `id.` HOST
+//
+// A WebAuthn RP id may be a registrable-domain SUFFIX of the ceremony's
+// origin, and that is what makes one passkey work across a door's two
+// browser-facing hosts: registered at `id.memql.acme.com` with RP id
+// `memql.acme.com`, it asserts at `app.memql.acme.com` too. Scoping it to the
+// `id.` host instead would mint a credential the OS could never use, and
+// WebAuthn credentials cannot be re-scoped after the fact.
+//
+// # THE CALLER MUST HAVE RESOLVED THE NAME, NOT READ IT OFF THE REQUEST
+//
+// This function takes a reserved name and trusts it, exactly as RelyingParty
+// takes a base URL and trusts it. What must never happen is the name coming
+// from the request Host -- that is the attack RelyingParty's own comment
+// describes, and the reason component/identity's DoorResolver looks a
+// candidate name up against a LIVE accountFrontDoor row before anything
+// reaches here.
+func RelyingPartyForDoor(reservedName string) (rpID string, origin string, err error) {
+	name := strings.ToLower(strings.TrimSpace(reservedName))
+	if name == "" {
+		return "", "", ErrNoBaseURL
+	}
+	if !strings.Contains(name, ".") {
+		return "", "", fmt.Errorf("webauthn: reserved name %q is a single label, not a registrable domain", reservedName)
+	}
+	// The ceremony runs on the `id.` host; the RP id is the name beneath it.
+	// Composed through component/frontdoor so the label is spelled once.
+	return name, "https://" + frontdoor.AccountRoleHost(frontdoor.AccountRoleID, name), nil
+}
+
+// NewForDoor builds a relying party for one account's reserved front door.
+//
+// Its DisplayName is the cluster's, unchanged: a door serves a client's people
+// under their own domain, but the software asking for a passkey is still this
+// deployment, and naming it as the client's own company would be this service
+// claiming to be somebody it is not in the one prompt a person is asked to
+// trust.
+func NewForDoor(reservedName string, cfg Config) (*Ceremony, error) {
+	rpID, origin, err := RelyingPartyForDoor(reservedName)
+	if err != nil {
+		return nil, err
+	}
+	return newCeremony(rpID, origin, cfg)
 }

@@ -205,6 +205,7 @@ mutate account recordAccountDomainCheck {
     domainLastCheckedAt  string
     domainVerifiedAt     string
     memqlReservedAt      string
+    memqlReservationReason  string
   }
   update {
     stamp {
@@ -216,6 +217,19 @@ mutate account recordAccountDomainCheck {
       domainLastCheckedAt:  args.domainLastCheckedAt
       domainVerifiedAt:     args.domainVerifiedAt
       memqlReservedAt:      args.memqlReservedAt
+      // BARE, AND NEVER `?? ""`. Every field in this block is written bare on
+      // purpose, and memql#5165 and memql#5168 each measured why before
+      // depending on it: an OMITTED optional argument leaves the key absent
+      // from the delta, so the read-merge inherits the stored value -- while
+      // `args.X ?? ""` materialises an explicit empty string that is PRESENT
+      // in the delta and wins the merge (dropNoUnsetFields, executor_mutation.go).
+      //
+      // Both callers pass a subset: the domain walk advances one state per
+      // pass, and the front-door sweep writes this field alone. Adding `?? ""`
+      // to any line here for tidiness would blank that field on every pass
+      // that does not set it -- the ownership token on one, the reservation
+      // reason on the other.
+      memqlReservationReason: args.memqlReservationReason
     }
   }
 }
