@@ -369,6 +369,16 @@ export const CAPABILITY_SCRIPTS: Record<string, string> = {
   "domain.bind": "scripts/deploy/bind-custom-domain.sh",
   "domain.unbind": "scripts/deploy/unbind-custom-domain.sh",
 
+  // The per-account front door (epic memql#5168): the same pair one level up,
+  // applying one three-SAN Certificate and four Ingresses for the three hosts
+  // a client's reserved MemQL name serves. THE THIRD FILE, and the one a new
+  // capability script is easiest to forget -- the script and the Go allowlist
+  // are where the work feels finished, and nothing local fails without this
+  // one: `capability ids resolve to the same paths the engine allowlists` runs
+  // in the extension's own lane, which `make test` does not reach.
+  "frontdoor.bind": "scripts/deploy/bind-account-front-door.sh",
+  "frontdoor.unbind": "scripts/deploy/unbind-account-front-door.sh",
+
   // Tenant lifecycle (epic memql#3852, task memql#3853).
   "fleet.tenantProvision": "scripts/fleet/tenant-provision.sh",
   "fleet.tenantSuspend": "scripts/fleet/tenant-suspend.sh",
