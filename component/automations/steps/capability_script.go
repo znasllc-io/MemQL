@@ -207,6 +207,21 @@ var capabilityScriptAllowlist = map[string]string{
 	// looking healthy everywhere else" failure this map's other entries name.
 	"domain.bind":   "scripts/deploy/bind-custom-domain.sh",
 	"domain.unbind": "scripts/deploy/unbind-custom-domain.sh",
+
+	// The per-account front door (epic memql#5168). The same pair one level
+	// up: a client's reserved MemQL name serves THREE hosts, so these apply
+	// and remove one three-SAN Certificate and four Ingresses rather than one
+	// of each.
+	//
+	// Four Ingresses for three hosts because api. needs two -- an ingress
+	// controller's backend protocol is a per-Service setting, so the bff's h2c
+	// edge and its HTTP edge cannot share an object. Registration matters here
+	// for the reason the custom-domain pair above gives, with one extra edge:
+	// an unregistered id leaves every door in `issuing`, and a door in
+	// `issuing` is a client's people getting the ingress controller's
+	// self-signed default on their own company's domain.
+	"frontdoor.bind":   "scripts/deploy/bind-account-front-door.sh",
+	"frontdoor.unbind": "scripts/deploy/unbind-account-front-door.sh",
 }
 
 // scriptParamKey is the reserved rendered-arg key that names the capability
