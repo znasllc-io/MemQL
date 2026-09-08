@@ -1088,6 +1088,35 @@ mutate accountFrontDoor recordAccountFrontDoorRemovalFailure {
   }
 }
 
+/// actor.userId scoping is not the fix, for recordAccountFrontDoorCheck's reason: this writes what
+/// a DNS lookup returned about a door that is already serving, and no caller can be scoped into
+/// being a resolver. A client-reachable version would let the drift counter be reset by the very
+/// account whose drift it is counting.
+///
+/// KEEPS THE DOOR `live`. That is the whole distinction from recordAccountFrontDoorCheck, which
+/// takes a status: a door that failed ONE re-check is still serving, and demoting on a single
+/// unlucky lookup would take a client's front door down for a DNS blip. The sweep demotes through
+/// recordAccountFrontDoorCheck once driftFailures reaches its bound.
+@serverOnly
+@description("Record a re-check of a LIVE front door: what each host looked like, the consecutive-failure count, and when. Keeps the door serving -- demotion is a separate write once the drift is sustained.")
+mutate accountFrontDoor recordAccountFrontDoorDrift {
+  args {
+    doorId         string!
+    hostChecks     object!
+    driftFailures  number!
+    failureReason  string
+    failureDetail  string
+    lastCheckedAt  datetime!
+  }
+  update {
+    accept { hostChecks, driftFailures, failureReason, failureDetail, lastCheckedAt }
+    stamp {
+      id:      args.doorId
+      status:  "live"
+    }
+  }
+}
+
 /// The unbind completed. Terminal, and the row stays -- the pair (issuedAt, removedAt) is how long
 /// this cluster served the client's name.
 /// actor.userId scoping is not the fix: this records that the unbind script's envelope came back

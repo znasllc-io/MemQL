@@ -139,6 +139,7 @@ type DoorPassResult struct {
 	Verified int `json:"verified"`
 	Issued   int `json:"issued"`
 	Removed  int `json:"removed"`
+	Demoted  int `json:"demoted"`
 	Failed   int `json:"failed"`
 }
 
@@ -226,6 +227,13 @@ func (r *DoorReconciler) open(ctx context.Context, out *DoorPassResult) error {
 	if err != nil {
 		return err
 	}
+
+	// The live re-check rides the rows this read already returned, so it costs
+	// no extra query -- and it runs BEFORE the reservation comparison, so a
+	// door demoted this pass is still compared against its reservation on the
+	// next one rather than being skipped.
+	r.recheckLive(ctx, existing, out)
+
 	now := r.now()
 
 	for _, d := range existing {
@@ -288,6 +296,105 @@ func (r *DoorReconciler) open(ctx context.Context, out *DoorPassResult) error {
 		r.info("account front door opened", "reservedName", name, "account", accountID)
 	}
 	return nil
+}
+
+// LiveRecheckInterval is how often a LIVE door's three names are looked up
+// again, and DriftDemotionThreshold is how many consecutive failures demote it.
+//
+// # WHY A LIVE DOOR IS RE-CHECKED AT ALL
+//
+// Because going live is not a permanent fact about DNS. A door whose `app.`
+// host is repointed after it goes live keeps serving -- and keeps its callback
+// registered as an OAuth redirect URI for the OS client. A review found what
+// that composes into: repoint `app.<reservedName>` at a server you control,
+// send somebody a sign-in link at this cluster naming that callback, and the
+// authorization code is delivered to your server through a consent page
+// showing this platform's own name and logo. The redirect allowlist is the
+// control that is supposed to make that impossible, and a stale one is not a
+// control.
+//
+// # WHY A COUNTER AND NOT AN IMMEDIATE DEMOTION
+//
+// Demoting on one failed lookup would take a client's whole front door down
+// for a resolver hiccup, and the blast radius of a false positive here is
+// every one of their people. Three consecutive failures at fifteen minutes is
+// forty-five minutes of SUSTAINED drift -- long enough that a transient
+// failure cannot reach it, short enough that the exposure window is bounded
+// and small.
+const (
+	LiveRecheckInterval    = 15 * time.Minute
+	DriftDemotionThreshold = 3
+)
+
+// recheckLive re-verifies the doors that are already serving.
+//
+// It runs over the rows `open()` already read, so it costs no extra query --
+// only the DNS lookups, and only for doors whose last check is older than the
+// interval.
+func (r *DoorReconciler) recheckLive(ctx context.Context, doors []Door, out *DoorPassResult) {
+	now := r.now()
+	for _, d := range doors {
+		if d.Status != StatusLive || !r.dueForRecheck(d, now) {
+			continue
+		}
+
+		checks := make(map[string]HostCheck, len(frontdoor.AccountRoles()))
+		allOK := true
+		for _, h := range frontdoor.AccountHosts(d.ReservedName) {
+			res := CheckPointing(ctx, r.resolver, h.Name, r.edgeHost)
+			checks[string(h.Role)] = HostCheck{OK: res.OK, Reason: res.Reason, Detail: res.Detail}
+			if !res.OK {
+				allOK = false
+			}
+		}
+
+		if allOK {
+			// PASSING RESETS THE COUNT rather than leaving it. Drift means
+			// CONSECUTIVE failures; a door that fails twice, recovers, and
+			// fails once more has not drifted for forty-five minutes.
+			if err := r.doors.RecordDrift(ctx, d.ID, checks, 0, "", "", now); err != nil {
+				r.warn("could not record a passing re-check", "reservedName", d.ReservedName, "error", err)
+			}
+			continue
+		}
+
+		failures := d.DriftFailures + 1
+		if failures < DriftDemotionThreshold {
+			if err := r.doors.RecordDrift(ctx, d.ID, checks, failures, ReasonNotPointing, pointingDetail(checks), now); err != nil {
+				r.warn("could not record a failing re-check", "reservedName", d.ReservedName, "error", err)
+			}
+			continue
+		}
+
+		// SUSTAINED DRIFT. Back to `verifying`, which stops the edge resolving
+		// the app. host AND drops the door out of the identity node's live set
+		// -- so its callback stops being a registered redirect URI in the same
+		// write. It re-verifies on its own if the records come back; the
+		// certificate is still there, so recovery is fast.
+		if err := r.doors.RecordCheck(ctx, d.ID, StatusVerifying, checks, ReasonNotPointing, pointingDetail(checks), now); err != nil {
+			r.warn("could not demote a drifted door", "reservedName", d.ReservedName, "error", err)
+			continue
+		}
+		out.Demoted++
+		r.info("account front door demoted: its names stopped pointing here",
+			"reservedName", d.ReservedName, "account", d.AccountID, "consecutiveFailures", failures)
+	}
+}
+
+// dueForRecheck is true when a live door has not been looked at within the
+// interval. A door with NO recorded check is due immediately -- absent is
+// "never looked", not "looked recently".
+func (r *DoorReconciler) dueForRecheck(d Door, now time.Time) bool {
+	if d.LastCheckedAt == "" {
+		return true
+	}
+	at, err := time.Parse(time.RFC3339, d.LastCheckedAt)
+	if err != nil {
+		// An unparseable timestamp is not a licence to skip the check: the
+		// whole point is that a live door must not go unexamined forever.
+		return true
+	}
+	return now.Sub(at) >= LiveRecheckInterval
 }
 
 func (r *DoorReconciler) step(ctx context.Context, d Door, out *DoorPassResult) error {

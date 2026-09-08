@@ -145,6 +145,7 @@ func (i *Integration) handleReconcileFrontDoors(ctx context.Context, _ map[strin
 		"verified": res.Verified,
 		"issued":   res.Issued,
 		"removed":  res.Removed,
+		"demoted":  res.Demoted,
 		"failed":   res.Failed,
 	})
 }

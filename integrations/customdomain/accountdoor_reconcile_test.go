@@ -661,3 +661,151 @@ func TestAFailedReservationReadIsReportedRatherThanLookingHealthy(t *testing.T) 
 		t.Errorf("the error does not name what could not be read: %v", err)
 	}
 }
+
+// ===========================================================================
+// A live door is not permanently trusted
+// ===========================================================================
+
+func liveDoorRow(lastChecked string, driftFailures int) map[string]any {
+	r := doorRow(StatusLive)
+	r["lastCheckedAt"] = lastChecked
+	r["driftFailures"] = driftFailures
+	return r
+}
+
+const staleCheck = "2026-09-08T10:00:00Z" // well past LiveRecheckInterval before the fixture clock
+
+// GOING LIVE IS NOT A PERMANENT FACT ABOUT DNS. A door whose app. host is
+// repointed after it goes live keeps serving AND keeps its callback registered
+// as an OAuth redirect URI -- which composes into delivering an authorization
+// code to a server the account controls, through a consent page showing this
+// platform's own name.
+func TestALiveDoorIsRecheckedAndDemotedOnSustainedDrift(t *testing.T) {
+	// THE THRESHOLD IS ASSERTED, NOT DERIVED. The first version of this test
+	// started its fixture at `DriftDemotionThreshold-2`, so setting the
+	// threshold to 1 -- demote on a single failed lookup, the exact behaviour
+	// the counter exists to prevent -- moved the fixture with it and the test
+	// still passed. A fixture computed from the constant under test cannot
+	// measure that constant.
+	if DriftDemotionThreshold < 2 {
+		t.Fatalf("DriftDemotionThreshold is %d: a single unlucky DNS lookup would take a client's whole front door down, and the blast radius of that false positive is every one of their people",
+			DriftDemotionThreshold)
+	}
+
+	// A door with ZERO recorded failures, drifting for the first time: still
+	// serving, count incremented.
+	eng := &fakeDoorEngine{
+		t:            t,
+		doors:        []map[string]any{liveDoorRow(staleCheck, 0)},
+		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+	}
+	out, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Demoted != 0 {
+		t.Errorf("demoted = %d on the FIRST drift; one unlucky lookup must not take a client's front door down", out.Demoted)
+	}
+	var firstDrift string
+	for _, c := range eng.calls {
+		if strings.HasPrefix(c, "mutation recordAccountFrontDoorDrift") {
+			firstDrift = c
+		}
+	}
+	if !strings.Contains(firstDrift, "driftFailures: 1") {
+		t.Errorf("the first failure did not record a count of 1:\n  %s", firstDrift)
+	}
+	if !eng.wrote("recordAccountFrontDoorDrift") {
+		t.Error("the failing re-check was not recorded, so the count never reaches the threshold")
+	}
+
+	// At the threshold: demoted.
+	eng = &fakeDoorEngine{
+		t:            t,
+		doors:        []map[string]any{liveDoorRow(staleCheck, DriftDemotionThreshold-1)},
+		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+	}
+	out, err = newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Demoted != 1 {
+		t.Fatalf("demoted = %d after %d consecutive failures", out.Demoted, DriftDemotionThreshold)
+	}
+	var demotion string
+	for _, c := range eng.calls {
+		if strings.HasPrefix(c, "mutation recordAccountFrontDoorCheck") {
+			demotion = c
+		}
+	}
+	if !strings.Contains(demotion, StatusVerifying) {
+		t.Errorf("the demotion did not write `verifying`, so the edge keeps serving the host and the identity node keeps its callback registered:\n  %s", demotion)
+	}
+}
+
+// A PASSING RE-CHECK RESETS THE COUNT. Drift means CONSECUTIVE failures; a door
+// that fails twice, recovers, and fails once more has not drifted for the
+// window the threshold is meant to represent.
+func TestAPassingRecheckResetsTheDriftCount(t *testing.T) {
+	eng := &fakeDoorEngine{
+		t:            t,
+		doors:        []map[string]any{liveDoorRow(staleCheck, DriftDemotionThreshold-1)},
+		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+	}
+	res := stubDoorResolver{pointing: map[string]bool{
+		"app." + testDoorReserved: true,
+		"api." + testDoorReserved: true,
+		"id." + testDoorReserved:  true,
+	}}
+
+	out, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, res).Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Demoted != 0 {
+		t.Fatal("a door whose names all point here was demoted")
+	}
+	var drift string
+	for _, c := range eng.calls {
+		if strings.HasPrefix(c, "mutation recordAccountFrontDoorDrift") {
+			drift = c
+		}
+	}
+	if !strings.Contains(drift, "driftFailures: 0") {
+		t.Errorf("a passing re-check did not reset the count to 0:\n  %s", drift)
+	}
+}
+
+// A RECENTLY CHECKED DOOR COSTS NO LOOKUPS. The sweep runs every two minutes
+// and the re-check interval is fifteen, so the steady state of a healthy
+// cluster must not be three DNS lookups per door per pass.
+func TestARecentlyCheckedLiveDoorIsNotRecheckedAgain(t *testing.T) {
+	eng := &fakeDoorEngine{
+		t:            t,
+		doors:        []map[string]any{liveDoorRow("2026-09-08T11:59:30Z", 0)}, // 30s before the fixture clock
+		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+	}
+	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if eng.wrote("recordAccountFrontDoorDrift") {
+		t.Error("a door checked 30 seconds ago was re-checked; the interval is 15 minutes and the sweep runs every 2")
+	}
+}
+
+// A door with NO recorded check is due IMMEDIATELY -- absent is "never looked",
+// not "looked recently", and the whole point is that a live door must not go
+// unexamined forever.
+func TestALiveDoorWithNoRecordedCheckIsDueImmediately(t *testing.T) {
+	eng := &fakeDoorEngine{
+		t:            t,
+		doors:        []map[string]any{liveDoorRow("", 0)},
+		reservations: []map[string]any{{"id": testDoorAccount, "memqlDomain": testDoorReserved, "memqlReservedAt": "2026-09-08T00:00:00Z"}},
+	}
+	if _, err := newDoorReconciler(t, eng, &stubDoorProvisioner{}, stubDoorResolver{}).Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !eng.wrote("recordAccountFrontDoorDrift") {
+		t.Error("a live door that has never been checked was skipped")
+	}
+}

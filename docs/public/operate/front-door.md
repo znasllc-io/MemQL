@@ -644,6 +644,22 @@ as a broken app rather than as a setup step an operator can see.
   `iss` is still `https://identity.<domain>` whatever host minted it, and the
   per-node verifier is untouched.
 
+### A live door is re-checked, not permanently trusted
+
+Going live is not a permanent fact about DNS. The three names are looked up
+again every fifteen minutes, and after three consecutive failures the door is
+demoted to `verifying` — which stops the edge resolving `app.` and drops the
+door's callback out of the identity service's registered redirect URIs in the
+same row write. It re-verifies on its own if the records come back, and the
+certificate is still there, so recovery is fast.
+
+**This is a security control, not tidiness.** A door whose `app.` host is
+repointed after it goes live would otherwise keep serving and keep its callback
+registered — and an authorization code delivered to a host the account no
+longer points here is a code delivered to whoever it points at instead. Three
+failures rather than one because the blast radius of a false positive is every
+one of that client's people, and a resolver hiccup is not drift.
+
 ### A withdrawn reservation tears the door down
 
 Changing an account's `domain` clears the reserved name, the ownership token

@@ -134,6 +134,7 @@ shape accountFrontDoor accountFrontDoorFull {
   accountId
   reservedName
   status
+  driftFailures
   hostChecks
   failureReason
   failureDetail

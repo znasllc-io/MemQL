@@ -9,6 +9,7 @@ import (
 	"github.com/znasllc-io/memql/component/auth"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/num"
 )
 
 // accountdoor.go -- the graph seam for v1:platform:accountFrontDoor (epic
@@ -25,6 +26,7 @@ type Door struct {
 	AccountID     string
 	ReservedName  string
 	Status        string
+	DriftFailures int
 	HostChecks    map[string]HostCheck
 	FailureReason string
 	FailureDetail string
@@ -166,6 +168,18 @@ func (s *DoorStore) RequestRemoval(ctx context.Context, doorID, reason, detail s
 		langparser.QuoteString(stamp(at))))
 }
 
+// RecordDrift records a re-check of a LIVE door, keeping it serving.
+func (s *DoorStore) RecordDrift(ctx context.Context, doorID string, checks map[string]HostCheck, failures int, reason, detail string, at time.Time) error {
+	return s.exec(ctx, fmt.Sprintf(
+		"mutation recordAccountFrontDoorDrift(doorId: %s, hostChecks: %s, driftFailures: %d, failureReason: %s, failureDetail: %s, lastCheckedAt: %s)",
+		langparser.QuoteString(doorID),
+		renderHostChecks(checks),
+		failures,
+		langparser.QuoteString(reason),
+		langparser.QuoteString(detail),
+		langparser.QuoteString(stamp(at))))
+}
+
 // RecordRemovalFailure keeps a door in `removing` and records why.
 //
 // NOT RecordIssuanceFailure, which stamps `issuing`. Routing a failed teardown
@@ -252,6 +266,7 @@ func doorFromRow(r map[string]any) Door {
 		AccountID:     memql.BareShortId(rowString(r, "accountId")),
 		ReservedName:  rowString(r, "reservedName"),
 		Status:        rowString(r, "status"),
+		DriftFailures: driftFailuresFromRow(r["driftFailures"]),
 		HostChecks:    hostChecksFromRow(r["hostChecks"]),
 		FailureReason: rowString(r, "failureReason"),
 		FailureDetail: rowString(r, "failureDetail"),
@@ -259,6 +274,34 @@ func doorFromRow(r map[string]any) Door {
 		VerifiedAt:    rowString(r, "verifiedAt"),
 		IssuedAt:      rowString(r, "issuedAt"),
 		RemovedAt:     rowString(r, "removedAt"),
+	}
+}
+
+// driftFailuresFromRow reads the stored consecutive-failure count.
+//
+// # IT NAMES ITS ANSWER, AND THE GATE IS RIGHT TO INSIST
+//
+// The first version was a bare `func …(v any) int` doing `int(n)` in a float64
+// arm, which TestEveryPayloadNarrowingCarriesAnAnswer refuses by name: a bare
+// conversion is implementation-defined out of range and answers with the
+// integer indefinite value. core/num is the one narrowing, in three named
+// answers, and the answer HERE is ZERO.
+//
+// Zero is right rather than merely safe. An unreadable or absurd drift count
+// means "we have no usable record of consecutive failures", and starting the
+// count again costs one more re-check interval before a genuinely drifted door
+// is demoted -- while the alternative, saturating, would demote a SERVING door
+// on the strength of a value nothing wrote.
+func driftFailuresFromRow(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return num.Int64OrZero(n)
+	case float64:
+		return num.Float64OrZero(n)
+	default:
+		return 0
 	}
 }
 
