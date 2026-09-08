@@ -144,6 +144,17 @@ func (a *App) integrationsIdentity() {
 		return store.IsClusterBootstrapped(ctx)
 	}
 
+	// THE ONE DOOR RESOLVER FOR THIS PROCESS (epic memql#5168, design G).
+	//
+	// Installed before anything that resolves a redirect URI or builds a
+	// WebAuthn relying party, because both consult it through
+	// identity.Doors() rather than through a threaded dependency -- see
+	// component/identity/frontdoor.go for why that shape, and for what a
+	// process with none installed does (exactly what happened before doors
+	// existed: every redirect falls back to the static set, every ceremony to
+	// the cluster's own relying party).
+	identity.InstallDoorResolver(identity.NewDoorResolver(a.engine))
+
 	mlIssuer := &magiclink.Issuer{
 		Cfg:            cfg,
 		Store:          store,

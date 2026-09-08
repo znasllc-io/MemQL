@@ -179,6 +179,62 @@ func (s *Server) webauthnCeremony() (*webauthn.Ceremony, error) {
 	return s.webauthnCeremonyValue, s.webauthnCeremonyErr
 }
 
+// webauthnCeremonyFor returns the relying party for THIS request: an account's
+// reserved front door when the request arrived through one, and the cluster's
+// otherwise (epic memql#5168, design G).
+//
+// # WHY THIS IS NOT "DERIVE THE RP ID FROM r.Host"
+//
+// That is the attack webauthnCeremony's own comment and
+// webauthn.RelyingParty's doc both describe: a credential minted under an
+// attacker-supplied Host is scoped to the attacker's domain, and the origin
+// check then verifies the request against itself. Nothing here trusts the
+// header. The Host is STRIPPED to a candidate reserved name and that name is
+// looked up against a LIVE v1:platform:accountFrontDoor row -- a row that
+// exists only after all three of the door's hosts pointed at this cluster and
+// its certificate came back Ready. A name that does not resolve falls back to
+// the cluster's own ceremony, which is exactly what an unrecognised Host got
+// before doors existed.
+//
+// The RP id is the RESERVED NAME rather than the `id.` host, so one passkey
+// works across a door's `id.` and `app.` hosts -- see
+// webauthn.RelyingPartyForDoor.
+func (s *Server) webauthnCeremonyFor(r *http.Request) (*webauthn.Ceremony, error) {
+	doors := s.Doors
+	if doors == nil {
+		doors = identity.Doors()
+	}
+	if doors == nil || r == nil {
+		return s.webauthnCeremony()
+	}
+	name, ok := doors.ReservedNameFor(r.Context(), r.Host)
+	if !ok {
+		return s.webauthnCeremony()
+	}
+	if cached, hit := s.doorCeremonies.Load(name); hit {
+		c, _ := cached.(*webauthn.Ceremony)
+		return c, nil
+	}
+	c, err := webauthn.NewForDoor(name, webauthn.Config{DisplayName: s.Cfg.BrandName})
+	if err != nil {
+		// A DOOR WHOSE RELYING PARTY CANNOT BE BUILT MUST NOT FALL BACK to the
+		// cluster's. The fallback would mint a credential scoped to
+		// identity.<cluster-domain> for a person standing on their own
+		// company's domain, and WebAuthn credentials cannot be re-scoped
+		// afterwards -- so the passkey would be silently useless where it was
+		// created, forever. Refusing is recoverable; a wrongly-scoped
+		// credential is not.
+		if s.Logger != nil {
+			s.Logger.Warn("webauthn: relying party unavailable for an account front door; passkey routes will refuse there",
+				"reservedName", name, "error", err.Error())
+		}
+		return nil, err
+	}
+	actual, _ := s.doorCeremonies.LoadOrStore(name, c)
+	got, _ := actual.(*webauthn.Ceremony)
+	return got, nil
+}
+
 // handleWebAuthnRegisterBegin issues a registration challenge bound to
 // the authenticated caller.
 func (s *Server) handleWebAuthnRegisterBegin(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +262,7 @@ func (s *Server) handleWebAuthnRegisterBegin(w http.ResponseWriter, r *http.Requ
 	}
 	userId := enroller.UserId
 
-	ceremony, err := s.webauthnCeremony()
+	ceremony, err := s.webauthnCeremonyFor(r)
 	if err != nil {
 		s.auditPasskey(r, "passkey_registration_challenge_denied", userId, "", identity.AuditOutcomeFailure, "relying_party_unavailable", nil)
 		writeJSON(w, http.StatusInternalServerError, WebAuthnRegisterBeginResponse{
@@ -312,7 +368,7 @@ func (s *Server) handleWebAuthnRegisterFinish(w http.ResponseWriter, r *http.Req
 	}
 	userId := enroller.UserId
 
-	ceremony, err := s.webauthnCeremony()
+	ceremony, err := s.webauthnCeremonyFor(r)
 	if err != nil {
 		s.auditPasskey(r, "passkey_registration_denied", userId, "", identity.AuditOutcomeFailure, "relying_party_unavailable", nil)
 		writeJSON(w, http.StatusInternalServerError, WebAuthnRegisterFinishResponse{

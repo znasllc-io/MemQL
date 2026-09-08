@@ -109,5 +109,19 @@ func ResolveClientWithOrigin(ctx context.Context, cfg Config, store *Store, clie
 // plus the RFC 8252 loopback-any-port exception). Returns false when the
 // client is unknown or the uri is not registered for it. store may be nil.
 func ClientAllowsRedirectURI(ctx context.Context, cfg Config, store *Store, clientId, uri string) bool {
-	return clientAllowsRedirectURI(ResolveClient(ctx, cfg, store, clientId), uri)
+	if clientAllowsRedirectURI(ResolveClient(ctx, cfg, store, clientId), uri) {
+		return true
+	}
+	// THE FOURTH SOURCE: an account's LIVE reserved front door (epic
+	// memql#5168, design G). Consulted LAST, and it is deliberately the
+	// narrowest of the four -- it admits exactly one URI per live door, for
+	// exactly the client that owns the OS's own callback on this cluster, and
+	// only while that door is serving.
+	//
+	// It cannot widen any other client, cannot admit any other path, and stops
+	// admitting the moment the door leaves `live` -- which is the same write
+	// that stops the edge resolving its hosts. A process with no installed
+	// resolver (a test, a node with no graph handle) gets exactly the
+	// behaviour that existed before doors.
+	return DoorAllowsRedirectURI(ctx, cfg, Doors(), clientId, uri)
 }
