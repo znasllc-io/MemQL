@@ -9,8 +9,8 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/znasllc-io/memql/component/identity"
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
+	"github.com/znasllc-io/memql/component/identity"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 )
 

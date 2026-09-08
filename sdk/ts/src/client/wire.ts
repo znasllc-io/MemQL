@@ -728,6 +728,15 @@ export interface ConceptRelationshipWire {
   direction?: string;
 }
 
+// MyAccessGroupPayload mirrors MyAccessGroup (epic memql#5165).
+export interface MyAccessGroupPayload {
+  id?: string;
+  name?: string;
+  kind?: string;
+  accountId?: string;
+  accountName?: string;
+}
+
 export interface MyAccessResultPayload {
   requestId?: string;
   userId?: string;
@@ -735,6 +744,11 @@ export interface MyAccessResultPayload {
   clusterRole?: UserRoleWire | null;
   sessionId?: string;
   displayName?: string;
+  // The caller's GRANT (epic memql#5165). `everyAccount` is the staff rule:
+  // when it is set, `accountIds` is EMPTY and empty means ALL, not none.
+  groups?: MyAccessGroupPayload[];
+  accountIds?: string[];
+  everyAccount?: boolean;
 }
 
 export interface RotateAuthResultPayload {

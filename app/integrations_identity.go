@@ -31,6 +31,7 @@ import (
 	"github.com/znasllc-io/memql/component/identity/refresh"
 	identityweb "github.com/znasllc-io/memql/component/identity/web"
 	"github.com/znasllc-io/memql/component/identity/webauthn"
+	"github.com/znasllc-io/memql/integrations/groups"
 )
 
 // newSSOAuthCode mints a plaintext URL-safe base64 code + its
@@ -109,6 +110,19 @@ func (a *App) integrationsIdentity() {
 	// mounter is set to the constructed *Server so RegisterRoutes
 	// picks up the auth flow when transportIdentity runs.
 	store := &identity.Store{Engine: a.engine, Logger: a.Logger}
+	// The arrival seams' group placement (epic memql#5165, section G). Built
+	// here because it is the meeting point of two packages that must not
+	// import each other: component/identity does not depend on
+	// integrations/, and integrations/groups does not know what an
+	// invitation is.
+	placer := &groupPlacer{
+		groups: groups.New(a.engine, func(msg string, args ...any) {
+			if a.Logger != nil {
+				a.Logger.Warn(msg, args...)
+			}
+		}),
+		logger: a.Logger,
+	}
 	emailSender := emailsender.New(a.engine, a.Logger, cfg)
 
 	// Bootstrap-state callback shared by the magic-link issuer + the
@@ -139,10 +153,13 @@ func (a *App) integrationsIdentity() {
 		IsBootstrapped: bootstrapCheck,
 	}
 	mlVerifier := &magiclink.Verifier{
-		Cfg:    cfg,
-		Store:  store,
-		Audit:  auditLogger,
-		Logger: a.Logger,
+		// A magic-link first sign-in is VERIFIED by the flow: the link was
+		// mailed to the address and the person holding it just followed it.
+		OnUserProvisioned: placer.placeFirstSignIn,
+		Cfg:               cfg,
+		Store:             store,
+		Audit:             auditLogger,
+		Logger:            a.Logger,
 	}
 	// Live cluster-settings reader. Constructed before the rotator
 	// + http server so they can both share the same TokenSettings
@@ -202,6 +219,9 @@ func (a *App) integrationsIdentity() {
 		Logger:            a.Logger,
 		Abuse:             abuseMW,
 		LiveTokenSettings: liveSettings.TokenSettings,
+		// An OIDC first sign-in reaches this only once the provider has
+		// VERIFIED the address -- provisionOidcUser returns early otherwise.
+		OnUserProvisioned: placer.placeFirstSignIn,
 	}
 	// UPSTREAM FEDERATION (memql#4611). Wired unconditionally: both hooks are
 	// inert unless MEMQL_IDENTITY_OIDC_ENABLED is set, and the routes 404
@@ -613,6 +633,7 @@ func (a *App) integrationsIdentity() {
 				Enrolments:          enrolStore,
 				InternalEmail:       cfg.IsInternalEmail,
 				InternalDefaultRole: cfg.InternalDefaultRole,
+				PlaceInGroups:       placer.placeInvitedUser,
 			}, plainToken, sourceIP)
 			if err != nil {
 				return identityweb.InvitationAcceptResult{}, err

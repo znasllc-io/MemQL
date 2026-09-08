@@ -2095,6 +2095,46 @@ message MyAccessResult {
   // registration insert, a PAT with no provisioned user). Not an error: a
   // client renders the email instead, which it already holds.
   string display_name = 7;
+
+  // groups, account_ids and every_account are the caller's GRANT: which
+  // client groups they are in, and therefore whose rows they may reach
+  // (epic memql#5165, section H).
+  //
+  // Built from the SAME resolution the row gate uses, not a second read --
+  // so what a client is told it may see and what a read actually returns
+  // cannot disagree.
+  repeated MyAccessGroup groups = 8;
+
+  // account_ids is the resolved scope: the accounts this caller's
+  // memberships reach. EMPTY when every_account is set, and empty is not
+  // "no accounts" in that case -- read the flag first.
+  repeated string account_ids = 9;
+
+  // every_account is the STAFF rule (design D6): everyone at developer rank
+  // and above is a standing member of every account-kind group. It is a
+  // RULE the engine applies rather than rows an automation writes, so there
+  // is nothing to enumerate and account_ids is deliberately empty.
+  //
+  // A client that ignores this flag and reads account_ids alone will show a
+  // developer as belonging to nothing, which is the opposite of the truth.
+  bool every_account = 10;
+}
+
+// MyAccessGroup is one group the caller belongs to, as MyAccessResult
+// reports it (epic memql#5165).
+//
+// account_name is carried rather than left for the client to look up: a
+// person reads "Acme", not an account id, and the group page would otherwise
+// need a second round trip per group to render its own list.
+message MyAccessGroup {
+  string id = 1;
+  string name = 2;
+  // kind is "account" for the group an account gets by default, "custom"
+  // for any other. A client renders them differently: the account group is
+  // the client relationship, a custom group is an arrangement somebody made.
+  string kind = 3;
+  string account_id = 4;
+  string account_name = 5;
 }
 
 // -----------------------------------------------------------------------------
@@ -3250,6 +3290,18 @@ message IssueUserInvitationRequest {
   // the ceiling rather than refused, for the reason IssueEnrolmentLinkRequest
   // states: a caller asking for too much still wants a link.
   int32 ttl_seconds = 3;
+
+  // group_ids are the groups this person JOINS when they accept (epic
+  // memql#5165, section G). Wire-compatible: a client that omits them issues
+  // exactly the invitation it issued before.
+  //
+  // Validated at ISSUE rather than at acceptance -- each must name an active
+  // group, and the invitee's role must sit strictly below the inviter's, the
+  // same rank rule groupMemberAdd applies. An invitation cannot place
+  // somebody where the inviter could not have placed them by hand, and
+  // checking that at acceptance would mean telling the invitee about a
+  // refusal that is the inviter's to see.
+  repeated string group_ids = 4;
 }
 
 // RevokeUserInvitationRequest kills an unaccepted invitation before its TTL

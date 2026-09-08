@@ -157,6 +157,14 @@ func (s *Server) provisionOidcUser(ctx context.Context, c oidc.Claims) (string, 
 	if err := s.Store.CreateUserOnFirstLogin(ctx, userId, c.Name, email, role, internal, identity.UserProfileSeed{}); err != nil {
 		return "", fmt.Errorf("oidc sign-in: create user: %w", err)
 	}
+	// `true` is PROVEN rather than assumed here: this function returns early
+	// above unless c.EmailVerified, because the OIDC federation rule refuses
+	// to create an account on a claim the directory did not check. Passing
+	// the flag through would read as a choice; passing true records that the
+	// choice was already made and is unreachable otherwise.
+	if s.OnUserProvisioned != nil {
+		s.OnUserProvisioned(ctx, userId, email, true)
+	}
 	return userId, nil
 }
 

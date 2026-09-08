@@ -936,11 +936,11 @@ func TestLandingPageCopyMatchesWhatContinueDoes(t *testing.T) {
 				t.Fatalf("Continue finished %d time(s), want %d", finished, tc.wantFinishes)
 			}
 			if finished > 0 && saysItWillNotSignYouIn {
-				t.Errorf("the page said it would NOT sign the reader in, and Continue did.\n"+
+				t.Errorf("the page said it would NOT sign the reader in, and Continue did.\n" +
 					"Page copy and handler branch must come from one predicate (completesHere).")
 			}
 			if finished == 0 && !saysItWillNotSignYouIn {
-				t.Errorf("the page did not warn that Continue would not sign the reader in, and it "+
+				t.Errorf("the page did not warn that Continue would not sign the reader in, and it " +
 					"did not.\nSomebody on the wrong device needs to be told before they press it.")
 			}
 		})
