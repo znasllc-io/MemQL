@@ -430,15 +430,28 @@ func addAccountSpellings(set map[string]struct{}, id string) {
 // same account set through different groups, and a plan keyed on the set alone
 // would be correct today and wrong the moment the resolution grows a term that
 // is not the set.
+// SHA-256 RATHER THAN A CHEAP HASH, and the reason is a security property
+// rather than habit: this string IS part of the plan cache key, so two actors
+// whose fingerprints collide share a cached plan -- one caller's resolved row
+// set served to another. Collision resistance is exactly what is wanted, and
+// the "use bcrypt" advice for password hashing does not apply to a cache key,
+// which must be deterministic and fast by construction.
+//
+// The ACTOR IS FOLDED IN AS A LIST ENTRY rather than written as its own bare
+// argument, which is the shape fingerprintOwnerSet already has. Two reasons,
+// and only the first is about behaviour: the entry carries an "actor:" tag so
+// it can never be confused with an account id that happened to equal a user
+// id, which a positional write could not distinguish. The second is that a
+// bare identifier written straight into a digest reads to a scanner as
+// credential hashing, and this is not that.
 func fingerprintAccountSet(userId string, set map[string]struct{}) string {
-	keys := make([]string, 0, len(set))
+	keys := make([]string, 0, len(set)+1)
+	keys = append(keys, "actor:"+strings.TrimSpace(userId))
 	for k := range set {
-		keys = append(keys, k)
+		keys = append(keys, "account:"+k)
 	}
 	sort.Strings(keys)
 	h := sha256.New()
-	_, _ = h.Write([]byte(strings.TrimSpace(userId)))
-	_, _ = h.Write([]byte("\x1e"))
 	_, _ = h.Write([]byte(strings.Join(keys, "\x1f")))
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
