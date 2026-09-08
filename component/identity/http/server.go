@@ -55,6 +55,17 @@ type Server struct {
 	Audit      identity.AuditLogger
 	Logger     *slog.Logger
 
+	// OnUserProvisioned fires once, immediately after a user row is created
+	// on FIRST sign-in through an upstream provider (epic memql#5165,
+	// section G) -- what places an arriving person into the group of the
+	// account whose verified domain matches their address.
+	//
+	// Reached only from provisionOidcUser, which returns early unless the
+	// provider VERIFIED the address, so the true it passes is proven rather
+	// than assumed. Nil on a node with no groups plug-in wired, and it
+	// returns nothing: it must never fail a sign-in that has succeeded.
+	OnUserProvisioned func(ctx context.Context, userId, email string, emailVerified bool)
+
 	// SignInNotifier delivers the new-sign-in email (memql#4305), fired
 	// from createSessionRow -- the one place a v1:identity:authSession row
 	// is created, so every factor is covered by one hook. Nil disables the

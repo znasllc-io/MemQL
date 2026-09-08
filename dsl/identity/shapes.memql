@@ -308,6 +308,7 @@ shape invitation invitationFull {
   status
   respondedAt
   accountId
+  groupIds
   row.createdAt
 }
 

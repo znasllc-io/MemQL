@@ -25,6 +25,23 @@ type AcceptDeps struct {
 	// InternalDefaultRole is the role an internal address lands with when
 	// the invitation named none.
 	InternalDefaultRole string
+
+	// PlaceInGroups writes one membership per group the invitation carried,
+	// and then applies domain join (epic memql#5165, section G). Nil on a
+	// node with no groups plug-in wired, which is not an error: the user row
+	// is written either way, and an arrival that lands in no group is a
+	// person who signs in and sees their own work.
+	//
+	// A FUNCTION rather than a store handle, because this package must not
+	// depend on integrations/: the seam is what the node wires in.
+	// IT RETURNS NOTHING, and that is the contract rather than an omission.
+	// By the time it runs the user row exists and the invitation is spent,
+	// so there is no failure it could report that the accept could act on --
+	// returning an error would render "your invitation could not be
+	// accepted" to somebody whose account was just created, and leave them
+	// unable to retry because the invitation is single-use. The
+	// implementation logs; an admin fixes a missing membership in one click.
+	PlaceInGroups func(ctx context.Context, userId, email string, groupIds []string, issuedBy string)
 }
 
 // AcceptResult is what the accept hands back to the page.
@@ -110,6 +127,25 @@ func Accept(ctx context.Context, deps AcceptDeps, plainToken, sourceIP string) (
 	}
 	if err := deps.Store.MarkUserInvitationAccepted(ctx, row.ID, userId); err != nil {
 		return AcceptResult{}, err
+	}
+
+	// The groups this invitation carried, plus domain join (epic memql#5165,
+	// section G).
+	//
+	// AFTER the accepted stamp, not before, and the ordering argument above
+	// carries straight over: the single-use mark must land before anything
+	// that could fail leaves the invitation spendable again. A membership
+	// that fails to write is a person in the cluster but not in their
+	// client's group -- recoverable by an admin in one click. A second
+	// redemption is not recoverable at all.
+	//
+	// It cannot fail the accept, and that is the seam's contract rather than
+	// an omission here -- see PlaceInGroups' own doc.
+	if deps.PlaceInGroups != nil {
+		// The address is treated as VERIFIED: the link was delivered to it
+		// and the person holding it just followed it, which is the same
+		// evidence a magic-link sign-in rests on.
+		deps.PlaceInGroups(ctx, userId, row.Email, row.GroupIds, row.InviterId)
 	}
 
 	plain, hash, err := enrolment.Mint()

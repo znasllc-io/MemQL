@@ -2981,6 +2981,8 @@ mutate invitation createUserInvitation {
     inviterId     string!
     inviterName   string
     role          string
+    groupIds      object
+    accountId     string
   }
   insert {
     accept { tokenHash, expiresAt, inviterId }
@@ -2990,6 +2992,12 @@ mutate invitation createUserInvitation {
       inviteeEmail: args.email
       inviteeRole: args.role ?? ""
       inviterName: args.inviterName ?? ""
+      // The groups this person joins on acceptance, validated at ISSUE by
+      // the handler (epic memql#5165, section G), and the account tie
+      // stamped from the first account-kind group among them so the
+      // Accounts ledger's invitationsForAccount keeps reading.
+      groupIds: args.groupIds ?? []
+      accountId: args.accountId ?? ""
       status: "pending"
       active: true
       // not_attempted until recordUserInvitationDelivery says otherwise. The

@@ -1764,6 +1764,37 @@ func (g *fieldGetter) str(key string) string {
 	return strings.TrimSpace(v.GetStringValue())
 }
 
+// strList extracts a list-of-strings field.
+//
+// A NON-STRING ELEMENT IS SKIPPED, not coerced. The one caller reads group
+// ids, and a coerced number would be a group id nothing resolves -- which
+// presents as a membership that silently never gets written rather than as an
+// error anybody sees.
+func (g *fieldGetter) strList(key string) []string {
+	if g == nil || g.node == nil || g.node.Payload == nil {
+		return nil
+	}
+	fields := g.node.Payload.GetFields()
+	if fields == nil {
+		return nil
+	}
+	v, ok := fields[key]
+	if !ok || v == nil {
+		return nil
+	}
+	list := v.GetListValue()
+	if list == nil {
+		return nil
+	}
+	out := make([]string, 0, len(list.GetValues()))
+	for _, item := range list.GetValues() {
+		if s := strings.TrimSpace(item.GetStringValue()); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // intField extracts a numeric field. structpb's NumberValue is the
 // only numeric carrier (memql encodes ints + floats both as
 // float64), so we round-trip through float64. Missing / non-numeric
@@ -2120,6 +2151,11 @@ type InvitationRow struct {
 	// binding; the accept path decides what an unbound row is worth, which is
 	// why this is projected rather than judged here.
 	BindingHash string
+	// GroupIds are the groups the recipient joins on acceptance (epic
+	// memql#5165, section G). Validated at ISSUE; the accept path writes one
+	// membership per entry and does not re-judge them -- the inviter's
+	// authority was the question, and the inviter is gone by then.
+	GroupIds []string
 }
 
 // LookupInvitationByTokenHash resolves a presented invitation token to its row.
@@ -2196,6 +2232,7 @@ func firstInvitationRow(nodes []*memqlv1.MemoryNode) *InvitationRow {
 		ExpiresAt:   g.time("expiresAt"),
 		RespondedAt: g.time("respondedAt"),
 		BindingHash: g.str("bindingHash"),
+		GroupIds:    g.strList("groupIds"),
 	}
 }
 
