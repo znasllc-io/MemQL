@@ -431,10 +431,16 @@ function MembershipLine({
   const group = groups.find((g) => g.id === membership.groupId) ?? null;
   const account = group === null ? null : accounts.find((a) => a.id === group.accountId) ?? null;
   const addedBy = people.find((p) => p.id === membership.addedBy) ?? null;
+  // The client's name only when it says something the group's name does not:
+  // an account-kind group is NAMED after its client, so a chip beside it reads
+  // "Acme Acme".
+  const clientName = account === null ? "" : accountName(account);
   return (
     <div className="os-membership-row">
       <span className="os-membership-name">{group?.name ?? membership.groupId}</span>
-      {account === null ? null : <Chip tone="accent">{accountName(account)}</Chip>}
+      {clientName === "" || clientName === group?.name ? null : (
+        <Chip tone="accent">{clientName}</Chip>
+      )}
       <span className="os-caption">
         {originSentence(membership, {
           addedByName: addedBy ? personName(addedBy) : undefined,
