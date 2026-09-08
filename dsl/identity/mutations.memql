@@ -1202,7 +1202,6 @@ mutate user createUser {
     displayName   string!
     primaryEmail  string!
     role          enum("owner", "admin", "developer", "writer", "reader")
-    groupIds      object
     preferences   object
   }
   insert {
@@ -1210,7 +1209,6 @@ mutate user createUser {
     args.displayName
     args.primaryEmail
     role: args.role ?? "reader"
-    groupIds: args.groupIds ?? []
     preferences: args.preferences ?? {}
     active: true
   }
@@ -1246,7 +1244,6 @@ mutate user createUser {
 //   birthdate     (string, optional)  - ISO-8601 date (YYYY-MM-DD)
 //   role          (string, optional)  - Cluster role; defaults to "reader"
 //   internal      (bool)              - Whether the email matched MEMQL_IDENTITY_INTERNAL_DOMAINS at registration
-//   groupIds      (object, optional)  - manual group memberships
 //   preferences   (object, optional)  - User preference bag
 //
 
@@ -1265,7 +1262,6 @@ mutate user createUserOnFirstLogin {
     role          enum("owner", "admin", "developer", "writer", "reader")
     internal      bool!
     sharedMailbox bool
-    groupIds      object
     preferences   object
   }
   insert {
@@ -1279,7 +1275,6 @@ mutate user createUserOnFirstLogin {
     gender: args.gender ?? ""
     birthdate: args.birthdate ?? ""
     role: args.role ?? "reader"
-    groupIds: args.groupIds ?? []
     preferences: args.preferences ?? {}
     active: true
     args.internal

@@ -309,6 +309,14 @@ func (e *MemQLEngine) evaluateExpressionSetWithContext(ctx context.Context, expr
 		ctx = contextWithRankScopeMemo(ctx, e)
 		expr = e.lowerRankScope(ctx, expr)
 	}
+	// The account grant, lowered on the same terms and for the same reason
+	// (epic memql#5165): one resolution per request, installed before the
+	// walk so a nested evaluation reuses it rather than re-reading the
+	// membership rows per subtree.
+	if treeHasAccountScope(expr) {
+		ctx = contextWithAccountScopeMemo(ctx, e)
+		expr = e.lowerAccountScope(ctx, expr)
+	}
 	// Optimization: Try to compile the entire expression tree into a single SQL query.
 	// This is much more efficient than running separate queries and intersecting/unioning results.
 	if combined, ok := e.tryCompileCombinedFilter(ctx, expr, conceptContext); ok {

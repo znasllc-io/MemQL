@@ -37,6 +37,14 @@ func nodeMatchesExpression(node memorynodes.MemoryNode, expr ExpressionNode, pay
 	switch n := expr.(type) {
 	case *constantBoolExpression:
 		return n.value, nil
+	case *accountScopeMatch:
+		// The post-filter twin of the SQL arm above. It must exist and it
+		// must AGREE: a tree the combined compiler refuses falls to the
+		// split evaluator, and a node the split evaluator does not know
+		// fails the whole read with "unsupported expression node" -- which
+		// on an authorization disjunct would present as "my client's work
+		// disappeared" rather than as an error anybody could act on.
+		return accountScopeMatchesNode(node, n, payloadCache), nil
 	case *LiteralValueNode:
 		// A literal in predicate position acts as a boolean constant via
 		// truthiness -- the post-filter counterpart to constantBoolExpression
@@ -137,6 +145,50 @@ func (e *MemQLEngine) tryCompileCombinedFilter(ctx context.Context, expr Express
 			return compiledExpression{sql: "TRUE"}, true
 		}
 		return compiledExpression{sql: "FALSE"}, true
+
+	case *accountScopeMatch:
+		// The account grant, lowered for this request (epic memql#5165).
+		//
+		// ONE EXPRESSION FOR BOTH FIELD SHAPES. `jsonb_exists_any` is true
+		// when any of the given strings is a top-level key, an array
+		// element, OR the jsonb value itself as a string -- so one call
+		// answers for the scalar declaration (`accountId`) and for the list
+		// one (`accountIds`), with nothing here needing to know which the
+		// concept declared. That is what lets `account="<field>"` be one
+		// argument rather than two.
+		//
+		// The FUNCTION form rather than the `?|` operator, and that is not
+		// style: bun renders `?` as its own placeholder, so an operator
+		// spelled `?|` in a query string is consumed as a parameter marker
+		// and the statement no longer means what it reads as. The `in`
+		// compilation below reached the same conclusion.
+		//
+		// The "top-level key" half of the behaviour is also why the
+		// LOAD-TIME type check is load-bearing rather than tidy: a field
+		// declared `object` would admit any row whose map happened to carry
+		// an account id as a key. validateRowAuthzAccount refuses that
+		// declaration, and this arm relies on it having done so.
+		jsonbExpr, err := buildJSONBPathExpression([]string{node.field})
+		if err != nil {
+			return compiledExpression{}, false
+		}
+		if node.everyAccount {
+			// Staff (D6): every TIED row, and no untied one. Spelled as
+			// "an array with elements, or a non-empty string" rather than
+			// "not null", because a row carrying `""` or `[]` is untied and
+			// admitting it would hand staff rows that belong to no client.
+			return compiledExpression{sql: fmt.Sprintf(
+				"((jsonb_typeof(%s) = 'array' AND jsonb_array_length(%s) > 0) OR "+
+					"(jsonb_typeof(%s) = 'string' AND (%s #>> '{}') <> ''))",
+				jsonbExpr, jsonbExpr, jsonbExpr, jsonbExpr)}, true
+		}
+		if len(node.accounts) == 0 {
+			return compiledExpression{sql: "FALSE"}, true
+		}
+		return compiledExpression{
+			sql:  fmt.Sprintf("jsonb_exists_any(%s, ?::text[])", jsonbExpr),
+			args: []any{pq.Array(node.accounts)},
+		}, true
 
 	case *SpecReferenceExpression:
 		// Expand the spec inline and try to compile its expression.
