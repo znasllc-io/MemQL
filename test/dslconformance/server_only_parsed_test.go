@@ -917,6 +917,20 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// and a terminal status a later reader treats as settled.
 		{Path: "worker/mutations.memql", Name: "createModelPull"}:         true,
 		{Path: "worker/mutations.memql", Name: "recordModelPullProgress"}: true,
+
+		// The probe's three writers (epic memql#5146), the pull's three with the
+		// pull's reasoning. `targetNodeId` is the CLAIM -- exactly one replica
+		// acts on the row, the one whose own id it names -- so a caller who
+		// could write it could point somebody else's probe at a replica that
+		// does not hold the machine, where it would sit at `requested` until the
+		// sweep failed it. Caller-scoping does not help: the caller IS the
+		// row's owner, so a self-scoped filter admits exactly this call, and
+		// the hazard is that only the server knows which replica holds the
+		// stream and only the executing replica knows how far the suite has
+		// got.
+		{Path: "worker/mutations.memql", Name: "createModelProbe"}:         true,
+		{Path: "worker/mutations.memql", Name: "recordModelProbeProgress"}: true,
+		{Path: "worker/mutations.memql", Name: "finishModelProbe"}:         true,
 		{Path: "worker/mutations.memql", Name: "finishModelPull"}:         true,
 		// memql#4389. The connector's own writes, and the two halves of
 		// the push channel. What they share is that the caller is a
