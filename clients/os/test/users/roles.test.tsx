@@ -181,13 +181,21 @@ describe("a role's page", () => {
     view.unmount();
   });
 
-  it("names the pair in a refusal rather than inventing a sentence", async () => {
+  it("reads a refusal out of the DECISION ROW rather than reporting success", async () => {
+    // `integrations/rbac` does not refuse with an error the way
+    // `integrations/groups` does: its handlers answer `{ok, slug, code,
+    // message}` as an ordinary reply row, so the call SUCCEEDS and the refusal
+    // rides inside it. Read naively, every refused role write reports success
+    // -- the form closes, nothing is written, and the person is told nothing.
     const connection = seed({
       searchUsers: [],
       builtins: {
-        roleUpdate: new Error(
-          "roleUpdate: role_grant_beyond_creator: you do not hold delete on principal",
-        ),
+        roleUpdate: {
+          ok: false,
+          slug: "acme-lead",
+          code: "role_grant_not_held",
+          message: "you do not hold delete on principal",
+        },
       },
     });
     const view = mount(connection);
@@ -197,7 +205,31 @@ describe("a role's page", () => {
     await click(screen.getByRole("checkbox", { name: "Delete People" }));
     await click(screen.getByRole("button", { name: "Save permissions" }));
 
-    expect(await screen.findByText(/you do not hold delete on principal/)).toBeTruthy();
+    // The code's own copy, and the server's sentence verbatim beneath it.
+    expect(
+      await screen.findByText(/You do not hold a permission you are trying to grant/),
+    ).toBeTruthy();
+    expect(screen.getByText(/you do not hold delete on principal/)).toBeTruthy();
+    // AND THE EDIT IS STILL ON SCREEN: a refused save must not read as a
+    // saved one, so the draft stays and Save is still offered.
+    expect(screen.getByRole("button", { name: "Save permissions" })).toBeTruthy();
+    view.unmount();
+  });
+
+  it("keeps an unknown decision code's own sentence under a neutral heading", async () => {
+    const connection = seed({
+      searchUsers: [],
+      builtins: {
+        roleUpdate: { ok: false, code: "role_something_new", message: "the cluster said this" },
+      },
+    });
+    const view = mount(connection);
+    await click(await screen.findByRole("button", { name: /Acme lead/ }));
+    await screen.findByText("Permissions");
+    await click(screen.getByRole("checkbox", { name: "Delete People" }));
+    await click(screen.getByRole("button", { name: "Save permissions" }));
+
+    expect(await screen.findByText(/the cluster said this/)).toBeTruthy();
     view.unmount();
   });
 });

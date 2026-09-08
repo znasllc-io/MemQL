@@ -68,6 +68,57 @@ const COPY: Record<string, RefusalCopy> = {
     title: "A client's own group is the cluster's to make",
     next: "Every account gets one automatically. A second would split the client's membership across two rows with no way to tell which one grants.",
   },
+
+  // ---- the role builtins --------------------------------------------------
+  //
+  // These arrive DIFFERENTLY from the group ones: `integrations/rbac` answers
+  // a decision ROW rather than an error (`decisionNodes`), so `actions.ts`
+  // reads the code out of the reply. The copy is keyed the same way.
+  role_not_authorized: {
+    title: "Your role does not carry that",
+    next: "Making and editing roles is a role holding create or update on role. An owner can grant it.",
+  },
+  role_catalog_unavailable: {
+    title: "This node has not loaded the role catalog yet",
+    next: "It loads at boot and refreshes on its own. Try again in a moment.",
+  },
+  role_slug_invalid: {
+    title: "That slug is not a shape a role can have",
+    next: "Lowercase, starting with a letter, two to forty characters. A slug lands on user rows and in every client's ladder, so one that differs only by case is a role people will confuse.",
+  },
+  role_slug_taken: {
+    title: "A role already has that slug",
+    next: "A slug is an identity and is never renamed. Pick another, or edit the role that holds it.",
+  },
+  role_not_found: { title: "No role by that slug", next: "" },
+  role_rank_not_below_caller: {
+    title: "That rank is at or above your own",
+    next: "A role you could not be given is one you cannot make.",
+  },
+  role_rank_taken: {
+    title: "Another role already sits at that rank",
+    next: "Two rungs at one rank have no order between them. The ranks are spaced so a new role slots between two of them.",
+  },
+  role_grant_invalid: {
+    title: "That permission is not one this cluster gates",
+    next: "The grid draws the pairs the seeds name; a pair outside them would write a row no resolver reads.",
+  },
+  role_grant_not_held: {
+    title: "You do not hold a permission you are trying to grant",
+    next: "A role cannot hand on more than its creator holds. The cells you do not hold are locked in the grid, and the server refuses them either way.",
+  },
+  role_predefined_immutable: {
+    title: "A predefined role is the cluster's own",
+    next: "It is seeded on every start, so an edit would be undone at the next boot. Make a role that starts from it instead.",
+  },
+  role_held_above_caller: {
+    title: "Somebody at or above your rank holds this role",
+    next: "Retiring it is a decision about them, and it is not yours to make.",
+  },
+  role_held: {
+    title: "People still hold this role",
+    next: "Move them to another role first. Deactivating one somebody holds would leave them with a role the cluster no longer offers.",
+  },
 };
 
 /**

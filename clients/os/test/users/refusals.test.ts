@@ -29,8 +29,13 @@ function engineCodes(): string[] {
     for (const name of readdirSync(dir)) {
       if (!name.endsWith(".go") || name.endsWith("_test.go")) continue;
       const source = readFileSync(join(dir, name), "utf8");
-      // The declared constants: `CodeSelfAddRefused = "group_self_add_refused"`.
-      for (const m of source.matchAll(/^\s*Code\w+\s*=\s*"([a-z][a-z0-9_]*)"/gm)) out.add(m[1]!);
+      // The declared constants, in BOTH spellings. integrations/groups exports
+      // them (`CodeSelfAddRefused = "group_self_add_refused"`) and
+      // integrations/rbac keeps them package-private (`codeRankTaken =
+      // "role_rank_taken"`) -- and a scan that matched only the exported
+      // spelling found NOTHING in rbac and passed, which is exactly the shape
+      // of vacuous gate this file exists to be.
+      for (const m of source.matchAll(/^\s*[Cc]ode\w+\s*=\s*"([a-z][a-z0-9_]*)"/gm)) out.add(m[1]!);
       // A code spelled at the raise site: `refusal("group_not_found", ...)`.
       for (const m of source.matchAll(/\brefusal\(\s*"([a-z][a-z0-9_]*)"/g)) out.add(m[1]!);
     }
@@ -52,6 +57,11 @@ describe("the refusal copy table", () => {
     const codes = engineCodes();
     expect(codes.length).toBeGreaterThan(5);
     expect(codes).toContain("group_member_rank_not_below_caller");
+    // ONE PER PACKAGE, because a scan that reads one package and misses the
+    // other satisfies every "nothing was found uncovered" assertion below
+    // while covering half the app. rbac's codes are package-private, which is
+    // how they went unseen the first time.
+    expect(codes).toContain("role_rank_taken");
   });
 
   it("names every code the engine can raise", () => {

@@ -8,7 +8,7 @@ import {
 import { renderMemQLValue, type QueryClient, type Result } from "@znasllc-io/memql-sdk-core/client";
 
 import { useOsConnection } from "../../live/connection";
-import { refusalFrom } from "./refusals";
+import { copyFor, refusalFrom } from "./refusals";
 
 // Every write the Users app makes, and the one busy/error pair they share.
 //
@@ -359,6 +359,39 @@ export function useUsersActions(): UsersActions {
   // patch would need the caller to send what to REMOVE, and a role edited from
   // two windows would then apply two half-answers.
 
+  // ===========================================================================
+  // THE ROLE BUILTINS ANSWER WITH A DECISION ROW, NOT AN ERROR
+  // ===========================================================================
+  // `integrations/groups` refuses by returning an error, so a refused group
+  // write throws and `runQuery` catches it. `integrations/rbac` does NOT: its
+  // three role handlers answer `{ok, slug, code, message}` as an ordinary
+  // reply row (`decisionNodes`), so the call SUCCEEDS and the refusal rides
+  // inside it.
+  //
+  // Read naively, that makes every refused role write report success -- the
+  // form closes, nothing is written, and the person is told nothing at all.
+  // This is the one place that difference is reconciled, and it reads the CODE
+  // rather than `ok`: a scalar boolean crosses a builtin's reply row as the
+  // STRING "true", so `rowBool` answers false for a successful write and
+  // trusting it would invert the whole thing.
+  const decisionRefusal = useCallback((result: Result | null): boolean => {
+    if (result === null) return false;
+    const row = result.rows()[0] as Record<string, unknown> | undefined;
+    const code = typeof row?.["code"] === "string" ? (row["code"] as string) : "";
+    if (code === "" || code === "ok") return true;
+    const message = typeof row?.["message"] === "string" ? (row["message"] as string) : "";
+    const copy = copyFor(code);
+    setRefusal({
+      detail: message,
+      auditEventId: "",
+      denied: code === "role_not_authorized",
+      code,
+      title: copy?.title ?? "",
+      next: copy?.next ?? "",
+    });
+    return false;
+  }, []);
+
   const roleCreate = useCallback(
     async (input: RoleDraft) => {
       const result: Result | null = await runQuery(`role:new:${input.slug}`, (q) =>
@@ -368,29 +401,34 @@ export function useUsersActions(): UsersActions {
         ),
       );
       if (result === null) return null;
+      if (!decisionRefusal(result)) return null;
       const row = result.rows()[0];
       return row ? String((row as Record<string, unknown>)["slug"] ?? "") : input.slug;
     },
-    [runQuery],
+    [runQuery, decisionRefusal],
   );
 
   const roleUpdate = useCallback(
-    async (slug: string, grants: readonly string[]) =>
-      (await runQuery(slug, (q) =>
+    async (slug: string, grants: readonly string[]) => {
+      const result: Result | null = await runQuery(slug, (q) =>
         q.executeNamed(
           "roleUpdate",
           `builtin roleUpdate(slug: ${renderMemQLValue(slug)}, grants: ${renderMemQLValue([...grants])})`,
         ),
-      )) !== null,
-    [runQuery],
+      );
+      return decisionRefusal(result);
+    },
+    [runQuery, decisionRefusal],
   );
 
   const roleDeactivate = useCallback(
-    async (slug: string) =>
-      (await runQuery(slug, (q) =>
+    async (slug: string) => {
+      const result: Result | null = await runQuery(slug, (q) =>
         q.executeNamed("roleDeactivate", `builtin roleDeactivate(slug: ${renderMemQLValue(slug)})`),
-      )) !== null,
-    [runQuery],
+      );
+      return decisionRefusal(result);
+    },
+    [runQuery, decisionRefusal],
   );
 
   return {
