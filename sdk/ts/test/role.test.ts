@@ -1,77 +1,80 @@
-// Role wire-mapping: every value the proto's UserRole declares must survive
-// the trip into the SDK's `Role` (memql#3331).
+// A role crosses the wire as the SLUG the cluster wrote (epic memql#5166).
 //
-// THE BUG THIS PINS. `UserRoleWire` stopped at READER while memql.proto
-// defined USER_ROLE_DEVELOPER = 5, so roleFromWire's `?? ""` fallback turned a
-// developer into an indeterminate role. Nothing errored -- the caller simply
-// could not be told apart from an unauthenticated one, which left the VS Code
-// deploy panel unable to gate cut/deploy and showing a hedge to the one role
-// that surface exists to serve.
+// THE BUG THIS FILE USED TO PIN, and why it cannot happen again. `UserRoleWire`
+// was a hand-mirrored union of the proto's UserRole enum, and it stopped at
+// READER while memql.proto defined USER_ROLE_DEVELOPER = 5 -- so
+// `roleFromWire`'s `?? ""` fallback turned a developer into an indeterminate
+// role (memql#3331). Nothing errored; the caller simply could not be told apart
+// from an unauthenticated one, which left the VS Code deploy panel showing a
+// hedge to the one role that surface exists to serve.
 //
-// The fallback is still right for a value that genuinely is not a role
-// (UNSPECIFIED, or a future proto value reaching an older client). What was
-// wrong was reaching it for a role the wire had been carrying all along.
-//
-// The proto-vs-union half of the guard lives in Go, at
-// scripts/ci/user_role_wire_parity_test.go, because it has to read
-// memql.proto. This file pins the TS half: that the union maps, exhaustively,
-// to sensible `Role` values.
+// Both the enum and the mapping are deleted. The set of roles is CLUSTER STATE
+// -- an operator authors a role from the permissions that exist -- so a closed
+// union could only ever name the five this repo shipped, and a custom role
+// arrived as "", which is the value an unauthenticated caller gets. What this
+// file pins now is the property that replaced the mapping: a slug passes
+// through UNCHANGED, whatever it is, and an absent one stays absent.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { roleFromWire, accessSummaryFromWire, type Role } from "../src/client/types.js";
-import type { UserRoleWire } from "../src/client/wire.js";
+import { accessSummaryFromWire } from "../src/client/types.js";
 
-// Every member of UserRoleWire, spelled out. Typed as the union so a value
-// added there without a line here fails the exhaustiveness check below rather
-// than quietly going untested.
-const EVERY_WIRE_ROLE: Record<UserRoleWire, Role> = {
-  USER_ROLE_UNSPECIFIED: "",
-  USER_ROLE_OWNER: "owner",
-  USER_ROLE_ADMIN: "admin",
-  USER_ROLE_DEVELOPER: "developer",
-  USER_ROLE_WRITER: "writer",
-  USER_ROLE_READER: "reader",
-};
-
-test("roleFromWire maps developer -- the memql#3331 regression", () => {
-  assert.equal(roleFromWire("USER_ROLE_DEVELOPER"), "developer");
-});
-
-test("roleFromWire maps every wire role, and none falls through to \"\"", () => {
-  for (const [wire, want] of Object.entries(EVERY_WIRE_ROLE) as [UserRoleWire, Role][]) {
-    assert.equal(roleFromWire(wire), want, wire);
+test("a base role slug passes through unchanged", () => {
+  for (const slug of ["owner", "developer", "admin", "user", "writer", "viewer", "reader"]) {
+    const summary = accessSummaryFromWire({
+      requestId: "req-1",
+      userId: "u-1",
+      primaryEmail: "a@example.com",
+      role: slug,
+    });
+    assert.equal(summary?.role, slug, slug);
   }
-  // UNSPECIFIED is the one legitimate "" -- it is the proto's zero value, not
-  // a role. Asserted separately so the loop above cannot be read as
-  // tolerating a silent "" for a real role.
-  assert.equal(roleFromWire("USER_ROLE_UNSPECIFIED"), "");
-  const named = Object.entries(EVERY_WIRE_ROLE).filter(([, role]) => role !== "");
-  assert.equal(named.length, 5, "owner, admin, developer, writer, reader");
 });
 
-test("an absent or unknown wire role is indeterminate, not a role", () => {
-  // undefined: the field was not set on the wire.
-  assert.equal(roleFromWire(undefined), "");
-  // A value this client does not know -- a newer server. Fails to "unknown",
-  // which callers must treat as "could not resolve", never as least-privileged.
-  assert.equal(roleFromWire("USER_ROLE_FROM_THE_FUTURE" as UserRoleWire), "");
-});
-
-test("accessSummaryFromWire carries developer through to clusterRole", () => {
-  // The path the VS Code panel actually takes: MyAccessResult -> AccessSummary
-  // -> roleVisibility. Mapping roleFromWire correctly is worth nothing if the
-  // summary drops it.
+test("a CUSTOM role slug passes through unchanged -- the memql#5166 point", () => {
+  // Under the enum this arrived as "", indistinguishable from an
+  // unauthenticated caller, so no client could act on a role its cluster had
+  // authored for itself.
   const summary = accessSummaryFromWire({
     requestId: "req-1",
-    userId: "u-dev",
-    primaryEmail: "dev@example.com",
-    clusterRole: "USER_ROLE_DEVELOPER",
+    userId: "u-1",
+    primaryEmail: "a@example.com",
+    role: "support-lead",
+    roleName: "Support Lead",
+    rank: 150,
   });
-  assert.notEqual(summary, null);
-  assert.equal(summary?.clusterRole, "developer");
-  assert.equal(summary?.userId, "u-dev");
+  assert.equal(summary?.role, "support-lead");
+  assert.equal(summary?.roleName, "Support Lead");
+  assert.equal(summary?.rank, 150);
+});
+
+test("an absent role is empty, and empty is UNKNOWN rather than least-privileged", () => {
+  const summary = accessSummaryFromWire({
+    requestId: "req-1",
+    userId: "u-1",
+    primaryEmail: "a@example.com",
+  });
+  assert.equal(summary?.role, "");
+  // The name and the rank are absent too, and a client renders neither rather
+  // than inventing a title or a rung for a role it could not resolve.
+  assert.equal(summary?.roleName, "");
+  assert.equal(summary?.rank, 0);
+});
+
+test("a name the catalog could not resolve is empty, not fabricated", () => {
+  // The server sends the slug it has and leaves role_name empty when the slug
+  // ranks nowhere -- a role deactivated under its holder, or a node whose
+  // catalog has not loaded. The client renders the slug.
+  const summary = accessSummaryFromWire({
+    requestId: "req-1",
+    userId: "u-1",
+    primaryEmail: "a@example.com",
+    role: "retired-lead",
+  });
+  assert.equal(summary?.role, "retired-lead");
+  assert.equal(summary?.roleName, "");
+  assert.equal(summary?.rank, 0);
 });
 
 test("accessSummaryFromWire is null for an absent payload", () => {

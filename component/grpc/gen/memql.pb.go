@@ -23,69 +23,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type UserRole int32
-
-const (
-	UserRole_USER_ROLE_UNSPECIFIED UserRole = 0
-	UserRole_USER_ROLE_OWNER       UserRole = 1
-	UserRole_USER_ROLE_ADMIN       UserRole = 2
-	UserRole_USER_ROLE_WRITER      UserRole = 3
-	UserRole_USER_ROLE_READER      UserRole = 4
-	// USER_ROLE_DEVELOPER is engineering power (authoring + inline DSL +
-	// deploy/cut-version) without user management (#1532 / #1876). Sits in
-	// the privileged tier alongside admin (different powers, not a strict
-	// ordering). Added to the wire so MyAccess can surface it to the
-	// cockpit's deploy-control gating (#1886).
-	UserRole_USER_ROLE_DEVELOPER UserRole = 5
-)
-
-// Enum value maps for UserRole.
-var (
-	UserRole_name = map[int32]string{
-		0: "USER_ROLE_UNSPECIFIED",
-		1: "USER_ROLE_OWNER",
-		2: "USER_ROLE_ADMIN",
-		3: "USER_ROLE_WRITER",
-		4: "USER_ROLE_READER",
-		5: "USER_ROLE_DEVELOPER",
-	}
-	UserRole_value = map[string]int32{
-		"USER_ROLE_UNSPECIFIED": 0,
-		"USER_ROLE_OWNER":       1,
-		"USER_ROLE_ADMIN":       2,
-		"USER_ROLE_WRITER":      3,
-		"USER_ROLE_READER":      4,
-		"USER_ROLE_DEVELOPER":   5,
-	}
-)
-
-func (x UserRole) Enum() *UserRole {
-	p := new(UserRole)
-	*p = x
-	return p
-}
-
-func (x UserRole) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (UserRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_memql_proto_enumTypes[0].Descriptor()
-}
-
-func (UserRole) Type() protoreflect.EnumType {
-	return &file_memql_proto_enumTypes[0]
-}
-
-func (x UserRole) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use UserRole.Descriptor instead.
-func (UserRole) EnumDescriptor() ([]byte, []int) {
-	return file_memql_proto_rawDescGZIP(), []int{0}
-}
-
 // GraphNodeAction is the CDC verb of a graph.node.<action>.<concept>
 // topic. It is consumed only by structured graph subscriptions
 // (SubscribeMsg.actions); the server maps it to the topic's action
@@ -126,11 +63,11 @@ func (x GraphNodeAction) String() string {
 }
 
 func (GraphNodeAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_memql_proto_enumTypes[1].Descriptor()
+	return file_memql_proto_enumTypes[0].Descriptor()
 }
 
 func (GraphNodeAction) Type() protoreflect.EnumType {
-	return &file_memql_proto_enumTypes[1]
+	return &file_memql_proto_enumTypes[0]
 }
 
 func (x GraphNodeAction) Number() protoreflect.EnumNumber {
@@ -139,7 +76,7 @@ func (x GraphNodeAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use GraphNodeAction.Descriptor instead.
 func (GraphNodeAction) EnumDescriptor() ([]byte, []int) {
-	return file_memql_proto_rawDescGZIP(), []int{1}
+	return file_memql_proto_rawDescGZIP(), []int{0}
 }
 
 type SubscriptionKind int32
@@ -193,11 +130,11 @@ func (x SubscriptionKind) String() string {
 }
 
 func (SubscriptionKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_memql_proto_enumTypes[2].Descriptor()
+	return file_memql_proto_enumTypes[1].Descriptor()
 }
 
 func (SubscriptionKind) Type() protoreflect.EnumType {
-	return &file_memql_proto_enumTypes[2]
+	return &file_memql_proto_enumTypes[1]
 }
 
 func (x SubscriptionKind) Number() protoreflect.EnumNumber {
@@ -206,7 +143,7 @@ func (x SubscriptionKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SubscriptionKind.Descriptor instead.
 func (SubscriptionKind) EnumDescriptor() ([]byte, []int) {
-	return file_memql_proto_rawDescGZIP(), []int{2}
+	return file_memql_proto_rawDescGZIP(), []int{1}
 }
 
 type EventKind int32
@@ -310,11 +247,11 @@ func (x EventKind) String() string {
 }
 
 func (EventKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_memql_proto_enumTypes[3].Descriptor()
+	return file_memql_proto_enumTypes[2].Descriptor()
 }
 
 func (EventKind) Type() protoreflect.EnumType {
-	return &file_memql_proto_enumTypes[3]
+	return &file_memql_proto_enumTypes[2]
 }
 
 func (x EventKind) Number() protoreflect.EnumNumber {
@@ -323,7 +260,7 @@ func (x EventKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EventKind.Descriptor instead.
 func (EventKind) EnumDescriptor() ([]byte, []int) {
-	return file_memql_proto_rawDescGZIP(), []int{3}
+	return file_memql_proto_rawDescGZIP(), []int{2}
 }
 
 type SenseSeverity int32
@@ -365,11 +302,11 @@ func (x SenseSeverity) String() string {
 }
 
 func (SenseSeverity) Descriptor() protoreflect.EnumDescriptor {
-	return file_memql_proto_enumTypes[4].Descriptor()
+	return file_memql_proto_enumTypes[3].Descriptor()
 }
 
 func (SenseSeverity) Type() protoreflect.EnumType {
-	return &file_memql_proto_enumTypes[4]
+	return &file_memql_proto_enumTypes[3]
 }
 
 func (x SenseSeverity) Number() protoreflect.EnumNumber {
@@ -378,7 +315,7 @@ func (x SenseSeverity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SenseSeverity.Descriptor instead.
 func (SenseSeverity) EnumDescriptor() ([]byte, []int) {
-	return file_memql_proto_rawDescGZIP(), []int{4}
+	return file_memql_proto_rawDescGZIP(), []int{3}
 }
 
 // Provenance is the engine-stamped origin metadata stored as an
@@ -5141,19 +5078,22 @@ func (x *AiSuggestUsage) GetModel() string {
 }
 
 type IdentityCreateMsg struct {
-	state                    protoimpl.MessageState `protogen:"open.v1"`
-	RequestId                string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Type                     string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // "human" or "synthetic"
-	FirstName                string                 `protobuf:"bytes,4,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
-	LastName                 string                 `protobuf:"bytes,5,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
-	DisplayName              string                 `protobuf:"bytes,6,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Emails                   []string               `protobuf:"bytes,7,rep,name=emails,proto3" json:"emails,omitempty"`
-	Phones                   []string               `protobuf:"bytes,8,rep,name=phones,proto3" json:"phones,omitempty"`
-	AvatarUrl                string                 `protobuf:"bytes,9,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
-	Role                     UserRole               `protobuf:"varint,10,opt,name=role,proto3,enum=znasllc.memql.v1.UserRole" json:"role,omitempty"`
-	GroupIds                 []string               `protobuf:"bytes,11,rep,name=group_ids,json=groupIds,proto3" json:"group_ids,omitempty"`
-	GuardianIdentityId       string                 `protobuf:"bytes,12,opt,name=guardian_identity_id,json=guardianIdentityId,proto3" json:"guardian_identity_id,omitempty"` // Required for type "synthetic"
-	GuardianApprovalRequired bool                   `protobuf:"varint,13,opt,name=guardian_approval_required,json=guardianApprovalRequired,proto3" json:"guardian_approval_required,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	RequestId   string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Type        string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // "human" or "synthetic"
+	FirstName   string                 `protobuf:"bytes,4,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	LastName    string                 `protobuf:"bytes,5,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
+	DisplayName string                 `protobuf:"bytes,6,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Emails      []string               `protobuf:"bytes,7,rep,name=emails,proto3" json:"emails,omitempty"`
+	Phones      []string               `protobuf:"bytes,8,rep,name=phones,proto3" json:"phones,omitempty"`
+	AvatarUrl   string                 `protobuf:"bytes,9,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
+	// The cluster role as a SLUG (epic memql#5166) -- a v1:rbac:role slug or one
+	// of its aliases, validated in Go where the row is written. Was the UserRole
+	// enum, which could not carry a role the cluster authored for itself.
+	Role                     string   `protobuf:"bytes,10,opt,name=role,proto3" json:"role,omitempty"`
+	GroupIds                 []string `protobuf:"bytes,11,rep,name=group_ids,json=groupIds,proto3" json:"group_ids,omitempty"`
+	GuardianIdentityId       string   `protobuf:"bytes,12,opt,name=guardian_identity_id,json=guardianIdentityId,proto3" json:"guardian_identity_id,omitempty"` // Required for type "synthetic"
+	GuardianApprovalRequired bool     `protobuf:"varint,13,opt,name=guardian_approval_required,json=guardianApprovalRequired,proto3" json:"guardian_approval_required,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -5244,11 +5184,11 @@ func (x *IdentityCreateMsg) GetAvatarUrl() string {
 	return ""
 }
 
-func (x *IdentityCreateMsg) GetRole() UserRole {
+func (x *IdentityCreateMsg) GetRole() string {
 	if x != nil {
 		return x.Role
 	}
-	return UserRole_USER_ROLE_UNSPECIFIED
+	return ""
 }
 
 func (x *IdentityCreateMsg) GetGroupIds() []string {
@@ -5469,16 +5409,17 @@ func (x *IdentityResult) GetIdentities() []*IdentityInfo {
 }
 
 type IdentityInfo struct {
-	state                    protoimpl.MessageState `protogen:"open.v1"`
-	Id                       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Type                     string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	FirstName                string                 `protobuf:"bytes,4,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
-	LastName                 string                 `protobuf:"bytes,5,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
-	DisplayName              string                 `protobuf:"bytes,6,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Emails                   []string               `protobuf:"bytes,7,rep,name=emails,proto3" json:"emails,omitempty"`
-	Phones                   []string               `protobuf:"bytes,8,rep,name=phones,proto3" json:"phones,omitempty"`
-	AvatarUrl                string                 `protobuf:"bytes,9,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
-	Role                     UserRole               `protobuf:"varint,10,opt,name=role,proto3,enum=znasllc.memql.v1.UserRole" json:"role,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Type        string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	FirstName   string                 `protobuf:"bytes,4,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	LastName    string                 `protobuf:"bytes,5,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
+	DisplayName string                 `protobuf:"bytes,6,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Emails      []string               `protobuf:"bytes,7,rep,name=emails,proto3" json:"emails,omitempty"`
+	Phones      []string               `protobuf:"bytes,8,rep,name=phones,proto3" json:"phones,omitempty"`
+	AvatarUrl   string                 `protobuf:"bytes,9,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
+	// The cluster role as a SLUG (epic memql#5166); see IdentityCreateMsg.role.
+	Role                     string                 `protobuf:"bytes,10,opt,name=role,proto3" json:"role,omitempty"`
 	GroupIds                 []string               `protobuf:"bytes,11,rep,name=group_ids,json=groupIds,proto3" json:"group_ids,omitempty"`
 	Active                   bool                   `protobuf:"varint,12,opt,name=active,proto3" json:"active,omitempty"`
 	GuardianIdentityId       string                 `protobuf:"bytes,13,opt,name=guardian_identity_id,json=guardianIdentityId,proto3" json:"guardian_identity_id,omitempty"`
@@ -5576,11 +5517,11 @@ func (x *IdentityInfo) GetAvatarUrl() string {
 	return ""
 }
 
-func (x *IdentityInfo) GetRole() UserRole {
+func (x *IdentityInfo) GetRole() string {
 	if x != nil {
 		return x.Role
 	}
-	return UserRole_USER_ROLE_UNSPECIFIED
+	return ""
 }
 
 func (x *IdentityInfo) GetGroupIds() []string {
@@ -5633,11 +5574,15 @@ func (x *IdentityInfo) GetSuspendedReason() string {
 }
 
 type DelegationCreateMsg struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	IdentityId    string                 `protobuf:"bytes,2,opt,name=identity_id,json=identityId,proto3" json:"identity_id,omitempty"`
-	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	RoleCeiling   UserRole               `protobuf:"varint,4,opt,name=role_ceiling,json=roleCeiling,proto3,enum=znasllc.memql.v1.UserRole" json:"role_ceiling,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RequestId  string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	IdentityId string                 `protobuf:"bytes,2,opt,name=identity_id,json=identityId,proto3" json:"identity_id,omitempty"`
+	AgentId    string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// The delegation ceiling as a SLUG (epic memql#5166). Compared by RANK
+	// through the catalog, not by the legacy four-value level scale, which
+	// collapsed every custom role into its bottom rung and so admitted a ceiling
+	// that outranked its own delegator.
+	RoleCeiling   string                 `protobuf:"bytes,4,opt,name=role_ceiling,json=roleCeiling,proto3" json:"role_ceiling,omitempty"`
 	Scopes        []string               `protobuf:"bytes,5,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	Note          string                 `protobuf:"bytes,7,opt,name=note,proto3" json:"note,omitempty"`
@@ -5696,11 +5641,11 @@ func (x *DelegationCreateMsg) GetAgentId() string {
 	return ""
 }
 
-func (x *DelegationCreateMsg) GetRoleCeiling() UserRole {
+func (x *DelegationCreateMsg) GetRoleCeiling() string {
 	if x != nil {
 		return x.RoleCeiling
 	}
-	return UserRole_USER_ROLE_UNSPECIFIED
+	return ""
 }
 
 func (x *DelegationCreateMsg) GetScopes() []string {
@@ -5913,13 +5858,14 @@ func (x *DelegationResult) GetDelegations() []*DelegationInfo {
 }
 
 type DelegationInfo struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	IdentityId        string                 `protobuf:"bytes,2,opt,name=identity_id,json=identityId,proto3" json:"identity_id,omitempty"`
-	IdentitySubject   string                 `protobuf:"bytes,3,opt,name=identity_subject,json=identitySubject,proto3" json:"identity_subject,omitempty"`
-	IdentityType      string                 `protobuf:"bytes,4,opt,name=identity_type,json=identityType,proto3" json:"identity_type,omitempty"`
-	AgentId           string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	RoleCeiling       UserRole               `protobuf:"varint,6,opt,name=role_ceiling,json=roleCeiling,proto3,enum=znasllc.memql.v1.UserRole" json:"role_ceiling,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	IdentityId      string                 `protobuf:"bytes,2,opt,name=identity_id,json=identityId,proto3" json:"identity_id,omitempty"`
+	IdentitySubject string                 `protobuf:"bytes,3,opt,name=identity_subject,json=identitySubject,proto3" json:"identity_subject,omitempty"`
+	IdentityType    string                 `protobuf:"bytes,4,opt,name=identity_type,json=identityType,proto3" json:"identity_type,omitempty"`
+	AgentId         string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// The delegation ceiling as a SLUG (epic memql#5166); see DelegationCreateMsg.
+	RoleCeiling       string                 `protobuf:"bytes,6,opt,name=role_ceiling,json=roleCeiling,proto3" json:"role_ceiling,omitempty"`
 	Scopes            []string               `protobuf:"bytes,7,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	ExpiresAt         *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	Active            bool                   `protobuf:"varint,9,opt,name=active,proto3" json:"active,omitempty"`
@@ -5998,11 +5944,11 @@ func (x *DelegationInfo) GetAgentId() string {
 	return ""
 }
 
-func (x *DelegationInfo) GetRoleCeiling() UserRole {
+func (x *DelegationInfo) GetRoleCeiling() string {
 	if x != nil {
 		return x.RoleCeiling
 	}
-	return UserRole_USER_ROLE_UNSPECIFIED
+	return ""
 }
 
 func (x *DelegationInfo) GetScopes() []string {
@@ -10619,7 +10565,6 @@ type MyAccessResult struct {
 	RequestId    string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	UserId       string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	PrimaryEmail string                 `protobuf:"bytes,3,opt,name=primary_email,json=primaryEmail,proto3" json:"primary_email,omitempty"`
-	ClusterRole  UserRole               `protobuf:"varint,4,opt,name=cluster_role,json=clusterRole,proto3,enum=znasllc.memql.v1.UserRole" json:"cluster_role,omitempty"`
 	// session_id is the v1:identity:authSession row backing THIS connection,
 	// read off the verified claims (memql#4306).
 	//
@@ -10653,7 +10598,28 @@ type MyAccessResult struct {
 	// Empty when no user row resolved (a first request racing the
 	// registration insert, a PAT with no provisioned user). Not an error: a
 	// client renders the email instead, which it already holds.
-	DisplayName   string `protobuf:"bytes,7,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	DisplayName string `protobuf:"bytes,7,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	// role is the caller's cluster role, as the SLUG their v1:identity:user row
+	// carries -- a catalog slug or one of its aliases (epic memql#5166).
+	//
+	// It replaces `cluster_role`, which was the UserRole enum: an enum can only
+	// name the roles this repo shipped, so a custom role reported
+	// USER_ROLE_UNSPECIFIED -- the same value an unauthenticated caller gets.
+	Role string `protobuf:"bytes,11,opt,name=role,proto3" json:"role,omitempty"`
+	// role_name is the role's DISPLAY NAME off the catalog row ("Owner",
+	// "Support Lead"). Empty when the slug resolves to no active rung, which is
+	// the honest answer rather than a fabricated title: a client renders the slug
+	// it already holds instead.
+	//
+	// It is here rather than looked up client-side because the client would then
+	// need the ladder loaded before it could name the signed-in person, and the
+	// shell paints its identity rail before that read lands.
+	RoleName string `protobuf:"bytes,12,opt,name=role_name,json=roleName,proto3" json:"role_name,omitempty"`
+	// rank is the role's rung, HIGHER == more privileged. Zero when the slug
+	// resolves to no rung -- and zero is a real answer here rather than
+	// "unknown", because an unrankable role admits nothing, which is exactly what
+	// rank 0 means everywhere else in this model.
+	Rank          int32 `protobuf:"varint,13,opt,name=rank,proto3" json:"rank,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10709,13 +10675,6 @@ func (x *MyAccessResult) GetPrimaryEmail() string {
 	return ""
 }
 
-func (x *MyAccessResult) GetClusterRole() UserRole {
-	if x != nil {
-		return x.ClusterRole
-	}
-	return UserRole_USER_ROLE_UNSPECIFIED
-}
-
 func (x *MyAccessResult) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
@@ -10728,6 +10687,27 @@ func (x *MyAccessResult) GetDisplayName() string {
 		return x.DisplayName
 	}
 	return ""
+}
+
+func (x *MyAccessResult) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *MyAccessResult) GetRoleName() string {
+	if x != nil {
+		return x.RoleName
+	}
+	return ""
+}
+
+func (x *MyAccessResult) GetRank() int32 {
+	if x != nil {
+		return x.Rank
+	}
+	return 0
 }
 
 // AgentGenerateTurnMsg asks the agent node to generate one conversational
@@ -17518,7 +17498,7 @@ const file_memql_proto_rawDesc = "" +
 	"\x0eAiSuggestUsage\x12!\n" +
 	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x02 \x01(\x03R\foutputTokens\x12\x14\n" +
-	"\x05model\x18\x03 \x01(\tR\x05model\"\xb1\x03\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\"\x95\x03\n" +
 	"\x11IdentityCreateMsg\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
@@ -17530,9 +17510,9 @@ const file_memql_proto_rawDesc = "" +
 	"\x06emails\x18\a \x03(\tR\x06emails\x12\x16\n" +
 	"\x06phones\x18\b \x03(\tR\x06phones\x12\x1d\n" +
 	"\n" +
-	"avatar_url\x18\t \x01(\tR\tavatarUrl\x12.\n" +
+	"avatar_url\x18\t \x01(\tR\tavatarUrl\x12\x12\n" +
 	"\x04role\x18\n" +
-	" \x01(\x0e2\x1a.znasllc.memql.v1.UserRoleR\x04role\x12\x1b\n" +
+	" \x01(\tR\x04role\x12\x1b\n" +
 	"\tgroup_ids\x18\v \x03(\tR\bgroupIds\x120\n" +
 	"\x14guardian_identity_id\x18\f \x01(\tR\x12guardianIdentityId\x12<\n" +
 	"\x1aguardian_approval_required\x18\r \x01(\bR\x18guardianApprovalRequired\"\x84\x01\n" +
@@ -17556,7 +17536,7 @@ const file_memql_proto_rawDesc = "" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12>\n" +
 	"\n" +
 	"identities\x18\x04 \x03(\v2\x1e.znasllc.memql.v1.IdentityInfoR\n" +
-	"identities\"\xda\x04\n" +
+	"identities\"\xbe\x04\n" +
 	"\fIdentityInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1d\n" +
@@ -17567,9 +17547,9 @@ const file_memql_proto_rawDesc = "" +
 	"\x06emails\x18\a \x03(\tR\x06emails\x12\x16\n" +
 	"\x06phones\x18\b \x03(\tR\x06phones\x12\x1d\n" +
 	"\n" +
-	"avatar_url\x18\t \x01(\tR\tavatarUrl\x12.\n" +
+	"avatar_url\x18\t \x01(\tR\tavatarUrl\x12\x12\n" +
 	"\x04role\x18\n" +
-	" \x01(\x0e2\x1a.znasllc.memql.v1.UserRoleR\x04role\x12\x1b\n" +
+	" \x01(\tR\x04role\x12\x1b\n" +
 	"\tgroup_ids\x18\v \x03(\tR\bgroupIds\x12\x16\n" +
 	"\x06active\x18\f \x01(\bR\x06active\x120\n" +
 	"\x14guardian_identity_id\x18\r \x01(\tR\x12guardianIdentityId\x12<\n" +
@@ -17577,14 +17557,14 @@ const file_memql_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12=\n" +
 	"\fsuspended_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\vsuspendedAt\x12)\n" +
-	"\x10suspended_reason\x18\x11 \x01(\tR\x0fsuspendedReason\"\x96\x02\n" +
+	"\x10suspended_reason\x18\x11 \x01(\tR\x0fsuspendedReason\"\xfa\x01\n" +
 	"\x13DelegationCreateMsg\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
 	"\videntity_id\x18\x02 \x01(\tR\n" +
 	"identityId\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12=\n" +
-	"\frole_ceiling\x18\x04 \x01(\x0e2\x1a.znasllc.memql.v1.UserRoleR\vroleCeiling\x12\x16\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12!\n" +
+	"\frole_ceiling\x18\x04 \x01(\tR\vroleCeiling\x12\x16\n" +
 	"\x06scopes\x18\x05 \x03(\tR\x06scopes\x129\n" +
 	"\n" +
 	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x12\n" +
@@ -17606,15 +17586,15 @@ const file_memql_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12B\n" +
-	"\vdelegations\x18\x04 \x03(\v2 .znasllc.memql.v1.DelegationInfoR\vdelegations\"\xec\x04\n" +
+	"\vdelegations\x18\x04 \x03(\v2 .znasllc.memql.v1.DelegationInfoR\vdelegations\"\xd0\x04\n" +
 	"\x0eDelegationInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\videntity_id\x18\x02 \x01(\tR\n" +
 	"identityId\x12)\n" +
 	"\x10identity_subject\x18\x03 \x01(\tR\x0fidentitySubject\x12#\n" +
 	"\ridentity_type\x18\x04 \x01(\tR\fidentityType\x12\x19\n" +
-	"\bagent_id\x18\x05 \x01(\tR\aagentId\x12=\n" +
-	"\frole_ceiling\x18\x06 \x01(\x0e2\x1a.znasllc.memql.v1.UserRoleR\vroleCeiling\x12\x16\n" +
+	"\bagent_id\x18\x05 \x01(\tR\aagentId\x12!\n" +
+	"\frole_ceiling\x18\x06 \x01(\tR\vroleCeiling\x12\x16\n" +
 	"\x06scopes\x18\a \x03(\tR\x06scopes\x129\n" +
 	"\n" +
 	"expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x16\n" +
@@ -17991,16 +17971,18 @@ const file_memql_proto_rawDesc = "" +
 	"\x0fsubscription_id\x18\x06 \x01(\tR\x0esubscriptionId\",\n" +
 	"\vMyAccessMsg\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\x80\x02\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\x9a\x02\n" +
 	"\x0eMyAccessResult\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12#\n" +
-	"\rprimary_email\x18\x03 \x01(\tR\fprimaryEmail\x12=\n" +
-	"\fcluster_role\x18\x04 \x01(\x0e2\x1a.znasllc.memql.v1.UserRoleR\vclusterRole\x12\x1d\n" +
+	"\rprimary_email\x18\x03 \x01(\tR\fprimaryEmail\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x06 \x01(\tR\tsessionId\x12!\n" +
-	"\fdisplay_name\x18\a \x01(\tR\vdisplayNameJ\x04\b\x05\x10\x06R\n" +
+	"\fdisplay_name\x18\a \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04role\x18\v \x01(\tR\x04role\x12\x1b\n" +
+	"\trole_name\x18\f \x01(\tR\broleName\x12\x12\n" +
+	"\x04rank\x18\r \x01(\x05R\x04rankJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\fcluster_roleR\n" +
 	"partitions\"\xab\x04\n" +
 	"\x14AgentGenerateTurnMsg\x12\x1d\n" +
 	"\n" +
@@ -18532,14 +18514,7 @@ const file_memql_proto_rawDesc = "" +
 	"\x10restart_required\x18\x05 \x01(\bR\x0frestartRequired\x12\x1d\n" +
 	"\n" +
 	"error_code\x18\x06 \x01(\x05R\terrorCode\x12#\n" +
-	"\rerror_message\x18\a \x01(\tR\ferrorMessage*\x94\x01\n" +
-	"\bUserRole\x12\x19\n" +
-	"\x15USER_ROLE_UNSPECIFIED\x10\x00\x12\x13\n" +
-	"\x0fUSER_ROLE_OWNER\x10\x01\x12\x13\n" +
-	"\x0fUSER_ROLE_ADMIN\x10\x02\x12\x14\n" +
-	"\x10USER_ROLE_WRITER\x10\x03\x12\x14\n" +
-	"\x10USER_ROLE_READER\x10\x04\x12\x17\n" +
-	"\x13USER_ROLE_DEVELOPER\x10\x05*\x91\x01\n" +
+	"\rerror_message\x18\a \x01(\tR\ferrorMessage*\x91\x01\n" +
 	"\x0fGraphNodeAction\x12!\n" +
 	"\x1dGRAPH_NODE_ACTION_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19GRAPH_NODE_ACTION_CREATED\x10\x01\x12\x1d\n" +
@@ -18600,473 +18575,467 @@ func file_memql_proto_rawDescGZIP() []byte {
 	return file_memql_proto_rawDescData
 }
 
-var file_memql_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_memql_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_memql_proto_msgTypes = make([]protoimpl.MessageInfo, 187)
 var file_memql_proto_goTypes = []any{
-	(UserRole)(0),                              // 0: znasllc.memql.v1.UserRole
-	(GraphNodeAction)(0),                       // 1: znasllc.memql.v1.GraphNodeAction
-	(SubscriptionKind)(0),                      // 2: znasllc.memql.v1.SubscriptionKind
-	(EventKind)(0),                             // 3: znasllc.memql.v1.EventKind
-	(SenseSeverity)(0),                         // 4: znasllc.memql.v1.SenseSeverity
-	(*Provenance)(nil),                         // 5: znasllc.memql.v1.Provenance
-	(*MemqlClientMessage)(nil),                 // 6: znasllc.memql.v1.MemqlClientMessage
-	(*MemqlServerMessage)(nil),                 // 7: znasllc.memql.v1.MemqlServerMessage
-	(*ClientHello)(nil),                        // 8: znasllc.memql.v1.ClientHello
-	(*ServerHello)(nil),                        // 9: znasllc.memql.v1.ServerHello
-	(*HeartbeatMsg)(nil),                       // 10: znasllc.memql.v1.HeartbeatMsg
-	(*AckMsg)(nil),                             // 11: znasllc.memql.v1.AckMsg
-	(*ExecuteQueryMsg)(nil),                    // 12: znasllc.memql.v1.ExecuteQueryMsg
-	(*CancelRequestMsg)(nil),                   // 13: znasllc.memql.v1.CancelRequestMsg
-	(*QueryResultChunk)(nil),                   // 14: znasllc.memql.v1.QueryResultChunk
-	(*QueryErrorMsg)(nil),                      // 15: znasllc.memql.v1.QueryErrorMsg
-	(*SubscribeMsg)(nil),                       // 16: znasllc.memql.v1.SubscribeMsg
-	(*UnsubscribeMsg)(nil),                     // 17: znasllc.memql.v1.UnsubscribeMsg
-	(*EventNotification)(nil),                  // 18: znasllc.memql.v1.EventNotification
-	(*AiStreamChunk)(nil),                      // 19: znasllc.memql.v1.AiStreamChunk
-	(*Result)(nil),                             // 20: znasllc.memql.v1.Result
-	(*ResultMeta)(nil),                         // 21: znasllc.memql.v1.ResultMeta
-	(*QueryError)(nil),                         // 22: znasllc.memql.v1.QueryError
-	(*GraphBundle)(nil),                        // 23: znasllc.memql.v1.GraphBundle
-	(*MemoryNode)(nil),                         // 24: znasllc.memql.v1.MemoryNode
-	(*GraphEdge)(nil),                          // 25: znasllc.memql.v1.GraphEdge
-	(*ListToolsMsg)(nil),                       // 26: znasllc.memql.v1.ListToolsMsg
-	(*ListToolsResult)(nil),                    // 27: znasllc.memql.v1.ListToolsResult
-	(*ToolDefinition)(nil),                     // 28: znasllc.memql.v1.ToolDefinition
-	(*CallToolMsg)(nil),                        // 29: znasllc.memql.v1.CallToolMsg
-	(*CallToolResult)(nil),                     // 30: znasllc.memql.v1.CallToolResult
-	(*ToolResultContent)(nil),                  // 31: znasllc.memql.v1.ToolResultContent
-	(*AiChatMsg)(nil),                          // 32: znasllc.memql.v1.AiChatMsg
-	(*AiChatMessage)(nil),                      // 33: znasllc.memql.v1.AiChatMessage
-	(*AiChatResult)(nil),                       // 34: znasllc.memql.v1.AiChatResult
-	(*AiTranscribeStreamStart)(nil),            // 35: znasllc.memql.v1.AiTranscribeStreamStart
-	(*AiTranscribeStreamChunk)(nil),            // 36: znasllc.memql.v1.AiTranscribeStreamChunk
-	(*AiTranscribeStreamEnd)(nil),              // 37: znasllc.memql.v1.AiTranscribeStreamEnd
-	(*AiTranscribeStreamDelta)(nil),            // 38: znasllc.memql.v1.AiTranscribeStreamDelta
-	(*AiTranscribeStreamComplete)(nil),         // 39: znasllc.memql.v1.AiTranscribeStreamComplete
-	(*AiSuggestMsg)(nil),                       // 40: znasllc.memql.v1.AiSuggestMsg
-	(*AiSuggestResult)(nil),                    // 41: znasllc.memql.v1.AiSuggestResult
-	(*AiSuggestUsage)(nil),                     // 42: znasllc.memql.v1.AiSuggestUsage
-	(*IdentityCreateMsg)(nil),                  // 43: znasllc.memql.v1.IdentityCreateMsg
-	(*IdentityUpdateMsg)(nil),                  // 44: znasllc.memql.v1.IdentityUpdateMsg
-	(*IdentityListMsg)(nil),                    // 45: znasllc.memql.v1.IdentityListMsg
-	(*IdentityResult)(nil),                     // 46: znasllc.memql.v1.IdentityResult
-	(*IdentityInfo)(nil),                       // 47: znasllc.memql.v1.IdentityInfo
-	(*DelegationCreateMsg)(nil),                // 48: znasllc.memql.v1.DelegationCreateMsg
-	(*DelegationRevokeMsg)(nil),                // 49: znasllc.memql.v1.DelegationRevokeMsg
-	(*DelegationListMsg)(nil),                  // 50: znasllc.memql.v1.DelegationListMsg
-	(*DelegationResult)(nil),                   // 51: znasllc.memql.v1.DelegationResult
-	(*DelegationInfo)(nil),                     // 52: znasllc.memql.v1.DelegationInfo
-	(*SensePosition)(nil),                      // 53: znasllc.memql.v1.SensePosition
-	(*SenseRange)(nil),                         // 54: znasllc.memql.v1.SenseRange
-	(*SenseTokenizeMsg)(nil),                   // 55: znasllc.memql.v1.SenseTokenizeMsg
-	(*SenseTokenizeResult)(nil),                // 56: znasllc.memql.v1.SenseTokenizeResult
-	(*SenseToken)(nil),                         // 57: znasllc.memql.v1.SenseToken
-	(*SenseCompleteMsg)(nil),                   // 58: znasllc.memql.v1.SenseCompleteMsg
-	(*SenseCompleteResult)(nil),                // 59: znasllc.memql.v1.SenseCompleteResult
-	(*SenseCompletionItem)(nil),                // 60: znasllc.memql.v1.SenseCompletionItem
-	(*SenseDiagnoseMsg)(nil),                   // 61: znasllc.memql.v1.SenseDiagnoseMsg
-	(*SenseDiagnoseResult)(nil),                // 62: znasllc.memql.v1.SenseDiagnoseResult
-	(*SenseDiagnostic)(nil),                    // 63: znasllc.memql.v1.SenseDiagnostic
-	(*SenseHoverMsg)(nil),                      // 64: znasllc.memql.v1.SenseHoverMsg
-	(*SenseHoverResult)(nil),                   // 65: znasllc.memql.v1.SenseHoverResult
-	(*SenseDefinitionMsg)(nil),                 // 66: znasllc.memql.v1.SenseDefinitionMsg
-	(*SenseDefinitionResult)(nil),              // 67: znasllc.memql.v1.SenseDefinitionResult
-	(*SenseDefinitionTarget)(nil),              // 68: znasllc.memql.v1.SenseDefinitionTarget
-	(*SenseSignatureHelpMsg)(nil),              // 69: znasllc.memql.v1.SenseSignatureHelpMsg
-	(*SenseSignatureHelpResult)(nil),           // 70: znasllc.memql.v1.SenseSignatureHelpResult
-	(*SenseSignature)(nil),                     // 71: znasllc.memql.v1.SenseSignature
-	(*SenseParameter)(nil),                     // 72: znasllc.memql.v1.SenseParameter
-	(*ListPackDomainsMsg)(nil),                 // 73: znasllc.memql.v1.ListPackDomainsMsg
-	(*ListPackDomainsResult)(nil),              // 74: znasllc.memql.v1.ListPackDomainsResult
-	(*PackDomain)(nil),                         // 75: znasllc.memql.v1.PackDomain
-	(*ListPackFilesMsg)(nil),                   // 76: znasllc.memql.v1.ListPackFilesMsg
-	(*ListPackFilesResult)(nil),                // 77: znasllc.memql.v1.ListPackFilesResult
-	(*PackFile)(nil),                           // 78: znasllc.memql.v1.PackFile
-	(*ReadPackFileMsg)(nil),                    // 79: znasllc.memql.v1.ReadPackFileMsg
-	(*ReadPackFileResult)(nil),                 // 80: znasllc.memql.v1.ReadPackFileResult
-	(*ListConstructsMsg)(nil),                  // 81: znasllc.memql.v1.ListConstructsMsg
-	(*ListConstructsResult)(nil),               // 82: znasllc.memql.v1.ListConstructsResult
-	(*ConstructInfo)(nil),                      // 83: znasllc.memql.v1.ConstructInfo
-	(*ConstructTrigger)(nil),                   // 84: znasllc.memql.v1.ConstructTrigger
-	(*ConstructArg)(nil),                       // 85: znasllc.memql.v1.ConstructArg
-	(*AuthoringDiagnostic)(nil),                // 86: znasllc.memql.v1.AuthoringDiagnostic
-	(*AuthoringConstruct)(nil),                 // 87: znasllc.memql.v1.AuthoringConstruct
-	(*AuthoringValidateBundleMsg)(nil),         // 88: znasllc.memql.v1.AuthoringValidateBundleMsg
-	(*AuthoringValidateBundleResult)(nil),      // 89: znasllc.memql.v1.AuthoringValidateBundleResult
-	(*AuthoringSessionDefineBundleMsg)(nil),    // 90: znasllc.memql.v1.AuthoringSessionDefineBundleMsg
-	(*AuthoringSessionDefineBundleResult)(nil), // 91: znasllc.memql.v1.AuthoringSessionDefineBundleResult
-	(*DurablePromoteBundleMsg)(nil),            // 92: znasllc.memql.v1.DurablePromoteBundleMsg
-	(*DurablePromoteBundleResult)(nil),         // 93: znasllc.memql.v1.DurablePromoteBundleResult
-	(*ConceptSchemaDiff)(nil),                  // 94: znasllc.memql.v1.ConceptSchemaDiff
-	(*ConceptSchemaChange)(nil),                // 95: znasllc.memql.v1.ConceptSchemaChange
-	(*DurableDemoteBundleMsg)(nil),             // 96: znasllc.memql.v1.DurableDemoteBundleMsg
-	(*DurableDemoteOutcome)(nil),               // 97: znasllc.memql.v1.DurableDemoteOutcome
-	(*DurableDemoteBundleResult)(nil),          // 98: znasllc.memql.v1.DurableDemoteBundleResult
-	(*StageBundleMsg)(nil),                     // 99: znasllc.memql.v1.StageBundleMsg
-	(*StageBundleResult)(nil),                  // 100: znasllc.memql.v1.StageBundleResult
-	(*DslSpecMsg)(nil),                         // 101: znasllc.memql.v1.DslSpecMsg
-	(*DslSpecResult)(nil),                      // 102: znasllc.memql.v1.DslSpecResult
-	(*ConceptsListMsg)(nil),                    // 103: znasllc.memql.v1.ConceptsListMsg
-	(*ConceptsListResult)(nil),                 // 104: znasllc.memql.v1.ConceptsListResult
-	(*ConceptInfo)(nil),                        // 105: znasllc.memql.v1.ConceptInfo
-	(*Composable)(nil),                         // 106: znasllc.memql.v1.Composable
-	(*ConceptField)(nil),                       // 107: znasllc.memql.v1.ConceptField
-	(*ConceptRelationship)(nil),                // 108: znasllc.memql.v1.ConceptRelationship
-	(*DisplayCard)(nil),                        // 109: znasllc.memql.v1.DisplayCard
-	(*ConceptsSubscribeMsg)(nil),               // 110: znasllc.memql.v1.ConceptsSubscribeMsg
-	(*ConceptsSubscribeResult)(nil),            // 111: znasllc.memql.v1.ConceptsSubscribeResult
-	(*DomainSubscription)(nil),                 // 112: znasllc.memql.v1.DomainSubscription
-	(*ConceptsRegistryDelta)(nil),              // 113: znasllc.memql.v1.ConceptsRegistryDelta
-	(*MyAccessMsg)(nil),                        // 114: znasllc.memql.v1.MyAccessMsg
-	(*MyAccessResult)(nil),                     // 115: znasllc.memql.v1.MyAccessResult
-	(*AgentGenerateTurnMsg)(nil),               // 116: znasllc.memql.v1.AgentGenerateTurnMsg
-	(*ActingAgentIdentity)(nil),                // 117: znasllc.memql.v1.ActingAgentIdentity
-	(*AgentTurnMessage)(nil),                   // 118: znasllc.memql.v1.AgentTurnMessage
-	(*AgentTurnRoutingContext)(nil),            // 119: znasllc.memql.v1.AgentTurnRoutingContext
-	(*AgentTurnHuman)(nil),                     // 120: znasllc.memql.v1.AgentTurnHuman
-	(*AgentTurnPeer)(nil),                      // 121: znasllc.memql.v1.AgentTurnPeer
-	(*AgentTurnPeerActivity)(nil),              // 122: znasllc.memql.v1.AgentTurnPeerActivity
-	(*AgentTurnAttachment)(nil),                // 123: znasllc.memql.v1.AgentTurnAttachment
-	(*AgentGenerateTurnDelta)(nil),             // 124: znasllc.memql.v1.AgentGenerateTurnDelta
-	(*AgentTurnTextDelta)(nil),                 // 125: znasllc.memql.v1.AgentTurnTextDelta
-	(*AgentTurnToolCall)(nil),                  // 126: znasllc.memql.v1.AgentTurnToolCall
-	(*AgentTurnToolResult)(nil),                // 127: znasllc.memql.v1.AgentTurnToolResult
-	(*AgentGenerateTurnComplete)(nil),          // 128: znasllc.memql.v1.AgentGenerateTurnComplete
-	(*AgentPreemptTurnMsg)(nil),                // 129: znasllc.memql.v1.AgentPreemptTurnMsg
-	(*AgentTurnCitation)(nil),                  // 130: znasllc.memql.v1.AgentTurnCitation
-	(*AgentRetrievedChunk)(nil),                // 131: znasllc.memql.v1.AgentRetrievedChunk
-	(*AgentTurnError)(nil),                     // 132: znasllc.memql.v1.AgentTurnError
-	(*RevokeCurrentSessionMsg)(nil),            // 133: znasllc.memql.v1.RevokeCurrentSessionMsg
-	(*RevokeCurrentSessionResult)(nil),         // 134: znasllc.memql.v1.RevokeCurrentSessionResult
-	(*RevokeAllSessionsMsg)(nil),               // 135: znasllc.memql.v1.RevokeAllSessionsMsg
-	(*RevokeAllSessionsResult)(nil),            // 136: znasllc.memql.v1.RevokeAllSessionsResult
-	(*RevokeSessionMsg)(nil),                   // 137: znasllc.memql.v1.RevokeSessionMsg
-	(*RevokeSessionResult)(nil),                // 138: znasllc.memql.v1.RevokeSessionResult
-	(*SetSignInPolicyMsg)(nil),                 // 139: znasllc.memql.v1.SetSignInPolicyMsg
-	(*SetSignInPolicyResult)(nil),              // 140: znasllc.memql.v1.SetSignInPolicyResult
-	(*CreateWorkerTokenMsg)(nil),               // 141: znasllc.memql.v1.CreateWorkerTokenMsg
-	(*CreateWorkerTokenResult)(nil),            // 142: znasllc.memql.v1.CreateWorkerTokenResult
-	(*RevokeWorkerTokenMsg)(nil),               // 143: znasllc.memql.v1.RevokeWorkerTokenMsg
-	(*RevokeWorkerTokenResult)(nil),            // 144: znasllc.memql.v1.RevokeWorkerTokenResult
-	(*CreateBadgeMsg)(nil),                     // 145: znasllc.memql.v1.CreateBadgeMsg
-	(*CreateBadgeResult)(nil),                  // 146: znasllc.memql.v1.CreateBadgeResult
-	(*RevokeBadgeMsg)(nil),                     // 147: znasllc.memql.v1.RevokeBadgeMsg
-	(*RevokeBadgeResult)(nil),                  // 148: znasllc.memql.v1.RevokeBadgeResult
-	(*RotateAuthMsg)(nil),                      // 149: znasllc.memql.v1.RotateAuthMsg
-	(*RotateAuthResult)(nil),                   // 150: znasllc.memql.v1.RotateAuthResult
-	(*NodeMaintenanceMsg)(nil),                 // 151: znasllc.memql.v1.NodeMaintenanceMsg
-	(*NodeMaintenanceResult)(nil),              // 152: znasllc.memql.v1.NodeMaintenanceResult
-	(*DeployControlMsg)(nil),                   // 153: znasllc.memql.v1.DeployControlMsg
-	(*DeployControlResult)(nil),                // 154: znasllc.memql.v1.DeployControlResult
-	(*RunAutomationMsg)(nil),                   // 155: znasllc.memql.v1.RunAutomationMsg
-	(*AutomationRunEvent)(nil),                 // 156: znasllc.memql.v1.AutomationRunEvent
-	(*AutomationRunAccepted)(nil),              // 157: znasllc.memql.v1.AutomationRunAccepted
-	(*AutomationRunStep)(nil),                  // 158: znasllc.memql.v1.AutomationRunStep
-	(*AutomationRunComplete)(nil),              // 159: znasllc.memql.v1.AutomationRunComplete
-	(*CreateAccountTokenMsg)(nil),              // 160: znasllc.memql.v1.CreateAccountTokenMsg
-	(*CreateAccountTokenResult)(nil),           // 161: znasllc.memql.v1.CreateAccountTokenResult
-	(*RevokeAccountTokenMsg)(nil),              // 162: znasllc.memql.v1.RevokeAccountTokenMsg
-	(*RevokeAccountTokenResult)(nil),           // 163: znasllc.memql.v1.RevokeAccountTokenResult
-	(*IdentityAdminMsg)(nil),                   // 164: znasllc.memql.v1.IdentityAdminMsg
-	(*IdentityAdminResult)(nil),                // 165: znasllc.memql.v1.IdentityAdminResult
-	(*IssueUserInvitationRequest)(nil),         // 166: znasllc.memql.v1.IssueUserInvitationRequest
-	(*RevokeUserInvitationRequest)(nil),        // 167: znasllc.memql.v1.RevokeUserInvitationRequest
-	(*UpdateUserProfileRequest)(nil),           // 168: znasllc.memql.v1.UpdateUserProfileRequest
-	(*SetUserRoleRequest)(nil),                 // 169: znasllc.memql.v1.SetUserRoleRequest
-	(*SetUserSuspendedRequest)(nil),            // 170: znasllc.memql.v1.SetUserSuspendedRequest
-	(*ResetSignInPolicyRequest)(nil),           // 171: znasllc.memql.v1.ResetSignInPolicyRequest
-	(*SetUserSharedMailboxRequest)(nil),        // 172: znasllc.memql.v1.SetUserSharedMailboxRequest
-	(*RevokeUserTokenRequest)(nil),             // 173: znasllc.memql.v1.RevokeUserTokenRequest
-	(*RevokeNodeTokenRequest)(nil),             // 174: znasllc.memql.v1.RevokeNodeTokenRequest
-	(*UpdateClusterSettingsRequest)(nil),       // 175: znasllc.memql.v1.UpdateClusterSettingsRequest
-	(*IssueEnrolmentLinkRequest)(nil),          // 176: znasllc.memql.v1.IssueEnrolmentLinkRequest
-	(*RevokeEnrolmentLinkRequest)(nil),         // 177: znasllc.memql.v1.RevokeEnrolmentLinkRequest
-	(*RotateRecoveryKeyRequest)(nil),           // 178: znasllc.memql.v1.RotateRecoveryKeyRequest
-	(*SetOAuthClientCorsOriginsRequest)(nil),   // 179: znasllc.memql.v1.SetOAuthClientCorsOriginsRequest
-	(*ModulesListMsg)(nil),                     // 180: znasllc.memql.v1.ModulesListMsg
-	(*ModuleInfo)(nil),                         // 181: znasllc.memql.v1.ModuleInfo
-	(*ModulesListResult)(nil),                  // 182: znasllc.memql.v1.ModulesListResult
-	(*ModuleDetailMsg)(nil),                    // 183: znasllc.memql.v1.ModuleDetailMsg
-	(*ModuleEnvVar)(nil),                       // 184: znasllc.memql.v1.ModuleEnvVar
-	(*ModuleDetailResult)(nil),                 // 185: znasllc.memql.v1.ModuleDetailResult
-	(*SetPackEnabledMsg)(nil),                  // 186: znasllc.memql.v1.SetPackEnabledMsg
-	(*SetPackEnabledResult)(nil),               // 187: znasllc.memql.v1.SetPackEnabledResult
-	nil,                                        // 188: znasllc.memql.v1.MemqlClientMessage.MetadataEntry
-	nil,                                        // 189: znasllc.memql.v1.MemqlServerMessage.MetadataEntry
-	nil,                                        // 190: znasllc.memql.v1.QueryError.MetadataEntry
-	nil,                                        // 191: znasllc.memql.v1.AgentGenerateTurnMsg.HintsEntry
-	(*timestamppb.Timestamp)(nil),              // 192: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),                    // 193: google.protobuf.Struct
-	(*structpb.Value)(nil),                     // 194: google.protobuf.Value
-	(*GetDeploymentStatusRequest)(nil),         // 195: znasllc.memql.deploycontrol.v1.GetDeploymentStatusRequest
-	(*SuggestNextVersionRequest)(nil),          // 196: znasllc.memql.deploycontrol.v1.SuggestNextVersionRequest
-	(*RollbackRequest)(nil),                    // 197: znasllc.memql.deploycontrol.v1.RollbackRequest
-	(*RolloutActionRequest)(nil),               // 198: znasllc.memql.deploycontrol.v1.RolloutActionRequest
-	(*CutVersionRequest)(nil),                  // 199: znasllc.memql.deploycontrol.v1.CutVersionRequest
-	(*DeployRequest)(nil),                      // 200: znasllc.memql.deploycontrol.v1.DeployRequest
-	(*RollbackDeploymentRequest)(nil),          // 201: znasllc.memql.deploycontrol.v1.RollbackDeploymentRequest
-	(*RepairRequest)(nil),                      // 202: znasllc.memql.deploycontrol.v1.RepairRequest
-	(*DeploymentStatus)(nil),                   // 203: znasllc.memql.deploycontrol.v1.DeploymentStatus
-	(*SuggestNextVersionResult)(nil),           // 204: znasllc.memql.deploycontrol.v1.SuggestNextVersionResult
-	(*ActionResult)(nil),                       // 205: znasllc.memql.deploycontrol.v1.ActionResult
+	(GraphNodeAction)(0),                       // 0: znasllc.memql.v1.GraphNodeAction
+	(SubscriptionKind)(0),                      // 1: znasllc.memql.v1.SubscriptionKind
+	(EventKind)(0),                             // 2: znasllc.memql.v1.EventKind
+	(SenseSeverity)(0),                         // 3: znasllc.memql.v1.SenseSeverity
+	(*Provenance)(nil),                         // 4: znasllc.memql.v1.Provenance
+	(*MemqlClientMessage)(nil),                 // 5: znasllc.memql.v1.MemqlClientMessage
+	(*MemqlServerMessage)(nil),                 // 6: znasllc.memql.v1.MemqlServerMessage
+	(*ClientHello)(nil),                        // 7: znasllc.memql.v1.ClientHello
+	(*ServerHello)(nil),                        // 8: znasllc.memql.v1.ServerHello
+	(*HeartbeatMsg)(nil),                       // 9: znasllc.memql.v1.HeartbeatMsg
+	(*AckMsg)(nil),                             // 10: znasllc.memql.v1.AckMsg
+	(*ExecuteQueryMsg)(nil),                    // 11: znasllc.memql.v1.ExecuteQueryMsg
+	(*CancelRequestMsg)(nil),                   // 12: znasllc.memql.v1.CancelRequestMsg
+	(*QueryResultChunk)(nil),                   // 13: znasllc.memql.v1.QueryResultChunk
+	(*QueryErrorMsg)(nil),                      // 14: znasllc.memql.v1.QueryErrorMsg
+	(*SubscribeMsg)(nil),                       // 15: znasllc.memql.v1.SubscribeMsg
+	(*UnsubscribeMsg)(nil),                     // 16: znasllc.memql.v1.UnsubscribeMsg
+	(*EventNotification)(nil),                  // 17: znasllc.memql.v1.EventNotification
+	(*AiStreamChunk)(nil),                      // 18: znasllc.memql.v1.AiStreamChunk
+	(*Result)(nil),                             // 19: znasllc.memql.v1.Result
+	(*ResultMeta)(nil),                         // 20: znasllc.memql.v1.ResultMeta
+	(*QueryError)(nil),                         // 21: znasllc.memql.v1.QueryError
+	(*GraphBundle)(nil),                        // 22: znasllc.memql.v1.GraphBundle
+	(*MemoryNode)(nil),                         // 23: znasllc.memql.v1.MemoryNode
+	(*GraphEdge)(nil),                          // 24: znasllc.memql.v1.GraphEdge
+	(*ListToolsMsg)(nil),                       // 25: znasllc.memql.v1.ListToolsMsg
+	(*ListToolsResult)(nil),                    // 26: znasllc.memql.v1.ListToolsResult
+	(*ToolDefinition)(nil),                     // 27: znasllc.memql.v1.ToolDefinition
+	(*CallToolMsg)(nil),                        // 28: znasllc.memql.v1.CallToolMsg
+	(*CallToolResult)(nil),                     // 29: znasllc.memql.v1.CallToolResult
+	(*ToolResultContent)(nil),                  // 30: znasllc.memql.v1.ToolResultContent
+	(*AiChatMsg)(nil),                          // 31: znasllc.memql.v1.AiChatMsg
+	(*AiChatMessage)(nil),                      // 32: znasllc.memql.v1.AiChatMessage
+	(*AiChatResult)(nil),                       // 33: znasllc.memql.v1.AiChatResult
+	(*AiTranscribeStreamStart)(nil),            // 34: znasllc.memql.v1.AiTranscribeStreamStart
+	(*AiTranscribeStreamChunk)(nil),            // 35: znasllc.memql.v1.AiTranscribeStreamChunk
+	(*AiTranscribeStreamEnd)(nil),              // 36: znasllc.memql.v1.AiTranscribeStreamEnd
+	(*AiTranscribeStreamDelta)(nil),            // 37: znasllc.memql.v1.AiTranscribeStreamDelta
+	(*AiTranscribeStreamComplete)(nil),         // 38: znasllc.memql.v1.AiTranscribeStreamComplete
+	(*AiSuggestMsg)(nil),                       // 39: znasllc.memql.v1.AiSuggestMsg
+	(*AiSuggestResult)(nil),                    // 40: znasllc.memql.v1.AiSuggestResult
+	(*AiSuggestUsage)(nil),                     // 41: znasllc.memql.v1.AiSuggestUsage
+	(*IdentityCreateMsg)(nil),                  // 42: znasllc.memql.v1.IdentityCreateMsg
+	(*IdentityUpdateMsg)(nil),                  // 43: znasllc.memql.v1.IdentityUpdateMsg
+	(*IdentityListMsg)(nil),                    // 44: znasllc.memql.v1.IdentityListMsg
+	(*IdentityResult)(nil),                     // 45: znasllc.memql.v1.IdentityResult
+	(*IdentityInfo)(nil),                       // 46: znasllc.memql.v1.IdentityInfo
+	(*DelegationCreateMsg)(nil),                // 47: znasllc.memql.v1.DelegationCreateMsg
+	(*DelegationRevokeMsg)(nil),                // 48: znasllc.memql.v1.DelegationRevokeMsg
+	(*DelegationListMsg)(nil),                  // 49: znasllc.memql.v1.DelegationListMsg
+	(*DelegationResult)(nil),                   // 50: znasllc.memql.v1.DelegationResult
+	(*DelegationInfo)(nil),                     // 51: znasllc.memql.v1.DelegationInfo
+	(*SensePosition)(nil),                      // 52: znasllc.memql.v1.SensePosition
+	(*SenseRange)(nil),                         // 53: znasllc.memql.v1.SenseRange
+	(*SenseTokenizeMsg)(nil),                   // 54: znasllc.memql.v1.SenseTokenizeMsg
+	(*SenseTokenizeResult)(nil),                // 55: znasllc.memql.v1.SenseTokenizeResult
+	(*SenseToken)(nil),                         // 56: znasllc.memql.v1.SenseToken
+	(*SenseCompleteMsg)(nil),                   // 57: znasllc.memql.v1.SenseCompleteMsg
+	(*SenseCompleteResult)(nil),                // 58: znasllc.memql.v1.SenseCompleteResult
+	(*SenseCompletionItem)(nil),                // 59: znasllc.memql.v1.SenseCompletionItem
+	(*SenseDiagnoseMsg)(nil),                   // 60: znasllc.memql.v1.SenseDiagnoseMsg
+	(*SenseDiagnoseResult)(nil),                // 61: znasllc.memql.v1.SenseDiagnoseResult
+	(*SenseDiagnostic)(nil),                    // 62: znasllc.memql.v1.SenseDiagnostic
+	(*SenseHoverMsg)(nil),                      // 63: znasllc.memql.v1.SenseHoverMsg
+	(*SenseHoverResult)(nil),                   // 64: znasllc.memql.v1.SenseHoverResult
+	(*SenseDefinitionMsg)(nil),                 // 65: znasllc.memql.v1.SenseDefinitionMsg
+	(*SenseDefinitionResult)(nil),              // 66: znasllc.memql.v1.SenseDefinitionResult
+	(*SenseDefinitionTarget)(nil),              // 67: znasllc.memql.v1.SenseDefinitionTarget
+	(*SenseSignatureHelpMsg)(nil),              // 68: znasllc.memql.v1.SenseSignatureHelpMsg
+	(*SenseSignatureHelpResult)(nil),           // 69: znasllc.memql.v1.SenseSignatureHelpResult
+	(*SenseSignature)(nil),                     // 70: znasllc.memql.v1.SenseSignature
+	(*SenseParameter)(nil),                     // 71: znasllc.memql.v1.SenseParameter
+	(*ListPackDomainsMsg)(nil),                 // 72: znasllc.memql.v1.ListPackDomainsMsg
+	(*ListPackDomainsResult)(nil),              // 73: znasllc.memql.v1.ListPackDomainsResult
+	(*PackDomain)(nil),                         // 74: znasllc.memql.v1.PackDomain
+	(*ListPackFilesMsg)(nil),                   // 75: znasllc.memql.v1.ListPackFilesMsg
+	(*ListPackFilesResult)(nil),                // 76: znasllc.memql.v1.ListPackFilesResult
+	(*PackFile)(nil),                           // 77: znasllc.memql.v1.PackFile
+	(*ReadPackFileMsg)(nil),                    // 78: znasllc.memql.v1.ReadPackFileMsg
+	(*ReadPackFileResult)(nil),                 // 79: znasllc.memql.v1.ReadPackFileResult
+	(*ListConstructsMsg)(nil),                  // 80: znasllc.memql.v1.ListConstructsMsg
+	(*ListConstructsResult)(nil),               // 81: znasllc.memql.v1.ListConstructsResult
+	(*ConstructInfo)(nil),                      // 82: znasllc.memql.v1.ConstructInfo
+	(*ConstructTrigger)(nil),                   // 83: znasllc.memql.v1.ConstructTrigger
+	(*ConstructArg)(nil),                       // 84: znasllc.memql.v1.ConstructArg
+	(*AuthoringDiagnostic)(nil),                // 85: znasllc.memql.v1.AuthoringDiagnostic
+	(*AuthoringConstruct)(nil),                 // 86: znasllc.memql.v1.AuthoringConstruct
+	(*AuthoringValidateBundleMsg)(nil),         // 87: znasllc.memql.v1.AuthoringValidateBundleMsg
+	(*AuthoringValidateBundleResult)(nil),      // 88: znasllc.memql.v1.AuthoringValidateBundleResult
+	(*AuthoringSessionDefineBundleMsg)(nil),    // 89: znasllc.memql.v1.AuthoringSessionDefineBundleMsg
+	(*AuthoringSessionDefineBundleResult)(nil), // 90: znasllc.memql.v1.AuthoringSessionDefineBundleResult
+	(*DurablePromoteBundleMsg)(nil),            // 91: znasllc.memql.v1.DurablePromoteBundleMsg
+	(*DurablePromoteBundleResult)(nil),         // 92: znasllc.memql.v1.DurablePromoteBundleResult
+	(*ConceptSchemaDiff)(nil),                  // 93: znasllc.memql.v1.ConceptSchemaDiff
+	(*ConceptSchemaChange)(nil),                // 94: znasllc.memql.v1.ConceptSchemaChange
+	(*DurableDemoteBundleMsg)(nil),             // 95: znasllc.memql.v1.DurableDemoteBundleMsg
+	(*DurableDemoteOutcome)(nil),               // 96: znasllc.memql.v1.DurableDemoteOutcome
+	(*DurableDemoteBundleResult)(nil),          // 97: znasllc.memql.v1.DurableDemoteBundleResult
+	(*StageBundleMsg)(nil),                     // 98: znasllc.memql.v1.StageBundleMsg
+	(*StageBundleResult)(nil),                  // 99: znasllc.memql.v1.StageBundleResult
+	(*DslSpecMsg)(nil),                         // 100: znasllc.memql.v1.DslSpecMsg
+	(*DslSpecResult)(nil),                      // 101: znasllc.memql.v1.DslSpecResult
+	(*ConceptsListMsg)(nil),                    // 102: znasllc.memql.v1.ConceptsListMsg
+	(*ConceptsListResult)(nil),                 // 103: znasllc.memql.v1.ConceptsListResult
+	(*ConceptInfo)(nil),                        // 104: znasllc.memql.v1.ConceptInfo
+	(*Composable)(nil),                         // 105: znasllc.memql.v1.Composable
+	(*ConceptField)(nil),                       // 106: znasllc.memql.v1.ConceptField
+	(*ConceptRelationship)(nil),                // 107: znasllc.memql.v1.ConceptRelationship
+	(*DisplayCard)(nil),                        // 108: znasllc.memql.v1.DisplayCard
+	(*ConceptsSubscribeMsg)(nil),               // 109: znasllc.memql.v1.ConceptsSubscribeMsg
+	(*ConceptsSubscribeResult)(nil),            // 110: znasllc.memql.v1.ConceptsSubscribeResult
+	(*DomainSubscription)(nil),                 // 111: znasllc.memql.v1.DomainSubscription
+	(*ConceptsRegistryDelta)(nil),              // 112: znasllc.memql.v1.ConceptsRegistryDelta
+	(*MyAccessMsg)(nil),                        // 113: znasllc.memql.v1.MyAccessMsg
+	(*MyAccessResult)(nil),                     // 114: znasllc.memql.v1.MyAccessResult
+	(*AgentGenerateTurnMsg)(nil),               // 115: znasllc.memql.v1.AgentGenerateTurnMsg
+	(*ActingAgentIdentity)(nil),                // 116: znasllc.memql.v1.ActingAgentIdentity
+	(*AgentTurnMessage)(nil),                   // 117: znasllc.memql.v1.AgentTurnMessage
+	(*AgentTurnRoutingContext)(nil),            // 118: znasllc.memql.v1.AgentTurnRoutingContext
+	(*AgentTurnHuman)(nil),                     // 119: znasllc.memql.v1.AgentTurnHuman
+	(*AgentTurnPeer)(nil),                      // 120: znasllc.memql.v1.AgentTurnPeer
+	(*AgentTurnPeerActivity)(nil),              // 121: znasllc.memql.v1.AgentTurnPeerActivity
+	(*AgentTurnAttachment)(nil),                // 122: znasllc.memql.v1.AgentTurnAttachment
+	(*AgentGenerateTurnDelta)(nil),             // 123: znasllc.memql.v1.AgentGenerateTurnDelta
+	(*AgentTurnTextDelta)(nil),                 // 124: znasllc.memql.v1.AgentTurnTextDelta
+	(*AgentTurnToolCall)(nil),                  // 125: znasllc.memql.v1.AgentTurnToolCall
+	(*AgentTurnToolResult)(nil),                // 126: znasllc.memql.v1.AgentTurnToolResult
+	(*AgentGenerateTurnComplete)(nil),          // 127: znasllc.memql.v1.AgentGenerateTurnComplete
+	(*AgentPreemptTurnMsg)(nil),                // 128: znasllc.memql.v1.AgentPreemptTurnMsg
+	(*AgentTurnCitation)(nil),                  // 129: znasllc.memql.v1.AgentTurnCitation
+	(*AgentRetrievedChunk)(nil),                // 130: znasllc.memql.v1.AgentRetrievedChunk
+	(*AgentTurnError)(nil),                     // 131: znasllc.memql.v1.AgentTurnError
+	(*RevokeCurrentSessionMsg)(nil),            // 132: znasllc.memql.v1.RevokeCurrentSessionMsg
+	(*RevokeCurrentSessionResult)(nil),         // 133: znasllc.memql.v1.RevokeCurrentSessionResult
+	(*RevokeAllSessionsMsg)(nil),               // 134: znasllc.memql.v1.RevokeAllSessionsMsg
+	(*RevokeAllSessionsResult)(nil),            // 135: znasllc.memql.v1.RevokeAllSessionsResult
+	(*RevokeSessionMsg)(nil),                   // 136: znasllc.memql.v1.RevokeSessionMsg
+	(*RevokeSessionResult)(nil),                // 137: znasllc.memql.v1.RevokeSessionResult
+	(*SetSignInPolicyMsg)(nil),                 // 138: znasllc.memql.v1.SetSignInPolicyMsg
+	(*SetSignInPolicyResult)(nil),              // 139: znasllc.memql.v1.SetSignInPolicyResult
+	(*CreateWorkerTokenMsg)(nil),               // 140: znasllc.memql.v1.CreateWorkerTokenMsg
+	(*CreateWorkerTokenResult)(nil),            // 141: znasllc.memql.v1.CreateWorkerTokenResult
+	(*RevokeWorkerTokenMsg)(nil),               // 142: znasllc.memql.v1.RevokeWorkerTokenMsg
+	(*RevokeWorkerTokenResult)(nil),            // 143: znasllc.memql.v1.RevokeWorkerTokenResult
+	(*CreateBadgeMsg)(nil),                     // 144: znasllc.memql.v1.CreateBadgeMsg
+	(*CreateBadgeResult)(nil),                  // 145: znasllc.memql.v1.CreateBadgeResult
+	(*RevokeBadgeMsg)(nil),                     // 146: znasllc.memql.v1.RevokeBadgeMsg
+	(*RevokeBadgeResult)(nil),                  // 147: znasllc.memql.v1.RevokeBadgeResult
+	(*RotateAuthMsg)(nil),                      // 148: znasllc.memql.v1.RotateAuthMsg
+	(*RotateAuthResult)(nil),                   // 149: znasllc.memql.v1.RotateAuthResult
+	(*NodeMaintenanceMsg)(nil),                 // 150: znasllc.memql.v1.NodeMaintenanceMsg
+	(*NodeMaintenanceResult)(nil),              // 151: znasllc.memql.v1.NodeMaintenanceResult
+	(*DeployControlMsg)(nil),                   // 152: znasllc.memql.v1.DeployControlMsg
+	(*DeployControlResult)(nil),                // 153: znasllc.memql.v1.DeployControlResult
+	(*RunAutomationMsg)(nil),                   // 154: znasllc.memql.v1.RunAutomationMsg
+	(*AutomationRunEvent)(nil),                 // 155: znasllc.memql.v1.AutomationRunEvent
+	(*AutomationRunAccepted)(nil),              // 156: znasllc.memql.v1.AutomationRunAccepted
+	(*AutomationRunStep)(nil),                  // 157: znasllc.memql.v1.AutomationRunStep
+	(*AutomationRunComplete)(nil),              // 158: znasllc.memql.v1.AutomationRunComplete
+	(*CreateAccountTokenMsg)(nil),              // 159: znasllc.memql.v1.CreateAccountTokenMsg
+	(*CreateAccountTokenResult)(nil),           // 160: znasllc.memql.v1.CreateAccountTokenResult
+	(*RevokeAccountTokenMsg)(nil),              // 161: znasllc.memql.v1.RevokeAccountTokenMsg
+	(*RevokeAccountTokenResult)(nil),           // 162: znasllc.memql.v1.RevokeAccountTokenResult
+	(*IdentityAdminMsg)(nil),                   // 163: znasllc.memql.v1.IdentityAdminMsg
+	(*IdentityAdminResult)(nil),                // 164: znasllc.memql.v1.IdentityAdminResult
+	(*IssueUserInvitationRequest)(nil),         // 165: znasllc.memql.v1.IssueUserInvitationRequest
+	(*RevokeUserInvitationRequest)(nil),        // 166: znasllc.memql.v1.RevokeUserInvitationRequest
+	(*UpdateUserProfileRequest)(nil),           // 167: znasllc.memql.v1.UpdateUserProfileRequest
+	(*SetUserRoleRequest)(nil),                 // 168: znasllc.memql.v1.SetUserRoleRequest
+	(*SetUserSuspendedRequest)(nil),            // 169: znasllc.memql.v1.SetUserSuspendedRequest
+	(*ResetSignInPolicyRequest)(nil),           // 170: znasllc.memql.v1.ResetSignInPolicyRequest
+	(*SetUserSharedMailboxRequest)(nil),        // 171: znasllc.memql.v1.SetUserSharedMailboxRequest
+	(*RevokeUserTokenRequest)(nil),             // 172: znasllc.memql.v1.RevokeUserTokenRequest
+	(*RevokeNodeTokenRequest)(nil),             // 173: znasllc.memql.v1.RevokeNodeTokenRequest
+	(*UpdateClusterSettingsRequest)(nil),       // 174: znasllc.memql.v1.UpdateClusterSettingsRequest
+	(*IssueEnrolmentLinkRequest)(nil),          // 175: znasllc.memql.v1.IssueEnrolmentLinkRequest
+	(*RevokeEnrolmentLinkRequest)(nil),         // 176: znasllc.memql.v1.RevokeEnrolmentLinkRequest
+	(*RotateRecoveryKeyRequest)(nil),           // 177: znasllc.memql.v1.RotateRecoveryKeyRequest
+	(*SetOAuthClientCorsOriginsRequest)(nil),   // 178: znasllc.memql.v1.SetOAuthClientCorsOriginsRequest
+	(*ModulesListMsg)(nil),                     // 179: znasllc.memql.v1.ModulesListMsg
+	(*ModuleInfo)(nil),                         // 180: znasllc.memql.v1.ModuleInfo
+	(*ModulesListResult)(nil),                  // 181: znasllc.memql.v1.ModulesListResult
+	(*ModuleDetailMsg)(nil),                    // 182: znasllc.memql.v1.ModuleDetailMsg
+	(*ModuleEnvVar)(nil),                       // 183: znasllc.memql.v1.ModuleEnvVar
+	(*ModuleDetailResult)(nil),                 // 184: znasllc.memql.v1.ModuleDetailResult
+	(*SetPackEnabledMsg)(nil),                  // 185: znasllc.memql.v1.SetPackEnabledMsg
+	(*SetPackEnabledResult)(nil),               // 186: znasllc.memql.v1.SetPackEnabledResult
+	nil,                                        // 187: znasllc.memql.v1.MemqlClientMessage.MetadataEntry
+	nil,                                        // 188: znasllc.memql.v1.MemqlServerMessage.MetadataEntry
+	nil,                                        // 189: znasllc.memql.v1.QueryError.MetadataEntry
+	nil,                                        // 190: znasllc.memql.v1.AgentGenerateTurnMsg.HintsEntry
+	(*timestamppb.Timestamp)(nil),              // 191: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),                    // 192: google.protobuf.Struct
+	(*structpb.Value)(nil),                     // 193: google.protobuf.Value
+	(*GetDeploymentStatusRequest)(nil),         // 194: znasllc.memql.deploycontrol.v1.GetDeploymentStatusRequest
+	(*SuggestNextVersionRequest)(nil),          // 195: znasllc.memql.deploycontrol.v1.SuggestNextVersionRequest
+	(*RollbackRequest)(nil),                    // 196: znasllc.memql.deploycontrol.v1.RollbackRequest
+	(*RolloutActionRequest)(nil),               // 197: znasllc.memql.deploycontrol.v1.RolloutActionRequest
+	(*CutVersionRequest)(nil),                  // 198: znasllc.memql.deploycontrol.v1.CutVersionRequest
+	(*DeployRequest)(nil),                      // 199: znasllc.memql.deploycontrol.v1.DeployRequest
+	(*RollbackDeploymentRequest)(nil),          // 200: znasllc.memql.deploycontrol.v1.RollbackDeploymentRequest
+	(*RepairRequest)(nil),                      // 201: znasllc.memql.deploycontrol.v1.RepairRequest
+	(*DeploymentStatus)(nil),                   // 202: znasllc.memql.deploycontrol.v1.DeploymentStatus
+	(*SuggestNextVersionResult)(nil),           // 203: znasllc.memql.deploycontrol.v1.SuggestNextVersionResult
+	(*ActionResult)(nil),                       // 204: znasllc.memql.deploycontrol.v1.ActionResult
 }
 var file_memql_proto_depIdxs = []int32{
-	188, // 0: znasllc.memql.v1.MemqlClientMessage.metadata:type_name -> znasllc.memql.v1.MemqlClientMessage.MetadataEntry
-	5,   // 1: znasllc.memql.v1.MemqlClientMessage.provenance:type_name -> znasllc.memql.v1.Provenance
-	8,   // 2: znasllc.memql.v1.MemqlClientMessage.client_hello:type_name -> znasllc.memql.v1.ClientHello
-	12,  // 3: znasllc.memql.v1.MemqlClientMessage.execute_query:type_name -> znasllc.memql.v1.ExecuteQueryMsg
-	13,  // 4: znasllc.memql.v1.MemqlClientMessage.cancel_request:type_name -> znasllc.memql.v1.CancelRequestMsg
-	16,  // 5: znasllc.memql.v1.MemqlClientMessage.subscribe:type_name -> znasllc.memql.v1.SubscribeMsg
-	17,  // 6: znasllc.memql.v1.MemqlClientMessage.unsubscribe:type_name -> znasllc.memql.v1.UnsubscribeMsg
-	11,  // 7: znasllc.memql.v1.MemqlClientMessage.ack:type_name -> znasllc.memql.v1.AckMsg
-	26,  // 8: znasllc.memql.v1.MemqlClientMessage.list_tools:type_name -> znasllc.memql.v1.ListToolsMsg
-	29,  // 9: znasllc.memql.v1.MemqlClientMessage.call_tool:type_name -> znasllc.memql.v1.CallToolMsg
-	32,  // 10: znasllc.memql.v1.MemqlClientMessage.ai_chat:type_name -> znasllc.memql.v1.AiChatMsg
-	40,  // 11: znasllc.memql.v1.MemqlClientMessage.ai_suggest:type_name -> znasllc.memql.v1.AiSuggestMsg
-	43,  // 12: znasllc.memql.v1.MemqlClientMessage.identity_create:type_name -> znasllc.memql.v1.IdentityCreateMsg
-	44,  // 13: znasllc.memql.v1.MemqlClientMessage.identity_update:type_name -> znasllc.memql.v1.IdentityUpdateMsg
-	45,  // 14: znasllc.memql.v1.MemqlClientMessage.identity_list:type_name -> znasllc.memql.v1.IdentityListMsg
-	48,  // 15: znasllc.memql.v1.MemqlClientMessage.delegation_create:type_name -> znasllc.memql.v1.DelegationCreateMsg
-	49,  // 16: znasllc.memql.v1.MemqlClientMessage.delegation_revoke:type_name -> znasllc.memql.v1.DelegationRevokeMsg
-	50,  // 17: znasllc.memql.v1.MemqlClientMessage.delegation_list:type_name -> znasllc.memql.v1.DelegationListMsg
-	55,  // 18: znasllc.memql.v1.MemqlClientMessage.sense_tokenize:type_name -> znasllc.memql.v1.SenseTokenizeMsg
-	58,  // 19: znasllc.memql.v1.MemqlClientMessage.sense_complete:type_name -> znasllc.memql.v1.SenseCompleteMsg
-	61,  // 20: znasllc.memql.v1.MemqlClientMessage.sense_diagnose:type_name -> znasllc.memql.v1.SenseDiagnoseMsg
-	64,  // 21: znasllc.memql.v1.MemqlClientMessage.sense_hover:type_name -> znasllc.memql.v1.SenseHoverMsg
-	69,  // 22: znasllc.memql.v1.MemqlClientMessage.sense_signature_help:type_name -> znasllc.memql.v1.SenseSignatureHelpMsg
-	66,  // 23: znasllc.memql.v1.MemqlClientMessage.sense_definition:type_name -> znasllc.memql.v1.SenseDefinitionMsg
-	103, // 24: znasllc.memql.v1.MemqlClientMessage.concepts_list:type_name -> znasllc.memql.v1.ConceptsListMsg
-	110, // 25: znasllc.memql.v1.MemqlClientMessage.concepts_subscribe:type_name -> znasllc.memql.v1.ConceptsSubscribeMsg
-	114, // 26: znasllc.memql.v1.MemqlClientMessage.my_access:type_name -> znasllc.memql.v1.MyAccessMsg
-	35,  // 27: znasllc.memql.v1.MemqlClientMessage.ai_transcribe_stream_start:type_name -> znasllc.memql.v1.AiTranscribeStreamStart
-	36,  // 28: znasllc.memql.v1.MemqlClientMessage.ai_transcribe_stream_chunk:type_name -> znasllc.memql.v1.AiTranscribeStreamChunk
-	37,  // 29: znasllc.memql.v1.MemqlClientMessage.ai_transcribe_stream_end:type_name -> znasllc.memql.v1.AiTranscribeStreamEnd
-	116, // 30: znasllc.memql.v1.MemqlClientMessage.agent_generate_turn:type_name -> znasllc.memql.v1.AgentGenerateTurnMsg
-	133, // 31: znasllc.memql.v1.MemqlClientMessage.revoke_current_session:type_name -> znasllc.memql.v1.RevokeCurrentSessionMsg
-	135, // 32: znasllc.memql.v1.MemqlClientMessage.revoke_all_sessions:type_name -> znasllc.memql.v1.RevokeAllSessionsMsg
-	137, // 33: znasllc.memql.v1.MemqlClientMessage.revoke_session:type_name -> znasllc.memql.v1.RevokeSessionMsg
-	139, // 34: znasllc.memql.v1.MemqlClientMessage.set_sign_in_policy:type_name -> znasllc.memql.v1.SetSignInPolicyMsg
-	141, // 35: znasllc.memql.v1.MemqlClientMessage.create_worker_token:type_name -> znasllc.memql.v1.CreateWorkerTokenMsg
-	143, // 36: znasllc.memql.v1.MemqlClientMessage.revoke_worker_token:type_name -> znasllc.memql.v1.RevokeWorkerTokenMsg
-	149, // 37: znasllc.memql.v1.MemqlClientMessage.rotate_auth:type_name -> znasllc.memql.v1.RotateAuthMsg
-	129, // 38: znasllc.memql.v1.MemqlClientMessage.agent_preempt_turn:type_name -> znasllc.memql.v1.AgentPreemptTurnMsg
-	151, // 39: znasllc.memql.v1.MemqlClientMessage.node_maintenance:type_name -> znasllc.memql.v1.NodeMaintenanceMsg
-	73,  // 40: znasllc.memql.v1.MemqlClientMessage.list_pack_domains:type_name -> znasllc.memql.v1.ListPackDomainsMsg
-	76,  // 41: znasllc.memql.v1.MemqlClientMessage.list_pack_files:type_name -> znasllc.memql.v1.ListPackFilesMsg
-	79,  // 42: znasllc.memql.v1.MemqlClientMessage.read_pack_file:type_name -> znasllc.memql.v1.ReadPackFileMsg
-	88,  // 43: znasllc.memql.v1.MemqlClientMessage.authoring_validate_bundle:type_name -> znasllc.memql.v1.AuthoringValidateBundleMsg
-	90,  // 44: znasllc.memql.v1.MemqlClientMessage.authoring_session_define_bundle:type_name -> znasllc.memql.v1.AuthoringSessionDefineBundleMsg
-	101, // 45: znasllc.memql.v1.MemqlClientMessage.dsl_spec:type_name -> znasllc.memql.v1.DslSpecMsg
-	92,  // 46: znasllc.memql.v1.MemqlClientMessage.durable_promote_bundle:type_name -> znasllc.memql.v1.DurablePromoteBundleMsg
-	96,  // 47: znasllc.memql.v1.MemqlClientMessage.durable_demote_bundle:type_name -> znasllc.memql.v1.DurableDemoteBundleMsg
-	145, // 48: znasllc.memql.v1.MemqlClientMessage.create_badge:type_name -> znasllc.memql.v1.CreateBadgeMsg
-	147, // 49: znasllc.memql.v1.MemqlClientMessage.revoke_badge:type_name -> znasllc.memql.v1.RevokeBadgeMsg
-	153, // 50: znasllc.memql.v1.MemqlClientMessage.deploy_control:type_name -> znasllc.memql.v1.DeployControlMsg
-	155, // 51: znasllc.memql.v1.MemqlClientMessage.run_automation:type_name -> znasllc.memql.v1.RunAutomationMsg
-	160, // 52: znasllc.memql.v1.MemqlClientMessage.create_account_token:type_name -> znasllc.memql.v1.CreateAccountTokenMsg
-	162, // 53: znasllc.memql.v1.MemqlClientMessage.revoke_account_token:type_name -> znasllc.memql.v1.RevokeAccountTokenMsg
-	164, // 54: znasllc.memql.v1.MemqlClientMessage.identity_admin:type_name -> znasllc.memql.v1.IdentityAdminMsg
-	81,  // 55: znasllc.memql.v1.MemqlClientMessage.list_constructs:type_name -> znasllc.memql.v1.ListConstructsMsg
-	99,  // 56: znasllc.memql.v1.MemqlClientMessage.stage_bundle:type_name -> znasllc.memql.v1.StageBundleMsg
-	180, // 57: znasllc.memql.v1.MemqlClientMessage.modules_list:type_name -> znasllc.memql.v1.ModulesListMsg
-	183, // 58: znasllc.memql.v1.MemqlClientMessage.module_detail:type_name -> znasllc.memql.v1.ModuleDetailMsg
-	186, // 59: znasllc.memql.v1.MemqlClientMessage.set_pack_enabled:type_name -> znasllc.memql.v1.SetPackEnabledMsg
-	189, // 60: znasllc.memql.v1.MemqlServerMessage.metadata:type_name -> znasllc.memql.v1.MemqlServerMessage.MetadataEntry
-	9,   // 61: znasllc.memql.v1.MemqlServerMessage.server_hello:type_name -> znasllc.memql.v1.ServerHello
-	14,  // 62: znasllc.memql.v1.MemqlServerMessage.query_result:type_name -> znasllc.memql.v1.QueryResultChunk
-	15,  // 63: znasllc.memql.v1.MemqlServerMessage.query_error:type_name -> znasllc.memql.v1.QueryErrorMsg
-	18,  // 64: znasllc.memql.v1.MemqlServerMessage.event:type_name -> znasllc.memql.v1.EventNotification
-	19,  // 65: znasllc.memql.v1.MemqlServerMessage.ai_chunk:type_name -> znasllc.memql.v1.AiStreamChunk
-	10,  // 66: znasllc.memql.v1.MemqlServerMessage.heartbeat:type_name -> znasllc.memql.v1.HeartbeatMsg
-	27,  // 67: znasllc.memql.v1.MemqlServerMessage.list_tools_result:type_name -> znasllc.memql.v1.ListToolsResult
-	30,  // 68: znasllc.memql.v1.MemqlServerMessage.call_tool_result:type_name -> znasllc.memql.v1.CallToolResult
-	34,  // 69: znasllc.memql.v1.MemqlServerMessage.ai_chat_result:type_name -> znasllc.memql.v1.AiChatResult
-	41,  // 70: znasllc.memql.v1.MemqlServerMessage.ai_suggest_result:type_name -> znasllc.memql.v1.AiSuggestResult
-	46,  // 71: znasllc.memql.v1.MemqlServerMessage.identity_result:type_name -> znasllc.memql.v1.IdentityResult
-	51,  // 72: znasllc.memql.v1.MemqlServerMessage.delegation_result:type_name -> znasllc.memql.v1.DelegationResult
-	56,  // 73: znasllc.memql.v1.MemqlServerMessage.sense_tokenize_result:type_name -> znasllc.memql.v1.SenseTokenizeResult
-	59,  // 74: znasllc.memql.v1.MemqlServerMessage.sense_complete_result:type_name -> znasllc.memql.v1.SenseCompleteResult
-	62,  // 75: znasllc.memql.v1.MemqlServerMessage.sense_diagnose_result:type_name -> znasllc.memql.v1.SenseDiagnoseResult
-	65,  // 76: znasllc.memql.v1.MemqlServerMessage.sense_hover_result:type_name -> znasllc.memql.v1.SenseHoverResult
-	70,  // 77: znasllc.memql.v1.MemqlServerMessage.sense_signature_help_result:type_name -> znasllc.memql.v1.SenseSignatureHelpResult
-	67,  // 78: znasllc.memql.v1.MemqlServerMessage.sense_definition_result:type_name -> znasllc.memql.v1.SenseDefinitionResult
-	104, // 79: znasllc.memql.v1.MemqlServerMessage.concepts_list_result:type_name -> znasllc.memql.v1.ConceptsListResult
-	111, // 80: znasllc.memql.v1.MemqlServerMessage.concepts_subscribe_result:type_name -> znasllc.memql.v1.ConceptsSubscribeResult
-	113, // 81: znasllc.memql.v1.MemqlServerMessage.concepts_registry_delta:type_name -> znasllc.memql.v1.ConceptsRegistryDelta
-	115, // 82: znasllc.memql.v1.MemqlServerMessage.my_access_result:type_name -> znasllc.memql.v1.MyAccessResult
-	38,  // 83: znasllc.memql.v1.MemqlServerMessage.ai_transcribe_stream_delta:type_name -> znasllc.memql.v1.AiTranscribeStreamDelta
-	39,  // 84: znasllc.memql.v1.MemqlServerMessage.ai_transcribe_stream_complete:type_name -> znasllc.memql.v1.AiTranscribeStreamComplete
-	124, // 85: znasllc.memql.v1.MemqlServerMessage.agent_generate_turn_delta:type_name -> znasllc.memql.v1.AgentGenerateTurnDelta
-	128, // 86: znasllc.memql.v1.MemqlServerMessage.agent_generate_turn_complete:type_name -> znasllc.memql.v1.AgentGenerateTurnComplete
-	134, // 87: znasllc.memql.v1.MemqlServerMessage.revoke_current_session_result:type_name -> znasllc.memql.v1.RevokeCurrentSessionResult
-	136, // 88: znasllc.memql.v1.MemqlServerMessage.revoke_all_sessions_result:type_name -> znasllc.memql.v1.RevokeAllSessionsResult
-	138, // 89: znasllc.memql.v1.MemqlServerMessage.revoke_session_result:type_name -> znasllc.memql.v1.RevokeSessionResult
-	140, // 90: znasllc.memql.v1.MemqlServerMessage.set_sign_in_policy_result:type_name -> znasllc.memql.v1.SetSignInPolicyResult
-	142, // 91: znasllc.memql.v1.MemqlServerMessage.create_worker_token_result:type_name -> znasllc.memql.v1.CreateWorkerTokenResult
-	144, // 92: znasllc.memql.v1.MemqlServerMessage.revoke_worker_token_result:type_name -> znasllc.memql.v1.RevokeWorkerTokenResult
-	74,  // 93: znasllc.memql.v1.MemqlServerMessage.list_pack_domains_result:type_name -> znasllc.memql.v1.ListPackDomainsResult
-	77,  // 94: znasllc.memql.v1.MemqlServerMessage.list_pack_files_result:type_name -> znasllc.memql.v1.ListPackFilesResult
-	80,  // 95: znasllc.memql.v1.MemqlServerMessage.read_pack_file_result:type_name -> znasllc.memql.v1.ReadPackFileResult
-	150, // 96: znasllc.memql.v1.MemqlServerMessage.rotate_auth_result:type_name -> znasllc.memql.v1.RotateAuthResult
-	152, // 97: znasllc.memql.v1.MemqlServerMessage.node_maintenance_result:type_name -> znasllc.memql.v1.NodeMaintenanceResult
-	89,  // 98: znasllc.memql.v1.MemqlServerMessage.authoring_validate_bundle_result:type_name -> znasllc.memql.v1.AuthoringValidateBundleResult
-	91,  // 99: znasllc.memql.v1.MemqlServerMessage.authoring_session_define_bundle_result:type_name -> znasllc.memql.v1.AuthoringSessionDefineBundleResult
-	102, // 100: znasllc.memql.v1.MemqlServerMessage.dsl_spec_result:type_name -> znasllc.memql.v1.DslSpecResult
-	93,  // 101: znasllc.memql.v1.MemqlServerMessage.durable_promote_bundle_result:type_name -> znasllc.memql.v1.DurablePromoteBundleResult
-	98,  // 102: znasllc.memql.v1.MemqlServerMessage.durable_demote_bundle_result:type_name -> znasllc.memql.v1.DurableDemoteBundleResult
-	146, // 103: znasllc.memql.v1.MemqlServerMessage.create_badge_result:type_name -> znasllc.memql.v1.CreateBadgeResult
-	148, // 104: znasllc.memql.v1.MemqlServerMessage.revoke_badge_result:type_name -> znasllc.memql.v1.RevokeBadgeResult
-	154, // 105: znasllc.memql.v1.MemqlServerMessage.deploy_control_result:type_name -> znasllc.memql.v1.DeployControlResult
-	156, // 106: znasllc.memql.v1.MemqlServerMessage.automation_run_event:type_name -> znasllc.memql.v1.AutomationRunEvent
-	161, // 107: znasllc.memql.v1.MemqlServerMessage.create_account_token_result:type_name -> znasllc.memql.v1.CreateAccountTokenResult
-	163, // 108: znasllc.memql.v1.MemqlServerMessage.revoke_account_token_result:type_name -> znasllc.memql.v1.RevokeAccountTokenResult
-	165, // 109: znasllc.memql.v1.MemqlServerMessage.identity_admin_result:type_name -> znasllc.memql.v1.IdentityAdminResult
-	82,  // 110: znasllc.memql.v1.MemqlServerMessage.list_constructs_result:type_name -> znasllc.memql.v1.ListConstructsResult
-	100, // 111: znasllc.memql.v1.MemqlServerMessage.stage_bundle_result:type_name -> znasllc.memql.v1.StageBundleResult
-	182, // 112: znasllc.memql.v1.MemqlServerMessage.modules_list_result:type_name -> znasllc.memql.v1.ModulesListResult
-	185, // 113: znasllc.memql.v1.MemqlServerMessage.module_detail_result:type_name -> znasllc.memql.v1.ModuleDetailResult
-	187, // 114: znasllc.memql.v1.MemqlServerMessage.set_pack_enabled_result:type_name -> znasllc.memql.v1.SetPackEnabledResult
-	192, // 115: znasllc.memql.v1.HeartbeatMsg.ts:type_name -> google.protobuf.Timestamp
-	193, // 116: znasllc.memql.v1.ExecuteQueryMsg.variables:type_name -> google.protobuf.Struct
-	20,  // 117: znasllc.memql.v1.QueryResultChunk.result:type_name -> znasllc.memql.v1.Result
-	22,  // 118: znasllc.memql.v1.QueryErrorMsg.error:type_name -> znasllc.memql.v1.QueryError
-	2,   // 119: znasllc.memql.v1.SubscribeMsg.kind:type_name -> znasllc.memql.v1.SubscriptionKind
-	193, // 120: znasllc.memql.v1.SubscribeMsg.config:type_name -> google.protobuf.Struct
-	1,   // 121: znasllc.memql.v1.SubscribeMsg.actions:type_name -> znasllc.memql.v1.GraphNodeAction
-	3,   // 122: znasllc.memql.v1.EventNotification.kind:type_name -> znasllc.memql.v1.EventKind
-	192, // 123: znasllc.memql.v1.EventNotification.ts:type_name -> google.protobuf.Timestamp
-	193, // 124: znasllc.memql.v1.EventNotification.payload:type_name -> google.protobuf.Struct
-	193, // 125: znasllc.memql.v1.AiStreamChunk.json_delta:type_name -> google.protobuf.Struct
-	193, // 126: znasllc.memql.v1.AiStreamChunk.metadata:type_name -> google.protobuf.Struct
-	23,  // 127: znasllc.memql.v1.Result.bundle:type_name -> znasllc.memql.v1.GraphBundle
-	194, // 128: znasllc.memql.v1.Result.data:type_name -> google.protobuf.Value
-	21,  // 129: znasllc.memql.v1.Result.meta:type_name -> znasllc.memql.v1.ResultMeta
-	190, // 130: znasllc.memql.v1.QueryError.metadata:type_name -> znasllc.memql.v1.QueryError.MetadataEntry
-	24,  // 131: znasllc.memql.v1.GraphBundle.nodes:type_name -> znasllc.memql.v1.MemoryNode
-	25,  // 132: znasllc.memql.v1.GraphBundle.edges:type_name -> znasllc.memql.v1.GraphEdge
-	192, // 133: znasllc.memql.v1.MemoryNode.created_at:type_name -> google.protobuf.Timestamp
-	193, // 134: znasllc.memql.v1.MemoryNode.payload:type_name -> google.protobuf.Struct
-	193, // 135: znasllc.memql.v1.MemoryNode.schema:type_name -> google.protobuf.Struct
-	193, // 136: znasllc.memql.v1.MemoryNode.metadata:type_name -> google.protobuf.Struct
-	5,   // 137: znasllc.memql.v1.MemoryNode.provenance:type_name -> znasllc.memql.v1.Provenance
-	28,  // 138: znasllc.memql.v1.ListToolsResult.tools:type_name -> znasllc.memql.v1.ToolDefinition
-	193, // 139: znasllc.memql.v1.CallToolMsg.arguments:type_name -> google.protobuf.Struct
-	31,  // 140: znasllc.memql.v1.CallToolResult.content:type_name -> znasllc.memql.v1.ToolResultContent
-	33,  // 141: znasllc.memql.v1.AiChatMsg.messages:type_name -> znasllc.memql.v1.AiChatMessage
-	33,  // 142: znasllc.memql.v1.AiChatResult.message:type_name -> znasllc.memql.v1.AiChatMessage
-	193, // 143: znasllc.memql.v1.AiSuggestMsg.payload:type_name -> google.protobuf.Struct
-	193, // 144: znasllc.memql.v1.AiSuggestResult.result:type_name -> google.protobuf.Struct
-	42,  // 145: znasllc.memql.v1.AiSuggestResult.usage:type_name -> znasllc.memql.v1.AiSuggestUsage
-	0,   // 146: znasllc.memql.v1.IdentityCreateMsg.role:type_name -> znasllc.memql.v1.UserRole
-	193, // 147: znasllc.memql.v1.IdentityUpdateMsg.fields:type_name -> google.protobuf.Struct
-	47,  // 148: znasllc.memql.v1.IdentityResult.identities:type_name -> znasllc.memql.v1.IdentityInfo
-	0,   // 149: znasllc.memql.v1.IdentityInfo.role:type_name -> znasllc.memql.v1.UserRole
-	192, // 150: znasllc.memql.v1.IdentityInfo.created_at:type_name -> google.protobuf.Timestamp
-	192, // 151: znasllc.memql.v1.IdentityInfo.suspended_at:type_name -> google.protobuf.Timestamp
-	0,   // 152: znasllc.memql.v1.DelegationCreateMsg.role_ceiling:type_name -> znasllc.memql.v1.UserRole
-	192, // 153: znasllc.memql.v1.DelegationCreateMsg.expires_at:type_name -> google.protobuf.Timestamp
-	52,  // 154: znasllc.memql.v1.DelegationResult.delegations:type_name -> znasllc.memql.v1.DelegationInfo
-	0,   // 155: znasllc.memql.v1.DelegationInfo.role_ceiling:type_name -> znasllc.memql.v1.UserRole
-	192, // 156: znasllc.memql.v1.DelegationInfo.expires_at:type_name -> google.protobuf.Timestamp
-	192, // 157: znasllc.memql.v1.DelegationInfo.created_at:type_name -> google.protobuf.Timestamp
-	192, // 158: znasllc.memql.v1.DelegationInfo.revoked_at:type_name -> google.protobuf.Timestamp
-	53,  // 159: znasllc.memql.v1.SenseRange.start:type_name -> znasllc.memql.v1.SensePosition
-	53,  // 160: znasllc.memql.v1.SenseRange.end:type_name -> znasllc.memql.v1.SensePosition
-	57,  // 161: znasllc.memql.v1.SenseTokenizeResult.tokens:type_name -> znasllc.memql.v1.SenseToken
-	54,  // 162: znasllc.memql.v1.SenseToken.range:type_name -> znasllc.memql.v1.SenseRange
-	53,  // 163: znasllc.memql.v1.SenseCompleteMsg.cursor:type_name -> znasllc.memql.v1.SensePosition
-	60,  // 164: znasllc.memql.v1.SenseCompleteResult.items:type_name -> znasllc.memql.v1.SenseCompletionItem
-	63,  // 165: znasllc.memql.v1.SenseDiagnoseResult.diagnostics:type_name -> znasllc.memql.v1.SenseDiagnostic
-	54,  // 166: znasllc.memql.v1.SenseDiagnostic.range:type_name -> znasllc.memql.v1.SenseRange
-	4,   // 167: znasllc.memql.v1.SenseDiagnostic.severity:type_name -> znasllc.memql.v1.SenseSeverity
-	53,  // 168: znasllc.memql.v1.SenseHoverMsg.position:type_name -> znasllc.memql.v1.SensePosition
-	54,  // 169: znasllc.memql.v1.SenseHoverResult.range:type_name -> znasllc.memql.v1.SenseRange
-	53,  // 170: znasllc.memql.v1.SenseDefinitionMsg.position:type_name -> znasllc.memql.v1.SensePosition
-	68,  // 171: znasllc.memql.v1.SenseDefinitionResult.targets:type_name -> znasllc.memql.v1.SenseDefinitionTarget
-	54,  // 172: znasllc.memql.v1.SenseDefinitionTarget.range:type_name -> znasllc.memql.v1.SenseRange
-	53,  // 173: znasllc.memql.v1.SenseSignatureHelpMsg.position:type_name -> znasllc.memql.v1.SensePosition
-	71,  // 174: znasllc.memql.v1.SenseSignatureHelpResult.signatures:type_name -> znasllc.memql.v1.SenseSignature
-	72,  // 175: znasllc.memql.v1.SenseSignature.parameters:type_name -> znasllc.memql.v1.SenseParameter
-	75,  // 176: znasllc.memql.v1.ListPackDomainsResult.domains:type_name -> znasllc.memql.v1.PackDomain
-	78,  // 177: znasllc.memql.v1.ListPackFilesResult.files:type_name -> znasllc.memql.v1.PackFile
-	83,  // 178: znasllc.memql.v1.ListConstructsResult.constructs:type_name -> znasllc.memql.v1.ConstructInfo
-	85,  // 179: znasllc.memql.v1.ConstructInfo.args:type_name -> znasllc.memql.v1.ConstructArg
-	84,  // 180: znasllc.memql.v1.ConstructInfo.trigger:type_name -> znasllc.memql.v1.ConstructTrigger
-	86,  // 181: znasllc.memql.v1.AuthoringValidateBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
-	87,  // 182: znasllc.memql.v1.AuthoringSessionDefineBundleResult.defined:type_name -> znasllc.memql.v1.AuthoringConstruct
-	86,  // 183: znasllc.memql.v1.AuthoringSessionDefineBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
-	87,  // 184: znasllc.memql.v1.DurablePromoteBundleResult.promoted:type_name -> znasllc.memql.v1.AuthoringConstruct
-	86,  // 185: znasllc.memql.v1.DurablePromoteBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
-	94,  // 186: znasllc.memql.v1.DurablePromoteBundleResult.concept_diffs:type_name -> znasllc.memql.v1.ConceptSchemaDiff
-	95,  // 187: znasllc.memql.v1.ConceptSchemaDiff.changes:type_name -> znasllc.memql.v1.ConceptSchemaChange
-	87,  // 188: znasllc.memql.v1.DurableDemoteBundleResult.demoted:type_name -> znasllc.memql.v1.AuthoringConstruct
-	86,  // 189: znasllc.memql.v1.DurableDemoteBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
-	97,  // 190: znasllc.memql.v1.DurableDemoteBundleResult.outcomes:type_name -> znasllc.memql.v1.DurableDemoteOutcome
-	87,  // 191: znasllc.memql.v1.StageBundleResult.staged:type_name -> znasllc.memql.v1.AuthoringConstruct
-	86,  // 192: znasllc.memql.v1.StageBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
-	105, // 193: znasllc.memql.v1.ConceptsListResult.concepts:type_name -> znasllc.memql.v1.ConceptInfo
-	109, // 194: znasllc.memql.v1.ConceptInfo.display_card:type_name -> znasllc.memql.v1.DisplayCard
-	107, // 195: znasllc.memql.v1.ConceptInfo.fields:type_name -> znasllc.memql.v1.ConceptField
-	108, // 196: znasllc.memql.v1.ConceptInfo.relationships:type_name -> znasllc.memql.v1.ConceptRelationship
-	106, // 197: znasllc.memql.v1.ConceptInfo.composable:type_name -> znasllc.memql.v1.Composable
-	112, // 198: znasllc.memql.v1.ConceptsSubscribeResult.domains:type_name -> znasllc.memql.v1.DomainSubscription
-	105, // 199: znasllc.memql.v1.ConceptsRegistryDelta.added:type_name -> znasllc.memql.v1.ConceptInfo
-	0,   // 200: znasllc.memql.v1.MyAccessResult.cluster_role:type_name -> znasllc.memql.v1.UserRole
-	118, // 201: znasllc.memql.v1.AgentGenerateTurnMsg.history:type_name -> znasllc.memql.v1.AgentTurnMessage
-	119, // 202: znasllc.memql.v1.AgentGenerateTurnMsg.routing:type_name -> znasllc.memql.v1.AgentTurnRoutingContext
-	117, // 203: znasllc.memql.v1.AgentGenerateTurnMsg.acting_agent:type_name -> znasllc.memql.v1.ActingAgentIdentity
-	123, // 204: znasllc.memql.v1.AgentGenerateTurnMsg.attachments:type_name -> znasllc.memql.v1.AgentTurnAttachment
-	191, // 205: znasllc.memql.v1.AgentGenerateTurnMsg.hints:type_name -> znasllc.memql.v1.AgentGenerateTurnMsg.HintsEntry
-	121, // 206: znasllc.memql.v1.AgentTurnRoutingContext.peers:type_name -> znasllc.memql.v1.AgentTurnPeer
-	122, // 207: znasllc.memql.v1.AgentTurnRoutingContext.peer_activity:type_name -> znasllc.memql.v1.AgentTurnPeerActivity
-	120, // 208: znasllc.memql.v1.AgentTurnRoutingContext.humans:type_name -> znasllc.memql.v1.AgentTurnHuman
-	125, // 209: znasllc.memql.v1.AgentGenerateTurnDelta.text:type_name -> znasllc.memql.v1.AgentTurnTextDelta
-	126, // 210: znasllc.memql.v1.AgentGenerateTurnDelta.tool_call:type_name -> znasllc.memql.v1.AgentTurnToolCall
-	127, // 211: znasllc.memql.v1.AgentGenerateTurnDelta.tool_result:type_name -> znasllc.memql.v1.AgentTurnToolResult
-	126, // 212: znasllc.memql.v1.AgentGenerateTurnComplete.tool_calls:type_name -> znasllc.memql.v1.AgentTurnToolCall
-	132, // 213: znasllc.memql.v1.AgentGenerateTurnComplete.error:type_name -> znasllc.memql.v1.AgentTurnError
-	130, // 214: znasllc.memql.v1.AgentGenerateTurnComplete.citations:type_name -> znasllc.memql.v1.AgentTurnCitation
-	131, // 215: znasllc.memql.v1.AgentGenerateTurnComplete.retrieved:type_name -> znasllc.memql.v1.AgentRetrievedChunk
-	195, // 216: znasllc.memql.v1.DeployControlMsg.get_deployment_status:type_name -> znasllc.memql.deploycontrol.v1.GetDeploymentStatusRequest
-	196, // 217: znasllc.memql.v1.DeployControlMsg.suggest_next_version:type_name -> znasllc.memql.deploycontrol.v1.SuggestNextVersionRequest
-	197, // 218: znasllc.memql.v1.DeployControlMsg.rollback:type_name -> znasllc.memql.deploycontrol.v1.RollbackRequest
-	198, // 219: znasllc.memql.v1.DeployControlMsg.rollout_action:type_name -> znasllc.memql.deploycontrol.v1.RolloutActionRequest
-	199, // 220: znasllc.memql.v1.DeployControlMsg.cut_version:type_name -> znasllc.memql.deploycontrol.v1.CutVersionRequest
-	200, // 221: znasllc.memql.v1.DeployControlMsg.deploy:type_name -> znasllc.memql.deploycontrol.v1.DeployRequest
-	201, // 222: znasllc.memql.v1.DeployControlMsg.rollback_deployment:type_name -> znasllc.memql.deploycontrol.v1.RollbackDeploymentRequest
-	202, // 223: znasllc.memql.v1.DeployControlMsg.repair:type_name -> znasllc.memql.deploycontrol.v1.RepairRequest
-	203, // 224: znasllc.memql.v1.DeployControlResult.deployment_status:type_name -> znasllc.memql.deploycontrol.v1.DeploymentStatus
-	204, // 225: znasllc.memql.v1.DeployControlResult.next_version:type_name -> znasllc.memql.deploycontrol.v1.SuggestNextVersionResult
-	205, // 226: znasllc.memql.v1.DeployControlResult.action:type_name -> znasllc.memql.deploycontrol.v1.ActionResult
-	193, // 227: znasllc.memql.v1.RunAutomationMsg.payload:type_name -> google.protobuf.Struct
-	157, // 228: znasllc.memql.v1.AutomationRunEvent.accepted:type_name -> znasllc.memql.v1.AutomationRunAccepted
-	158, // 229: znasllc.memql.v1.AutomationRunEvent.step:type_name -> znasllc.memql.v1.AutomationRunStep
-	159, // 230: znasllc.memql.v1.AutomationRunEvent.complete:type_name -> znasllc.memql.v1.AutomationRunComplete
-	193, // 231: znasllc.memql.v1.AutomationRunStep.output:type_name -> google.protobuf.Struct
-	168, // 232: znasllc.memql.v1.IdentityAdminMsg.update_user_profile:type_name -> znasllc.memql.v1.UpdateUserProfileRequest
-	169, // 233: znasllc.memql.v1.IdentityAdminMsg.set_user_role:type_name -> znasllc.memql.v1.SetUserRoleRequest
-	170, // 234: znasllc.memql.v1.IdentityAdminMsg.set_user_suspended:type_name -> znasllc.memql.v1.SetUserSuspendedRequest
-	173, // 235: znasllc.memql.v1.IdentityAdminMsg.revoke_user_token:type_name -> znasllc.memql.v1.RevokeUserTokenRequest
-	174, // 236: znasllc.memql.v1.IdentityAdminMsg.revoke_node_token:type_name -> znasllc.memql.v1.RevokeNodeTokenRequest
-	175, // 237: znasllc.memql.v1.IdentityAdminMsg.update_cluster_settings:type_name -> znasllc.memql.v1.UpdateClusterSettingsRequest
-	176, // 238: znasllc.memql.v1.IdentityAdminMsg.issue_enrolment_link:type_name -> znasllc.memql.v1.IssueEnrolmentLinkRequest
-	177, // 239: znasllc.memql.v1.IdentityAdminMsg.revoke_enrolment_link:type_name -> znasllc.memql.v1.RevokeEnrolmentLinkRequest
-	179, // 240: znasllc.memql.v1.IdentityAdminMsg.set_oauth_client_cors_origins:type_name -> znasllc.memql.v1.SetOAuthClientCorsOriginsRequest
-	178, // 241: znasllc.memql.v1.IdentityAdminMsg.rotate_recovery_key:type_name -> znasllc.memql.v1.RotateRecoveryKeyRequest
-	166, // 242: znasllc.memql.v1.IdentityAdminMsg.issue_user_invitation:type_name -> znasllc.memql.v1.IssueUserInvitationRequest
-	167, // 243: znasllc.memql.v1.IdentityAdminMsg.revoke_user_invitation:type_name -> znasllc.memql.v1.RevokeUserInvitationRequest
-	171, // 244: znasllc.memql.v1.IdentityAdminMsg.reset_sign_in_policy:type_name -> znasllc.memql.v1.ResetSignInPolicyRequest
-	172, // 245: znasllc.memql.v1.IdentityAdminMsg.set_user_shared_mailbox:type_name -> znasllc.memql.v1.SetUserSharedMailboxRequest
-	181, // 246: znasllc.memql.v1.ModulesListResult.modules:type_name -> znasllc.memql.v1.ModuleInfo
-	181, // 247: znasllc.memql.v1.ModuleDetailResult.module:type_name -> znasllc.memql.v1.ModuleInfo
-	184, // 248: znasllc.memql.v1.ModuleDetailResult.env_vars:type_name -> znasllc.memql.v1.ModuleEnvVar
-	6,   // 249: znasllc.memql.v1.MemqlService.Stream:input_type -> znasllc.memql.v1.MemqlClientMessage
-	7,   // 250: znasllc.memql.v1.MemqlService.Stream:output_type -> znasllc.memql.v1.MemqlServerMessage
-	250, // [250:251] is the sub-list for method output_type
-	249, // [249:250] is the sub-list for method input_type
-	249, // [249:249] is the sub-list for extension type_name
-	249, // [249:249] is the sub-list for extension extendee
-	0,   // [0:249] is the sub-list for field type_name
+	187, // 0: znasllc.memql.v1.MemqlClientMessage.metadata:type_name -> znasllc.memql.v1.MemqlClientMessage.MetadataEntry
+	4,   // 1: znasllc.memql.v1.MemqlClientMessage.provenance:type_name -> znasllc.memql.v1.Provenance
+	7,   // 2: znasllc.memql.v1.MemqlClientMessage.client_hello:type_name -> znasllc.memql.v1.ClientHello
+	11,  // 3: znasllc.memql.v1.MemqlClientMessage.execute_query:type_name -> znasllc.memql.v1.ExecuteQueryMsg
+	12,  // 4: znasllc.memql.v1.MemqlClientMessage.cancel_request:type_name -> znasllc.memql.v1.CancelRequestMsg
+	15,  // 5: znasllc.memql.v1.MemqlClientMessage.subscribe:type_name -> znasllc.memql.v1.SubscribeMsg
+	16,  // 6: znasllc.memql.v1.MemqlClientMessage.unsubscribe:type_name -> znasllc.memql.v1.UnsubscribeMsg
+	10,  // 7: znasllc.memql.v1.MemqlClientMessage.ack:type_name -> znasllc.memql.v1.AckMsg
+	25,  // 8: znasllc.memql.v1.MemqlClientMessage.list_tools:type_name -> znasllc.memql.v1.ListToolsMsg
+	28,  // 9: znasllc.memql.v1.MemqlClientMessage.call_tool:type_name -> znasllc.memql.v1.CallToolMsg
+	31,  // 10: znasllc.memql.v1.MemqlClientMessage.ai_chat:type_name -> znasllc.memql.v1.AiChatMsg
+	39,  // 11: znasllc.memql.v1.MemqlClientMessage.ai_suggest:type_name -> znasllc.memql.v1.AiSuggestMsg
+	42,  // 12: znasllc.memql.v1.MemqlClientMessage.identity_create:type_name -> znasllc.memql.v1.IdentityCreateMsg
+	43,  // 13: znasllc.memql.v1.MemqlClientMessage.identity_update:type_name -> znasllc.memql.v1.IdentityUpdateMsg
+	44,  // 14: znasllc.memql.v1.MemqlClientMessage.identity_list:type_name -> znasllc.memql.v1.IdentityListMsg
+	47,  // 15: znasllc.memql.v1.MemqlClientMessage.delegation_create:type_name -> znasllc.memql.v1.DelegationCreateMsg
+	48,  // 16: znasllc.memql.v1.MemqlClientMessage.delegation_revoke:type_name -> znasllc.memql.v1.DelegationRevokeMsg
+	49,  // 17: znasllc.memql.v1.MemqlClientMessage.delegation_list:type_name -> znasllc.memql.v1.DelegationListMsg
+	54,  // 18: znasllc.memql.v1.MemqlClientMessage.sense_tokenize:type_name -> znasllc.memql.v1.SenseTokenizeMsg
+	57,  // 19: znasllc.memql.v1.MemqlClientMessage.sense_complete:type_name -> znasllc.memql.v1.SenseCompleteMsg
+	60,  // 20: znasllc.memql.v1.MemqlClientMessage.sense_diagnose:type_name -> znasllc.memql.v1.SenseDiagnoseMsg
+	63,  // 21: znasllc.memql.v1.MemqlClientMessage.sense_hover:type_name -> znasllc.memql.v1.SenseHoverMsg
+	68,  // 22: znasllc.memql.v1.MemqlClientMessage.sense_signature_help:type_name -> znasllc.memql.v1.SenseSignatureHelpMsg
+	65,  // 23: znasllc.memql.v1.MemqlClientMessage.sense_definition:type_name -> znasllc.memql.v1.SenseDefinitionMsg
+	102, // 24: znasllc.memql.v1.MemqlClientMessage.concepts_list:type_name -> znasllc.memql.v1.ConceptsListMsg
+	109, // 25: znasllc.memql.v1.MemqlClientMessage.concepts_subscribe:type_name -> znasllc.memql.v1.ConceptsSubscribeMsg
+	113, // 26: znasllc.memql.v1.MemqlClientMessage.my_access:type_name -> znasllc.memql.v1.MyAccessMsg
+	34,  // 27: znasllc.memql.v1.MemqlClientMessage.ai_transcribe_stream_start:type_name -> znasllc.memql.v1.AiTranscribeStreamStart
+	35,  // 28: znasllc.memql.v1.MemqlClientMessage.ai_transcribe_stream_chunk:type_name -> znasllc.memql.v1.AiTranscribeStreamChunk
+	36,  // 29: znasllc.memql.v1.MemqlClientMessage.ai_transcribe_stream_end:type_name -> znasllc.memql.v1.AiTranscribeStreamEnd
+	115, // 30: znasllc.memql.v1.MemqlClientMessage.agent_generate_turn:type_name -> znasllc.memql.v1.AgentGenerateTurnMsg
+	132, // 31: znasllc.memql.v1.MemqlClientMessage.revoke_current_session:type_name -> znasllc.memql.v1.RevokeCurrentSessionMsg
+	134, // 32: znasllc.memql.v1.MemqlClientMessage.revoke_all_sessions:type_name -> znasllc.memql.v1.RevokeAllSessionsMsg
+	136, // 33: znasllc.memql.v1.MemqlClientMessage.revoke_session:type_name -> znasllc.memql.v1.RevokeSessionMsg
+	138, // 34: znasllc.memql.v1.MemqlClientMessage.set_sign_in_policy:type_name -> znasllc.memql.v1.SetSignInPolicyMsg
+	140, // 35: znasllc.memql.v1.MemqlClientMessage.create_worker_token:type_name -> znasllc.memql.v1.CreateWorkerTokenMsg
+	142, // 36: znasllc.memql.v1.MemqlClientMessage.revoke_worker_token:type_name -> znasllc.memql.v1.RevokeWorkerTokenMsg
+	148, // 37: znasllc.memql.v1.MemqlClientMessage.rotate_auth:type_name -> znasllc.memql.v1.RotateAuthMsg
+	128, // 38: znasllc.memql.v1.MemqlClientMessage.agent_preempt_turn:type_name -> znasllc.memql.v1.AgentPreemptTurnMsg
+	150, // 39: znasllc.memql.v1.MemqlClientMessage.node_maintenance:type_name -> znasllc.memql.v1.NodeMaintenanceMsg
+	72,  // 40: znasllc.memql.v1.MemqlClientMessage.list_pack_domains:type_name -> znasllc.memql.v1.ListPackDomainsMsg
+	75,  // 41: znasllc.memql.v1.MemqlClientMessage.list_pack_files:type_name -> znasllc.memql.v1.ListPackFilesMsg
+	78,  // 42: znasllc.memql.v1.MemqlClientMessage.read_pack_file:type_name -> znasllc.memql.v1.ReadPackFileMsg
+	87,  // 43: znasllc.memql.v1.MemqlClientMessage.authoring_validate_bundle:type_name -> znasllc.memql.v1.AuthoringValidateBundleMsg
+	89,  // 44: znasllc.memql.v1.MemqlClientMessage.authoring_session_define_bundle:type_name -> znasllc.memql.v1.AuthoringSessionDefineBundleMsg
+	100, // 45: znasllc.memql.v1.MemqlClientMessage.dsl_spec:type_name -> znasllc.memql.v1.DslSpecMsg
+	91,  // 46: znasllc.memql.v1.MemqlClientMessage.durable_promote_bundle:type_name -> znasllc.memql.v1.DurablePromoteBundleMsg
+	95,  // 47: znasllc.memql.v1.MemqlClientMessage.durable_demote_bundle:type_name -> znasllc.memql.v1.DurableDemoteBundleMsg
+	144, // 48: znasllc.memql.v1.MemqlClientMessage.create_badge:type_name -> znasllc.memql.v1.CreateBadgeMsg
+	146, // 49: znasllc.memql.v1.MemqlClientMessage.revoke_badge:type_name -> znasllc.memql.v1.RevokeBadgeMsg
+	152, // 50: znasllc.memql.v1.MemqlClientMessage.deploy_control:type_name -> znasllc.memql.v1.DeployControlMsg
+	154, // 51: znasllc.memql.v1.MemqlClientMessage.run_automation:type_name -> znasllc.memql.v1.RunAutomationMsg
+	159, // 52: znasllc.memql.v1.MemqlClientMessage.create_account_token:type_name -> znasllc.memql.v1.CreateAccountTokenMsg
+	161, // 53: znasllc.memql.v1.MemqlClientMessage.revoke_account_token:type_name -> znasllc.memql.v1.RevokeAccountTokenMsg
+	163, // 54: znasllc.memql.v1.MemqlClientMessage.identity_admin:type_name -> znasllc.memql.v1.IdentityAdminMsg
+	80,  // 55: znasllc.memql.v1.MemqlClientMessage.list_constructs:type_name -> znasllc.memql.v1.ListConstructsMsg
+	98,  // 56: znasllc.memql.v1.MemqlClientMessage.stage_bundle:type_name -> znasllc.memql.v1.StageBundleMsg
+	179, // 57: znasllc.memql.v1.MemqlClientMessage.modules_list:type_name -> znasllc.memql.v1.ModulesListMsg
+	182, // 58: znasllc.memql.v1.MemqlClientMessage.module_detail:type_name -> znasllc.memql.v1.ModuleDetailMsg
+	185, // 59: znasllc.memql.v1.MemqlClientMessage.set_pack_enabled:type_name -> znasllc.memql.v1.SetPackEnabledMsg
+	188, // 60: znasllc.memql.v1.MemqlServerMessage.metadata:type_name -> znasllc.memql.v1.MemqlServerMessage.MetadataEntry
+	8,   // 61: znasllc.memql.v1.MemqlServerMessage.server_hello:type_name -> znasllc.memql.v1.ServerHello
+	13,  // 62: znasllc.memql.v1.MemqlServerMessage.query_result:type_name -> znasllc.memql.v1.QueryResultChunk
+	14,  // 63: znasllc.memql.v1.MemqlServerMessage.query_error:type_name -> znasllc.memql.v1.QueryErrorMsg
+	17,  // 64: znasllc.memql.v1.MemqlServerMessage.event:type_name -> znasllc.memql.v1.EventNotification
+	18,  // 65: znasllc.memql.v1.MemqlServerMessage.ai_chunk:type_name -> znasllc.memql.v1.AiStreamChunk
+	9,   // 66: znasllc.memql.v1.MemqlServerMessage.heartbeat:type_name -> znasllc.memql.v1.HeartbeatMsg
+	26,  // 67: znasllc.memql.v1.MemqlServerMessage.list_tools_result:type_name -> znasllc.memql.v1.ListToolsResult
+	29,  // 68: znasllc.memql.v1.MemqlServerMessage.call_tool_result:type_name -> znasllc.memql.v1.CallToolResult
+	33,  // 69: znasllc.memql.v1.MemqlServerMessage.ai_chat_result:type_name -> znasllc.memql.v1.AiChatResult
+	40,  // 70: znasllc.memql.v1.MemqlServerMessage.ai_suggest_result:type_name -> znasllc.memql.v1.AiSuggestResult
+	45,  // 71: znasllc.memql.v1.MemqlServerMessage.identity_result:type_name -> znasllc.memql.v1.IdentityResult
+	50,  // 72: znasllc.memql.v1.MemqlServerMessage.delegation_result:type_name -> znasllc.memql.v1.DelegationResult
+	55,  // 73: znasllc.memql.v1.MemqlServerMessage.sense_tokenize_result:type_name -> znasllc.memql.v1.SenseTokenizeResult
+	58,  // 74: znasllc.memql.v1.MemqlServerMessage.sense_complete_result:type_name -> znasllc.memql.v1.SenseCompleteResult
+	61,  // 75: znasllc.memql.v1.MemqlServerMessage.sense_diagnose_result:type_name -> znasllc.memql.v1.SenseDiagnoseResult
+	64,  // 76: znasllc.memql.v1.MemqlServerMessage.sense_hover_result:type_name -> znasllc.memql.v1.SenseHoverResult
+	69,  // 77: znasllc.memql.v1.MemqlServerMessage.sense_signature_help_result:type_name -> znasllc.memql.v1.SenseSignatureHelpResult
+	66,  // 78: znasllc.memql.v1.MemqlServerMessage.sense_definition_result:type_name -> znasllc.memql.v1.SenseDefinitionResult
+	103, // 79: znasllc.memql.v1.MemqlServerMessage.concepts_list_result:type_name -> znasllc.memql.v1.ConceptsListResult
+	110, // 80: znasllc.memql.v1.MemqlServerMessage.concepts_subscribe_result:type_name -> znasllc.memql.v1.ConceptsSubscribeResult
+	112, // 81: znasllc.memql.v1.MemqlServerMessage.concepts_registry_delta:type_name -> znasllc.memql.v1.ConceptsRegistryDelta
+	114, // 82: znasllc.memql.v1.MemqlServerMessage.my_access_result:type_name -> znasllc.memql.v1.MyAccessResult
+	37,  // 83: znasllc.memql.v1.MemqlServerMessage.ai_transcribe_stream_delta:type_name -> znasllc.memql.v1.AiTranscribeStreamDelta
+	38,  // 84: znasllc.memql.v1.MemqlServerMessage.ai_transcribe_stream_complete:type_name -> znasllc.memql.v1.AiTranscribeStreamComplete
+	123, // 85: znasllc.memql.v1.MemqlServerMessage.agent_generate_turn_delta:type_name -> znasllc.memql.v1.AgentGenerateTurnDelta
+	127, // 86: znasllc.memql.v1.MemqlServerMessage.agent_generate_turn_complete:type_name -> znasllc.memql.v1.AgentGenerateTurnComplete
+	133, // 87: znasllc.memql.v1.MemqlServerMessage.revoke_current_session_result:type_name -> znasllc.memql.v1.RevokeCurrentSessionResult
+	135, // 88: znasllc.memql.v1.MemqlServerMessage.revoke_all_sessions_result:type_name -> znasllc.memql.v1.RevokeAllSessionsResult
+	137, // 89: znasllc.memql.v1.MemqlServerMessage.revoke_session_result:type_name -> znasllc.memql.v1.RevokeSessionResult
+	139, // 90: znasllc.memql.v1.MemqlServerMessage.set_sign_in_policy_result:type_name -> znasllc.memql.v1.SetSignInPolicyResult
+	141, // 91: znasllc.memql.v1.MemqlServerMessage.create_worker_token_result:type_name -> znasllc.memql.v1.CreateWorkerTokenResult
+	143, // 92: znasllc.memql.v1.MemqlServerMessage.revoke_worker_token_result:type_name -> znasllc.memql.v1.RevokeWorkerTokenResult
+	73,  // 93: znasllc.memql.v1.MemqlServerMessage.list_pack_domains_result:type_name -> znasllc.memql.v1.ListPackDomainsResult
+	76,  // 94: znasllc.memql.v1.MemqlServerMessage.list_pack_files_result:type_name -> znasllc.memql.v1.ListPackFilesResult
+	79,  // 95: znasllc.memql.v1.MemqlServerMessage.read_pack_file_result:type_name -> znasllc.memql.v1.ReadPackFileResult
+	149, // 96: znasllc.memql.v1.MemqlServerMessage.rotate_auth_result:type_name -> znasllc.memql.v1.RotateAuthResult
+	151, // 97: znasllc.memql.v1.MemqlServerMessage.node_maintenance_result:type_name -> znasllc.memql.v1.NodeMaintenanceResult
+	88,  // 98: znasllc.memql.v1.MemqlServerMessage.authoring_validate_bundle_result:type_name -> znasllc.memql.v1.AuthoringValidateBundleResult
+	90,  // 99: znasllc.memql.v1.MemqlServerMessage.authoring_session_define_bundle_result:type_name -> znasllc.memql.v1.AuthoringSessionDefineBundleResult
+	101, // 100: znasllc.memql.v1.MemqlServerMessage.dsl_spec_result:type_name -> znasllc.memql.v1.DslSpecResult
+	92,  // 101: znasllc.memql.v1.MemqlServerMessage.durable_promote_bundle_result:type_name -> znasllc.memql.v1.DurablePromoteBundleResult
+	97,  // 102: znasllc.memql.v1.MemqlServerMessage.durable_demote_bundle_result:type_name -> znasllc.memql.v1.DurableDemoteBundleResult
+	145, // 103: znasllc.memql.v1.MemqlServerMessage.create_badge_result:type_name -> znasllc.memql.v1.CreateBadgeResult
+	147, // 104: znasllc.memql.v1.MemqlServerMessage.revoke_badge_result:type_name -> znasllc.memql.v1.RevokeBadgeResult
+	153, // 105: znasllc.memql.v1.MemqlServerMessage.deploy_control_result:type_name -> znasllc.memql.v1.DeployControlResult
+	155, // 106: znasllc.memql.v1.MemqlServerMessage.automation_run_event:type_name -> znasllc.memql.v1.AutomationRunEvent
+	160, // 107: znasllc.memql.v1.MemqlServerMessage.create_account_token_result:type_name -> znasllc.memql.v1.CreateAccountTokenResult
+	162, // 108: znasllc.memql.v1.MemqlServerMessage.revoke_account_token_result:type_name -> znasllc.memql.v1.RevokeAccountTokenResult
+	164, // 109: znasllc.memql.v1.MemqlServerMessage.identity_admin_result:type_name -> znasllc.memql.v1.IdentityAdminResult
+	81,  // 110: znasllc.memql.v1.MemqlServerMessage.list_constructs_result:type_name -> znasllc.memql.v1.ListConstructsResult
+	99,  // 111: znasllc.memql.v1.MemqlServerMessage.stage_bundle_result:type_name -> znasllc.memql.v1.StageBundleResult
+	181, // 112: znasllc.memql.v1.MemqlServerMessage.modules_list_result:type_name -> znasllc.memql.v1.ModulesListResult
+	184, // 113: znasllc.memql.v1.MemqlServerMessage.module_detail_result:type_name -> znasllc.memql.v1.ModuleDetailResult
+	186, // 114: znasllc.memql.v1.MemqlServerMessage.set_pack_enabled_result:type_name -> znasllc.memql.v1.SetPackEnabledResult
+	191, // 115: znasllc.memql.v1.HeartbeatMsg.ts:type_name -> google.protobuf.Timestamp
+	192, // 116: znasllc.memql.v1.ExecuteQueryMsg.variables:type_name -> google.protobuf.Struct
+	19,  // 117: znasllc.memql.v1.QueryResultChunk.result:type_name -> znasllc.memql.v1.Result
+	21,  // 118: znasllc.memql.v1.QueryErrorMsg.error:type_name -> znasllc.memql.v1.QueryError
+	1,   // 119: znasllc.memql.v1.SubscribeMsg.kind:type_name -> znasllc.memql.v1.SubscriptionKind
+	192, // 120: znasllc.memql.v1.SubscribeMsg.config:type_name -> google.protobuf.Struct
+	0,   // 121: znasllc.memql.v1.SubscribeMsg.actions:type_name -> znasllc.memql.v1.GraphNodeAction
+	2,   // 122: znasllc.memql.v1.EventNotification.kind:type_name -> znasllc.memql.v1.EventKind
+	191, // 123: znasllc.memql.v1.EventNotification.ts:type_name -> google.protobuf.Timestamp
+	192, // 124: znasllc.memql.v1.EventNotification.payload:type_name -> google.protobuf.Struct
+	192, // 125: znasllc.memql.v1.AiStreamChunk.json_delta:type_name -> google.protobuf.Struct
+	192, // 126: znasllc.memql.v1.AiStreamChunk.metadata:type_name -> google.protobuf.Struct
+	22,  // 127: znasllc.memql.v1.Result.bundle:type_name -> znasllc.memql.v1.GraphBundle
+	193, // 128: znasllc.memql.v1.Result.data:type_name -> google.protobuf.Value
+	20,  // 129: znasllc.memql.v1.Result.meta:type_name -> znasllc.memql.v1.ResultMeta
+	189, // 130: znasllc.memql.v1.QueryError.metadata:type_name -> znasllc.memql.v1.QueryError.MetadataEntry
+	23,  // 131: znasllc.memql.v1.GraphBundle.nodes:type_name -> znasllc.memql.v1.MemoryNode
+	24,  // 132: znasllc.memql.v1.GraphBundle.edges:type_name -> znasllc.memql.v1.GraphEdge
+	191, // 133: znasllc.memql.v1.MemoryNode.created_at:type_name -> google.protobuf.Timestamp
+	192, // 134: znasllc.memql.v1.MemoryNode.payload:type_name -> google.protobuf.Struct
+	192, // 135: znasllc.memql.v1.MemoryNode.schema:type_name -> google.protobuf.Struct
+	192, // 136: znasllc.memql.v1.MemoryNode.metadata:type_name -> google.protobuf.Struct
+	4,   // 137: znasllc.memql.v1.MemoryNode.provenance:type_name -> znasllc.memql.v1.Provenance
+	27,  // 138: znasllc.memql.v1.ListToolsResult.tools:type_name -> znasllc.memql.v1.ToolDefinition
+	192, // 139: znasllc.memql.v1.CallToolMsg.arguments:type_name -> google.protobuf.Struct
+	30,  // 140: znasllc.memql.v1.CallToolResult.content:type_name -> znasllc.memql.v1.ToolResultContent
+	32,  // 141: znasllc.memql.v1.AiChatMsg.messages:type_name -> znasllc.memql.v1.AiChatMessage
+	32,  // 142: znasllc.memql.v1.AiChatResult.message:type_name -> znasllc.memql.v1.AiChatMessage
+	192, // 143: znasllc.memql.v1.AiSuggestMsg.payload:type_name -> google.protobuf.Struct
+	192, // 144: znasllc.memql.v1.AiSuggestResult.result:type_name -> google.protobuf.Struct
+	41,  // 145: znasllc.memql.v1.AiSuggestResult.usage:type_name -> znasllc.memql.v1.AiSuggestUsage
+	192, // 146: znasllc.memql.v1.IdentityUpdateMsg.fields:type_name -> google.protobuf.Struct
+	46,  // 147: znasllc.memql.v1.IdentityResult.identities:type_name -> znasllc.memql.v1.IdentityInfo
+	191, // 148: znasllc.memql.v1.IdentityInfo.created_at:type_name -> google.protobuf.Timestamp
+	191, // 149: znasllc.memql.v1.IdentityInfo.suspended_at:type_name -> google.protobuf.Timestamp
+	191, // 150: znasllc.memql.v1.DelegationCreateMsg.expires_at:type_name -> google.protobuf.Timestamp
+	51,  // 151: znasllc.memql.v1.DelegationResult.delegations:type_name -> znasllc.memql.v1.DelegationInfo
+	191, // 152: znasllc.memql.v1.DelegationInfo.expires_at:type_name -> google.protobuf.Timestamp
+	191, // 153: znasllc.memql.v1.DelegationInfo.created_at:type_name -> google.protobuf.Timestamp
+	191, // 154: znasllc.memql.v1.DelegationInfo.revoked_at:type_name -> google.protobuf.Timestamp
+	52,  // 155: znasllc.memql.v1.SenseRange.start:type_name -> znasllc.memql.v1.SensePosition
+	52,  // 156: znasllc.memql.v1.SenseRange.end:type_name -> znasllc.memql.v1.SensePosition
+	56,  // 157: znasllc.memql.v1.SenseTokenizeResult.tokens:type_name -> znasllc.memql.v1.SenseToken
+	53,  // 158: znasllc.memql.v1.SenseToken.range:type_name -> znasllc.memql.v1.SenseRange
+	52,  // 159: znasllc.memql.v1.SenseCompleteMsg.cursor:type_name -> znasllc.memql.v1.SensePosition
+	59,  // 160: znasllc.memql.v1.SenseCompleteResult.items:type_name -> znasllc.memql.v1.SenseCompletionItem
+	62,  // 161: znasllc.memql.v1.SenseDiagnoseResult.diagnostics:type_name -> znasllc.memql.v1.SenseDiagnostic
+	53,  // 162: znasllc.memql.v1.SenseDiagnostic.range:type_name -> znasllc.memql.v1.SenseRange
+	3,   // 163: znasllc.memql.v1.SenseDiagnostic.severity:type_name -> znasllc.memql.v1.SenseSeverity
+	52,  // 164: znasllc.memql.v1.SenseHoverMsg.position:type_name -> znasllc.memql.v1.SensePosition
+	53,  // 165: znasllc.memql.v1.SenseHoverResult.range:type_name -> znasllc.memql.v1.SenseRange
+	52,  // 166: znasllc.memql.v1.SenseDefinitionMsg.position:type_name -> znasllc.memql.v1.SensePosition
+	67,  // 167: znasllc.memql.v1.SenseDefinitionResult.targets:type_name -> znasllc.memql.v1.SenseDefinitionTarget
+	53,  // 168: znasllc.memql.v1.SenseDefinitionTarget.range:type_name -> znasllc.memql.v1.SenseRange
+	52,  // 169: znasllc.memql.v1.SenseSignatureHelpMsg.position:type_name -> znasllc.memql.v1.SensePosition
+	70,  // 170: znasllc.memql.v1.SenseSignatureHelpResult.signatures:type_name -> znasllc.memql.v1.SenseSignature
+	71,  // 171: znasllc.memql.v1.SenseSignature.parameters:type_name -> znasllc.memql.v1.SenseParameter
+	74,  // 172: znasllc.memql.v1.ListPackDomainsResult.domains:type_name -> znasllc.memql.v1.PackDomain
+	77,  // 173: znasllc.memql.v1.ListPackFilesResult.files:type_name -> znasllc.memql.v1.PackFile
+	82,  // 174: znasllc.memql.v1.ListConstructsResult.constructs:type_name -> znasllc.memql.v1.ConstructInfo
+	84,  // 175: znasllc.memql.v1.ConstructInfo.args:type_name -> znasllc.memql.v1.ConstructArg
+	83,  // 176: znasllc.memql.v1.ConstructInfo.trigger:type_name -> znasllc.memql.v1.ConstructTrigger
+	85,  // 177: znasllc.memql.v1.AuthoringValidateBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
+	86,  // 178: znasllc.memql.v1.AuthoringSessionDefineBundleResult.defined:type_name -> znasllc.memql.v1.AuthoringConstruct
+	85,  // 179: znasllc.memql.v1.AuthoringSessionDefineBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
+	86,  // 180: znasllc.memql.v1.DurablePromoteBundleResult.promoted:type_name -> znasllc.memql.v1.AuthoringConstruct
+	85,  // 181: znasllc.memql.v1.DurablePromoteBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
+	93,  // 182: znasllc.memql.v1.DurablePromoteBundleResult.concept_diffs:type_name -> znasllc.memql.v1.ConceptSchemaDiff
+	94,  // 183: znasllc.memql.v1.ConceptSchemaDiff.changes:type_name -> znasllc.memql.v1.ConceptSchemaChange
+	86,  // 184: znasllc.memql.v1.DurableDemoteBundleResult.demoted:type_name -> znasllc.memql.v1.AuthoringConstruct
+	85,  // 185: znasllc.memql.v1.DurableDemoteBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
+	96,  // 186: znasllc.memql.v1.DurableDemoteBundleResult.outcomes:type_name -> znasllc.memql.v1.DurableDemoteOutcome
+	86,  // 187: znasllc.memql.v1.StageBundleResult.staged:type_name -> znasllc.memql.v1.AuthoringConstruct
+	85,  // 188: znasllc.memql.v1.StageBundleResult.diagnostics:type_name -> znasllc.memql.v1.AuthoringDiagnostic
+	104, // 189: znasllc.memql.v1.ConceptsListResult.concepts:type_name -> znasllc.memql.v1.ConceptInfo
+	108, // 190: znasllc.memql.v1.ConceptInfo.display_card:type_name -> znasllc.memql.v1.DisplayCard
+	106, // 191: znasllc.memql.v1.ConceptInfo.fields:type_name -> znasllc.memql.v1.ConceptField
+	107, // 192: znasllc.memql.v1.ConceptInfo.relationships:type_name -> znasllc.memql.v1.ConceptRelationship
+	105, // 193: znasllc.memql.v1.ConceptInfo.composable:type_name -> znasllc.memql.v1.Composable
+	111, // 194: znasllc.memql.v1.ConceptsSubscribeResult.domains:type_name -> znasllc.memql.v1.DomainSubscription
+	104, // 195: znasllc.memql.v1.ConceptsRegistryDelta.added:type_name -> znasllc.memql.v1.ConceptInfo
+	117, // 196: znasllc.memql.v1.AgentGenerateTurnMsg.history:type_name -> znasllc.memql.v1.AgentTurnMessage
+	118, // 197: znasllc.memql.v1.AgentGenerateTurnMsg.routing:type_name -> znasllc.memql.v1.AgentTurnRoutingContext
+	116, // 198: znasllc.memql.v1.AgentGenerateTurnMsg.acting_agent:type_name -> znasllc.memql.v1.ActingAgentIdentity
+	122, // 199: znasllc.memql.v1.AgentGenerateTurnMsg.attachments:type_name -> znasllc.memql.v1.AgentTurnAttachment
+	190, // 200: znasllc.memql.v1.AgentGenerateTurnMsg.hints:type_name -> znasllc.memql.v1.AgentGenerateTurnMsg.HintsEntry
+	120, // 201: znasllc.memql.v1.AgentTurnRoutingContext.peers:type_name -> znasllc.memql.v1.AgentTurnPeer
+	121, // 202: znasllc.memql.v1.AgentTurnRoutingContext.peer_activity:type_name -> znasllc.memql.v1.AgentTurnPeerActivity
+	119, // 203: znasllc.memql.v1.AgentTurnRoutingContext.humans:type_name -> znasllc.memql.v1.AgentTurnHuman
+	124, // 204: znasllc.memql.v1.AgentGenerateTurnDelta.text:type_name -> znasllc.memql.v1.AgentTurnTextDelta
+	125, // 205: znasllc.memql.v1.AgentGenerateTurnDelta.tool_call:type_name -> znasllc.memql.v1.AgentTurnToolCall
+	126, // 206: znasllc.memql.v1.AgentGenerateTurnDelta.tool_result:type_name -> znasllc.memql.v1.AgentTurnToolResult
+	125, // 207: znasllc.memql.v1.AgentGenerateTurnComplete.tool_calls:type_name -> znasllc.memql.v1.AgentTurnToolCall
+	131, // 208: znasllc.memql.v1.AgentGenerateTurnComplete.error:type_name -> znasllc.memql.v1.AgentTurnError
+	129, // 209: znasllc.memql.v1.AgentGenerateTurnComplete.citations:type_name -> znasllc.memql.v1.AgentTurnCitation
+	130, // 210: znasllc.memql.v1.AgentGenerateTurnComplete.retrieved:type_name -> znasllc.memql.v1.AgentRetrievedChunk
+	194, // 211: znasllc.memql.v1.DeployControlMsg.get_deployment_status:type_name -> znasllc.memql.deploycontrol.v1.GetDeploymentStatusRequest
+	195, // 212: znasllc.memql.v1.DeployControlMsg.suggest_next_version:type_name -> znasllc.memql.deploycontrol.v1.SuggestNextVersionRequest
+	196, // 213: znasllc.memql.v1.DeployControlMsg.rollback:type_name -> znasllc.memql.deploycontrol.v1.RollbackRequest
+	197, // 214: znasllc.memql.v1.DeployControlMsg.rollout_action:type_name -> znasllc.memql.deploycontrol.v1.RolloutActionRequest
+	198, // 215: znasllc.memql.v1.DeployControlMsg.cut_version:type_name -> znasllc.memql.deploycontrol.v1.CutVersionRequest
+	199, // 216: znasllc.memql.v1.DeployControlMsg.deploy:type_name -> znasllc.memql.deploycontrol.v1.DeployRequest
+	200, // 217: znasllc.memql.v1.DeployControlMsg.rollback_deployment:type_name -> znasllc.memql.deploycontrol.v1.RollbackDeploymentRequest
+	201, // 218: znasllc.memql.v1.DeployControlMsg.repair:type_name -> znasllc.memql.deploycontrol.v1.RepairRequest
+	202, // 219: znasllc.memql.v1.DeployControlResult.deployment_status:type_name -> znasllc.memql.deploycontrol.v1.DeploymentStatus
+	203, // 220: znasllc.memql.v1.DeployControlResult.next_version:type_name -> znasllc.memql.deploycontrol.v1.SuggestNextVersionResult
+	204, // 221: znasllc.memql.v1.DeployControlResult.action:type_name -> znasllc.memql.deploycontrol.v1.ActionResult
+	192, // 222: znasllc.memql.v1.RunAutomationMsg.payload:type_name -> google.protobuf.Struct
+	156, // 223: znasllc.memql.v1.AutomationRunEvent.accepted:type_name -> znasllc.memql.v1.AutomationRunAccepted
+	157, // 224: znasllc.memql.v1.AutomationRunEvent.step:type_name -> znasllc.memql.v1.AutomationRunStep
+	158, // 225: znasllc.memql.v1.AutomationRunEvent.complete:type_name -> znasllc.memql.v1.AutomationRunComplete
+	192, // 226: znasllc.memql.v1.AutomationRunStep.output:type_name -> google.protobuf.Struct
+	167, // 227: znasllc.memql.v1.IdentityAdminMsg.update_user_profile:type_name -> znasllc.memql.v1.UpdateUserProfileRequest
+	168, // 228: znasllc.memql.v1.IdentityAdminMsg.set_user_role:type_name -> znasllc.memql.v1.SetUserRoleRequest
+	169, // 229: znasllc.memql.v1.IdentityAdminMsg.set_user_suspended:type_name -> znasllc.memql.v1.SetUserSuspendedRequest
+	172, // 230: znasllc.memql.v1.IdentityAdminMsg.revoke_user_token:type_name -> znasllc.memql.v1.RevokeUserTokenRequest
+	173, // 231: znasllc.memql.v1.IdentityAdminMsg.revoke_node_token:type_name -> znasllc.memql.v1.RevokeNodeTokenRequest
+	174, // 232: znasllc.memql.v1.IdentityAdminMsg.update_cluster_settings:type_name -> znasllc.memql.v1.UpdateClusterSettingsRequest
+	175, // 233: znasllc.memql.v1.IdentityAdminMsg.issue_enrolment_link:type_name -> znasllc.memql.v1.IssueEnrolmentLinkRequest
+	176, // 234: znasllc.memql.v1.IdentityAdminMsg.revoke_enrolment_link:type_name -> znasllc.memql.v1.RevokeEnrolmentLinkRequest
+	178, // 235: znasllc.memql.v1.IdentityAdminMsg.set_oauth_client_cors_origins:type_name -> znasllc.memql.v1.SetOAuthClientCorsOriginsRequest
+	177, // 236: znasllc.memql.v1.IdentityAdminMsg.rotate_recovery_key:type_name -> znasllc.memql.v1.RotateRecoveryKeyRequest
+	165, // 237: znasllc.memql.v1.IdentityAdminMsg.issue_user_invitation:type_name -> znasllc.memql.v1.IssueUserInvitationRequest
+	166, // 238: znasllc.memql.v1.IdentityAdminMsg.revoke_user_invitation:type_name -> znasllc.memql.v1.RevokeUserInvitationRequest
+	170, // 239: znasllc.memql.v1.IdentityAdminMsg.reset_sign_in_policy:type_name -> znasllc.memql.v1.ResetSignInPolicyRequest
+	171, // 240: znasllc.memql.v1.IdentityAdminMsg.set_user_shared_mailbox:type_name -> znasllc.memql.v1.SetUserSharedMailboxRequest
+	180, // 241: znasllc.memql.v1.ModulesListResult.modules:type_name -> znasllc.memql.v1.ModuleInfo
+	180, // 242: znasllc.memql.v1.ModuleDetailResult.module:type_name -> znasllc.memql.v1.ModuleInfo
+	183, // 243: znasllc.memql.v1.ModuleDetailResult.env_vars:type_name -> znasllc.memql.v1.ModuleEnvVar
+	5,   // 244: znasllc.memql.v1.MemqlService.Stream:input_type -> znasllc.memql.v1.MemqlClientMessage
+	6,   // 245: znasllc.memql.v1.MemqlService.Stream:output_type -> znasllc.memql.v1.MemqlServerMessage
+	245, // [245:246] is the sub-list for method output_type
+	244, // [244:245] is the sub-list for method input_type
+	244, // [244:244] is the sub-list for extension type_name
+	244, // [244:244] is the sub-list for extension extendee
+	0,   // [0:244] is the sub-list for field type_name
 }
 
 func init() { file_memql_proto_init() }
@@ -19243,7 +19212,7 @@ func file_memql_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_memql_proto_rawDesc), len(file_memql_proto_rawDesc)),
-			NumEnums:      5,
+			NumEnums:      4,
 			NumMessages:   187,
 			NumExtensions: 0,
 			NumServices:   1,

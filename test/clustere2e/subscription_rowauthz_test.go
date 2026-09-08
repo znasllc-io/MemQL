@@ -60,7 +60,7 @@ func TestClusterNonGraphSubscriptionKindGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMyAccess: %v", err)
 	}
-	ownerOrAdmin := access.ClusterRole == memqlclient.RoleOwner || access.ClusterRole == memqlclient.RoleAdmin
+	ownerOrAdmin := access.Role == memqlclient.RoleOwner || access.Role == memqlclient.RoleAdmin
 	t.Logf("MEMQL_E2E_TOKEN resolves to cluster role %q", access.ClusterRole)
 
 	sm := memqlclient.NewSubscriptionManager(conns[0].Dispatcher())
