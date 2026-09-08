@@ -117,50 +117,42 @@ func (s *Service) IssueUserInvitation(ctx context.Context, in UserInvitation) Re
 	// could mint an owner invitation and hold the cluster through the account
 	// it creates -- privilege escalation with a delay and a paper trail that
 	// looks like an ordinary invitation.
+	//
+	// ONE RULE, SHARED WITH SetUserRole (epic memql#5166, D4). The paragraph
+	// that stood here restated the rank cap and the people-authority clause
+	// inline, correctly, while SetUserRole applied neither -- and a rule of
+	// this shape kept in two places does not stay in two agreeing places. The
+	// reasoning now lives in auth.MayAssignRole beside the rule.
+	//
+	// The invitee's current rung is EMPTY: there is no principal yet. That is
+	// also what selects the CAPABILITY the caller must hold -- create-on-
+	// admission or create-on-principal rather than update-on-principal -- so a
+	// developer keeps the invitations memql#4917 gave it.
 	if role != "" {
 		if !auth.IsValidRole(auth.Role(role)) {
 			return fail(CodeInvalidArgument, s.emit(ctx, identity.AuditCategoryAdmin, "user_invitation_issued",
 				act, "", email, detail, identity.AuditOutcomeFailure, "unknown_role"),
 				"identity admin: "+role+" is not a cluster role")
 		}
-		// THE ONE RANK MODEL, NOT A RESTATEMENT OF IT (epic memql#4832, D1).
-		//
-		// This compared against a private map that ranked admin ABOVE
-		// developer -- the ordering the epic deleted from MemQL OS as "the
-		// defect", still alive here because nothing scanned Go for a second
-		// copy. It let an admin invite somebody as developer: minting a
-		// principal the canonical model ranks ABOVE the inviter, through the
-		// one check whose entire job is to refuse that.
-		//
-		// auth.RoleRank is the cluster's one ordering -- the Go model and
-		// dsl/rbac/seeds.memql mirror each other, neither is generated from
-		// the other, and TestEngineRankModelMatchesTheSeeds fails the build
-		// when they disagree. Calling it means this site cannot drift from
-		// whichever way that pair is edited. An unknown role is unreachable
-		// above but would rank 0 regardless, which is below every real role.
-		//
-		// The inviter's own role is lowercased exactly as it was before this
-		// call site changed, and that fold is BELT-AND-BRACES rather than
-		// load-bearing: auth.RoleRank matches slugs EXACTLY, but so does
-		// roleHasCapability, so authorizeAdmission() has already refused a
-		// caller whose row spelled the role "Admin" and this line cannot be
-		// reached with one.
-		// Kept because it costs a call and makes the swap to the shared model
-		// a pure one -- dropping it would leave this comparison ranking 0 on
-		// the day that gate learns to fold case.
-		inviterRank := auth.RoleRank(auth.Role(strings.ToLower(strings.TrimSpace(string(act.role)))))
-		// THE RANK CAP IS NOT ENOUGH ON ITS OWN. developer outranks admin and
-		// holds strictly fewer principal verbs, so rank alone lets a developer
-		// invite an address they control AS an admin -- and an admin can then
-		// do the user management the developer cannot, including the uncapped
-		// SetUserRole. The second clause is what refuses granting a role whose
-		// people-authority exceeds the inviter's own.
 		inviterSlug := auth.Role(strings.ToLower(strings.TrimSpace(string(act.role))))
-		if auth.RoleRank(auth.Role(role)) > inviterRank ||
-			auth.GrantsPrincipalAuthorityBeyond(inviterSlug, auth.Role(role)) {
+		refusal := auth.MayAssignRole(
+			auth.UserContext{ID: act.userID, Role: inviterSlug},
+			"", "", role, nil,
+		)
+		if refusal != auth.AssignAllowed {
+			// `role_above_inviter` is KEPT for the two refusals that meant it
+			// before this call site changed -- the rank cap and the
+			// people-authority clause. An audit trail whose reason strings
+			// change meaning under a refactor is a trail nobody can read
+			// backwards.
+			reason := string(refusal)
+			if refusal == auth.AssignAboveCaller || refusal == auth.AssignAuthorityBeyond {
+				reason = "role_above_inviter"
+			}
 			return fail(CodePermissionDenied, s.emit(ctx, identity.AuditCategoryAdmin, "user_invitation_issued",
-				act, "", email, detail, identity.AuditOutcomeBlocked, "role_above_inviter"),
-				"identity admin: you cannot invite somebody as "+role+" -- that is above your own role")
+				act, "", email, detail, identity.AuditOutcomeBlocked, reason),
+				"identity admin: you cannot invite somebody as "+role+" -- "+
+					auth.AssignRefusalSentence(refusal, inviterSlug, role))
 		}
 	}
 

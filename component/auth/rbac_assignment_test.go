@@ -10,6 +10,11 @@ import "testing"
 
 // assignmentCatalog is the ladder every case below is decided against: the five
 // seeded rungs plus a custom `support-lead` at 150 and a scoped `acct-lead`.
+func withAdmission(set map[VerbResource]bool) map[VerbResource]bool {
+	set[VerbResource{Verb: VerbCreate, Resource: ResourceAdmission}] = true
+	return set
+}
+
 func assignmentCatalog() *fakeCatalog {
 	principal := func(verbs ...string) map[VerbResource]bool {
 		out := map[VerbResource]bool{}
@@ -31,11 +36,15 @@ func assignmentCatalog() *fakeCatalog {
 		},
 		scopes: map[string]string{"acct-lead": "acct-1"},
 		grants: map[string]map[VerbResource]bool{
-			"owner":     principal(VerbRead, VerbCreate, VerbUpdate, VerbDelete),
-			"admin":     principal(VerbRead, VerbCreate, VerbUpdate, VerbDelete),
-			"developer": principal(VerbRead),
-			// support-lead manages people below it but cannot delete them.
-			"support-lead": principal(VerbRead, VerbCreate, VerbUpdate),
+			// ADMISSION IS PART OF THE FIXTURE, not decoration: it is the grant
+			// that lets a developer invite people while holding no
+			// update-on-principal, and it is exactly the pair MayAssignRole
+			// branches on. A fixture that omitted it would make every developer
+			// invitation refuse for the wrong reason and the test would agree.
+			"owner":        withAdmission(principal(VerbRead, VerbCreate, VerbUpdate, VerbDelete)),
+			"admin":        withAdmission(principal(VerbRead, VerbCreate, VerbUpdate, VerbDelete)),
+			"developer":    withAdmission(principal(VerbRead)),
+			"support-lead": withAdmission(principal(VerbRead, VerbCreate, VerbUpdate)),
 			"acct-lead":    principal(VerbRead, VerbUpdate),
 			"user":         {},
 			"viewer":       {},
@@ -95,15 +104,34 @@ func TestMayAssignRole(t *testing.T) {
 			newRole: "reader", want: AssignAllowed,
 		},
 		{
+			name:       "developer may not RE-ROLE anybody -- it holds no update on principal",
+			callerRole: RoleDeveloper, callerId: "u-dev", targetId: "u-c", targetCurrent: "writer",
+			newRole: "viewer", want: AssignNotAUserManager,
+		},
+		{
 			// RANK IS NOT AUTHORITY. developer (300) outranks admin (200) and
 			// holds strictly fewer principal verbs, so the rank test alone lets
-			// a developer mint an admin -- who then holds the user management
-			// the developer does not, including the role changes this function
-			// governs. Two moves to owner, with a paper trail that looks
-			// ordinary.
-			name:       "developer may not mint an admin whose people-authority exceeds theirs",
-			callerRole: RoleDeveloper, callerId: "u-dev", targetId: "u-c", targetCurrent: "writer",
-			newRole: "admin", want: AssignNotAUserManager,
+			// a developer INVITE an address they control AS an admin -- who
+			// then holds the user management the developer does not, including
+			// the role changes this function governs. Two moves to owner, with
+			// a paper trail that looks like an ordinary invitation.
+			name:       "developer may not invite an admin whose people-authority exceeds theirs",
+			callerRole: RoleDeveloper, callerId: "u-dev", targetId: "", targetCurrent: "",
+			newRole: "admin", want: AssignAuthorityBeyond,
+		},
+		{
+			// The capability a developer DOES hold is create-on-admission, so
+			// it may invite below itself. Taking that away through this
+			// function would remove invitations from every developer in every
+			// cluster (memql#4917).
+			name:       "developer may invite a member",
+			callerRole: RoleDeveloper, callerId: "u-dev", targetId: "", targetCurrent: "",
+			newRole: "writer", want: AssignAllowed,
+		},
+		{
+			name:       "an invitation at the inviter's own rung is refused -- D4 is strictly below",
+			callerRole: RoleAdmin, callerId: "u-adm", targetId: "", targetCurrent: "",
+			newRole: "admin", want: AssignAboveCaller,
 		},
 		{
 			name:       "a member may not assign anything",
