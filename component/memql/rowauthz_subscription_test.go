@@ -227,3 +227,57 @@ func TestSubscriptionVerdictIsStableAcrossActionsOfOneRow(t *testing.T) {
 		}
 	}
 }
+
+// The ACCOUNT GRANT on a subscription (epic memql#5165, section C).
+//
+// Subscriptions inherit the branch through rowAuthzAdmits with no work of
+// their own, which is the design's claim -- and this is what makes it a
+// measurement rather than an assertion about code shape.
+//
+// The failure it exists against is the one clients/os/README.md names: a
+// member reads their client's campaign on load and receives no live event for
+// it, so the list is correct when the page opens and frozen afterwards, with
+// nothing reporting anything.
+func TestSubscriptionAppliesTheAccountGrant(t *testing.T) {
+	decl := accountFixture(t, declaredAccountConcept, "accountId")
+	_ = decl
+
+	member := writerAccess("member")
+	stranger := writerAccess("stranger")
+	scope := accountScopeWith("v1:accounts:account:acme")
+
+	// The per-stream context the fan-out holds. SubscriptionRankContext is
+	// what installs it in production; here the resolution is injected, for
+	// the reason every test in this file injects rather than reads.
+	memo := &accountScopeMemo{}
+	memo.once.Do(func() { memo.scope = scope })
+	streamCtx := context.WithValue(context.Background(), accountScopeMemoKey{}, memo)
+
+	acme := subPayload(t, map[string]any{"ownerUserId": "somebody-else", "accountId": "v1:accounts:account:acme"})
+	beta := subPayload(t, map[string]any{"ownerUserId": "somebody-else", "accountId": "v1:accounts:account:beta"})
+
+	if got := AdmitSubscriptionRow(streamCtx, member, declaredAccountConcept, "row-acme", acme); got != SubscriptionAdmit {
+		t.Fatalf("a member's stream did not receive their own client's row: %v.\n"+
+			"This is the 'correct on load, frozen after' shape: the read path admits it and the "+
+			"live feed drops it, and nothing reports the difference.", got)
+	}
+	if got := AdmitSubscriptionRow(streamCtx, member, declaredAccountConcept, "row-beta", beta); got != SubscriptionDeny {
+		t.Fatalf("a member's stream received ANOTHER client's row: %v", got)
+	}
+
+	// The negative control: a stream with no resolution installed -- which is
+	// what a fan-out that forgot the memo produces -- withholds rather than
+	// widens. The failure direction is a row not delivered, never a row
+	// delivered to the wrong person.
+	if got := AdmitSubscriptionRow(context.Background(), member, declaredAccountConcept, "row-acme", acme); got != SubscriptionDeny {
+		t.Fatalf("a stream with NO account resolution admitted a tied row: %v", got)
+	}
+	// And somebody in no group receives neither, or the admission above is
+	// measuring nothing.
+	strangerMemo := &accountScopeMemo{}
+	strangerMemo.once.Do(func() { strangerMemo.scope = accountScopeWith() })
+	strangerCtx := context.WithValue(context.Background(), accountScopeMemoKey{}, strangerMemo)
+	if got := AdmitSubscriptionRow(strangerCtx, stranger, declaredAccountConcept, "row-acme", acme); got != SubscriptionDeny {
+		t.Fatalf("a stream for somebody in no group received a tied row: %v", got)
+	}
+}
