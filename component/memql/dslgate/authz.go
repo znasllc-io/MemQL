@@ -182,6 +182,28 @@ func classifyConstruct(path string, c construct, opts Options) (Bucket, string) 
 	if strings.Contains(c.Preamble, "@public") {
 		return BucketPublic, clause
 	}
+	// `@requiresRank("<slug>")` at an admin-or-above floor IS a caller check,
+	// and it is the one this gate could not see (epic memql#5165).
+	//
+	// It refuses the CALL rather than narrowing the rows -- enforced at
+	// execution by refusePlanBelowRequiredRank and validated at LOAD by
+	// validateRequiresRankSlugs -- so a construct carrying it has already
+	// answered "who may ask", which is the question the flagged bucket exists
+	// to raise. Before this, an admin-floored read of an unowned concept had
+	// no legal resolution: a caller-scope filter is meaningless on rows nobody
+	// owns, the slug specs would NARROW the surface below the floor (a custom
+	// role ranked above admin passes @requiresRank and fails
+	// `requiresDeveloperOrAbove`, silently getting zero rows), and @public /
+	// @serverOnly are both false statements about it.
+	//
+	// THE FLOOR MUST BE ADMIN OR ABOVE, and an unrecognised slug does not
+	// satisfy this. A rank is resolved from the role catalog at RUNTIME, so a
+	// source scan cannot know where a custom slug sits -- and reading an
+	// unknown floor as "probably high enough" is the fail-open direction on a
+	// gate whose whole purpose is to notice a missing caller check.
+	if requiresAdminRankFloor(c.Preamble) {
+		return BucketAdmin, clause
+	}
 
 	// Presence test over the SAME leaf vocabulary AdminGateLeaf uses, so the
 	// classification and the composition gate cannot drift about what counts
@@ -220,6 +242,27 @@ func classifyConstruct(path string, c construct, opts Options) (Bucket, string) 
 		return BucketOther, clause
 	}
 	return BucketFlagged, clause
+}
+
+// requiresAdminRankFloor reports whether a construct's annotations declare a
+// `@requiresRank` floor at admin or above.
+//
+// THE SLUG SET IS A LITERAL, and deliberately so. Rank is data -- the ladder
+// lives in v1:rbac:role and a custom role may sit anywhere in it -- so a
+// SOURCE SCAN cannot resolve a slug it has not been told about. The three
+// named here are the shipped rungs at or above admin (admin 200, developer
+// 300, owner 400); anything else, including a custom slug that genuinely
+// outranks admin, falls through to the ordinary classification and is flagged
+// if it selects by a user-scope column. That is the conservative direction:
+// the cost is a construct that must state its gate another way, and the
+// alternative cost is a gate that stops noticing missing caller checks.
+func requiresAdminRankFloor(preamble string) bool {
+	for _, slug := range []string{"admin", "developer", "owner"} {
+		if strings.Contains(preamble, `@requiresRank("`+slug+`")`) {
+			return true
+		}
+	}
+	return false
 }
 
 // adminCompositionViolation reports a filter whose admin gate would not zero

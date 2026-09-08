@@ -74,7 +74,12 @@ var capabilitySets = map[Role]map[verbResource]bool{
 		// deployment, agent, group, role.
 		vr("execute", "deployment"),
 		vr("create", "agent"),
-		vr("create", "group"),
+		// `update` on group is what every group builtin but groupCreate
+		// checks (epic memql#5165, D7). Placing somebody into a client's
+		// group is an edit OF THE GROUP -- the person's own row is
+		// untouched -- so it is not `update` on principal, which a
+		// developer deliberately does not hold.
+		vr("create", "group"), vr("update", "group"),
 		vr("read", "role"), vr("create", "role"), vr("update", "role"), vr("delete", "role"),
 		vr("create", "admission"),
 	),
@@ -110,7 +115,7 @@ var capabilitySets = map[Role]map[verbResource]bool{
 		vr("read", "data"), vr("create", "data"), vr("update", "data"), vr("delete", "data"),
 		vr("execute", "deployment"),
 		vr("create", "agent"),
-		vr("create", "group"),
+		vr("create", "group"), vr("update", "group"),
 		vr("read", "role"), vr("create", "role"), vr("update", "role"),
 		vr("create", "admission"),
 	),

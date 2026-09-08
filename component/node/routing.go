@@ -535,6 +535,28 @@ func defaultRoutingRules() []RoutingRule {
 		// v1:identity:user rule above intends.
 		{Pattern: "graph.node.created.v1:identity:invitation", TargetType: ""},
 		{Pattern: "graph.node.updated.v1:identity:invitation", TargetType: ""},
+
+		// Groups and memberships (epic memql#5165, section I). The Users
+		// app's group page and person page are LIVE on these: a person
+		// placed into a client's group appears on the group's page without
+		// a refresh, and a membership removed disappears from theirs.
+		//
+		// Both rows are written on whichever node served the caller's
+		// stream and read on the node serving the page, which is the
+		// "correct on load, frozen after" shape clients/os/README.md warns
+		// about by name -- default-deny leaves the list right at load and
+		// dead afterwards, and nothing reports it.
+		//
+		// SAFE TO BROADCAST, checked rather than assumed: no automation in
+		// the tree triggers on either concept (the account cascade triggers
+		// on v1:accounts:account, not on these), and both are human actions
+		// at human volume -- somebody placing a colleague in a group, not a
+		// per-request record. v1:worker:invocation is the counter-example
+		// this deliberately is not.
+		{Pattern: "graph.node.created.v1:identity:group", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:identity:group", TargetType: ""},
+		{Pattern: "graph.node.created.v1:identity:groupMembership", TargetType: ""},
+		{Pattern: "graph.node.updated.v1:identity:groupMembership", TargetType: ""},
 		// The two Home tiles that count identity rows (memql#4542). The
 		// tiles subscribe to CREATED only -- they show a count and the most
 		// recent few -- so only created is forwarded. An account is created
