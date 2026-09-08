@@ -2734,18 +2734,21 @@ query githubConnectState githubConnectStateByHash {
 
 // ---- Groups (epic memql#5165, section D) ----
 //
-// EVERY FILTER CARRIES `requiresDeveloperOrAbove`, and it is not redundant
-// beside `@requiresRank("admin")`. The two answer different gates: the
-// annotation is the SURFACE floor the engine enforces at execution, and the
-// conjunct is what TestRowAuthzEnforcementLandGate can still check by
-// inspection on a rank-declaring tier -- whose injected term is a symbolic
-// node with no author spelling, so "does this filter imply it" has no static
-// answer. The conjunct is the tree's own idiom for the case; the accounts
-// reads over the same tier carry it too.
+// NO CALLER-SCOPE CONJUNCT, which is the same conclusion epic memql#5166
+// reached for the two accounts reads over this same tier.
 //
-// It is also what makes these rows reachable AT ALL: their ownerUserId is
-// always empty, so the tier's owner arm matches nobody and `unowned="admin"`
-// is the branch doing the work.
+// `@requiresRank("admin")` bounds who may CALL. The tier
+// (`owner="ownerUserId", rankVisible, unowned="admin", clusterOwner`) then
+// decides the ROW SET, and here it decides it completely: ownerUserId is
+// ALWAYS EMPTY, so the owner arm matches nobody, and the unowned floor admits
+// exactly the caller set the annotation already admitted. There is no row an
+// admin may call for and not see, so a conjunct could only be a pass-through.
+//
+// Writing `actor.isClusterOwner==true` instead would not be the conservative
+// choice -- it is FALSE for every admin these reads exist to serve, so it
+// would be a regression rather than a tightening. TestRowAuthzEnforcementLandGate
+// cannot see that argument, because a call-time floor is not a filter term, so
+// these five carry entries in its exemption table.
 //
 // All five carry @requiresRank("admin"), the Users app's own floor. That is
 // the SURFACE half of the decision; the concepts' `unowned="admin"` tier is
@@ -2763,7 +2766,7 @@ query group groupsAll {
   args {
     includeArchived  boolean
   }
-  filter  requiresDeveloperOrAbove && (statusIsActive || args.includeArchived==true)
+  filter  statusIsActive || args.includeArchived==true
   shape   groupFull
   sort    "name", "asc"
 }
@@ -2774,7 +2777,7 @@ query group groupById {
   args {
     groupId  string!
   }
-  filter  requiresDeveloperOrAbove && row.id==args.groupId
+  filter  row.id==args.groupId
   shape   groupFull
 }
 
@@ -2784,7 +2787,7 @@ query group groupsForAccount {
   args {
     accountId  string!
   }
-  filter  requiresDeveloperOrAbove && accountId==args.accountId && statusIsActive
+  filter  accountId==args.accountId && statusIsActive
   shape   groupFull
   sort    "name", "asc"
 }
@@ -2797,7 +2800,7 @@ query groupMembership membersOfGroup {
     groupId         string!
     includeRemoved  boolean
   }
-  filter  requiresDeveloperOrAbove && groupId==args.groupId && (statusIsActive || args.includeRemoved==true)
+  filter  groupId==args.groupId && (statusIsActive || args.includeRemoved==true)
   shape   groupMembershipFull
   sort    "row.createdAt", "desc"
 }
@@ -2809,7 +2812,7 @@ query groupMembership groupsForUser {
     userId          string!
     includeRemoved  boolean
   }
-  filter  requiresDeveloperOrAbove && userId==args.userId && (statusIsActive || args.includeRemoved==true)
+  filter  userId==args.userId && (statusIsActive || args.includeRemoved==true)
   shape   groupMembershipFull
   sort    "row.createdAt", "desc"
 }
