@@ -37,7 +37,6 @@ import (
 	"strconv"
 	"strings"
 
-	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
 
@@ -88,75 +87,14 @@ func ConstructNameFor(f Form) string { return strings.TrimSpace(f.Name) }
 // at a line number in a file that does not exist. This one is about the field
 // they filled in.
 func Validate(f Form, shipped ShippedNames) error {
-	name := strings.TrimSpace(f.Name)
-	if name == "" {
-		return fmt.Errorf("a rule needs a name")
-	}
-	if !isIdentifier(name) {
-		return fmt.Errorf("rule name %q must be a bare identifier: letters and digits, starting with a letter", name)
-	}
-	if shipped.HasRule(name) {
-		return fmt.Errorf("%q is a shipped rule. A shipped rule is re-read from the embedded tree on every "+
-			"boot, so a custom rule taking its name would be replaced at the next restart with nothing "+
-			"saying so. Choose another name; a custom rule can still take precedence with @precedence", name)
-	}
-	if strings.TrimSpace(f.Policy) == "" {
-		return fmt.Errorf("rule %q names no policy: a rule that selects no chain resolves nothing", name)
-	}
-	if err := langparser.ValidatePolicyEntry(f.Policy); err != nil {
-		return fmt.Errorf("rule %q: %w", name, err)
-	}
-	if _, isPolicyRef := langparser.IsPolicyEntry(f.Policy); isPolicyRef {
-		return fmt.Errorf("rule %q: @policy takes a policy NAME, not a policy: reference -- write %q",
-			name, strings.TrimPrefix(f.Policy, "policy:"))
-	}
-	// THE POLICY MUST EXIST, and this is the only place that can say so before
-	// the rule is live. ValidatePolicyEntry above checks the FORM of a chain
-	// entry, which a policy name passes trivially -- any identifier does. A
-	// rule naming a policy nobody registered renders, loads, and then refuses
-	// EVERY CALL IT MATCHES at request time with "names a policy that is not
-	// registered" on the door report, which is a place the person who wrote
-	// the rule is not looking. They activated it and were told it was fine.
-	//
-	// A NAME NOBODY MINTS IS THE COMMON CASE, not a typo: minting a policy is
-	// how somebody expresses a chain, and it is exactly what neither front
-	// door may do -- a provider chain from a form or a sentence is a spending
-	// decision in a place no review looks.
-	if !shipped.HasPolicy(strings.TrimSpace(f.Policy)) {
-		return fmt.Errorf("rule %q names policy %q, which is not registered on this cluster. A rule may NAME "+
-			"a policy and may not mint one; a rule naming a policy that does not exist loads cleanly and "+
-			"then refuses every call it matches", name, strings.TrimSpace(f.Policy))
-	}
-	if lvl := strings.TrimSpace(f.Level); lvl != "" && !validLevel(lvl) {
-		return fmt.Errorf("rule %q: level %q is not one of fast, strong, reasoning, embeddings", name, lvl)
-	}
-	switch strings.TrimSpace(f.OnUnavailable) {
-	case "", memql.OnUnavailableDegrade, memql.OnUnavailablePark:
-	default:
-		return fmt.Errorf("rule %q: onUnavailable %q is not %q or %q",
-			name, f.OnUnavailable, memql.OnUnavailableDegrade, memql.OnUnavailablePark)
-	}
-	for key, value := range f.When {
-		if !memql.IsRuleWhenKey(key) {
-			return fmt.Errorf("rule %q: %q is not a condition key -- the closed set is %s",
-				name, key, memql.RuleWhenKeyNames())
-		}
-		if strings.ContainsAny(value, `"\`+"\n") {
-			return fmt.Errorf("rule %q: the value for %q contains a quote, a backslash or a newline, "+
-				"which a rendered annotation cannot carry", name, key)
-		}
-	}
-	if lvl, ok := f.When["level"]; ok && lvl != "" && !validLevel(lvl) {
-		return fmt.Errorf("rule %q: @when(level=%q) is not one of fast, strong, reasoning, embeddings -- "+
-			"a level outside the closed set is a condition that can never be true, which presents as a "+
-			"rule that is simply never reached", name, lvl)
-	}
-	for _, entry := range f.Excludes {
-		if err := langparser.ValidatePolicyEntry(entry); err != nil {
-			return fmt.Errorf("rule %q: exclude %q: %w", name, entry, err)
-		}
-	}
-	return nil
+	return memql.ValidateRuleProposal(memql.RuleProposal{
+		Name:          f.Name,
+		When:          f.When,
+		Level:         f.Level,
+		Policy:        f.Policy,
+		OnUnavailable: f.OnUnavailable,
+		Excludes:      f.Excludes,
+	}, shipped)
 }
 
 // GenerateRule renders the construct. It assumes Validate passed; the one
@@ -235,37 +173,14 @@ func wrapDoc(s string) []string {
 	return append(out, line)
 }
 
-func validLevel(s string) bool {
-	switch s {
-	case "fast", "strong", "reasoning", "embeddings":
-		return true
-	}
-	return false
-}
-
-func isIdentifier(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9' && i > 0:
-		default:
-			return false
-		}
-	}
-	return !(s[0] >= '0' && s[0] <= '9')
-}
-
-// ShippedNames answers "is this name the embedded tree's". It is an interface
-// so this package can be tested without an engine, and so the one live
-// implementation is the engine's own registries rather than a second list that
-// would drift from them.
-type ShippedNames interface {
-	HasRule(name string) bool
-	HasPolicy(name string) bool
-}
+// ShippedNames answers "is this name the embedded tree's".
+//
+// It is an ALIAS rather than a second declaration of the same two methods. Go
+// would satisfy both structurally, so a duplicate would work and would be a
+// second name for one contract -- and the moment either grew a method the
+// other would not, the compiler would report it at the call site rather than
+// where the divergence was introduced.
+type ShippedNames = memql.ShippedNames
 
 // EngineShippedNames reads the live registries.
 type EngineShippedNames struct{ Engine *memql.MemQLEngine }

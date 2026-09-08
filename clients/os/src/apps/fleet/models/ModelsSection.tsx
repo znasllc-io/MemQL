@@ -210,7 +210,7 @@ export function ModelsSection() {
 
           <div className="os-fleet-models-scope">
             <Refine
-              label="Refine models"
+              label="Refine the ranked list"
               search={search}
               onSearch={setSearch}
               placeholder="Search"

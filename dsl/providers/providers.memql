@@ -189,8 +189,6 @@ provider claudeSonnet {
   }
 }
 
-// ---- providers/v1/openai/computerUse.memql ----
-
 // ---- providers/v1/openai/embedding3Large.memql ----
 
 /// OpenAI text-embedding-3-large for high-fidelity vector embeddings (3072 dimensions)
@@ -226,10 +224,6 @@ provider embedding3Small {
   }
 }
 
-// ---- providers/v1/openai/image15.memql ----
-
-// ---- providers/v1/openai/image1Mini.memql ----
-
 // ---- providers/v1/openai/moderationOmni.memql ----
 
 @base
@@ -254,24 +248,6 @@ provider openai {
     identityTokenFile   env("MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE")
   }
 }
-
-// ---- providers/v1/openai/research3.memql ----
-
-// ---- providers/v1/openai/research4Mini.memql ----
-
-// ---- providers/v1/openai/search5.memql ----
-
-// ---- providers/v1/openai/sora2.memql ----
-
-// ---- providers/v1/openai/sora2Pro.memql ----
-
-// ---- providers/v1/openai/stream53Latest.memql ----
-
-// ---- providers/v1/openai/stream54.memql ----
-
-// ---- providers/v1/openai/stream54Mini.memql ----
-
-// ---- providers/v1/openai/stream54Nano.memql ----
 
 // ---- providers/v1/openai/stream54Pro.memql ----
 
@@ -306,10 +282,6 @@ provider openai {
 // names from this project's service-account key on 2026-05-09:
 //   gpt-5.4-pro -> 404 "not a chat model"
 //   gpt-5.4     -> OK (streams + tools work)
-
-// ---- providers/v1/anthropic/streamClaudeHaiku.memql ----
-
-// ---- providers/v1/anthropic/streamClaudeOpus.memql ----
 
 // ---- providers/v1/anthropic/reasoningClaudeOpus.memql ----
 //
@@ -358,8 +330,6 @@ provider reasoningClaudeOpus {
   }
 }
 
-// ---- providers/v1/anthropic/streamClaudeSonnet.memql ----
-
 // ---- providers/v1/openai/codex51Max.memql ----
 
 /// OpenAI gpt-5.1-codex-max - heavy long-context coding model (streaming); preferred for multi-file
@@ -400,10 +370,6 @@ provider reasoning4Mini {
     maxCompletionTokens  16384
   }
 }
-
-// ---- providers/v1/openai/transcribeDiarize.memql ----
-
-// ---- providers/v1/openai/whisper1.memql ----
 
 // ---- providers/v1/fleet/fleet.memql ----
 

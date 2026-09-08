@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/znasllc-io/memql/component/memql"
-	"github.com/znasllc-io/memql/component/routingrules"
 )
 
 // A described rule: a sentence, compiled once, into a rule a person confirms
@@ -90,23 +89,29 @@ type Warning struct {
 // every call CAN be activated and is probably a mistake, so it is surfaced and
 // left to them: it is their cluster, and a compiler that refused anything
 // surprising would be unable to express the shipped rules themselves.
-// Form is the compiled rule in the shape the runtime rule authoring pipeline
-// takes, so that one validator decides what may be activated.
+// ShippedNames answers "is this name the embedded tree's", so the compiler can
+// refuse a rule the loader would refuse.
+//
+// It is the SHARED contract rather than a local one: `component/routingrules`
+// -- the form door onto the same pipeline -- passes the same view, and the
+// live implementation on both sides is the engine's own registries.
+type ShippedNames = memql.ShippedNames
+
+// Proposal is the compiled rule in the shape the shared validator takes, so
+// one function decides what may be activated.
 //
 // THE COMPILER IS A DIFFERENT FRONT DOOR TO THE SAME PIPELINE, and that is why
 // this conversion exists rather than a second set of checks. An operator
-// filling in the form and an operator typing a sentence must be able to
-// activate exactly the same set of rules; anything the compiler let through
-// that the form refuses would be a rule that validates, renders and then fails
-// to load, with the person holding a confident restatement of it.
-func (r CompiledRule) Form() routingrules.Form {
-	return routingrules.Form{
+// filling in a form and an operator typing a sentence must be able to activate
+// exactly the same set of rules; anything the compiler let through that the
+// form refuses would be a rule that validates, renders and then fails to load,
+// with the person holding a confident restatement of it.
+func (r CompiledRule) Proposal() memql.RuleProposal {
+	return memql.RuleProposal{
 		Name:          strings.TrimSpace(r.Name),
-		Description:   strings.TrimSpace(r.Sentence),
 		When:          r.Conditions,
 		Level:         strings.TrimSpace(r.Level),
 		Policy:        strings.TrimSpace(r.Policy),
-		Precedence:    r.Precedence,
 		OnUnavailable: strings.TrimSpace(r.OnUnavailable),
 		Excludes:      r.Excludes,
 	}
@@ -122,25 +127,29 @@ func (r CompiledRule) Form() routingrules.Form {
 // left to them: it is their cluster, and a compiler that refused anything
 // surprising would be unable to express the shipped rules themselves.
 //
-// EVERY REFUSAL IS routingrules.Validate'S, ASKED THROUGH THE FORM. An earlier
-// draft of this function re-implemented all of them here against four
-// hardcoded lists -- the shipped rule names, the shipped policy names, the
-// `@when` keys and the onUnavailable values. Three of those were already
-// wrong when they were written: the rule list named a POLICY as a rule and
-// missed four of the six rules the tree actually ships, so a sentence could
-// take `reasoningParks`' name and get exactly the load-order coin flip the
-// list existed to prevent. Lists like that do not drift because somebody is
-// careless; they drift because the thing they copy is somewhere else and
-// nothing connects them. `shipped` reads the live registries.
-func (r CompiledRule) Validate(shipped routingrules.ShippedNames) ([]Warning, error) {
-	if err := routingrules.Validate(r.Form(), shipped); err != nil {
+// EVERY REFUSAL IS memql.ValidateRuleProposal'S. An earlier draft of this
+// function re-implemented all of them here against four hardcoded lists -- the
+// shipped rule names, the shipped policy names, the `@when` keys and the
+// onUnavailable values. Three of those were already wrong when they were
+// written: the rule list named a POLICY as a rule and missed four of the six
+// rules the tree actually ships, so a sentence could take `reasoningParks`'
+// name and get exactly the load-order coin flip the list existed to prevent.
+// Lists like that do not drift because somebody is careless; they drift
+// because the thing they copy is somewhere else and nothing connects them.
+// `shipped` reads the live registries.
+func (r CompiledRule) Validate(shipped ShippedNames) ([]Warning, error) {
+	if err := memql.ValidateRuleProposal(r.Proposal(), shipped); err != nil {
 		return nil, err
 	}
 	for _, ex := range r.Excludes {
-		// ROUTINGRULES CHECKS THAT AN EXCLUSION IS A VALID POLICY ENTRY; this
-		// narrows it to the fleet door, which is the only one an exclusion has
-		// ever meant. A sentence saying "not on the laptop" names a machine's
-		// model; there is no reading of it that names a vendor record.
+		// THE SHARED VALIDATOR CHECKS THAT AN EXCLUSION IS A VALID POLICY
+		// ENTRY; this narrows it to the fleet door, which is the only one an
+		// exclusion has ever meant. A sentence saying "not on the laptop"
+		// names a machine's model; there is no reading of it that names a
+		// vendor record. It stays HERE rather than moving into the shared
+		// validator because the form door does not impose it -- an operator
+		// typing into a field may have a reason a compiler inferring from
+		// prose does not.
 		if !strings.HasPrefix(ex, "fleet:") {
 			return nil, fmt.Errorf("rule %q excludes %q; an exclusion names a fleet model as fleet:<modelId>", r.Name, ex)
 		}
