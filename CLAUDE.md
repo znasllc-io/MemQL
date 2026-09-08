@@ -1249,6 +1249,8 @@ Queries + Prompts --> Automations  (event -> side-effect)  <-- Tools (AI-callabl
 
 Prompts (@level) --> Rules  (call metadata -> policy)
                        '-- Policies  (an ordered chain of doors)
+
+Roles + Capabilities --> @requiresRank / @requiresCapability  (who may CALL)
 ```
 
 Three rules the diagram does not show: a `trait` is the one deliberately-unbound
@@ -1495,6 +1497,18 @@ mirror -- both permanent, neither a stand-in for the other. Declared on the
 CONSTRUCT because a surface is a set of constructs and an app id from a browser
 is a claim, not a fact.
 
+**`@requiresCapability("<verb>", "<resource>")` is its SIBLING** (epic
+memql#5166, D11), same lifecycle -- validated at LOAD against the five verbs and
+the resource kinds the seeds name, enforced at execution on the direct call and
+on every plan that EXPANDS the construct. **A rank is a FLOOR and a capability
+is a GRANT, and a cluster can hold one without the other**: developer ranks 300
+above admin's 200 and holds strictly fewer verbs on `principal`. Declared
+together, both must pass. They replaced `requiresAdmin`,
+`requiresOwnerOrAdmin` and `requiresDeveloperOrAbove`, which are DELETED -- a
+slug comparison cannot see a role a cluster authored for itself, and dslgate
+recognises gates by NAME, so a misspelled spec name was a missing conjunct
+nothing noticed.
+
 **One role ladder, and the shell holds none of it** (D1). `v1:rbac:role` carries
 `rank` plus `aliases` (the user row's `writer`/`reader` are aliases of the
 catalog's `user`/`viewer`), the OS reads `activeRoles`, and
@@ -1503,6 +1517,27 @@ ships an ordering of its own or the three readings disagree. **developer (300)
 outranks admin (200)** -- every `roles: { min: "admin" }` written under the old
 OS ordering changed meaning when this landed, and each was re-read against what
 it was trying to say.
+
+**A ROLE IS A ROW, AND THE ROWS ARE THE TRUTH** (epic memql#5166). A runtime
+CATALOG is loaded from `v1:rbac:role` and `v1:rbac:capability` at boot
+(`component/memql/rbac_catalog.go`), installed into `component/auth` as the ONE
+resolver every `Capable` call and every Can adapter reads, and reloaded on both
+concepts' events -- which broadcast, so a role created on one replica is real on
+all of them. `rankLadder` reads the same structure, so the row gate and the data
+gate cannot disagree about a rank. The compiled `capabilitySets` map is demoted
+to the seed's MIRROR, answering only before the rows are readable and pinned by
+`TestSeedMatchesCompiledMirror`.
+
+**An unknown slug holds nothing and ranks 0**, which is fail-closed and has one
+consequence: a role deactivated under a holder leaves them resolving to nothing,
+everywhere, until re-roled. `v1:identity:user.role`, `invitation.inviteeRole`
+and `delegation.roleCeiling` are STRINGS carrying a catalog slug or alias -- a
+DSL enum cannot name a row, and the five-value enum is why a custom role could
+be created, could rank, and could not be assigned. `roleCreate` / `roleUpdate` /
+`roleDeactivate` author one under rank-below-creator, rank-not-taken,
+grants-a-subset-of-the-caller's and predefined-immutable; `auth.MayAssignRole`
+is the ONE rule both assignment seams call. Operator doc:
+[access-model.md](docs/public/operate/auth/access-model.md).
 
 The partition dimension that historically gated tenant isolation is retired in
 #56 (phases 1-7 landed; phase 8 sweeps the remaining cross-repo stragglers + the

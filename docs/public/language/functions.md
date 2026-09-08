@@ -48,7 +48,7 @@ what it does; the keyword already states what it is.
 - Query: what it returns (e.g. `activeFolders`, `userById`)
 - Mutation: the verb (e.g. `createFolder`, `archiveUser`)
 - Logic: the verb (e.g. `bootstrapSession`, `generateResponse`)
-- Spec / trait: the predicate (e.g. `isActiveRecord`, `requiresOwnerOrAdmin`)
+- Spec / trait: the predicate (e.g. `isActiveRecord`, `requiresOwner`)
 - Prompt: descriptive name (e.g. `agentReply`, `consolidateMemory`)
 - Provider: provider name (e.g. `chat54Mini`, `streamClaudeSonnet`)
 - Shape: `<concept><Projection>` (e.g. `folderCard`, `artifactFull`)

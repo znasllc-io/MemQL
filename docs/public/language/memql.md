@@ -1073,9 +1073,14 @@ spec artifact isArchivedArtifact {
 
 use common.shapes.{ actorEnvelope }
 
-/// Actor holds an admin role
-spec actorEnvelope requiresAdmin {
-  return role == "admin"
+/// Actor is acting on their own behalf rather than through a delegation.
+///
+/// A ROLE comparison is deliberately not the example (epic memql#5166): a slug
+/// comparison cannot see a role a cluster authored for itself, so a role
+/// question is `@requiresRank("<slug>")` or
+/// `@requiresCapability("<verb>", "<resource>")` rather than any spec.
+spec actorEnvelope isSelfActing {
+  return identityId == userId
 }
 ```
 

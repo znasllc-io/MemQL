@@ -174,6 +174,14 @@ func (i *Integration) readGrants(ctx context.Context, slug string) ([]componentA
 // ALIASES COUNT. Every ordinary principal's row spells the member tier
 // `writer`; a holder check that compared the catalog slug alone would report
 // zero holders for `user` and let it be retired out from under everybody.
+//
+// staged-data: MUST-NOT-GATE -- a staged v1:identity:user row excluded here is
+// a HOLDER THIS COUNT CANNOT SEE, so `roleDeactivate`'s only job -- refusing to
+// strand the people on a role -- fails open for exactly them. They are then
+// left holding a retired role, which resolves to nothing, everywhere, until
+// somebody re-roles them; and nothing reports it, because the retirement
+// succeeded. Staging governs whether a row is PUBLISHED; it must not decide
+// whether a person counts as holding a role.
 func (i *Integration) holdersOf(ctx context.Context, slug string) ([]string, error) {
 	db := i.db()
 	if db == nil {
@@ -226,6 +234,10 @@ func (i *Integration) holdersOf(ctx context.Context, slug string) ([]string, err
 // retiring the role it names would leave a link that lands its recipient on a
 // role holding nothing -- which they would discover after clicking, having
 // already been told they were being given something.
+//
+// staged-data: MUST-NOT-GATE -- for holdersOf's reason, one step earlier. A
+// staged invitation excluded here is a promise this count cannot see, so the
+// role it names is retired out from under a link already in somebody's inbox.
 func (i *Integration) pendingInvitationsFor(ctx context.Context, slug string) (int, error) {
 	db := i.db()
 	if db == nil {

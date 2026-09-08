@@ -26,7 +26,7 @@ or `seed*` prefix.
   name.)
 - Logic: the verb -- `indexArtifact`, `generateResponse`
 - Specs and traits: the predicate they express -- `isNotArchived`,
-  `isActiveRecord`, `requiresOwnerOrAdmin`
+  `isActiveRecord`, `requiresOwner`
 - Automations: verb-first -- `indexArtifact`, `releaseWorkspaceOnPlanTerminal`
 - Shapes: `<concept><Projection>` -- `artifactFull`, `folderCard`
 - Seeds: the thing being seeded -- `sofia`, `plannerAgent`

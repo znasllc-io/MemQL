@@ -27,6 +27,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/znasllc-io/memql/core/repowalk"
 )
 
 type migratedConstruct struct {
@@ -121,7 +123,20 @@ func TestNoConstructNamesARetiredSpec(t *testing.T) {
 	var offenders []string
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".memql") {
+		if err != nil {
+			return nil
+		}
+		// THE SHARED SKIP LIST. `.claude/` holds git WORKTREES -- whole copies
+		// of this repo -- so a walk that descends into one reads a colleague's
+		// branch and fails on code that is not in this tree (memql#4871,
+		// memql#4878).
+		if info.IsDir() {
+			if repowalk.SkipDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".memql") {
 			return nil
 		}
 		body, readErr := os.ReadFile(path)
