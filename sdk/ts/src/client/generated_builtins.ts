@@ -816,6 +816,28 @@ QueryClient.prototype.fleetModels = function (this: QueryClient, args: FleetMode
   return this.executeNamed("fleetModels", buildFleetModels(args), opts);
 };
 
+/** Ask one of YOUR OWN fleet machines to pull every model the catalog recommends for its class, in order, and return at once with the ids of the records to watch. One pull record per model, opened through the same path the per-model act uses. Owner-only, and every refusal -- the machine is not yours, is offline, has not reported its hardware, or is under the floor for local models -- happens BEFORE the first row is written, so a half-run set is not a state this can leave behind: a person watching four bars, two of which will never move, cannot tell a queue from a failure. Profiles the machine cannot pull are REPORTED rather than attempted, each with the sentence saying why, because what the act did not do is half of what a person needs to read. */
+export interface FleetPullRecommendedArgs {
+  /** v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
+  registrationId: string;
+}
+
+export function buildFleetPullRecommended(args: FleetPullRecommendedArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  return "builtin fleetPullRecommended(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetPullRecommended(args: FleetPullRecommendedArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetPullRecommended = function (this: QueryClient, args: FleetPullRecommendedArgs = {} as FleetPullRecommendedArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetPullRecommended", buildFleetPullRecommended(args), opts);
+};
+
 /** Fork one of the caller's runs at a step: a NEW run that serves the shared prefix from the journal and runs live from the fork step on. The source run is untouched. Returns {runId}. */
 export interface ForkRunArgs {
   /** The run to fork. */

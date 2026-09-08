@@ -461,6 +461,13 @@ const (
 	// a v1:worker:modelPull row, and an agent replica picks that row up. See
 	// fleet_model_pull.go.
 	BuiltinExecutorFleetModelPull = "fleetModelPull"
+	// BuiltinExecutorFleetPullRecommended asks one of the CALLER'S machines to
+	// pull the whole set the catalog recommends for its class, in order (epic
+	// memql#5146, D2). It opens one v1:worker:modelPull row per model through
+	// the SAME path the per-model act uses -- it adds the SET and the ORDER,
+	// which is the part the catalog can answer and a person cannot, and no
+	// second pull mechanism. See fleet_recommended_pull.go.
+	BuiltinExecutorFleetPullRecommended = "fleetPullRecommended"
 	// BuiltinExecutorModuleReadiness folds every node's readiness rows into
 	// one verdict per module (design record 2026-09-06-configuration-readiness,
 	// section 4.5). See readiness_read.go.

@@ -1061,6 +1061,27 @@ func FleetModelsBuild(args FleetModelsArgs) string {
 	return "builtin fleetModels()"
 }
 
+// FleetPullRecommended -- Ask one of YOUR OWN fleet machines to pull every model the catalog recommends for its class, in order, and return at once with the ids of the records to watch. One pull record per model, opened through the same path the per-model act uses. Owner-only, and every refusal -- the machine is not yours, is offline, has not reported its hardware, or is under the floor for local models -- happens BEFORE the first row is written, so a half-run set is not a state this can leave behind: a person watching four bars, two of which will never move, cannot tell a queue from a failure. Profiles the machine cannot pull are REPORTED rather than attempted, each with the sentence saying why, because what the act did not do is half of what a person needs to read.
+type FleetPullRecommendedArgs struct {
+	// v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
+	RegistrationId string
+}
+
+// FleetPullRecommended calls the engine builtin fleetPullRecommended.
+func (qc *QueryClient) FleetPullRecommended(ctx context.Context, args FleetPullRecommendedArgs) (*Result, error) {
+	call := FleetPullRecommendedBuild(args)
+	return qc.executeNamed(ctx, "fleetPullRecommended", call)
+}
+
+func FleetPullRecommendedBuild(args FleetPullRecommendedArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetPullRecommended(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // ForkRun -- Fork one of the caller's runs at a step: a NEW run that serves the shared prefix from the journal and runs live from the fork step on. The source run is untouched. Returns {runId}.
 type ForkRunArgs struct {
 	// The run to fork.

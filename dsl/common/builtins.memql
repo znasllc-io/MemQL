@@ -722,3 +722,22 @@ builtin routingRuleActivate {
 builtin routingRuleRetire {
   name  string!
 }
+
+// ---- Pulling the whole recommended set (epic memql#5146, D2) ----
+//
+// The same act, once per model, in the order the catalog recommends. A person
+// who has just paired a Mac Studio should not have to decide which four models
+// to pull, in which order, and then press four buttons: the catalog knows which
+// models suit a machine of this class, the engine knows the class, and the whole
+// of what is left for a person to say is "yes, do that".
+//
+// It opens one v1:worker:modelPull row per model through the SAME path the
+// per-model act uses -- no second pull mechanism, no second sweep. What it adds
+// is the set and the order.
+
+@sdk
+@executor("fleetPullRecommended")
+@description("Ask one of YOUR OWN fleet machines to pull every model the catalog recommends for its class, in order, and return at once with the ids of the records to watch. One pull record per model, opened through the same path the per-model act uses. Owner-only, and every refusal -- the machine is not yours, is offline, has not reported its hardware, or is under the floor for local models -- happens BEFORE the first row is written, so a half-run set is not a state this can leave behind: a person watching four bars, two of which will never move, cannot tell a queue from a failure. Profiles the machine cannot pull are REPORTED rather than attempted, each with the sentence saying why, because what the act did not do is half of what a person needs to read.")
+builtin fleetPullRecommended {
+  registrationId  string!  @description("v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.")
+}
