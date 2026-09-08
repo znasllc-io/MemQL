@@ -42,6 +42,17 @@ import { SettingsApp } from "../../src/apps/settings/SettingsApp";
 // jsdom implements neither `scrollIntoView` nor layout, so what is asserted is
 // the part that is real in every browser AND in a test: focus lands inside the
 // named vendor's panel, and the intent is consumed by id exactly once.
+//
+// THE PANEL IS NOW OPENED ON DEMAND (epic memql#5153), which splits the act in
+// two and makes the ABSENCE of a panel the assertion for every case that names
+// no vendor. The section opens the panel in one effect and reveals-and-consumes
+// in a second, precisely because on the tick the intent arrives the region is
+// not in the DOM yet and `findRegion` would answer null -- a silent no-op that
+// reads exactly like a broken intent. So `[data-os-vendor]` existing at all is
+// what "a vendor was revealed" means here, and the earlier form of these
+// assertions -- `panel?.contains(activeElement)` being `false` -- could no
+// longer distinguish "not revealed" from "no panel", answering `undefined` to
+// both.
 
 afterEach(cleanup);
 
@@ -98,14 +109,19 @@ describe("Settings, opened at a vendor", () => {
   it("does nothing, and consumes nothing, when the intent names no vendor", async () => {
     const { consume } = await open({ somethingElse: true });
     expect(consume).not.toHaveBeenCalled();
-    // A vendor nobody named must not be revealed on a guess.
-    expect(document.querySelector('[data-os-vendor="anthropic"]')?.contains(document.activeElement)).toBe(false);
+    // A vendor nobody named must not be revealed on a guess -- and with the
+    // form behind its row, not revealing one means not opening one at all.
+    expect(document.querySelector("[data-os-vendor]")).toBeNull();
   });
 
   it("renders the section unchanged when the shell hands it no intent at all", async () => {
     const { consume } = await open(null);
     expect(consume).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "AI providers" })).toBeTruthy();
+    // RE-POINTED TITLE. "AI providers" became "Doors" (epic memql#5153); what
+    // this asserts is unchanged -- the section renders its standing self when
+    // the shell asks it for nothing in particular.
+    expect(screen.getByRole("heading", { name: "Doors" })).toBeTruthy();
+    expect(document.querySelector("[data-os-vendor]")).toBeNull();
   });
 
   it("ignores a vendor this build has no panel for, rather than throwing", async () => {
@@ -114,7 +130,9 @@ describe("Settings, opened at a vendor", () => {
     // different selector. This value would match the Anthropic panel if it
     // were pasted into a query.
     const { consume } = await open({ vendor: 'x"] , [data-os-vendor="anthropic' });
-    expect(document.querySelector('[data-os-vendor="anthropic"]')?.contains(document.activeElement)).toBe(false);
+    expect(document.querySelector("[data-os-vendor]")).toBeNull();
+    // Consumed even so: an instruction nobody can act on must not be
+    // delivered again forever.
     expect(consume).toHaveBeenCalledExactlyOnceWith("intent-7");
   });
 });

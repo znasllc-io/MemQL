@@ -13,7 +13,10 @@ import { BenchmarksSection } from "./BenchmarksSection";
 import { DiagnosticsSection } from "./DiagnosticsSection";
 import { IntegrationsSection } from "./IntegrationsSection";
 import { KeysSection } from "./KeysSection";
-import { ProvidersSection } from "./ProvidersSection";
+import { DecisionsSection } from "./DecisionsSection";
+import { DoorsSection } from "./DoorsSection";
+import { LevelsSection } from "./LevelsSection";
+import { RulesSection } from "./RulesSection";
 import { TokensSection } from "./TokensSection";
 import { ConnectionHistoryProvider } from "./useConnectionHistory";
 
@@ -57,7 +60,10 @@ function sectionFor(sectionId: string, intent: OsAppProps["intent"], consumeInte
   if (sectionId === "integrations")
     return <IntegrationsSection intent={intent} consumeIntent={consumeIntent} />;
   if (sectionId === "providers")
-    return <ProvidersSection intent={intent} consumeIntent={consumeIntent} />;
+    return <DoorsSection intent={intent} consumeIntent={consumeIntent} />;
+  if (sectionId === "levels") return <LevelsSection />;
+  if (sectionId === "rules") return <RulesSection />;
+  if (sectionId === "decisions") return <DecisionsSection />;
   if (sectionId === "tokens") return <TokensSection />;
   if (sectionId === "keys") return <KeysSection />;
   // No owned concepts: the shell's own lines are tagged with no app, and

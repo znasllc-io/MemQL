@@ -81,6 +81,19 @@ describe("the settings-section contract", () => {
   // Tokens and Keys are the operator capabilities that had no other home, and
   // they sit between Integrations and Logs -- beside the other section that
   // configures the cluster rather than describes it.
+  //
+  // FIFTEEN since the AI redesign (epic memql#5153, D1/D2). "AI providers"
+  // became four sections named for the questions they answer -- Doors, Levels,
+  // Rules, Decisions -- and they sit together, in that order, because the
+  // order is the order somebody learns them in: where a model comes from, how
+  // much a call needs, who gets what, and what actually happened.
+  //
+  // THE FIRST OF THEM KEEPS THE ID `providers`. Doors is that section's
+  // successor, and two things in another epic's tree reach for
+  // `settings/providers` by name -- the core gate's inference stop and
+  // MODULE_SETTINGS_SECTION. Renaming the id buys a nicer string and costs a
+  // cross-epic edit to a screen an owner cannot dismiss; the id is not
+  // user-visible and the NAME is.
   it("Settings itself declares its sections", () => {
     const settings = OS_REGISTRY.apps.find((a) => a.id === "settings");
     expect(settings?.sections?.map((s) => s.id)).toEqual([
@@ -93,6 +106,9 @@ describe("the settings-section contract", () => {
       "benchmarks",
       "integrations",
       "providers",
+      "levels",
+      "rules",
+      "decisions",
       "tokens",
       "keys",
       "logs",
@@ -121,6 +137,21 @@ describe("the settings-section contract", () => {
     // administration. Rounding this to `{ min: "developer" }` would admit
     // admin -- the ladder ranks developer 300 above admin 200 -- and offer
     // them a section of forms the engine refuses one by one.
+    // Rules is the same set as Doors and for the same reason: writing a rule
+    // is configuration, and an admin's concern is user administration.
+    //
+    // LEVELS AND DECISIONS ARE WIDER, not narrower, and the shape says so
+    // (D7). `{ min: "admin" }` on this ladder admits admin (200), developer
+    // (300) AND owner -- so a floor here is a SUPERSET of the owner-or-
+    // developer set above. It is safe because a decision record carries
+    // neither the prompt nor the error message: the engine's projection omits
+    // both, so an admin answering "why did this go to a vendor" can have the
+    // list without being shown anything they should not see.
+    expect(settings?.sections?.find((s) => s.id === "rules")?.roles).toEqual({
+      any: ["owner", "developer"],
+    });
+    expect(settings?.sections?.find((s) => s.id === "levels")?.roles).toEqual({ min: "admin" });
+    expect(settings?.sections?.find((s) => s.id === "decisions")?.roles).toEqual({ min: "admin" });
     expect(settings?.sections?.find((s) => s.id === "providers")?.roles).toEqual({
       any: ["owner", "developer"],
     });
