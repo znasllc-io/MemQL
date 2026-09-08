@@ -17,6 +17,16 @@
 # (:8085) cannot share one object. The HTTP paths go in one, the `/` catch-all
 # to the gRPC backend in the other.
 #
+# THE gRPC OBJECT CARRIES TWO RULES, AND THE FIRST IS NOT THE BFF'S (epic
+# memql#5218, D10). WorkerService.Stream -- the cockpit's stream -- is served by
+# the agent node and by nothing else, and gRPC puts the fully qualified service
+# name in the request path. The cluster's own api host routes that prefix to
+# the agent above its catch-all, and a door has to route it the same way, or a
+# cockpit told to dial a client's api. host is answered `Unimplemented: unknown
+# service` by the bff and never registers. --workerServicePath defaults to the
+# prefix component/frontdoor.WorkerServicePath names, and
+# account_front_door_test.go pins the two spellings against each other.
+#
 # THE HTTP PATH LIST IS PASSED IN, NOT KNOWN HERE. --apiPaths carries the
 # comma-separated list that component/frontdoor/paths.generated.go holds, which
 # cmd/frontdoorpaths writes from the SAME collect() that fills the cluster's own
@@ -69,6 +79,9 @@ cap_spec_param          "bffHttpService"  "backend Service for api.'s HTTP paths
 cap_spec_param          "bffHttpPort"     "backend Service port for api.'s HTTP paths (default: 8085)"
 cap_spec_param          "bffGrpcService"  "backend Service for api.'s h2c catch-all (default: bff)"
 cap_spec_param          "bffGrpcPort"     "backend Service port for api.'s h2c catch-all (default: 50051)"
+cap_spec_param          "workerServicePath" "the gRPC service prefix routed to the agent ahead of the catch-all -- the cockpit's WorkerService.Stream (default: component/frontdoor.WorkerServicePath)"
+cap_spec_param          "agentGrpcService" "backend Service for api.'s worker-stream prefix (default: agent)"
+cap_spec_param          "agentGrpcPort"   "backend Service port for api.'s worker-stream prefix (default: 50051)"
 cap_spec_param          "identityService" "backend Service for id. (default: identity)"
 cap_spec_param          "identityPort"    "backend Service port for id. (default: 8085)"
 cap_spec_param          "waitSeconds"     "how long to wait for the certificate to become Ready before reporting not-ready (default: 15)"
@@ -91,6 +104,15 @@ BFF_HTTP_SERVICE="$(cap_param bffHttpService "bff-http")"
 BFF_HTTP_PORT="$(cap_param bffHttpPort "8085")"
 BFF_GRPC_SERVICE="$(cap_param bffGrpcService "bff")"
 BFF_GRPC_PORT="$(cap_param bffGrpcPort "50051")"
+# THE DEFAULT IS A SECOND SPELLING OF component/frontdoor.WorkerServicePath,
+# and account_front_door_test.go reads it out of this file and holds the two
+# equal -- the discipline the three host labels are already under
+# (TestTheScriptsUseTheSameThreeLabelsAsFrontdoor). The engine passes the
+# constant explicitly; the default exists for the operator's manual path, which
+# this script's header says it also is.
+WORKER_SERVICE_PATH="$(cap_param workerServicePath "/znasllc.memql.worker.v1.WorkerService/")"
+AGENT_GRPC_SERVICE="$(cap_param agentGrpcService "agent")"
+AGENT_GRPC_PORT="$(cap_param agentGrpcPort "50051")"
 IDENTITY_SERVICE="$(cap_param identityService "identity")"
 IDENTITY_PORT="$(cap_param identityPort "8085")"
 WAIT_SECONDS="$(cap_param waitSeconds "15")"
@@ -137,8 +159,8 @@ function check_params() {
     [[ "$RESERVED_NAME" == *.* ]] \
         || cap_fail 2 "--reservedName ${RESERVED_NAME} is a single label, not a domain"
     for pair in "edgePort:${EDGE_PORT}" "bffHttpPort:${BFF_HTTP_PORT}" \
-                "bffGrpcPort:${BFF_GRPC_PORT}" "identityPort:${IDENTITY_PORT}" \
-                "waitSeconds:${WAIT_SECONDS}"; do
+                "bffGrpcPort:${BFF_GRPC_PORT}" "agentGrpcPort:${AGENT_GRPC_PORT}" \
+                "identityPort:${IDENTITY_PORT}" "waitSeconds:${WAIT_SECONDS}"; do
         [[ "${pair#*:}" =~ ^[0-9]+$ ]] || cap_fail 2 "--${pair%%:*} ${pair#*:} is not a number"
     done
     [[ "$WAIT_SECONDS" -gt 0 ]] \
@@ -175,11 +197,20 @@ function check_params() {
     for pair in "namespace:${NAMESPACE}" "ingressClass:${INGRESS_CLASS}" \
                 "issuer:${ISSUER}" "edgeService:${EDGE_SERVICE}" \
                 "bffHttpService:${BFF_HTTP_SERVICE}" "bffGrpcService:${BFF_GRPC_SERVICE}" \
-                "identityService:${IDENTITY_SERVICE}"; do
+                "agentGrpcService:${AGENT_GRPC_SERVICE}" "identityService:${IDENTITY_SERVICE}"; do
         label="${pair%%:*}"; value="${pair#*:}"
         [[ -z "$value" || "$value" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] \
             || cap_fail 2 "--${label} ${value} is not a Kubernetes name: lowercase letters, digits and hyphens only, starting and ending alphanumeric"
     done
+
+    # A gRPC service prefix is `/<package>.<Service>/`: an absolute path of
+    # proto identifier characters, ending in the slash that stops a prefix rule
+    # matching a service whose name merely begins with this one. Refused rather
+    # than defaulted when it is anything else -- an empty value would render a
+    # rule with no path, and a bare `/` would shadow the bff's catch-all with
+    # the agent.
+    [[ "$WORKER_SERVICE_PATH" =~ ^/[A-Za-z0-9_.]+/$ ]] \
+        || cap_fail 2 "--workerServicePath ${WORKER_SERVICE_PATH} is not a gRPC service prefix: /<package>.<Service>/, proto identifier characters only, with the trailing slash"
 
     # Every api path must be ABSOLUTE. A relative entry is rendered into the
     # Ingress by render_api_http_ingress but NOT counted by count_paths, so it
@@ -364,13 +395,16 @@ YAML
     return 0
 }
 
-# render_api_grpc_ingress emits the api. host's `/` catch-all to the bff's h2c
-# Service.
+# render_api_grpc_ingress emits the api. host's gRPC rules: the worker stream's
+# service prefix to the agent, then the `/` catch-all to the bff's h2c Service.
 #
 # A SECOND OBJECT OVER THE SAME HOST, and it has to be: backend-protocol is a
 # per-Service annotation, so the h2c backend and the HTTP backend cannot live
 # in one Ingress. This mirrors api-front-door / api-front-door-grpc in the
-# cluster's own generated manifests.
+# cluster's own generated manifests, rule for rule -- including the one rule
+# in it that is not the bff's (the header says why), emitted first so this
+# file and cmd/frontdoorhosts show one shape. nginx orders locations by prefix
+# length, so the order is for the reader rather than the router.
 function render_api_grpc_ingress() {
     cat <<YAML
 apiVersion: networking.k8s.io/v1
@@ -395,6 +429,13 @@ spec:
     - host: ${API_HOST}
       http:
         paths:
+          - path: ${WORKER_SERVICE_PATH}
+            pathType: Prefix
+            backend:
+              service:
+                name: ${AGENT_GRPC_SERVICE}
+                port:
+                  number: ${AGENT_GRPC_PORT}
           - path: /
             pathType: Prefix
             backend:
@@ -507,9 +548,10 @@ function check_render() {
     # A count taken only from the input cannot notice the render disagreeing.
     local rendered_paths
     rendered_paths="$(printf '%s\n' "$rendered" | grep -c '^          - path: /' || true)"
-    # +3 for the `/` rules on app., id. and api.-grpc.
-    if [[ "$rendered_paths" != "$((API_PATH_COUNT + 3))" ]]; then
-        cap_fail 5 "the rendered objects did not validate: ${API_PATH_COUNT} api path(s) plus 3 catch-alls were expected, but the render carries ${rendered_paths} rule(s)"
+    # +4: the `/` rules on app., id. and api.-grpc, plus the worker-stream
+    # prefix on api.-grpc, which is an absolute path like every other.
+    if [[ "$rendered_paths" != "$((API_PATH_COUNT + 4))" ]]; then
+        cap_fail 5 "the rendered objects did not validate: ${API_PATH_COUNT} api path(s) plus 3 catch-alls and the worker-stream rule were expected, but the render carries ${rendered_paths} rule(s)"
     fi
 
     # THE SAN CHECK IS ANCHORED, and the first version was not. Certificate

@@ -102,6 +102,23 @@ patches:
         namespace: memql
         annotations:
           traefik.ingress.kubernetes.io/service.serversscheme: h2c
+  # The agent serves PLAINTEXT gRPC on :50051 too, and the api front door
+  # routes the worker stream's service prefix to it (api-front-door.yaml, epic
+  # memql#5218). The annotation is per-SERVICE, so the rule alone is not
+  # enough: without this, traefik dials the agent over HTTP/1.1 and the cockpit
+  # fails with a protocol error naming nothing. Nothing routes the agent's
+  # :8085 through traefik, so h2c on every port of this Service costs nothing.
+  # The cloud needs no counterpart -- nginx's backend-protocol is per-INGRESS
+  # and the rule lives in the GRPC one.
+  - target: { kind: Service, name: agent }
+    patch: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: agent
+        namespace: memql
+        annotations:
+          traefik.ingress.kubernetes.io/service.serversscheme: h2c
   # Connection-budget CronJob monitors Tiger Cloud connection headroom.
   # Locally we run a plain Postgres container; the monitor is irrelevant.
   - target:

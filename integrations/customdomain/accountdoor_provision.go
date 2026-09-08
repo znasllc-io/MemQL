@@ -29,6 +29,14 @@ import (
 // (:50051) and its HTTP edge (:8085) therefore cannot share an object. The
 // cluster's own front door carries the same pair for the same reason.
 //
+// The gRPC one carries TWO rules, and the first is not the bff's (epic
+// memql#5218, D10): the worker stream's service prefix
+// (frontdoor.WorkerServicePath) to the agent, then `/` to the bff.
+// WorkerService.Stream is served by the agent node and nothing else, and a
+// door that routed only the catch-all would answer a cockpit dialling a
+// client's api. host `Unimplemented: unknown service`, exactly as the
+// cluster's own api host did before the rule existed.
+//
 // # THE CERTIFICATE IS THE ACTIVATION RULE (design D8)
 //
 // An HTTP-01 order cannot go Ready unless every dnsName in it solves, so
@@ -65,6 +73,10 @@ type DoorBindRequest struct {
 	// BFFGRPCService / BFFGRPCPort serve api.'s h2c catch-all.
 	BFFGRPCService string
 	BFFGRPCPort    int
+	// AgentGRPCService / AgentGRPCPort serve api.'s worker-stream prefix, the
+	// one gRPC rule ahead of the catch-all (frontdoor.WorkerServicePath).
+	AgentGRPCService string
+	AgentGRPCPort    int
 	// IdentityService / IdentityPort serve id.
 	IdentityService string
 	IdentityPort    int
@@ -151,18 +163,41 @@ type doorBackend struct {
 	annotations map[string]string
 }
 
+// doorRoute is one path entry of an Ingress rule and the Service it reaches.
+// Most of a door's Ingresses route every path to the one Service the
+// doorBackend names; the gRPC one is the exception, with two backends behind
+// one host, which is why the route names its own.
+type doorRoute struct {
+	path    string
+	service string
+	port    int
+}
+
 // doorIngress renders one host -> one service Ingress with a `/` Prefix rule.
 func doorIngress(req DoorBindRequest, b doorBackend) map[string]any {
 	return doorIngressWithPaths(req, b, []string{"/"})
 }
 
-// doorIngressWithPaths renders an Ingress carrying one rule per path.
+// doorIngressWithPaths renders an Ingress carrying one rule per path, every
+// one to the backend's Service.
+func doorIngressWithPaths(req DoorBindRequest, b doorBackend, paths []string) map[string]any {
+	routes := make([]doorRoute, 0, len(paths))
+	for _, p := range paths {
+		routes = append(routes, doorRoute{path: p, service: b.service, port: b.port})
+	}
+	return doorIngressWithRoutes(req, b, routes)
+}
+
+// doorIngressWithRoutes renders an Ingress carrying one rule per route, in the
+// order given. The backend's own service and port are ignored here -- each
+// route names its own -- and it is passed for its suffix, host and
+// annotations.
 //
 // EVERY ENTRY IS pathType: Prefix, matching cmd/frontdoorpaths' render(). That
 // generator's comment carries the reasoning; repeating the choice here rather
 // than the reasoning is deliberate, because the place a decision is argued
 // should be the place that produces the list.
-func doorIngressWithPaths(req DoorBindRequest, b doorBackend, paths []string) map[string]any {
+func doorIngressWithRoutes(req DoorBindRequest, b doorBackend, routes []doorRoute) map[string]any {
 	annotations := map[string]any{}
 	if strings.TrimSpace(req.Issuer) != "" {
 		annotations["cert-manager.io/cluster-issuer"] = req.Issuer
@@ -171,15 +206,15 @@ func doorIngressWithPaths(req DoorBindRequest, b doorBackend, paths []string) ma
 		annotations[k] = v
 	}
 
-	rules := make([]any, 0, len(paths))
-	for _, p := range paths {
+	rules := make([]any, 0, len(routes))
+	for _, r := range routes {
 		rules = append(rules, map[string]any{
-			"path":     p,
+			"path":     r.path,
 			"pathType": "Prefix",
 			"backend": map[string]any{
 				"service": map[string]any{
-					"name": b.service,
-					"port": map[string]any{"number": b.port},
+					"name": r.service,
+					"port": map[string]any{"number": r.port},
 				},
 			},
 		})
@@ -252,9 +287,17 @@ func doorIngressObjects(req DoorBindRequest, apiPaths []string) []map[string]any
 		// app. -> the edge, plain HTTP on :8085, exactly as the cluster's own
 		// os. rule reaches it.
 		doorIngress(req, doorBackend{suffix: "-app", host: appHost, service: req.EdgeService, port: req.EdgePort}),
-		// api. gRPC -> the bff's h2c edge.
-		doorIngress(req, doorBackend{suffix: "-api-grpc", host: apiHost, service: req.BFFGRPCService, port: req.BFFGRPCPort,
-			annotations: map[string]string{"nginx.ingress.kubernetes.io/backend-protocol": "GRPC"}}),
+		// api. gRPC -> the worker stream's prefix to the agent, then the bff's
+		// h2c edge for everything else. The agent rule is FIRST for the
+		// reader (nginx orders locations by prefix length regardless), and
+		// it is in THIS object because backend-protocol is Ingress-scoped
+		// and both backends speak h2c. See the file comment.
+		doorIngressWithRoutes(req, doorBackend{suffix: "-api-grpc", host: apiHost,
+			annotations: map[string]string{"nginx.ingress.kubernetes.io/backend-protocol": "GRPC"}},
+			[]doorRoute{
+				{path: frontdoor.WorkerServicePath, service: req.AgentGRPCService, port: req.AgentGRPCPort},
+				{path: "/", service: req.BFFGRPCService, port: req.BFFGRPCPort},
+			}),
 		// id. -> identity, which speaks TLS in-cluster. See doorBackend.
 		doorIngress(req, doorBackend{suffix: "-id", host: idHost, service: req.IdentityService, port: req.IdentityPort,
 			annotations: map[string]string{
@@ -367,15 +410,22 @@ func (p *scriptProvisioner) BindDoor(ctx context.Context, req DoorBindRequest, a
 		// is lossless without escaping. The script's own dry run asserts the
 		// rule count it rendered against the count it was handed, because a
 		// count taken only from the input cannot notice a dropped field.
-		"apiPaths":        strings.Join(apiPaths, ","),
-		"edgeService":     req.EdgeService,
-		"edgePort":        fmt.Sprintf("%d", req.EdgePort),
-		"bffHttpService":  req.BFFHTTPService,
-		"bffHttpPort":     fmt.Sprintf("%d", req.BFFHTTPPort),
-		"bffGrpcService":  req.BFFGRPCService,
-		"bffGrpcPort":     fmt.Sprintf("%d", req.BFFGRPCPort),
-		"identityService": req.IdentityService,
-		"identityPort":    fmt.Sprintf("%d", req.IdentityPort),
+		"apiPaths":       strings.Join(apiPaths, ","),
+		"edgeService":    req.EdgeService,
+		"edgePort":       fmt.Sprintf("%d", req.EdgePort),
+		"bffHttpService": req.BFFHTTPService,
+		"bffHttpPort":    fmt.Sprintf("%d", req.BFFHTTPPort),
+		"bffGrpcService": req.BFFGRPCService,
+		"bffGrpcPort":    fmt.Sprintf("%d", req.BFFGRPCPort),
+		// PASSED, NOT LEFT TO THE SCRIPT'S DEFAULT. The script spells the
+		// same prefix as a default for the operator's manual path and a test
+		// pins the two; the engine still hands over the constant it holds,
+		// so a door bound from here routes what this binary routes.
+		"workerServicePath": frontdoor.WorkerServicePath,
+		"agentGrpcService":  req.AgentGRPCService,
+		"agentGrpcPort":     fmt.Sprintf("%d", req.AgentGRPCPort),
+		"identityService":   req.IdentityService,
+		"identityPort":      fmt.Sprintf("%d", req.IdentityPort),
 	})
 }
 
@@ -442,12 +492,17 @@ func SelectDoorProvisioner() (DoorProvisioner, error) {
 const doorProxyBodySize = "48m"
 
 const (
-	doorBFFHTTPService  = "bff-http"
-	doorBFFHTTPPort     = 8085
-	doorBFFGRPCService  = "bff"
-	doorBFFGRPCPort     = 50051
-	doorIdentityService = "identity"
-	doorIdentityPort    = 8085
+	doorBFFHTTPService = "bff-http"
+	doorBFFHTTPPort    = 8085
+	doorBFFGRPCService = "bff"
+	doorBFFGRPCPort    = 50051
+	// The agent's gRPC edge, which WorkerService.Stream is registered on and
+	// the bff is not (epic memql#5218, D10). The same literal
+	// cmd/frontdoorhosts/manifest.go writes for the cluster's own api host.
+	doorAgentGRPCService = "agent"
+	doorAgentGRPCPort    = 50051
+	doorIdentityService  = "identity"
+	doorIdentityPort     = 8085
 )
 
 // doorConfig derives the front-door half of the reconciler's configuration
@@ -468,11 +523,13 @@ func (c Config) doorConfig() DoorConfig {
 		EdgeService: c.EdgeService,
 		EdgePort:    c.EdgePort,
 
-		BFFHTTPService:  doorBFFHTTPService,
-		BFFHTTPPort:     doorBFFHTTPPort,
-		BFFGRPCService:  doorBFFGRPCService,
-		BFFGRPCPort:     doorBFFGRPCPort,
-		IdentityService: doorIdentityService,
-		IdentityPort:    doorIdentityPort,
+		BFFHTTPService:   doorBFFHTTPService,
+		BFFHTTPPort:      doorBFFHTTPPort,
+		BFFGRPCService:   doorBFFGRPCService,
+		BFFGRPCPort:      doorBFFGRPCPort,
+		AgentGRPCService: doorAgentGRPCService,
+		AgentGRPCPort:    doorAgentGRPCPort,
+		IdentityService:  doorIdentityService,
+		IdentityPort:     doorIdentityPort,
 	}
 }

@@ -36,7 +36,7 @@ Related: [environment-parity.md](environment-parity.md) ·
 
 | Host | Backend | Protocol | Certificate (cloud) |
 |---|---|---|---|
-| `api.<domain>` | `svc/bff:50051` **and** `svc/bff-http:8085` | h2c (gRPC) + http | `memql-front-door-tls` |
+| `api.<domain>` | `svc/bff:50051` **and** `svc/bff-http:8085`, plus `svc/agent:50051` for the worker stream | h2c (gRPC) + http | `memql-front-door-tls` |
 | `identity.<domain>` | `svc/identity:8085` | https | `memql-front-door-tls` |
 | `mcp.<domain>` | `svc/mcp:8090` | http | `memql-front-door-tls` |
 | `os.<domain>` | `svc/edge:8085` | http | `memql-front-door-tls` |
@@ -305,7 +305,8 @@ That single fact shapes the whole front door:
   fail to load.
 - It is why `api.<domain>` needs **two rules**, not one: `/` to
   `svc/bff:50051` for gRPC, and the declared HTTP path set to
-  `svc/bff-http:8085`.
+  `svc/bff-http:8085` -- plus the one gRPC rule that is not the bff's, in the
+  next section.
 - It is why MCP is a **host** rather than a path: `svc/mcp` is a different
   Service on a different port speaking plain HTTP.
 - It is why the HTTP path set has to be **complete** — which is the next
@@ -314,6 +315,45 @@ That single fact shapes the whole front door:
 Splitting protocols across Services makes each backend's protocol
 unambiguous, and it is the same shape everywhere. Only which ingress
 controller points at it differs, and that is a value rather than architecture.
+
+### The one gRPC rule that is not the bff's
+
+`WorkerService.Stream` -- the stream a cockpit machine opens to the cluster --
+is served by the **agent** node and by nothing else. gRPC puts the fully
+qualified service name in the request path, so with only the `/` catch-all a
+cockpit dialling the documented `https://api.<domain>` reached the bff and was
+answered `Unimplemented: unknown service znasllc.memql.worker.v1.WorkerService`,
+forever, locally and in the cloud alike (epic memql#5218, D10). The machine
+never registered and the OS reported "waiting".
+
+So the api host carries one more gRPC rule, ahead of the catch-all:
+
+| Path | Backend |
+|---|---|
+| `/znasllc.memql.worker.v1.WorkerService/` | `svc/agent:50051` |
+| `/` | `svc/bff:50051` |
+
+Three things about it are load-bearing:
+
+- **The prefix is spelled once**, as `component/frontdoor.WorkerServicePath`,
+  and `deploy/k8s/overlays/frontdoor_worker_test.go` holds it equal to the
+  generated service descriptor's name. The trailing slash is what stops the
+  rule matching a service whose name merely begins with this one.
+- **It is the shape of the system**, so it is in the hand-authored local front
+  door, in `cmd/frontdoorhosts`' generated gRPC Ingress, and in every
+  account's reserved `api.` host (the bind script and the Go provisioner both
+  emit it). Render gates in each place refuse a front door without it.
+- **The backend protocol still has to be declared per Service.** In the cloud
+  the rule lives in `api-front-door-grpc`, whose `backend-protocol: GRPC` is
+  Ingress-scoped and covers both backends. Locally traefik's `serversscheme` is
+  per Service, so the `agent` Service carries the same `h2c` annotation the
+  `bff` Service does; the rule alone would hand the stream an HTTP/1.1 hop, and
+  that fails with a protocol error naming nothing -- the same failure a
+  missing rule produces, from the other side.
+
+No priority is needed either way: traefik ranks by rule length and nginx by
+prefix length, so the longer prefix outranks `/` for exactly the reason every
+generated HTTP path does.
 
 ## What is generated
 
@@ -596,7 +636,11 @@ runtime rows.
 setting, so the bff's gRPC edge (h2c, `:50051`) and its HTTP edge (`:8085`)
 cannot share one object — exactly why `api-front-door` and
 `api-front-door-grpc` are two rules on one host in the generated manifests
-above.
+above. The gRPC object carries the worker-stream rule to `svc/agent:50051`
+ahead of its catch-all, exactly as the cluster's own does
+([above](#the-one-grpc-rule-that-is-not-the-bffs)) -- a cockpit may be told
+to dial a client's `api.` host, and a door that routed only the catch-all
+would answer it `Unimplemented: unknown service`.
 
 The HTTP half routes the **same generated path block** the cluster's own `api.`
 host routes, from the same generator: `cmd/frontdoorpaths` writes

@@ -66,15 +66,17 @@ type DoorReconciler struct {
 	acmeIssuer string
 	namespace  string
 
-	ingressClass    string
-	edgeService     string
-	edgePort        int
-	bffHTTPService  string
-	bffHTTPPort     int
-	bffGRPCService  string
-	bffGRPCPort     int
-	identityService string
-	identityPort    int
+	ingressClass     string
+	edgeService      string
+	edgePort         int
+	bffHTTPService   string
+	bffHTTPPort      int
+	bffGRPCService   string
+	bffGRPCPort      int
+	agentGRPCService string
+	agentGRPCPort    int
+	identityService  string
+	identityPort     int
 
 	// now is injectable so a test can assert the exact timestamps written.
 	now func() time.Time
@@ -91,14 +93,16 @@ type DoorConfig struct {
 	Namespace    string
 	IngressClass string
 
-	EdgeService     string
-	EdgePort        int
-	BFFHTTPService  string
-	BFFHTTPPort     int
-	BFFGRPCService  string
-	BFFGRPCPort     int
-	IdentityService string
-	IdentityPort    int
+	EdgeService      string
+	EdgePort         int
+	BFFHTTPService   string
+	BFFHTTPPort      int
+	BFFGRPCService   string
+	BFFGRPCPort      int
+	AgentGRPCService string
+	AgentGRPCPort    int
+	IdentityService  string
+	IdentityPort     int
 }
 
 // NewDoorReconciler builds the production reconciler.
@@ -113,21 +117,23 @@ func NewDoorReconciler(doors *DoorStore, accounts *DoorAccountReader, cfg DoorCo
 		// writes that slice from the same collect() that fills the cluster's
 		// own api Ingress, so a door routes what the cluster routes by
 		// construction rather than by anybody remembering to update two lists.
-		apiPaths:        frontdoor.BFFHTTPPaths,
-		edgeHost:        cfg.EdgeHost,
-		acmeIssuer:      cfg.ACMEIssuer,
-		namespace:       cfg.Namespace,
-		ingressClass:    cfg.IngressClass,
-		edgeService:     cfg.EdgeService,
-		edgePort:        cfg.EdgePort,
-		bffHTTPService:  cfg.BFFHTTPService,
-		bffHTTPPort:     cfg.BFFHTTPPort,
-		bffGRPCService:  cfg.BFFGRPCService,
-		bffGRPCPort:     cfg.BFFGRPCPort,
-		identityService: cfg.IdentityService,
-		identityPort:    cfg.IdentityPort,
-		now:             func() time.Time { return time.Now().UTC() },
-		newID:           id.NewShortId,
+		apiPaths:         frontdoor.BFFHTTPPaths,
+		edgeHost:         cfg.EdgeHost,
+		acmeIssuer:       cfg.ACMEIssuer,
+		namespace:        cfg.Namespace,
+		ingressClass:     cfg.IngressClass,
+		edgeService:      cfg.EdgeService,
+		edgePort:         cfg.EdgePort,
+		bffHTTPService:   cfg.BFFHTTPService,
+		bffHTTPPort:      cfg.BFFHTTPPort,
+		bffGRPCService:   cfg.BFFGRPCService,
+		bffGRPCPort:      cfg.BFFGRPCPort,
+		agentGRPCService: cfg.AgentGRPCService,
+		agentGRPCPort:    cfg.AgentGRPCPort,
+		identityService:  cfg.IdentityService,
+		identityPort:     cfg.IdentityPort,
+		now:              func() time.Time { return time.Now().UTC() },
+		newID:            id.NewShortId,
 	}
 }
 
@@ -541,20 +547,22 @@ func (r *DoorReconciler) unprovision(ctx context.Context, d Door, out *DoorPassR
 // objects.
 func (r *DoorReconciler) request(d Door) DoorBindRequest {
 	return DoorBindRequest{
-		AccountID:       d.AccountID,
-		DoorID:          d.ID,
-		ReservedName:    d.ReservedName,
-		Namespace:       r.namespace,
-		Issuer:          r.acmeIssuer,
-		IngressClass:    r.ingressClass,
-		EdgeService:     r.edgeService,
-		EdgePort:        r.edgePort,
-		BFFHTTPService:  r.bffHTTPService,
-		BFFHTTPPort:     r.bffHTTPPort,
-		BFFGRPCService:  r.bffGRPCService,
-		BFFGRPCPort:     r.bffGRPCPort,
-		IdentityService: r.identityService,
-		IdentityPort:    r.identityPort,
+		AccountID:        d.AccountID,
+		DoorID:           d.ID,
+		ReservedName:     d.ReservedName,
+		Namespace:        r.namespace,
+		Issuer:           r.acmeIssuer,
+		IngressClass:     r.ingressClass,
+		EdgeService:      r.edgeService,
+		EdgePort:         r.edgePort,
+		BFFHTTPService:   r.bffHTTPService,
+		BFFHTTPPort:      r.bffHTTPPort,
+		BFFGRPCService:   r.bffGRPCService,
+		BFFGRPCPort:      r.bffGRPCPort,
+		AgentGRPCService: r.agentGRPCService,
+		AgentGRPCPort:    r.agentGRPCPort,
+		IdentityService:  r.identityService,
+		IdentityPort:     r.identityPort,
 	}
 }
 

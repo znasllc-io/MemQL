@@ -44,6 +44,17 @@ after it then runs as a command of its own (`--token ...: command not found`).
 The pairing panel on `/fleet/machines` (section 5.5) emits exactly this shape,
 with the token and cluster URL filled in.
 
+The `--cluster` value is the **api host**, `https://api.<domain>` -- the same
+address every other client dials, and not the OS shell's. The worker stream
+(`WorkerService.Stream`) is served by the agent node and by nothing else, and
+gRPC puts the fully qualified service name in the request path, so the api
+host's front door carries one rule ahead of its `/` catch-all:
+`/znasllc.memql.worker.v1.WorkerService/` to `svc/agent:50051`
+(`component/frontdoor.WorkerServicePath`, epic memql#5218). Without it the bff
+answers `Unimplemented: unknown service` and the machine never registers. The
+same rule is on every account's reserved `api.` host, so a cockpit may dial
+either.
+
 Two flags are optional and independent. `--computeruse` installs the build that
 can drive the mouse and keyboard; `--inference` carries on into
 `memql worker setup --inference` in the same terminal, which checks the
@@ -56,7 +67,7 @@ unless asked for -- see
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-mac.sh | bash -s -- --token mql_wkr_xxxxxxxxxxxx --cluster https://app.example.com --computeruse
+curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-mac.sh | bash -s -- --token mql_wkr_xxxxxxxxxxxx --cluster https://api.example.com --computeruse
 ```
 
 The install script:
@@ -99,7 +110,7 @@ install rather than as a missing grant.
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-linux.sh | bash -s -- --token mql_wkr_xxxxxxxxxxxx --cluster https://app.example.com --computeruse
+curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-linux.sh | bash -s -- --token mql_wkr_xxxxxxxxxxxx --cluster https://api.example.com --computeruse
 ```
 
 The install script writes a user-systemd unit at
@@ -114,7 +125,7 @@ get COMPUTERUSE as well.
 `~/.memql/worker.yaml`:
 
 ```yaml
-cluster_url: https://app.example.com
+cluster_url: https://api.example.com
 token: mql_wkr_<your token>
 name: jose-mac-mini
 labels:
