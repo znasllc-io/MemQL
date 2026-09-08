@@ -1,4 +1,5 @@
--- v1:identity:user.groupIds is retired (epic memql#5165).
+-- Retired concept fields: v1:identity:user.groupIds, and the five
+-- v1:identity:group sheds (epic memql#5165).
 --
 -- WHY A DATA MIGRATION AND NOT JUST A CONCEPT EDIT.
 --
@@ -37,3 +38,24 @@ UPDATE "MemoryNodes"
 SET payload = payload - 'groupIds'
 WHERE concept = 'v1:identity:user'
   AND payload ? 'groupIds';
+
+-- And the five fields the RESHAPED v1:identity:group sheds: memberIds,
+-- agentIds, maxHumans, maxAgents, externalId. Membership is its own concept
+-- now (v1:identity:groupMembership), the capacities had no enforcement behind
+-- them, and agents as group members is out of scope (design section N).
+--
+-- WHY THIS IS NOT BELT-AND-BRACES. The concept was inert -- no mutation, query
+-- or shape was ever bound to it, so nothing in the DSL ever wrote a group row.
+-- But `externalId`'s own @description said the field was "preserved for any
+-- legacy rows that came from a previous external sync source", which is a
+-- statement that such rows may exist somewhere. If they do, they carry all
+-- five keys and the first write to touch one fails exactly as the user rows
+-- did.
+--
+-- Idempotent and free where they do not: `payload ?| array[...]` matches
+-- nothing on a cluster whose group rows this epic wrote.
+
+UPDATE "MemoryNodes"
+SET payload = payload - 'memberIds' - 'agentIds' - 'maxHumans' - 'maxAgents' - 'externalId'
+WHERE concept = 'v1:identity:group'
+  AND payload ?| array['memberIds', 'agentIds', 'maxHumans', 'maxAgents', 'externalId'];
