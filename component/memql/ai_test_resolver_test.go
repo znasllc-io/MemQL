@@ -23,7 +23,21 @@ func testRegistryResolver(providers *ProviderRegistry) func(context.Context, air
 	return func(ctx context.Context, req airoute.ResolveRequest) (ResolvedProvider, error) {
 		name := req.ExplicitProvider
 		if name == "" {
-			name = providers.Default()
+			// NO REGISTRY DEFAULT TO FALL BACK ON, and the absence is the
+			// point (epic memql#5137, D1). `ProviderRegistry.Default` is gone:
+			// it was a paid vendor record picked off a preference list, which
+			// is how twenty-eight of thirty call sites came to spend without
+			// anybody choosing to. Production resolves an unpinned call
+			// through rules and policies, which this stand-in deliberately
+			// does not model -- a test that needs a rule to fire belongs in
+			// component/router.
+			//
+			// So an unpinned call REFUSES here rather than picking something.
+			// A stand-in that quietly chose one would let a test pass while
+			// asserting nothing about the thing this epic changed.
+			return ResolvedProvider{}, ErrProviderUnavailable(
+				"(no provider pinned, and there is no registry default: pin one with @defaultProvider " +
+					"or ExplicitProvider, or assert routing in component/router)")
 		}
 		entry, ok := providers.EntryForContext(ctx, name)
 		if !ok || entry == nil || !entry.Available || entry.Client == nil {

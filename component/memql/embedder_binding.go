@@ -31,16 +31,6 @@ import (
 // (memql#4766): a re-write is then a new VERSION of one logical row rather than
 // a second row, and "which binding is active" has exactly one answer to read.
 
-// unnamedFallbackProvider is the journal key for a structured call that ran on
-// whatever the registry's unnamed scan picked, rather than on a provider the
-// prompt named.
-//
-// It is deliberately not a provider name and deliberately not empty. The
-// journal hashes the provider so a replay cannot serve one provider's answer
-// for another's; an empty string would collide with "no provider recorded",
-// and a real name would claim a choice nobody made.
-const unnamedFallbackProvider = "(unnamed-fallback)"
-
 // EmbedderBindingConceptID is the concept the active binding lives on.
 const EmbedderBindingConceptID = "v1:platform:embedderBinding"
 

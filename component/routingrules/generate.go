@@ -110,6 +110,23 @@ func Validate(f Form, shipped ShippedNames) error {
 		return fmt.Errorf("rule %q: @policy takes a policy NAME, not a policy: reference -- write %q",
 			name, strings.TrimPrefix(f.Policy, "policy:"))
 	}
+	// THE POLICY MUST EXIST, and this is the only place that can say so before
+	// the rule is live. ValidatePolicyEntry above checks the FORM of a chain
+	// entry, which a policy name passes trivially -- any identifier does. A
+	// rule naming a policy nobody registered renders, loads, and then refuses
+	// EVERY CALL IT MATCHES at request time with "names a policy that is not
+	// registered" on the door report, which is a place the person who wrote
+	// the rule is not looking. They activated it and were told it was fine.
+	//
+	// A NAME NOBODY MINTS IS THE COMMON CASE, not a typo: minting a policy is
+	// how somebody expresses a chain, and it is exactly what neither front
+	// door may do -- a provider chain from a form or a sentence is a spending
+	// decision in a place no review looks.
+	if !shipped.HasPolicy(strings.TrimSpace(f.Policy)) {
+		return fmt.Errorf("rule %q names policy %q, which is not registered on this cluster. A rule may NAME "+
+			"a policy and may not mint one; a rule naming a policy that does not exist loads cleanly and "+
+			"then refuses every call it matches", name, strings.TrimSpace(f.Policy))
+	}
 	if lvl := strings.TrimSpace(f.Level); lvl != "" && !validLevel(lvl) {
 		return fmt.Errorf("rule %q: level %q is not one of fast, strong, reasoning, embeddings", name, lvl)
 	}

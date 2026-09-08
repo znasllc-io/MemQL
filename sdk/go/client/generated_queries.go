@@ -407,6 +407,24 @@ func ActiveDelegationsForAgentBuild(args ActiveDelegationsForAgentArgs) string {
 	return b.String()
 }
 
+// ActiveEmbedderBinding -- The cluster's active embedder.
+// ONE ROW, AT A LITERAL ID, so this reads by id rather than by a filter that could return two (memql#5137, D6). A query that answered "which embedder is active" with a list would have no way to choose, and the caller would pick the first -- which is map order wearing a query's name.
+//
+// Bound concept: v1:platform:embedderBinding (machine-readable: BoundConcepts["activeEmbedderBinding"] in generated_concepts.go).
+type ActiveEmbedderBindingArgs struct {
+}
+
+// ActiveEmbedderBinding calls the engine query activeEmbedderBinding.
+func (qc *QueryClient) ActiveEmbedderBinding(ctx context.Context, args ActiveEmbedderBindingArgs) (*Result, error) {
+	call := ActiveEmbedderBindingBuild(args)
+	return qc.executeNamed(ctx, "activeEmbedderBinding", call)
+}
+
+func ActiveEmbedderBindingBuild(args ActiveEmbedderBindingArgs) string {
+	_ = args
+	return "query activeEmbedderBinding()"
+}
+
 // ActiveProjects -- List active v1:forge:project rows.
 //
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["activeProjects"] in generated_concepts.go).

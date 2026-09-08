@@ -1,0 +1,55 @@
+// The router's own two prompts (epic memql#5137, D7 and D9).
+//
+// BOTH ARE STRUCTURED-OUTPUT AND BOTH ARE CHEAP ON PURPOSE. One turns a
+// person's sentence into a rule they then confirm; the other classifies a
+// free-form request into a level. Neither writes anything, and neither is on a
+// hot path: the compiler runs once per rule an owner authors, and the
+// classifier runs only when the deterministic table in component/router has no
+// opinion.
+//
+// `compileRule` IS THE ONE PROMPT WHOSE SUBJECT IS WHERE WORK MAY RUN, which
+// is why the shipped locked rule `compilerLocalOnly` pins it to this cluster's
+// own hardware at precedence 120. Sending it to a vendor would mean the act
+// that decides what leaves the cluster is itself the thing that leaves, before
+// the rule exists to forbid it. The rule matches on the prompt NAME, so this
+// name is a contract: `router.CompilerPromptName` in Go must agree with it, and
+// component/router's own test asserts that both are the tree's.
+
+/// Compile one sentence into a routing rule the person then confirms.
+///
+/// Structured output: returns {name, when, level, policy, precedence,
+/// onUnavailable, excludes, restatement}. `restatement` is the compiler's OWN
+/// account of what it produced, in its own words -- never the sentence handed
+/// back, which would prove nothing about what it understood. The person reads
+/// the restatement beside their sentence and the simulation beside both.
+///
+/// It may NAME a policy and may not mint one: a chain minted from a sentence
+/// would be a spending decision in a place no review looks.
+@level("strong")
+@templateFile("prompts/compileRule.tmpl")
+prompt compileRule {
+  sentence     string!   @description("What the person typed, verbatim.")
+  whenKeys     []string! @description("The closed @when vocabulary this cluster's loader accepts. The compiler may use no other condition key; one outside this list produces a rule that refuses to load.")
+  policies     []object! @description("The policies this cluster has registered, as {name, description, chain}. The compiler picks one by name.")
+  fleetModels  []object  @description("Optional: the models this fleet currently serves, as {modelId, category}, so an exclusion can name a real one. Absent on a cluster with no machines paired.")
+  levels       []string! @description("The closed level vocabulary: fast, strong, reasoning, embeddings.")
+}
+
+/// Classify a free-form request into the level it needs.
+///
+/// Structured output: returns {level, confidence, reason}. It is reached ONLY
+/// when component/router's deterministic table had no opinion -- and the table
+/// answers first for a reason: a classifier in front of every call is the cost
+/// this whole program exists to avoid, so the cheap path must stay the common
+/// one.
+///
+/// FACTS BEFORE GUESSES. The table decides on what the request STATES (a
+/// declared level, an embeddings modality, a known prompt name); this prompt
+/// only ever sees what none of those settled.
+@level("fast")
+@templateFile("prompts/classifyRequest.tmpl")
+prompt classifyRequest {
+  request      string!   @description("The free-form request to classify.")
+  levels       []string! @description("The closed level vocabulary, with what each one is for.")
+  ruledOut     []string  @description("Optional: levels the deterministic table has already excluded, with why. The classifier must not choose one of these.")
+}

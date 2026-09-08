@@ -48,6 +48,7 @@ var shippedPolicies = []string{
 	"localFirst",
 	"localOnly",
 	"federationStrongest",
+	"embeddingsBinding",
 }
 
 // shippedRules is every rule this repository seeds, with the policy it names.
@@ -59,7 +60,8 @@ var shippedRules = map[string]string{
 	"backgroundEscalation": "localFirst",
 	"operatorReasoning":    "localFirst",
 	"reasoningParks":       "federationStrongest",
-	"embeddingsPark":       "localFirst",
+	"embeddingsBound":      "embeddingsBinding",
+	"compilerLocalOnly":    "localOnly",
 }
 
 // retiredPolicies were deleted by memql#5127. A policy nothing can name is a
@@ -75,6 +77,7 @@ var retiredPolicies = []string{
 }
 
 const (
+	embedderActiveRef = "embedder:active"
 	fleetWildcardRef  = "fleet:*"
 	fleetStrongestRef = "fleet:strongest"
 	appWildcardRef    = "app:*"
@@ -222,6 +225,25 @@ func TestEveryShippedPolicyStartsAtTheCheapestDoor(t *testing.T) {
 		}
 		if len(chain) == 0 {
 			t.Errorf("policy %q has an empty chain; a policy with no entries resolves nothing", name)
+			continue
+		}
+		// THE EMBEDDER DOOR HAS NO STATIC SIDE, so the door-ordering question
+		// this gate asks does not have an answer for it (epic memql#5137).
+		//
+		// `embedder:active` resolves to whatever the operator BOUND, which may
+		// be a model on their own machine or a vendor's. That is not this file
+		// choosing a vendor first: it is the operator's own act, recorded on a
+		// row, which is exactly the "explicit and lands on every decision
+		// record" escape the message below names -- expressed as a binding
+		// rather than as a custom policy, because an index is built with one
+		// embedder and cannot be handed a second.
+		//
+		// The exemption is NARROW BY CONSTRUCTION rather than by list
+		// membership: it applies to a one-entry chain naming exactly this
+		// reference. A second entry after it would be a FALLBACK to a different
+		// vector space, which is the defect the policy exists to prevent, and
+		// the check below still catches it.
+		if len(chain) == 1 && chain[0] == embedderActiveRef {
 			continue
 		}
 		if chain[0] != fleetStrongestRef {

@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/routingrules"
 )
 
 // A described rule: a sentence, compiled once, into a rule a person confirms
@@ -30,29 +33,16 @@ import (
 // what the cluster does, and the simulation is how a person finds that out
 // BEFORE confirming rather than from a bill afterwards.
 
-// WhenKeys is the closed `@when` vocabulary (epic memql#5127).
+// WhenKeys is the closed `@when` vocabulary the compiler hands to the model as
+// the words it may use (epic memql#5127).
 //
-// RESTATED HERE RATHER THAN IMPORTED, and the duplication is deliberate: this
-// list is handed TO THE MODEL as the vocabulary it may use. A compiler told a
-// list that drifted from the loader's would emit rules that refuse to load, and
-// the person would see a confident restatement of a rule that never activates.
-// The parity gate is that both are asserted against the same literals.
-var WhenKeys = []string{"level", "modality", "prompt", "role", "actorRole", "tag", "touches"}
-
-// ShippedPolicies are the policy names a compiled rule may name.
-//
-// A compiled rule may NAME a shipped policy and may not REDEFINE one. Letting a
-// sentence mint a new policy would put a provider chain in a place no review
-// ever looks, which is the shape of the problem this epic removed from Go.
-var ShippedPolicies = []string{"localFirst", "localOnly", "federationStrongest", "embeddingsBinding"}
-
-// ShippedRuleNames are the rule names a compiled rule may NOT take.
-//
-// Shipped rules are locked and re-seeded on every boot, so a custom rule taking
-// one of their names is either silently replaced at the next restart or
-// silently replaces the shipped one -- and which of those happens depends on
-// load order, which is not a thing anybody should have to know.
-var ShippedRuleNames = []string{"default", "localFirst", "operatorReasoning", "compilerLocalOnly", "embeddingsBound"}
+// IT IS THE LOADER'S OWN LIST, NOT A COPY OF IT. An earlier draft restated the
+// seven literals here on the argument that a prompt vocabulary and a parser
+// vocabulary are different things -- which is true right up until they differ,
+// and then the compiler emits rules that refuse to load while telling the
+// person, confidently, what their new rule does. Deriving costs nothing and
+// removes the only way those two can disagree.
+func WhenKeys() []string { return append([]string(nil), memql.RuleWhenKeys...) }
 
 // OnUnavailableValues is the closed set for what happens when a rule's policy
 // resolves to nothing.
@@ -100,40 +90,57 @@ type Warning struct {
 // every call CAN be activated and is probably a mistake, so it is surfaced and
 // left to them: it is their cluster, and a compiler that refused anything
 // surprising would be unable to express the shipped rules themselves.
-func (r CompiledRule) Validate() ([]Warning, error) {
-	if strings.TrimSpace(r.Name) == "" {
-		return nil, fmt.Errorf("compiled rule has no name")
+// Form is the compiled rule in the shape the runtime rule authoring pipeline
+// takes, so that one validator decides what may be activated.
+//
+// THE COMPILER IS A DIFFERENT FRONT DOOR TO THE SAME PIPELINE, and that is why
+// this conversion exists rather than a second set of checks. An operator
+// filling in the form and an operator typing a sentence must be able to
+// activate exactly the same set of rules; anything the compiler let through
+// that the form refuses would be a rule that validates, renders and then fails
+// to load, with the person holding a confident restatement of it.
+func (r CompiledRule) Form() routingrules.Form {
+	return routingrules.Form{
+		Name:          strings.TrimSpace(r.Name),
+		Description:   strings.TrimSpace(r.Sentence),
+		When:          r.Conditions,
+		Level:         strings.TrimSpace(r.Level),
+		Policy:        strings.TrimSpace(r.Policy),
+		Precedence:    r.Precedence,
+		OnUnavailable: strings.TrimSpace(r.OnUnavailable),
+		Excludes:      r.Excludes,
 	}
-	for _, shipped := range ShippedRuleNames {
-		if strings.EqualFold(strings.TrimSpace(r.Name), shipped) {
-			return nil, fmt.Errorf(
-				"a custom rule may not be called %q: that is a shipped rule, re-seeded on every boot, "+
-					"so one of the two would silently replace the other depending on load order", shipped)
-		}
-	}
-	if strings.TrimSpace(r.Policy) == "" {
-		return nil, fmt.Errorf("rule %q names no policy; @policy is required", r.Name)
-	}
-	if !containsString(ShippedPolicies, strings.TrimSpace(r.Policy)) {
-		return nil, fmt.Errorf(
-			"rule %q names policy %q, which is not one of the shipped policies (%s). A compiled rule may "+
-				"NAME a policy and may not mint one -- a provider chain minted from a sentence would be a "+
-				"spending decision in a place no review looks",
-			r.Name, r.Policy, strings.Join(ShippedPolicies, ", "))
-	}
-	for key := range r.Conditions {
-		if !containsString(WhenKeys, key) {
-			return nil, fmt.Errorf(
-				"rule %q uses condition %q, which is not in the @when vocabulary (%s). The loader would "+
-					"refuse this rule, so activating it would leave a rule that never runs and a person who "+
-					"believes it does",
-				r.Name, key, strings.Join(WhenKeys, ", "))
-		}
-	}
-	if u := strings.TrimSpace(r.OnUnavailable); u != "" && !containsString(OnUnavailableValues, u) {
-		return nil, fmt.Errorf("rule %q sets onUnavailable=%q; the values are %s", r.Name, u, strings.Join(OnUnavailableValues, " or "))
+}
+
+// Validate checks a compiled rule and reports what a person should see before
+// confirming it.
+//
+// IT SEPARATES REFUSALS FROM WARNINGS, and the split is the design. A rule
+// naming a policy that does not exist cannot be activated -- the loader would
+// refuse it and the person would be told nothing useful. A rule that matches
+// every call CAN be activated and is probably a mistake, so it is surfaced and
+// left to them: it is their cluster, and a compiler that refused anything
+// surprising would be unable to express the shipped rules themselves.
+//
+// EVERY REFUSAL IS routingrules.Validate'S, ASKED THROUGH THE FORM. An earlier
+// draft of this function re-implemented all of them here against four
+// hardcoded lists -- the shipped rule names, the shipped policy names, the
+// `@when` keys and the onUnavailable values. Three of those were already
+// wrong when they were written: the rule list named a POLICY as a rule and
+// missed four of the six rules the tree actually ships, so a sentence could
+// take `reasoningParks`' name and get exactly the load-order coin flip the
+// list existed to prevent. Lists like that do not drift because somebody is
+// careless; they drift because the thing they copy is somewhere else and
+// nothing connects them. `shipped` reads the live registries.
+func (r CompiledRule) Validate(shipped routingrules.ShippedNames) ([]Warning, error) {
+	if err := routingrules.Validate(r.Form(), shipped); err != nil {
+		return nil, err
 	}
 	for _, ex := range r.Excludes {
+		// ROUTINGRULES CHECKS THAT AN EXCLUSION IS A VALID POLICY ENTRY; this
+		// narrows it to the fleet door, which is the only one an exclusion has
+		// ever meant. A sentence saying "not on the laptop" names a machine's
+		// model; there is no reading of it that names a vendor record.
 		if !strings.HasPrefix(ex, "fleet:") {
 			return nil, fmt.Errorf("rule %q excludes %q; an exclusion names a fleet model as fleet:<modelId>", r.Name, ex)
 		}

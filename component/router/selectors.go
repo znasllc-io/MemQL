@@ -42,6 +42,14 @@ const FederationReferencePrefix = "federation:"
 // that epic never has to touch the parser; the resolver is its own.
 const EmbedderReferencePrefix = "embedder:"
 
+// EmbedderSelectorActive is the only word the embedder door takes.
+//
+// It is spelled out rather than left implicit (`embedder:` alone) because a
+// chain entry that is a bare prefix reads as a typo, and because naming it
+// leaves room for nothing: there is no cheapest or strongest embedder to ask
+// for, only the one this cluster's index was built with.
+const EmbedderSelectorActive = "active"
+
 // Federation selectors -- orderings over the registry's federated records.
 const (
 	// FederationSelectorCheapest orders by input plus output cost per million,
@@ -110,18 +118,35 @@ func (r *Router) expandEntry(ctx context.Context, req ResolveRequest, entry stri
 
 	// THE EMBEDDER BINDING IS NOT A DOOR, so it has neither a fleet nor a
 	// federation arm: whichever model is bound may live on either side, and
-	// the door is DERIVED from what the binding resolves to. Epic memql#5137
-	// installs the resolver; until it does, the entry is refused BY NAME
-	// rather than reported as a door that happens to be shut, because those
-	// two are fixed in different places -- one by an operator opening a lid,
-	// the other by a release.
+	// the door is DERIVED from what the binding resolves to.
 	//
-	// No shipped policy names it, so this arm is reachable only from an
-	// authored chain that got ahead of the resolver.
+	// THIS SELECTOR RETURNS EXACTLY ONE CANDIDATE OR NONE, and the absence of
+	// an ordering is the whole point. Every other selector here asks a
+	// question with several defensible answers and picks the best one; this
+	// one asks which embedder the cluster is CURRENTLY WRITING VECTORS WITH,
+	// and that has one answer by construction. A second candidate would be a
+	// different vector space, and falling through to it would write vectors
+	// the index cannot compare -- silently, since every subsequent similarity
+	// read returns plausible neighbours that are simply wrong.
+	//
+	// So an unbound cluster reports the refusal and stops. It does NOT fall
+	// through to a fleet or federation selector, because "some embedder" is
+	// not a weaker version of the right answer here; it is a corrupted index.
 	if strings.HasPrefix(entry, EmbedderReferencePrefix) {
-		report.note(entry, "the embedder binding cannot be resolved on this node: the binding resolver is not installed "+
-			"(epic memql#5137 installs it). Name a concrete embedder with fleet:<modelId> or federation:<providerName> until then")
-		return nil, nil
+		selector := strings.TrimSpace(strings.TrimPrefix(entry, EmbedderReferencePrefix))
+		if selector != EmbedderSelectorActive {
+			report.note(entry, fmt.Sprintf(
+				"the embedder door takes %q and nothing else; %q names no selector. A cluster has one active "+
+					"binding by construction, so there is nothing here to order or choose between",
+				EmbedderSelectorActive, selector))
+			return nil, nil
+		}
+		name, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			report.note(entry, err.Error())
+			return nil, nil
+		}
+		return []candidate{{Name: name, Door: doorFor(name)}}, nil
 	}
 
 	if strings.HasPrefix(entry, FederationReferencePrefix) {

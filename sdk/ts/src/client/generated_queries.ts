@@ -398,6 +398,27 @@ QueryClient.prototype.activeDelegationsForAgent = function (this: QueryClient, a
   return this.executeNamed("activeDelegationsForAgent", buildActiveDelegationsForAgent(args), opts);
 };
 
+/** The cluster's active embedder.
+ONE ROW, AT A LITERAL ID, so this reads by id rather than by a filter that could return two (memql#5137, D6). A query that answered "which embedder is active" with a list would have no way to choose, and the caller would pick the first -- which is map order wearing a query's name. */
+// Bound concept: v1:platform:embedderBinding (machine-readable: BoundConcepts["activeEmbedderBinding"] in generated_concepts.ts).
+export interface ActiveEmbedderBindingArgs {
+}
+
+export function buildActiveEmbedderBinding(args: ActiveEmbedderBindingArgs): string {
+  void args;
+  return "query activeEmbedderBinding()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    activeEmbedderBinding(args?: ActiveEmbedderBindingArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.activeEmbedderBinding = function (this: QueryClient, args: ActiveEmbedderBindingArgs = {} as ActiveEmbedderBindingArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("activeEmbedderBinding", buildActiveEmbedderBinding(args), opts);
+};
+
 /** List active v1:forge:project rows. */
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["activeProjects"] in generated_concepts.ts).
 export interface ActiveProjectsArgs {

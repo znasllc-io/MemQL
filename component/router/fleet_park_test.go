@@ -8,6 +8,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -332,15 +333,21 @@ func TestConsentSurvivesWithNoPolicyCorpus(t *testing.T) {
 	providers.SetFleetInference(fleet)
 	providers.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", cloud)
 
-	// The policy registry holds the caller's own policy and NOTHING ELSE -- no
+	// The policy registry holds a local-only chain and NOTHING ELSE -- no
 	// federationStrongest, which is the state of a cluster whose corpus did not
-	// load.
+	// load. The rule corpus is one rule naming it, so the request resolves the
+	// way every request does and the missing thing is the FALLBACK policy
+	// rather than the routing.
 	policies := memql.NewPolicyRegistryForTest(map[string][]string{"testPolicy": {"fleet:llama3.1:8b"}})
-	r := New(providers, policies, nil, nil)
+	r := New(providers, policies, testRules(t, defaultRule("testPolicy")), nil, nil)
+
+	req := func(consent bool) ResolveRequest {
+		return ResolveRequest{Level: airoute.LevelStrong, UserId: "alice", CloudConsent: consent}
+	}
 
 	// Without consent it still refuses: the fallback is reached by consent, not
 	// by the absence of a policy.
-	if _, _, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice"}); err == nil {
+	if _, _, err := r.ResolveChat(req(false)); err == nil {
 		t.Fatal("with no consent this must still refuse")
 	}
 	if cloud.calls != 0 {
@@ -348,7 +355,7 @@ func TestConsentSurvivesWithNoPolicyCorpus(t *testing.T) {
 	}
 
 	// With consent it resolves, corpus or no corpus.
-	_, resolved, err := r.ResolveChat(ResolveRequest{PolicyName: "testPolicy", UserId: "alice", CloudConsent: true})
+	_, resolved, err := r.ResolveChat(req(true))
 	if err != nil {
 		t.Fatalf("an explicit consent must be honoured even with no policy corpus loaded: %v", err)
 	}

@@ -98,18 +98,56 @@ rule operatorReasoning { }
 @locked
 rule reasoningParks { }
 
-/// Embeddings park. A degraded embedder is not a worse vector -- it answers in
-/// a DIFFERENT VECTOR SPACE, so the vector does not belong in the index it is
-/// about to be written to, and the corruption is silent: every subsequent
-/// similarity read returns plausible neighbours that are simply wrong.
+/// Embeddings go to the bound embedder and nowhere else, and park when there
+/// is none (epic memql#5137).
 ///
-/// This is the one rule whose park is not really a policy choice. The level
-/// itself has no next level down, so degrading it is unrepresentable; the rule
-/// states it anyway, because a reader looking for "what happens when the
-/// embedder is unreachable" should find the answer here rather than infer it.
+/// A degraded embedder is not a worse vector -- it answers in a DIFFERENT
+/// VECTOR SPACE, so the vector does not belong in the index it is about to be
+/// written to, and the corruption is silent: every subsequent similarity read
+/// returns plausible neighbours that are simply wrong.
+///
+/// THIS RULE REPLACED `embeddingsPark`, WHICH NAMED `localFirst`, and the
+/// difference is the whole of the epic on this level. `localFirst` opens with
+/// `fleet:strongest` -- the best model this fleet can serve the call with --
+/// which for an embedding call is whichever embedder happens to be biggest
+/// today. That is a fine answer to "which model" and the wrong answer to
+/// "which vector space": it moves when a laptop wakes, and the index does not
+/// move with it. The binding is the only entry that cannot change underneath
+/// an index that was built with it.
+///
+/// The park is unchanged and is still not really a policy choice. The level
+/// has no next level down, so degrading it is unrepresentable; the rule states
+/// it anyway, because a reader looking for "what happens when the embedder is
+/// unreachable" should find the answer here rather than infer it.
 @when(level="embeddings")
-@policy("localFirst")
+@policy("embeddingsBinding")
 @precedence(110)
 @onUnavailable("park")
 @locked
-rule embeddingsPark { }
+rule embeddingsBound { }
+
+/// The rule compiler compiles rules on this cluster's own hardware.
+///
+/// WHAT MAKES THIS ITS OWN RULE RATHER THAN A NOTE IN A PROMPT. A person types
+/// a sentence about where their work may run; a model turns it into a rule.
+/// Sending that sentence to a vendor to be compiled would mean the one act
+/// whose entire subject is "what leaves this cluster" is itself the thing that
+/// leaves -- and it would do so before the rule exists to say it may not.
+///
+/// It matches on the prompt NAME rather than on a tag, because a tag is
+/// something a call site has to remember to attach and this must hold for
+/// every path that reaches the compiler, including ones written later. The
+/// name is pinned in Go as router.CompilerPromptName for the same reason: if
+/// the two ever disagree the compiler falls through to the ordinary rules, and
+/// a rule about how to spend money gets compiled by a paid model with nothing
+/// but a decision record to say so.
+///
+/// `localOnly` has no fallback, so an unreachable fleet PARKS here. That is
+/// deliberate and it is the strict reading: the alternative is compiling the
+/// sentence somewhere the sentence may have been written to forbid.
+@when(prompt="compileRule")
+@policy("localOnly")
+@precedence(120)
+@onUnavailable("park")
+@locked
+rule compilerLocalOnly { }

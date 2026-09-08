@@ -85,11 +85,16 @@ export function ModelsSection() {
   // asked, active constraints as removable chips beside it, and never shown
   // over an empty list.
   //
-  // THESE ARE THE FACETS THIS BRANCH CAN SERVE. Epic memql#5137's catalog adds
-  // category, runtime and "what this fleet lacks" to the same control; they are
-  // deliberately not stubbed here, because a facet that narrows nothing is
-  // worse than one that is absent -- it reads as a fleet with no entries in
-  // that category rather than as a control that does not work yet.
+  // THESE ARE THE FACETS OVER THE RANKED LIST, AND ONLY OVER IT. Epic
+  // memql#5137's catalog landed with its own category / runtime / lacking
+  // facets behind a `facets` prop on CatalogSection, deliberately NOT wired
+  // into this control -- an earlier note here anticipated one Refine governing
+  // both lists, and building it made the reason not to obvious. Half of these
+  // chips would narrow the list above and none of the catalog, and half the
+  // reverse; a chip that says "online" while the catalog below it is unchanged
+  // is a control lying about what it did, which is the failure mode the same
+  // note was written to avoid. Two lists that answer different questions get
+  // two controls, or one control whose every chip governs both.
   const [search, setSearch] = useState("");
   const [capability, setCapability] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);

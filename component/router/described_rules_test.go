@@ -1,6 +1,9 @@
 package router
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -19,15 +22,88 @@ import (
 // D7 -- compiling
 // ===========================================================================
 
+// corpusNames answers HasRule / HasPolicy from the EMBEDDED TREE ITSELF, read
+// at test time.
+//
+// THE LIST IT REPLACES WAS WRONG WHEN IT WAS WRITTEN, which is the argument for
+// reading rather than restating. `ShippedRuleNames` named five entries: one of
+// them (`localFirst`) is a POLICY and never was a rule, and four of the six
+// rules the tree actually ships were missing -- so the gate that exists to stop
+// a sentence taking `reasoningParks`' name was, for `reasoningParks`, watching
+// nothing. Nobody was careless; the tree was somewhere else and nothing
+// connected them.
+//
+// Reading it here also makes the gate NON-DEGENERATE: parse zero rules and the
+// test fails rather than passing vacuously, so a rename of the corpus file
+// cannot quietly retire this check.
+type corpusNames struct{ rules, policies map[string]bool }
+
+var (
+	corpusRuleDecl   = regexp.MustCompile(`(?m)^rule\s+(\w+)\s*\{`)
+	corpusPolicyDecl = regexp.MustCompile(`(?m)^policy\s+(\w+)\s*\{`)
+)
+
+func (c corpusNames) HasRule(n string) bool   { return c.rules[n] }
+func (c corpusNames) HasPolicy(n string) bool { return c.policies[n] }
+
+func shippedFromCorpus(t *testing.T) corpusNames {
+	t.Helper()
+	read := func(rel string, re *regexp.Regexp) map[string]bool {
+		// component/router -> repo root.
+		b, err := os.ReadFile(filepath.Join("..", "..", rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		out := map[string]bool{}
+		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+			out[m[1]] = true
+		}
+		if len(out) == 0 {
+			t.Fatalf("parsed no declarations out of %s -- either the file moved or this parse stopped "+
+				"matching, and either way this gate is watching nothing", rel)
+		}
+		return out
+	}
+	return corpusNames{
+		rules:    read("dsl/rules/rules.memql", corpusRuleDecl),
+		policies: read("dsl/policies/policies.memql", corpusPolicyDecl),
+	}
+}
+
 func TestActivationRefusesAShippedName(t *testing.T) {
 	// A custom rule taking a shipped name is either silently replaced at the
 	// next boot or silently replaces the shipped one, and which of those
 	// happens depends on load order.
-	for _, name := range ShippedRuleNames {
+	shipped := shippedFromCorpus(t)
+	for name := range shipped.rules {
 		rule := CompiledRule{Name: name, Policy: "localFirst", Conditions: map[string]string{"level": "fast"}}
-		if _, err := rule.Validate(); err == nil {
+		if _, err := rule.Validate(shipped); err == nil {
 			t.Errorf("a compiled rule named %q must be refused", name)
 		}
+	}
+}
+
+func TestTheCompilersShippedNamesAreTheTreesOwn(t *testing.T) {
+	// The two rules and the policy this epic adds must actually be in the tree.
+	// Naming them in Go and forgetting the DSL half produces a compiler that
+	// refuses a name nothing ships and a locked rule that does not exist -- and
+	// the second of those means the rule compiler resolves through the ordinary
+	// rules, so a rule about how to spend money could be compiled by a paid
+	// model with nothing saying so.
+	shipped := shippedFromCorpus(t)
+	if !shipped.HasRule(CompilerRuleName) {
+		t.Errorf("the compiler's locked rule %q is not in dsl/rules/rules.memql", CompilerRuleName)
+	}
+	if !shipped.HasPolicy(CompilerPolicyName) {
+		t.Errorf("the compiler's policy %q is not in dsl/policies/policies.memql", CompilerPolicyName)
+	}
+	for _, name := range []string{"embeddingsBound"} {
+		if !shipped.HasRule(name) {
+			t.Errorf("rule %q is not in dsl/rules/rules.memql", name)
+		}
+	}
+	if !shipped.HasPolicy("embeddingsBinding") {
+		t.Error("policy \"embeddingsBinding\" is not in dsl/policies/policies.memql")
 	}
 }
 
@@ -39,12 +115,21 @@ func TestACompiledRuleMayNotMintAPolicy(t *testing.T) {
 		Policy:     "somethingNobodyShipped",
 		Conditions: map[string]string{"touches": "v1:campaigns:recipient"},
 	}
-	_, err := rule.Validate()
+	_, err := rule.Validate(shippedFromCorpus(t))
 	if err == nil {
 		t.Fatal("a rule naming an unshipped policy must be refused")
 	}
-	if !strings.Contains(err.Error(), "localFirst") {
-		t.Errorf("the refusal must name the policies that ARE available; got %q", err)
+	// The refusal names the offending policy and says the missing thing is
+	// REGISTRATION, not spelling. It does not list what IS available, and that
+	// is a deliberate limit rather than an oversight: the check reads the live
+	// registries through a two-method interface, and widening that interface to
+	// enumerate would put a second answer to "what policies exist" beside the
+	// registry's own.
+	if !strings.Contains(err.Error(), "somethingNobodyShipped") {
+		t.Errorf("the refusal must name the policy it refused; got %q", err)
+	}
+	if !strings.Contains(err.Error(), "not registered") {
+		t.Errorf("the refusal must say the policy is not registered, not that it is malformed; got %q", err)
 	}
 }
 
@@ -56,7 +141,7 @@ func TestACompiledRuleMayNotInventAConditionKey(t *testing.T) {
 		Policy:     "localOnly",
 		Conditions: map[string]string{"vendor": "anthropic"},
 	}
-	if _, err := rule.Validate(); err == nil {
+	if _, err := rule.Validate(shippedFromCorpus(t)); err == nil {
 		t.Fatal("a condition outside the @when vocabulary must be refused")
 	}
 }
@@ -66,7 +151,7 @@ func TestAnUnconditionalRuleIsWarnedAboutRatherThanRefused(t *testing.T) {
 	// rarely what a sentence about a particular kind of work means. Refusing it
 	// would make the compiler unable to express the shipped rules themselves.
 	rule := CompiledRule{Name: "everything", Policy: "localOnly", Restatement: "Everything local."}
-	warnings, err := rule.Validate()
+	warnings, err := rule.Validate(shippedFromCorpus(t))
 	if err != nil {
 		t.Fatalf("an unconditional rule is legal: %v", err)
 	}
@@ -96,11 +181,11 @@ func TestAnExclusionNamesAFleetModel(t *testing.T) {
 		Conditions: map[string]string{"level": "fast"},
 		Excludes:   []string{"qwen3.5:122b"},
 	}
-	if _, err := rule.Validate(); err == nil {
+	if _, err := rule.Validate(shippedFromCorpus(t)); err == nil {
 		t.Fatal("an exclusion must be spelled fleet:<modelId>")
 	}
 	rule.Excludes = []string{"fleet:qwen3.5:122b"}
-	if _, err := rule.Validate(); err != nil {
+	if _, err := rule.Validate(shippedFromCorpus(t)); err != nil {
 		t.Fatalf("a fleet-prefixed exclusion is valid: %v", err)
 	}
 }
