@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/znasllc-io/memql/component/config"
+	"github.com/znasllc-io/memql/component/frontdoor"
 )
 
 // runtimeConfigPath is the well-known, root-relative path every hosted site
@@ -31,10 +32,24 @@ const runtimeConfigPath = "/runtime-config.json"
 // Additive-only shape: an older cached bundle must keep working against a
 // newer node, so a field is added, never a required one removed.
 type RuntimeConfig struct {
-	// IdentityURL is the browser-reachable identity-service origin (the OIDC
-	// issuer). Read from the same env every verifier-consuming node already
-	// carries -- component/envregistry/domain.go's ApplyDomainDerivations sets
-	// it once at boot -- never re-derived here.
+	// IdentityURL is the browser-reachable identity-service origin. Read from
+	// the same env every verifier-consuming node already carries --
+	// component/envregistry/domain.go's ApplyDomainDerivations sets it once at
+	// boot -- never re-derived here.
+	//
+	// EXCEPT THROUGH AN ACCOUNT'S FRONT DOOR, where it is that door's own
+	// `id.<reservedName>` (epic memql#5168, design D3/F). That is the one
+	// change the front door makes to sign-in, and it is what keeps a client's
+	// employee on their own company's domain from the first click to the last:
+	// top-level /authorize navigation goes here, so leaving it as the
+	// cluster's own host would bounce them to a name they have never seen.
+	//
+	// IT IS NO LONGER THE ISSUER, and the rename of this comment is the point.
+	// The token still says `iss = https://identity.<cluster-domain>` whatever
+	// host minted it -- one identity service, one keyset, one issuer, so
+	// component/identity/verifier is untouched. This field is the ORIGIN a
+	// browser is sent to, which was the same string before doors existed and
+	// is not any more.
 	IdentityURL string `json:"identityUrl"`
 	// IdentityAPIBaseURL is the base a client uses for the identity JSON
 	// calls it makes with fetch() -- POST /oauth/token, /auth/refresh,
@@ -68,6 +83,24 @@ type RuntimeConfig struct {
 	// reverse-engineering it from identityUrl. Empty, never omitted, when
 	// the node has no domain configured.
 	Domain string `json:"domain"`
+	// Account is present ONLY when this page was served through an account's
+	// reserved front door, and says which account's door it was (epic
+	// memql#5168, design D4).
+	//
+	// OMITTED ENTIRELY otherwise, like Storefront and unlike Settings, and for
+	// Storefront's exact reason: its absence is INFORMATION -- this page was
+	// not served through a door -- rather than an empty case a bundle should
+	// have to distinguish from a missing key. A document served on the
+	// cluster's own host is byte-identical to what it was before this field
+	// existed.
+	//
+	// CONTEXT, NEVER AUTHORIZATION. What a client's member may read is decided
+	// server-side by each concept's own @rowAuthz and by the account grant,
+	// for every request regardless of which host it arrived on. This is what
+	// lets the shell say whose door you came through and default its pickers
+	// to that account.
+	Account *AccountContext `json:"account,omitempty"`
+
 	// Storefront is present ONLY for a kind="shopify_storefront" site, and
 	// carries what that site's own JavaScript needs to talk to Shopify
 	// directly (design D4). Omitted entirely for every other kind, so a spa
@@ -93,6 +126,24 @@ type RuntimeConfig struct {
 	// here can pretend to be the storefront binding's resolved reference.
 	// Merged AFTER the storefront block so the two cannot be confused.
 	Settings map[string]string `json:"settings"`
+}
+
+// AccountContext is the account whose reserved front door served this page.
+//
+// NO ACCOUNT NAME, deliberately. This document is served UNAUTHENTICATED to
+// every visitor of the host, so a display name here would tell any passer-by
+// which company this cluster serves at this name -- and it would be
+// denormalized onto a serving row and wrong the first time somebody renamed
+// the client. The OS reads the name through its own authorized query once
+// there is a signed-in person to read it for, which is both fresher and
+// narrower.
+type AccountContext struct {
+	// ID is the v1:accounts:account row id, bare.
+	ID string `json:"id"`
+	// ReservedName is the name the door serves beneath (memql.acme.com). The
+	// shell composes the sibling hosts from it rather than parsing them out of
+	// its own location.
+	ReservedName string `json:"reservedName"`
 }
 
 // StorefrontConfig is the shopify_storefront binding as the browser sees it:
@@ -168,11 +219,39 @@ func runtimeConfigForSite(ctx context.Context, site *Site, env func(string) stri
 	if site != nil {
 		hostname = site.Hostname
 	}
+
+	// THROUGH A DOOR THE SIGN-IN ORIGIN MOVES, AND NOTHING ELSE DOES (epic
+	// memql#5168, design D3/F). Top-level /authorize navigation goes to the
+	// door's own `id.` host, because leaving it as the cluster's own would
+	// bounce a client's employee to a name they have never seen -- and because
+	// the magic-link cookie and the passkey the flow depends on are bound to
+	// the door's hosts, not to ours.
+	//
+	// THE OAUTH CLIENT IS DELIBERATELY NOT OVERRIDDEN, and the first version of
+	// this function got that wrong. Resolving the client against the door's
+	// `app.` host finds nothing -- the registered-clients list is derived from
+	// MEMQL_DOMAIN and names the cluster's own hosts -- so the document came
+	// back with an empty oauthClientId and the shell had nothing to present.
+	// The right reading is that a door is the SAME `os` client reached at a
+	// different origin: one client, one registration, one consent record. What
+	// has to widen is the identity service's REDIRECT-URI allowlist, which is
+	// its own half of this epic and is resolved from rows there.
+	//
+	// IdentityAPIBaseURL stays EMPTY, which is why there is no CORS story here
+	// at all: the four identity JSON paths are proxied same-origin by
+	// serveIdentityXHR, on whichever host served the page.
+	var account *AccountContext
+	if site != nil && site.Account != nil && site.Account.ReservedName != "" {
+		account = &AccountContext{ID: site.Account.ID, ReservedName: site.Account.ReservedName}
+		identityURL = "https://" + frontdoor.AccountRoleHost(frontdoor.AccountRoleID, site.Account.ReservedName)
+	}
+
 	return RuntimeConfig{
 		IdentityURL:        identityURL,
 		IdentityAPIBaseURL: "",
 		OAuthClientID:      clientIDForHostname(hostname, env("MEMQL_IDENTITY_REGISTERED_CLIENTS")),
 		AuthEnabled:        authEnabled,
+		Account:            account,
 		Domain:             domainFromEnv(env),
 		Storefront:         storefrontForSite(ctx, site, resolveSecret),
 		Settings:           settingsForSite(site),

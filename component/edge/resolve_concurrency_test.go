@@ -45,6 +45,13 @@ func (b *blockingExec) SiteForCustomDomain(_ context.Context, _ string) (*Site, 
 	return nil, nil
 }
 
+// The third resolution step. This stub answers nothing: the concurrency test
+// is about the singleflight collapse on the FIRST read, and a door that
+// answered would change how many reads a miss costs.
+func (b *blockingExec) SiteForAccountFrontDoor(_ context.Context, _ string) (*Site, error) {
+	return nil, nil
+}
+
 // Concurrent misses for ONE hostname must collapse to a single query. This
 // is the same shape as integrations/cognition's cache-miss singleflight
 // groups (e.g. recentUtterSF / spaceInfoSF in prompt_context_cache.go):

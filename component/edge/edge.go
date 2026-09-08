@@ -26,6 +26,7 @@ import (
 	"fmt"
 
 	"github.com/znasllc-io/memql/component/auth"
+	"github.com/znasllc-io/memql/component/frontdoor"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
@@ -114,6 +115,79 @@ func (e *engineExecutor) SiteForCustomDomain(ctx context.Context, hostname strin
 		return nil, nil
 	}
 	return siteFromRow(srows[0]), nil
+}
+
+// SiteForAccountFrontDoor resolves an `app.<reservedName>` host through a LIVE
+// v1:platform:accountFrontDoor row to the OS site (epic memql#5168, design
+// D4/F).
+//
+// # ONE READ, NOT TWO
+//
+// SiteForCustomDomain needs two named reads because a binding names an
+// arbitrary site. This needs one, because a front door always resolves to the
+// SAME site: the shell's row id is frontdoor.OsSite, a constant known before
+// any operator creates anything. So the site is fetched by that id and the
+// account context comes out of the door row in the same pass.
+//
+// # THE HOST IS STRIPPED, THE NAME IS QUERIED
+//
+// A door row stores `memql.acme.com`; the request arrived for
+// `app.memql.acme.com`. A DSL filter compiles to SQL over stored fields and
+// cannot prepend a label, so the strip happens here, through
+// frontdoor.AccountReservedNameFromAppHost -- the pinned inverse of the
+// composition, so the label is spelled in exactly one place. A host that is
+// not an `app.` host never reaches the engine at all, which is also what keeps
+// `api.` and `id.` (routed straight to the bff and identity by Ingress) from
+// costing a query if one ever arrives here by mistake.
+//
+// # A MISS AT EITHER STEP IS (nil, nil)
+//
+// The second step missing means a live door names an OS site that is deleted,
+// draft or gone, and the honest answer is the same 404 an unknown hostname
+// gets -- SiteForCustomDomain's reasoning, and the same reason: nobody outside
+// this cluster can see the row that would explain an error page.
+func (e *engineExecutor) SiteForAccountFrontDoor(ctx context.Context, hostname string) (*Site, error) {
+	reserved, ok := frontdoor.AccountReservedNameFromAppHost(hostname)
+	if !ok {
+		return nil, nil
+	}
+	ctx = systemActorContext(ctx)
+	q := fmt.Sprintf("query liveAccountFrontDoorByReservedName(reservedName: %s)",
+		langparser.QuoteString(reserved))
+	res, err := e.engine.Execute(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("edge: query liveAccountFrontDoorByReservedName for %q: %w", hostname, err)
+	}
+	rows := memql.MaterializeRows(res)
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	accountId := memql.BareShortId(rowString(rows[0], "accountId"))
+	if accountId == "" {
+		// A door with no account is a row that should not exist -- accountId
+		// is required by the concept. Treated as a miss rather than an error
+		// for the reason above: there is no useful page to render about it.
+		return nil, nil
+	}
+
+	sq := fmt.Sprintf("query siteById(siteId: %s)", langparser.QuoteString(frontdoor.OsSite))
+	sres, err := e.engine.Execute(ctx, sq)
+	if err != nil {
+		return nil, fmt.Errorf("edge: query siteById for account front door %q: %w", hostname, err)
+	}
+	srows := memql.MaterializeRows(sres)
+	if len(srows) == 0 {
+		return nil, nil
+	}
+	site := siteFromRow(srows[0])
+	site.Account = &SiteAccount{
+		ID: accountId,
+		// FROM THE ROW, NOT FROM THE HOST. They agree today, and the row is
+		// the one that stays right: a door whose reservation was cleared is
+		// torn down by name, and the name it is torn down by is this one.
+		ReservedName: rowString(rows[0], "reservedName"),
+	}
+	return site, nil
 }
 
 // systemActorContext stamps the synthetic cluster-owner identity onto ctx.

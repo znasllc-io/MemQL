@@ -15,6 +15,12 @@ type stubExec struct {
 	// reached when the first one answers.
 	aliases    map[string]*Site
 	aliasCalls int
+	// doors is the account front-door half: the `app.<reservedName>` host ->
+	// the site (always the OS one) with its account attached. doorCalls counts
+	// the third read so a test can prove it is not reached when either of the
+	// first two answers.
+	doors     map[string]*Site
+	doorCalls int
 }
 
 func (s *stubExec) SiteByHostname(_ context.Context, hostname string) (*Site, error) {
@@ -25,6 +31,11 @@ func (s *stubExec) SiteByHostname(_ context.Context, hostname string) (*Site, er
 func (s *stubExec) SiteForCustomDomain(_ context.Context, hostname string) (*Site, error) {
 	s.aliasCalls++
 	return s.aliases[hostname], nil
+}
+
+func (s *stubExec) SiteForAccountFrontDoor(_ context.Context, hostname string) (*Site, error) {
+	s.doorCalls++
+	return s.doors[hostname], nil
 }
 
 func TestResolveFindsTheSiteForAHostname(t *testing.T) {
