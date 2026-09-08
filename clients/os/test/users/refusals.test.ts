@@ -43,6 +43,38 @@ function engineCodes(): string[] {
   return [...out].sort();
 }
 
+/**
+ * Every code the packages declare, paired with whether the declaration is
+ * actually USED at a raise site.
+ *
+ * THE OTHER DIRECTION, and it is the one a coverage test cannot see: a
+ * constant nobody returns is a contract this app has copy for and can never
+ * show. The check is on the IDENTIFIER rather than the string, because that is
+ * how both packages raise -- `refuse(slug, codeRankTaken, ...)`,
+ * `refusal(CodeGroupNotFound, ...)` -- so a declaration with no second mention
+ * anywhere in its package is a code nothing can raise.
+ */
+function declaredButNeverRaised(): string[] {
+  const orphans: string[] = [];
+  for (const pkg of GO_PACKAGES) {
+    const dir = join(integrations, pkg);
+    if (!existsSync(dir)) continue;
+    const files = readdirSync(dir).filter((n) => n.endsWith(".go") && !n.endsWith("_test.go"));
+    const sources = files.map((n) => readFileSync(join(dir, n), "utf8"));
+    const whole = sources.join("\n");
+    for (const source of sources) {
+      for (const m of source.matchAll(/^\s*([Cc]ode\w+)\s*=\s*"([a-z][a-z0-9_]*)"/gm)) {
+        const identifier = m[1]!;
+        const code = m[2]!;
+        // The declaration itself is one mention; a raise site is a second.
+        const mentions = whole.split(new RegExp(`\\b${identifier}\\b`)).length - 1;
+        if (mentions < 2) orphans.push(code);
+      }
+    }
+  }
+  return orphans.sort();
+}
+
 function covered(code: string): boolean {
   return knownCodes().includes(code) || SERVER_SENTENCE_ONLY.includes(code);
 }
@@ -75,6 +107,14 @@ describe("the refusal copy table", () => {
     // table's coverage look better than it is.
     const engine = engineCodes();
     expect(knownCodes().filter((code) => !engine.includes(code))).toEqual([]);
+  });
+
+  it("has no copy for a code no raise site can produce", () => {
+    // Declared-and-never-raised is invisible to the coverage test above: the
+    // scan finds the constant, the table has copy for it, and both directions
+    // agree about a sentence nobody will ever read. Checking the identifier's
+    // second mention is what tells a live code from a retired one.
+    expect(declaredButNeverRaised()).toEqual([]);
   });
 
   it("gives every entry a headline", () => {
