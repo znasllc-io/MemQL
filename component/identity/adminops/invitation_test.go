@@ -110,11 +110,14 @@ func TestAnInviterCannotGrantAboveTheirOwnRole(t *testing.T) {
 		{"admin cannot grant owner", auth.RoleAdmin, "owner", true},
 		{"admin cannot grant developer", auth.RoleAdmin, "developer", true},
 
-		// THE RANK INVERSION, the second door to the same escalation. A
-		// developer outranks admin, so the rank cap alone lets them invite an
-		// address they control AS an admin -- and an admin holds the principal
-		// verbs they lack, including the uncapped SetUserRole.
-		{"developer cannot grant admin", auth.RoleDeveloper, "admin", true},
+		// REVERSED DELIBERATELY (memql#5236). A developer outranks admin, so
+		// the rank cap always permitted this; what refused it was the
+		// people-authority clause, which now runs on the re-role seam only.
+		// Issuing an invitation is not wielding the role it names -- the
+		// recipient must still redeem it, and the inviter holds no verb on the
+		// principal that results. The escalation this reopens is an accepted,
+		// recorded open question; see auth.MayAssignRole.
+		{"developer may grant admin", auth.RoleDeveloper, "admin", false},
 		{"developer may grant writer", auth.RoleDeveloper, "writer", false},
 
 		// STRICTLY BELOW, NOT AT-OR-BELOW (epic memql#5166, D4). These two
@@ -134,6 +137,13 @@ func TestAnInviterCannotGrantAboveTheirOwnRole(t *testing.T) {
 
 		{"admin may grant writer", auth.RoleAdmin, "writer", false},
 		{"owner may grant developer", auth.RoleOwner, "developer", false},
+
+		// THE REPORTED CASE (memql#5230). An owner naming an admin was
+		// refused "that is above your own role" in the field, and the
+		// table covered owner -> developer and owner -> owner but never
+		// this rung -- the one an operator reaches for first. It passes
+		// through the owner carve-out, exactly as owner -> owner does.
+		{"owner may grant admin", auth.RoleOwner, "admin", false},
 
 		// The owner carve-out survives: `newRank < actorRank` would refuse
 		// owner -> owner and leave a cluster with one owner unable to name a
