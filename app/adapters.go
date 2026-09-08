@@ -177,6 +177,11 @@ func (a *CognitionEngineAdapter) ResolveSkills(ctx context.Context, skillIds []s
 // GetProvider nor DefaultProvider had a caller. It answered `(any, bool)`,
 // so every user of it would have had to type-assert its way back to a
 // modality the router now decides.
+//
+// It was also one of the last readers of the registry DEFAULT, which epic
+// memql#5137 removes: `DefaultProvider()` asked the registry which provider was
+// "the" one, and since every concrete record is a paid vendor model that answer
+// was whichever entry a map yielded first.
 
 // AttachmentEngineAdapter wraps MemQLEngine to satisfy server.MemQLExecutor.
 type AttachmentEngineAdapter struct {

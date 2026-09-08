@@ -12333,3 +12333,107 @@ a.os-button {
 .os-settings-wide {
   max-width: none;
 }
+
+/* ===========================================================================
+ * Fleet -> Models: the curated catalog (epic memql#5137, task memql#5140)
+ * ===========================================================================
+ * A DELIBERATELY DIFFERENT TREATMENT FROM THE RANKED LIST ABOVE IT, and the
+ * difference carries the meaning. `.os-fleet-model` is a card because each of
+ * its entries is a thing with machines under it; these entries are mostly one
+ * line, and the interesting ones carry a sentence. Giving them cards too would
+ * say the two lists are the same kind of thing, when the whole reason this
+ * section exists is that one says what IS and the other what SHOULD BE.
+ *
+ * IT SPENDS NO ACCENT. `.os-fleet-model-next` is the one mark on this screen
+ * and it means "your next turn lands here"; a second accent for "recommended"
+ * would split the reader's attention between a fact about now and advice about
+ * later. Served and unserved are told apart by INK -- which is what the eye
+ * reads first anyway, and what still works for a reader who cannot separate
+ * the accent from the body colour.
+ *
+ * The prefix is `catgroup` / `catrow` rather than `catalog-group`, because
+ * `.os-fleet-catalog` alone would sit one hyphen away from the `catalog`
+ * READING in useInference and invite exactly the kind of accidental reuse the
+ * machinemodel note above records. */
+.os-fleet-catalog {
+  display: grid;
+  gap: 18px;
+}
+.os-fleet-catgroup {
+  display: grid;
+  gap: 4px;
+}
+/* The category name is a NOUN PHRASE in the reader's words ("Hard problems",
+ * not "reasoning"), set at body size with weight rather than as a tracked-out
+ * label. A section this deep does not need a fourth type size to be legible,
+ * and an all-caps eyebrow here would be chrome above content that already
+ * says what it is. */
+.os-fleet-catname {
+  margin: 0;
+  font-size: var(--os-text-base);
+  font-weight: 600;
+}
+.os-fleet-catstate {
+  margin: 0;
+  font-size: var(--os-text-sm);
+  color: var(--os-muted);
+}
+.os-fleet-catrows {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+/* Two columns on a comfortable window, stacked below it. The id column is
+ * sized to the longest catalog id rather than to a fraction of the container,
+ * so the sentences start on one line and the eye can read down them -- which
+ * is the whole reason the gap is legible at a glance. */
+.os-fleet-catrow {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  gap: 4px 14px;
+  align-items: baseline;
+  padding: 3px 0;
+  color: var(--os-muted);
+  font-size: var(--os-text-sm);
+}
+@media (max-width: 720px) {
+  .os-fleet-catrow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+}
+/* SERVED IS FULL INK; everything else is muted. One property, two states, no
+ * badge -- a "SERVED" chip on every second row would be furniture, and the
+ * category's own scope line already says how many. */
+.os-fleet-catrow[data-served] {
+  color: var(--os-ink);
+}
+.os-fleet-catid {
+  font-size: var(--os-text-sm);
+  overflow-wrap: anywhere;
+}
+.os-fleet-catrow[data-served] .os-fleet-catid {
+  font-weight: 600;
+}
+.os-fleet-catnote {
+  min-width: 0;
+}
+/* A BLOCKED ROW READS BACK, deliberately, and is not hidden or struck through:
+ * the operator's question is "why can I not run this", and a row that vanished
+ * answers it with silence -- the same rule `.os-fleet-model[data-offline]`
+ * follows a few hundred lines up.
+ *
+ * IT CARRIES NO MARK OF ITS OWN, and that is a decision rather than an
+ * omission. A vertical hairline was tried and removed: `--os-line` is
+ * rgba(232,230,221,.08), which reads as a card EDGE because a card is a filled
+ * surface, and reads as nothing at all as a bare rule against the page. Making
+ * it visible would have meant a new weight competing with `.os-fleet-model-next`
+ * -- the one accent on this screen -- for a fact the row already states in
+ * words. "Needs the kokoro runtime. No machine on your fleet has it installed."
+ * is the whole signal, and three states (served, pullable, blocked) are carried
+ * by two ink weights plus that sentence.
+ *
+ * `data-blocked` stays on the element: it is the state, readable by a test and
+ * by whatever styles this later, and its being unstyled today is the point. */

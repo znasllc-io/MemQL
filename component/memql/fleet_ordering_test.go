@@ -123,7 +123,7 @@ func TestFleetWildcardIsRecognisedSoItCanBeRefused(t *testing.T) {
 		}
 	}
 
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{sized("llama3.1:8b", 8_000_000_000, 8192)}})
 	entry, ok := r.EntryForUser(userCtx("alice"), "alice", FleetWildcard)
 	if !ok || entry == nil {
@@ -212,7 +212,7 @@ func TestOrderBySelectorRefusesAnUnknownSelector(t *testing.T) {
 // depends on what the call needs and the chain walk is asking a different
 // question: is there any local model at all.
 func TestASelectorEntryIsAvailableWhenAnyModelIsOnline(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{sized("llama3.1:8b", 8_000_000_000, 8192)}})
 
 	entry, ok := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
@@ -225,7 +225,7 @@ func TestASelectorEntryIsAvailableWhenAnyModelIsOnline(t *testing.T) {
 
 	offline := sized("llama3.1:8b", 8_000_000_000, 8192)
 	offline.Machines[0].Online = false
-	r2 := newProviderRegistry("")
+	r2 := newProviderRegistry()
 	r2.SetFleetInference(&stubFleet{models: []FleetModel{offline}})
 	entry2, _ := r2.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 	if entry2.Available {
@@ -244,7 +244,7 @@ func TestTheSelectorPicksTheStrongestModelThatFitsTheCall(t *testing.T) {
 	embed.StructuredOutput = false
 
 	fleet := &stubFleet{models: []FleetModel{chatBig, embed}, answer: "ok"}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(fleet)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
@@ -277,7 +277,7 @@ func TestTheStrongestSelectorHonoursTheOwnersModelPreference(t *testing.T) {
 		answer:     "ok",
 		preference: []string{"qwen2.5:7b"},
 	}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(fleet)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
@@ -302,7 +302,7 @@ func TestAFailedPreferenceReadFallsBackToTheDefaultOrdering(t *testing.T) {
 		answer:        "ok",
 		preferenceErr: errors.New("the policy read failed"),
 	}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(fleet)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 
@@ -323,7 +323,7 @@ func TestASelectorMissNamesTheModelsConsidered(t *testing.T) {
 	proseOnly := sized("tinyllama:1b", 1_000_000_000, 2048)
 	proseOnly.StructuredOutput = false
 	fleet := &stubFleet{models: []FleetModel{proseOnly}}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(fleet)
 	entry, _ := r.EntryForUser(userCtx("alice"), "alice", FleetStrongest)
 

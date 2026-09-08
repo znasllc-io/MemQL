@@ -105,6 +105,22 @@ func TestFindSimilarReturnsEachIdOnceAtItsLatestVersion(t *testing.T) {
 
 	seedProbeRows(t, ctx, db)
 
+	// A BOUND EMBEDDER, because this cluster has none by default and findSimilar
+	// refuses rather than picking one (epic memql#5137). The refusal is correct
+	// and it is not this test's subject: an embedder chosen for you writes
+	// vectors into a search space you did not pick, so there is deliberately no
+	// fallback -- which means every test that embeds must say which embedder it
+	// is embedding with, exactly as a real cluster must.
+	//
+	// The binding is a package-level global, so it is cleared on cleanup: a
+	// binding left standing would make a later test in this package pass
+	// because of a decision this one made.
+	memql.SetActiveEmbedderBinding(memql.EmbedderBinding{
+		ProviderRef: "embedding3Small",
+		Dimensions:  embedDimensions,
+	})
+	t.Cleanup(memql.ClearActiveEmbedderBinding)
+
 	integration := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	integration.SetDBGetter(func() *sql.DB { return db })
 	integration.SetEmbeddingProvider(func(context.Context, string) (memql.EmbeddingAIProvider, error) {

@@ -1,0 +1,743 @@
+// models/seeds.memql -- the curated set (epic memql#5137, D2).
+//
+// VERIFIED 2026-09-07 against the Ollama library pages, the Hugging Face model
+// cards and the vendor announcements. The record says to re-verify every id and
+// size before seeding because tags move, and two had:
+//
+//   - `parakeet-tdt-1.1b` (named in D2) no longer exists. NVIDIA's current
+//     Parakeet is `parakeet-tdt-0.6b-v3`, which is what is seeded. A profile
+//     naming a tag the runtime does not serve fails at pull time with the
+//     runtime's own error, which is a worse place to learn it than here.
+//   - `gemma4:26b` is a 4B-active mixture, not the 3.8B-active the record says.
+//
+// Both corrections are carried back into the design record in this epic's PR,
+// per the program record's rule 4.
+//
+// WHAT IS NOT SEEDED, AND WHY IT IS STILL NAMED. `fish-speech-1.5` is in D2's
+// audioOut row and is seeded at its published id; FishAudio has since shipped
+// S1 and S2, but the record names 1.5 and re-pointing a curated entry to a
+// model nobody has run here is a curation decision rather than a verification
+// one, so it stays and the note says so.
+//
+// sizeBytes IS LEFT AT ZERO where the publisher does not state a download size
+// -- every non-Ollama entry. A zero reads as "not stated" on the page; an
+// invented number reads exactly like a measured one, which is worse than a gap.
+
+// =============================================================================
+//   text -- the workhorses. Every one of these carries vision, tools, thinking
+//   and structured output in a single record, which is the fact that makes a
+//   small local model good enough for a harness that asks narrow questions.
+// =============================================================================
+
+@description("qwen3.5:9b -- the 16 GB workhorse: tools, thinking, structured output and vision in one 6.6 GB record at 256K context")
+seed modelProfile qwen35_9b {
+  id:               "qwen3-5-9b"
+  modelId:          "qwen3.5:9b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.5"
+  params:           9000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        6600000000
+  memoryNeedBytes:  9000000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "qwen"
+  source:           "https://ollama.com/library/qwen3.5"
+  recommendedFor:   ["fast", "strong"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The default local pick. Everything the platform asks a model to do, on the smallest machine the catalog offers."
+  active:           true
+  curated:          true
+}
+
+@description("gemma4:12b -- 256K context with vision and native function calling, the 24 GB step up from the 9B")
+seed modelProfile gemma4_12b {
+  id:               "gemma4-12b"
+  modelId:          "gemma4:12b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "gemma4"
+  params:           12000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        7600000000
+  memoryNeedBytes:  10500000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "gemma"
+  source:           "https://ollama.com/library/gemma4"
+  recommendedFor:   ["fast", "strong"]
+  minMachineClass:  "24"
+  offeredOn:        ["macos", "linux"]
+  notes:            "A second family at the same job as qwen3.5:9b, for a fleet that wants one that is not Qwen."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3.8:27b -- the 32 GB strong pick: 256K context, text and image in, published August 2026")
+seed modelProfile qwen38_27b {
+  id:               "qwen3-8-27b"
+  modelId:          "qwen3.8:27b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.8"
+  params:           27000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        18000000000
+  memoryNeedBytes:  24000000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "qwen"
+  source:           "https://ollama.com/library/qwen3.8"
+  recommendedFor:   ["strong", "reasoning"]
+  minMachineClass:  "32"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The strongest thing that fits comfortably on a 32 GB machine, and the reason a 32 GB fleet needs no paid door."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3.5:35b -- the 64 GB pick, 24 GB on disk at 256K context")
+seed modelProfile qwen35_35b {
+  id:               "qwen3-5-35b"
+  modelId:          "qwen3.5:35b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.5"
+  params:           35000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        24000000000
+  memoryNeedBytes:  32000000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "qwen"
+  source:           "https://ollama.com/library/qwen3.5"
+  recommendedFor:   ["strong", "reasoning"]
+  minMachineClass:  "64"
+  offeredOn:        ["macos", "linux"]
+  notes:            "What a 64 GB machine should run for the work the 27B has to think hardest about."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3.5:122b -- the 128 GB entry, listed so the largest machine class has a text answer of its own")
+seed modelProfile qwen35_122b {
+  id:               "qwen3-5-122b"
+  modelId:          "qwen3.5:122b"
+  category:         "text"
+  runtime:          "ollama"
+  family:           "qwen3.5"
+  params:           122000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        81000000000
+  memoryNeedBytes:  100000000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "qwen"
+  source:           "https://ollama.com/library/qwen3.5"
+  recommendedFor:   ["strong", "reasoning"]
+  minMachineClass:  "128"
+  offeredOn:        ["macos", "linux"]
+  notes:            "For a workstation with the memory to hold it. Nothing in the platform needs it; it is here because a 128 GB machine should not be offered the 35B as its ceiling."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   reasoning -- where the platform spends its hardest turns.
+// =============================================================================
+
+@description("gpt-oss:20b -- Apache 2.0, structured output and tools, configurable reasoning effort, and it fits 16 GB at the edge")
+seed modelProfile gptoss_20b {
+  id:               "gpt-oss-20b"
+  modelId:          "gpt-oss:20b"
+  category:         "reasoning"
+  runtime:          "ollama"
+  family:           "gpt-oss"
+  params:           20000000000
+  quant:            "MXFP4"
+  sizeBytes:        14000000000
+  memoryNeedBytes:  16000000000
+  contextWindow:    131072
+  flags:            ["structured", "tools", "thinking", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/gpt-oss"
+  recommendedFor:   ["reasoning"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The reasoning answer for a 16 GB machine, and the only entry here whose licence carries no copyleft or field-of-use terms at all."
+  active:           true
+  curated:          true
+}
+
+@description("gemma4:26b -- a mixture of experts with 4B active, so it reasons at 26B and runs closer to its active size")
+seed modelProfile gemma4_26b {
+  id:               "gemma4-26b"
+  modelId:          "gemma4:26b"
+  category:         "reasoning"
+  runtime:          "ollama"
+  family:           "gemma4"
+  params:           26000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        19000000000
+  memoryNeedBytes:  24000000000
+  contextWindow:    262144
+  flags:            ["structured", "tools", "thinking", "vision", "streaming"]
+  dimensions:       0
+  license:          "gemma"
+  source:           "https://ollama.com/library/gemma4"
+  recommendedFor:   ["reasoning"]
+  minMachineClass:  "32"
+  offeredOn:        ["macos", "linux"]
+  notes:            "A 4B-active mixture: the throughput of a small model with the judgement of a large one, which is the trade a reasoning turn wants."
+  active:           true
+  curated:          true
+}
+
+@description("gpt-oss:120b -- the 128 GB reasoning ceiling, Apache 2.0")
+seed modelProfile gptoss_120b {
+  id:               "gpt-oss-120b"
+  modelId:          "gpt-oss:120b"
+  category:         "reasoning"
+  runtime:          "ollama"
+  family:           "gpt-oss"
+  params:           120000000000
+  quant:            "MXFP4"
+  sizeBytes:        65000000000
+  memoryNeedBytes:  80000000000
+  contextWindow:    131072
+  flags:            ["structured", "tools", "thinking", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/gpt-oss"
+  recommendedFor:   ["reasoning"]
+  minMachineClass:  "128"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The strongest open-weight reasoning model the catalog offers, for the one machine class that can hold it."
+  active:           true
+  curated:          true
+}
+
+@description("gemma4:e4b -- 7.2 GB with text, image AND audio in one record, the 64 GB fleet's small all-rounder")
+seed modelProfile gemma4_e4b_reasoning {
+  id:               "gemma4-e4b-reasoning"
+  modelId:          "gemma4:e4b"
+  category:         "reasoning"
+  runtime:          "ollama"
+  family:           "gemma4"
+  params:           4000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        7200000000
+  memoryNeedBytes:  9000000000
+  contextWindow:    131072
+  flags:            ["structured", "tools", "thinking", "vision", "audioIn", "streaming"]
+  dimensions:       0
+  license:          "gemma"
+  source:           "https://ollama.com/library/gemma4"
+  recommendedFor:   ["fast", "reasoning"]
+  minMachineClass:  "24"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The cheapest way to have a reasoning answer and an audio door on the same weights."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   omni -- one model, every modality. Not in the Ollama library; MLX on
+//   Apple Silicon.
+// =============================================================================
+
+@description("Qwen3-Omni 30B A3B Instruct -- text, image, audio in and speech out on one model, through MLX on Apple Silicon")
+seed modelProfile qwen3_omni_30b {
+  id:               "qwen3-omni-30b-a3b"
+  modelId:          "hf.co/Qwen/Qwen3-Omni-30B-A3B-Instruct"
+  category:         "omni"
+  runtime:          "mlx"
+  family:           "qwen3-omni"
+  params:           30000000000
+  quant:            "4bit"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    65536
+  flags:            ["structured", "tools", "vision", "audioIn", "audioOut", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct"
+  recommendedFor:   ["strong"]
+  minMachineClass:  "32"
+  offeredOn:        ["macos"]
+  notes:            "The one entry that serves every modality from a single set of weights. Worth it when a fleet would otherwise install four runtimes."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   vision -- no entries by design. D2: the text models see, so a separate
+//   vision pull is a second copy of weights the fleet already has. A model
+//   whose PURPOSE is seeing would go here; none of the good ones is.
+// =============================================================================
+
+// =============================================================================
+//   audioIn -- transcription.
+// =============================================================================
+
+@description("gemma4:e4b for transcription -- audio in through Ollama's OpenAI-compatible endpoint, no second runtime")
+seed modelProfile gemma4_e4b_audio {
+  id:               "gemma4-e4b-audio"
+  modelId:          "gemma4:e4b"
+  category:         "audioIn"
+  runtime:          "ollama"
+  family:           "gemma4"
+  params:           4000000000
+  quant:            "Q4_K_M"
+  sizeBytes:        7200000000
+  memoryNeedBytes:  9000000000
+  contextWindow:    131072
+  flags:            ["structured", "tools", "thinking", "vision", "audioIn", "streaming"]
+  dimensions:       0
+  license:          "gemma"
+  source:           "https://ollama.com/library/gemma4"
+  recommendedFor:   ["fast"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The transcription answer that needs no runtime a fleet does not already have. Two rows for one tag on purpose -- the catalog is organised by what a model is FOR, and this one is for two things."
+  active:           true
+  curated:          true
+}
+
+@description("whisper-large-v3-turbo -- 99+ languages at ~3% WER on clean audio, through whisper.cpp")
+seed modelProfile whisper_large_v3_turbo {
+  id:               "whisper-large-v3-turbo"
+  modelId:          "whisper-large-v3-turbo"
+  category:         "audioIn"
+  runtime:          "whispercpp"
+  family:           "whisper"
+  params:           809000000
+  quant:            "q5_0"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["audioIn", "streaming"]
+  dimensions:       0
+  license:          "mit"
+  source:           "https://huggingface.co/openai/whisper-large-v3-turbo"
+  recommendedFor:   ["fast"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The multilingual pick. Choose this over Parakeet whenever the audio might not be English."
+  active:           true
+  curated:          true
+}
+
+@description("parakeet-tdt-0.6b-v3 -- ~1.9% WER on English clean and roughly ten times faster, through NeMo")
+seed modelProfile parakeet_tdt_06b_v3 {
+  id:               "parakeet-tdt-0-6b-v3"
+  modelId:          "parakeet-tdt-0.6b-v3"
+  category:         "audioIn"
+  runtime:          "nemo"
+  family:           "parakeet"
+  params:           600000000
+  quant:            "fp16"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["audioIn", "streaming"]
+  dimensions:       0
+  license:          "cc-by-4.0"
+  source:           "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3"
+  recommendedFor:   ["fast"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "English only, and the fastest thing here by a wide margin -- which is what hold-to-talk wants. D2 named parakeet-tdt-1.1b; that tag no longer exists."
+  active:           true
+  curated:          true
+}
+
+@description("canary-qwen-2.5b -- the lowest word error rate of the open transcribers, on an NVIDIA GPU")
+seed modelProfile canary_qwen_25b {
+  id:               "canary-qwen-2-5b"
+  modelId:          "canary-qwen-2.5b"
+  category:         "audioIn"
+  runtime:          "nemo"
+  family:           "canary"
+  params:           2500000000
+  quant:            "fp16"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["audioIn"]
+  dimensions:       0
+  license:          "cc-by-4.0"
+  source:           "https://huggingface.co/nvidia/canary-qwen-2.5b"
+  recommendedFor:   ["strong"]
+  minMachineClass:  "24"
+  offeredOn:        ["linux"]
+  notes:            "When the transcript is the product rather than a convenience. Needs an NVIDIA GPU, so it is offered on Linux only."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   audioOut -- speech. None of these is served by Ollama; each is a small
+//   runtime the cockpit installs on consent.
+// =============================================================================
+
+@description("kokoro-82m -- 82M parameters, Apache 2.0, 54 voices across 8 languages, and it runs on anything")
+seed modelProfile kokoro_82m {
+  id:               "kokoro-82m"
+  modelId:          "kokoro-82m"
+  category:         "audioOut"
+  runtime:          "kokoro"
+  family:           "kokoro"
+  params:           82000000
+  quant:            "fp32"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["audioOut", "streaming"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://huggingface.co/hexgrad/Kokoro-82M"
+  recommendedFor:   ["fast"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The default speech door. Small enough that installing it costs a fleet nothing worth weighing."
+  active:           true
+  curated:          true
+}
+
+@description("fish-speech-1.5 -- the quality pick for speech, at the id D2 named")
+seed modelProfile fish_speech_15 {
+  id:               "fish-speech-1-5"
+  modelId:          "fish-speech-1.5"
+  category:         "audioOut"
+  runtime:          "kokoro"
+  family:           "fish-speech"
+  params:           500000000
+  quant:            "fp16"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["audioOut", "streaming"]
+  dimensions:       0
+  license:          "cc-by-nc-sa-4.0"
+  source:           "https://huggingface.co/fishaudio/fish-speech-1.5"
+  recommendedFor:   []
+  minMachineClass:  "24"
+  offeredOn:        ["macos", "linux"]
+  notes:            "Recommended for nothing, deliberately: the licence is non-commercial, so a default that reached it would put a licence decision inside a routing decision."
+  active:           true
+  curated:          true
+}
+
+@description("dia-1.6b -- dialogue-shaped speech with speaker turns, Apache 2.0")
+seed modelProfile dia_16b {
+  id:               "dia-1-6b"
+  modelId:          "dia-1.6b"
+  category:         "audioOut"
+  runtime:          "kokoro"
+  family:           "dia"
+  params:           1600000000
+  quant:            "fp16"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["audioOut"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://huggingface.co/nari-labs/Dia-1.6B"
+  recommendedFor:   ["strong"]
+  minMachineClass:  "24"
+  offeredOn:        ["macos", "linux"]
+  notes:            "For speech with more than one speaker in it. Needs roughly 10 GB of VRAM, which is why its floor is 24 rather than 16."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   imageGen -- Ollama's experimental image generation (macOS, January 2026)
+//   plus one MLX entry.
+// =============================================================================
+
+@description("x/flux2-klein:4b -- Black Forest Labs' fast 4B, through Ollama's experimental macOS image generation")
+seed modelProfile flux2_klein_4b {
+  id:               "flux2-klein-4b"
+  modelId:          "x/flux2-klein:4b"
+  category:         "imageGen"
+  runtime:          "ollama"
+  family:           "flux2"
+  params:           4000000000
+  quant:            "fp8"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["imageGen"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/x/flux2-klein"
+  recommendedFor:   ["fast"]
+  minMachineClass:  "24"
+  offeredOn:        ["macos"]
+  notes:            "The fast image answer, and the one that needs no runtime beyond the Ollama a fleet already runs. macOS only while Ollama's image generation is experimental."
+  active:           true
+  curated:          true
+}
+
+@description("x/z-image-turbo -- Tongyi Lab's 6B, the quality end of Ollama's experimental image generation")
+seed modelProfile z_image_turbo {
+  id:               "z-image-turbo"
+  modelId:          "x/z-image-turbo"
+  category:         "imageGen"
+  runtime:          "ollama"
+  family:           "z-image"
+  params:           6000000000
+  quant:            "fp8"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["imageGen"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://ollama.com/x/z-image-turbo"
+  recommendedFor:   ["strong"]
+  minMachineClass:  "32"
+  offeredOn:        ["macos"]
+  notes:            "Photorealistic, and it renders English and Chinese text inside an image, which the 4B does not."
+  active:           true
+  curated:          true
+}
+
+@description("qwen-image-2.0 -- image generation through MLX on Apple Silicon, outside Ollama's experimental support")
+seed modelProfile qwen_image_20 {
+  id:               "qwen-image-2-0"
+  modelId:          "qwen-image-2.0"
+  category:         "imageGen"
+  runtime:          "mflux"
+  family:           "qwen-image"
+  params:           20000000000
+  quant:            "4bit"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["imageGen"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://huggingface.co/Qwen/Qwen-Image"
+  recommendedFor:   []
+  minMachineClass:  "32"
+  offeredOn:        ["macos"]
+  notes:            "Recommended for nothing while it needs a runtime the cockpit does not yet install. Listed so a 32 GB fleet can see it exists."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   videoGen -- listed so the catalog is honest, and a default NOWHERE.
+//   Every entry is linux-only and recommendedFor is empty on all three
+//   (program decision 11).
+// =============================================================================
+
+@description("wan2.2:5b -- video generation as a Linux GPU job. Listed, never a default.")
+seed modelProfile wan22_5b {
+  id:               "wan2-2-5b"
+  modelId:          "wan2.2:5b"
+  category:         "videoGen"
+  runtime:          "comfyui"
+  family:           "wan"
+  params:           5000000000
+  quant:            "fp8"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["imageGen"]
+  dimensions:       0
+  license:          "apache-2.0"
+  source:           "https://huggingface.co/Wan-AI"
+  recommendedFor:   []
+  minMachineClass:  "64"
+  offeredOn:        ["linux"]
+  notes:            "The smallest of the three, and the only one a single consumer GPU will finish in a reasonable time."
+  active:           true
+  curated:          true
+}
+
+@description("ltx-2.3-distilled -- distilled video generation, a Linux GPU job. Listed, never a default.")
+seed modelProfile ltx_23_distilled {
+  id:               "ltx-2-3-distilled"
+  modelId:          "ltx-2.3-distilled"
+  category:         "videoGen"
+  runtime:          "comfyui"
+  family:           "ltx"
+  params:           13000000000
+  quant:            "fp8"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["imageGen"]
+  dimensions:       0
+  license:          "ltx-open-weights"
+  source:           "https://huggingface.co/Lightricks"
+  recommendedFor:   []
+  minMachineClass:  "64"
+  offeredOn:        ["linux"]
+  notes:            "Distilled for fewer steps, which is what makes video generation tolerable at all on one card."
+  active:           true
+  curated:          true
+}
+
+@description("hunyuanvideo-1.5 -- the quality end of open video generation, a Linux GPU job. Listed, never a default.")
+seed modelProfile hunyuanvideo_15 {
+  id:               "hunyuanvideo-1-5"
+  modelId:          "hunyuanvideo-1.5"
+  category:         "videoGen"
+  runtime:          "comfyui"
+  family:           "hunyuanvideo"
+  params:           13000000000
+  quant:            "fp8"
+  sizeBytes:        0
+  memoryNeedBytes:  0
+  contextWindow:    0
+  flags:            ["imageGen"]
+  dimensions:       0
+  license:          "tencent-hunyuan-community"
+  source:           "https://huggingface.co/tencent"
+  recommendedFor:   []
+  minMachineClass:  "128"
+  offeredOn:        ["linux"]
+  notes:            "The best of the three and the one that needs a machine most fleets do not have."
+  active:           true
+  curated:          true
+}
+
+// =============================================================================
+//   embeddings -- `dimensions` is the load-bearing field here. The embedder
+//   binding creates one node_vectors_<dims> table per width (memql#5142), so
+//   an entry without a width cannot be bound to.
+// =============================================================================
+
+@description("qwen3-embedding:0.6b -- 1024 dimensions in 639 MB, the default embedder for every machine class from 16 GB")
+seed modelProfile qwen3_embedding_06b {
+  id:               "qwen3-embedding-0-6b"
+  modelId:          "qwen3-embedding:0.6b"
+  category:         "embeddings"
+  runtime:          "ollama"
+  family:           "qwen3-embedding"
+  params:           600000000
+  quant:            "F16"
+  sizeBytes:        639000000
+  memoryNeedBytes:  1200000000
+  contextWindow:    32768
+  flags:            []
+  dimensions:       1024
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/qwen3-embedding"
+  recommendedFor:   ["embeddings"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The default. Small enough to sit beside a chat model on a 16 GB machine, which is the whole reason the default pair is a pair."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3-embedding:4b -- 2560 dimensions, the 32 GB step up when retrieval quality is the bottleneck")
+seed modelProfile qwen3_embedding_4b {
+  id:               "qwen3-embedding-4b"
+  modelId:          "qwen3-embedding:4b"
+  category:         "embeddings"
+  runtime:          "ollama"
+  family:           "qwen3-embedding"
+  params:           4000000000
+  quant:            "F16"
+  sizeBytes:        2500000000
+  memoryNeedBytes:  4000000000
+  contextWindow:    40960
+  flags:            []
+  dimensions:       2560
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/qwen3-embedding"
+  recommendedFor:   ["embeddings"]
+  minMachineClass:  "32"
+  offeredOn:        ["macos", "linux"]
+  notes:            "Switching to this is a binding change and a full re-embed, not a setting -- the vector width is different, so it is a different search space."
+  active:           true
+  curated:          true
+}
+
+@description("qwen3-embedding:8b -- 4096 dimensions, the 64 GB ceiling")
+seed modelProfile qwen3_embedding_8b {
+  id:               "qwen3-embedding-8b"
+  modelId:          "qwen3-embedding:8b"
+  category:         "embeddings"
+  runtime:          "ollama"
+  family:           "qwen3-embedding"
+  params:           8000000000
+  quant:            "F16"
+  sizeBytes:        4700000000
+  memoryNeedBytes:  7000000000
+  contextWindow:    40960
+  flags:            []
+  dimensions:       4096
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/qwen3-embedding"
+  recommendedFor:   ["embeddings"]
+  minMachineClass:  "64"
+  offeredOn:        ["macos", "linux"]
+  notes:            "Supports user-defined output widths from 32 to 4096; the catalog records the native one, because a truncated width is a different binding."
+  active:           true
+  curated:          true
+}
+
+@description("nomic-embed-text -- 768 dimensions, the smallest useful embedder and the cockpit's previous default")
+seed modelProfile nomic_embed_text {
+  id:               "nomic-embed-text"
+  modelId:          "nomic-embed-text"
+  category:         "embeddings"
+  runtime:          "ollama"
+  family:           "nomic-embed"
+  params:           137000000
+  quant:            "F16"
+  sizeBytes:        274000000
+  memoryNeedBytes:  600000000
+  contextWindow:    8192
+  flags:            []
+  dimensions:       768
+  license:          "apache-2.0"
+  source:           "https://ollama.com/library/nomic-embed-text"
+  recommendedFor:   ["embeddings"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "What the cockpit pulled before this catalog existed. Kept so an existing fleet's binding still names something the catalog knows."
+  active:           true
+  curated:          true
+}
+
+@description("bge-m3 -- 1024 dimensions across 100+ languages with an 8K input, the multilingual retrieval pick")
+seed modelProfile bge_m3 {
+  id:               "bge-m3"
+  modelId:          "bge-m3"
+  category:         "embeddings"
+  runtime:          "ollama"
+  family:           "bge"
+  params:           567000000
+  quant:            "F16"
+  sizeBytes:        1200000000
+  memoryNeedBytes:  2000000000
+  contextWindow:    8192
+  flags:            []
+  dimensions:       1024
+  license:          "mit"
+  source:           "https://ollama.com/library/bge-m3"
+  recommendedFor:   ["embeddings"]
+  minMachineClass:  "16"
+  offeredOn:        ["macos", "linux"]
+  notes:            "The same width as the 0.6B Qwen, so a fleet can switch between them without re-embedding into a new table -- two bindings, one width, two tables all the same."
+  active:           true
+  curated:          true
+}

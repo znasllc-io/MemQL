@@ -407,6 +407,24 @@ func ActiveDelegationsForAgentBuild(args ActiveDelegationsForAgentArgs) string {
 	return b.String()
 }
 
+// ActiveEmbedderBinding -- The cluster's active embedder.
+// ONE ROW, AT A LITERAL ID, so this reads by id rather than by a filter that could return two (memql#5137, D6). A query that answered "which embedder is active" with a list would have no way to choose, and the caller would pick the first -- which is map order wearing a query's name.
+//
+// Bound concept: v1:platform:embedderBinding (machine-readable: BoundConcepts["activeEmbedderBinding"] in generated_concepts.go).
+type ActiveEmbedderBindingArgs struct {
+}
+
+// ActiveEmbedderBinding calls the engine query activeEmbedderBinding.
+func (qc *QueryClient) ActiveEmbedderBinding(ctx context.Context, args ActiveEmbedderBindingArgs) (*Result, error) {
+	call := ActiveEmbedderBindingBuild(args)
+	return qc.executeNamed(ctx, "activeEmbedderBinding", call)
+}
+
+func ActiveEmbedderBindingBuild(args ActiveEmbedderBindingArgs) string {
+	_ = args
+	return "query activeEmbedderBinding()"
+}
+
 // ActiveProjects -- List active v1:forge:project rows.
 //
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["activeProjects"] in generated_concepts.go).
@@ -4225,6 +4243,75 @@ func MissingCapabilityByKindAndNameBuild(args MissingCapabilityByKindAndNameArgs
 	}
 	b.WriteString("capability: ")
 	b.WriteString(quoteMemQL(args.Capability))
+	b.WriteString(")")
+	return b.String()
+}
+
+// ModelProfileById -- One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it.
+//
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileById"] in generated_concepts.go).
+type ModelProfileByIdArgs struct {
+	ModelId string
+}
+
+// ModelProfileById calls the engine query modelProfileById.
+func (qc *QueryClient) ModelProfileById(ctx context.Context, args ModelProfileByIdArgs) (*Result, error) {
+	call := ModelProfileByIdBuild(args)
+	return qc.executeNamed(ctx, "modelProfileById", call)
+}
+
+func ModelProfileByIdBuild(args ModelProfileByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query modelProfileById(")
+	b.WriteString("modelId: ")
+	b.WriteString(quoteMemQL(args.ModelId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// ModelProfiles -- The catalog, optionally narrowed.
+// Every argument is OPTIONAL and absent means "do not narrow". The Fleet models surface asks for the whole catalog and groups it client-side; a page that had to ask once per category would show nine loading states for one answer, and the set is a few dozen release-time rows.
+//
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfiles"] in generated_concepts.go).
+type ModelProfilesArgs struct {
+	// Narrow to one category.
+	// Enum: text | reasoning | omni | vision | audioIn | audioOut | imageGen | videoGen | embeddings
+	Category string
+	// Narrow to one runtime.
+	// Enum: ollama | mlx | whispercpp | nemo | kokoro | mflux | comfyui
+	Runtime string
+	// Narrow to entries whose declared floor is exactly this machine class. NOT "everything a machine of this class can run" -- that is a comparison across five values, and doing it here would make the answer depend on an ordering the caller cannot see. The Fleet surface holds the machine's class and filters.
+	// Enum: 16 | 24 | 32 | 64 | 128
+	MinMachineClass string
+}
+
+// ModelProfiles calls the engine query modelProfiles.
+func (qc *QueryClient) ModelProfiles(ctx context.Context, args ModelProfilesArgs) (*Result, error) {
+	call := ModelProfilesBuild(args)
+	return qc.executeNamed(ctx, "modelProfiles", call)
+}
+
+func ModelProfilesBuild(args ModelProfilesArgs) string {
+	var b strings.Builder
+	b.WriteString("query modelProfiles(")
+	if args.Category != "" {
+		b.WriteString("category: ")
+		b.WriteString(quoteMemQL(args.Category))
+	}
+	if args.Runtime != "" {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("runtime: ")
+		b.WriteString(quoteMemQL(args.Runtime))
+	}
+	if args.MinMachineClass != "" {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("minMachineClass: ")
+		b.WriteString(quoteMemQL(args.MinMachineClass))
+	}
 	b.WriteString(")")
 	return b.String()
 }

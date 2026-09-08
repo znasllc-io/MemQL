@@ -1,0 +1,72 @@
+{
+  "scenario": "amortizedCost.control-a-reasoning-step-does-reach-a-provider",
+  "arm": "platform",
+  "modelId": "synthetic",
+  "recordedAt": "2026-09-08",
+  "turns": [
+    {
+      "requestHash": "c17394bb5e26594c6c27d6dc",
+      "prompt": "step=summarise target=summariseLedger attempt=1",
+      "response": "placeholder answer for summarise (attempt 1)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "9df55c6d895043b089bfd46b",
+      "prompt": "step=summarise target=summariseLedger attempt=2",
+      "response": "placeholder answer for summarise (attempt 2)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "286f742072c683a0a3a51cca",
+      "prompt": "step=summarise target=summariseLedger attempt=3",
+      "response": "placeholder answer for summarise (attempt 3)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "fd425abe012e2207069b0d43",
+      "prompt": "step=summarise target=summariseLedger attempt=4",
+      "response": "placeholder answer for summarise (attempt 4)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "16fe5494dac11d69334dc5a4",
+      "prompt": "step=summarise target=summariseLedger attempt=5",
+      "response": "placeholder answer for summarise (attempt 5)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "25181dbc88ad74a0c447c855",
+      "prompt": "step=summarise target=summariseLedger attempt=6",
+      "response": "placeholder answer for summarise (attempt 6)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "402730b704544118b223f9d6",
+      "prompt": "step=summarise target=summariseLedger attempt=7",
+      "response": "placeholder answer for summarise (attempt 7)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    {
+      "requestHash": "040056dbc2ad582283878976",
+      "prompt": "step=summarise target=summariseLedger attempt=8",
+      "response": "placeholder answer for summarise (attempt 8)",
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  ]
+}

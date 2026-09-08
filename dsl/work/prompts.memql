@@ -17,7 +17,6 @@
 /// is the expensive path by construction and every cheaper tier runs first. The draft must pass
 /// Gate 1 (the isolated compile-and-bind) before the run proceeds.
 @level("reasoning")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/compileGoal.tmpl")
 prompt compileGoal {
   statement  string!   @description("The goal in the person's own words.")
@@ -31,7 +30,6 @@ prompt compileGoal {
 /// model in the tree: the answer is one of five words plus a reason, and the acts it selects are
 /// all bounded and reversible.
 @level("fast")
-@defaultProvider("chat54Nano")
 @templateFile("prompts/classifySymptom.tmpl")
 prompt classifySymptom {
   stepKey       string!   @description("The step that failed.")
@@ -47,7 +45,6 @@ prompt classifySymptom {
 /// rather than a draft -- re-planning from the start is the unguided rerun the debugging literature
 /// measured as three times worse than localized repair.
 @level("reasoning")
-@defaultProvider("streamClaudeSonnet")
 @templateFile("prompts/replanGap.tmpl")
 prompt replanGap {
   statement      string!   @description("The goal in the person's own words.")

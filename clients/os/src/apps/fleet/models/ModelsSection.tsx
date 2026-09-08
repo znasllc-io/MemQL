@@ -17,6 +17,7 @@ import {
   Subhead,
 } from "../../../kit";
 import { figureFrom, type Figure } from "../../../kit/measure";
+import { CatalogSection } from "./CatalogSection";
 import { eligibleFor, formatContext, formatParams, orderModels, type ModelNeeds } from "./ordering";
 import { useInference, type CatalogModel, type DoorsReading } from "./useInference";
 
@@ -76,7 +77,7 @@ const TURNS: Array<{ id: string; label: string; needs: ModelNeeds }> = [
 ];
 
 export function ModelsSection() {
-  const { catalog, doors, preference } = useInference();
+  const { catalog, doors, profiles, preference } = useInference();
   const models = catalog.value ?? [];
   const reading = catalog.state === "reading" || doors.state === "reading";
 
@@ -84,11 +85,16 @@ export function ModelsSection() {
   // asked, active constraints as removable chips beside it, and never shown
   // over an empty list.
   //
-  // THESE ARE THE FACETS THIS BRANCH CAN SERVE. Epic memql#5137's catalog adds
-  // category, runtime and "what this fleet lacks" to the same control; they are
-  // deliberately not stubbed here, because a facet that narrows nothing is
-  // worse than one that is absent -- it reads as a fleet with no entries in
-  // that category rather than as a control that does not work yet.
+  // THESE ARE THE FACETS OVER THE RANKED LIST, AND ONLY OVER IT. Epic
+  // memql#5137's catalog landed with its own category / runtime / lacking
+  // facets behind a `facets` prop on CatalogSection, deliberately NOT wired
+  // into this control -- an earlier note here anticipated one Refine governing
+  // both lists, and building it made the reason not to obvious. Half of these
+  // chips would narrow the list above and none of the catalog, and half the
+  // reverse; a chip that says "online" while the catalog below it is unchanged
+  // is a control lying about what it did, which is the failure mode the same
+  // note was written to avoid. Two lists that answer different questions get
+  // two controls, or one control whose every chip governs both.
   const [search, setSearch] = useState("");
   const [capability, setCapability] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
@@ -204,7 +210,7 @@ export function ModelsSection() {
 
           <div className="os-fleet-models-scope">
             <Refine
-              label="Refine models"
+              label="Refine the ranked list"
               search={search}
               onSearch={setSearch}
               placeholder="Search"
@@ -281,6 +287,19 @@ export function ModelsSection() {
       {catalog.at === null ? null : (
         <Caption>Read {catalog.at.toLocaleTimeString()}.</Caption>
       )}
+
+      {/* THE CATALOG COMES SECOND, and the order is the argument. The list
+          above answers "what will be used", which is what somebody opens this
+          page to find out. This answers "what should I be running", which is
+          the question they have once they have seen the answer to the first
+          one -- and putting it first would make every visit start with a
+          recommendation nobody asked for. */}
+      <CatalogSection
+        profiles={profiles.value ?? []}
+        profilesState={profiles.state}
+        profilesError={profiles.error}
+        fleet={models}
+      />
     </div>
   );
 }

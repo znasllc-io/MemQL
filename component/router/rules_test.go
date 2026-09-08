@@ -312,7 +312,12 @@ func TestApplyExcludes_RemovesTheEntryAsWritten(t *testing.T) {
 func TestNilRuleRegistryIsARefusalNotAFallback(t *testing.T) {
 	providers := memql.NewProviderRegistryForTest()
 	providers.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", &countingCloud{})
-	providers.SetDefaultForTest("streamClaudeSonnet")
+	// There was a SetDefaultForTest call here, pinning that provider as the
+	// registry default so the refusal below could not be attributed to the
+	// absence of one. Epic memql#5137 deletes the registry default entirely, so
+	// the line is now impossible AND unnecessary: RegisterForTest already makes
+	// the provider available, which is the whole premise -- an available
+	// provider is not a licence to route without a rule.
 	policies := memql.NewPolicyRegistryForTest(map[string][]string{"localFirst": {"streamClaudeSonnet"}})
 
 	r := New(providers, policies, nil, nil, nil)

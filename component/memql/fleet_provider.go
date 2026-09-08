@@ -105,9 +105,24 @@ func IsFleetSelector(name string) (string, bool) {
 }
 
 // Model call kinds, mirroring the wire.
+//
+// SIX (epic memql#5137, D4). The four beyond chat and embedding are what give
+// vision, transcription, speech and image generation a LOCAL door: before them
+// the fleet wire carried two kinds, so every other modality reached a paid
+// vendor or did not happen at all.
+//
+// These strings must equal component/worker's ModelCallKind* constants and the
+// cockpit's. They are duplicated here rather than imported because
+// component/worker is the wire package and this is the provider -- and the
+// duplication is guarded by TestFleetKindsMatchTheWireKinds rather than by
+// hoping.
 const (
-	FleetKindChat      = "chat"
-	FleetKindEmbedding = "embedding"
+	FleetKindChat       = "chat"
+	FleetKindEmbedding  = "embedding"
+	FleetKindVision     = "vision"
+	FleetKindTranscribe = "transcribe"
+	FleetKindSpeak      = "speak"
+	FleetKindImage      = "image"
 )
 
 // ErrFleetUnavailable is what a fleet call returns when no eligible machine
@@ -164,7 +179,19 @@ type FleetModel struct {
 	// downgrade: a runtime handed tools it cannot honour answers prose,
 	// which surfaces three layers away as an agent that stopped using its
 	// tools for no reason a reader can see.
-	Tools    bool
+	Tools bool
+	// The four MODALITY flags (epic memql#5137, D4), each a union across the
+	// machines behind this model, exactly as Tools and StructuredOutput are.
+	//
+	// FALSE IS THE DEFAULT AND IT IS A GATE, for the reason on Tools above: a
+	// machine that never advertised vision is SKIPPED for a vision turn rather
+	// than picked and left to fail. The union is right because the question is
+	// "can this fleet serve a vision turn on this model", and one machine that
+	// can is enough -- selection then picks that machine specifically.
+	Vision   bool
+	AudioIn  bool
+	AudioOut bool
+	ImageGen bool
 	Machines []FleetMachine
 }
 
@@ -186,6 +213,14 @@ type FleetNeeds struct {
 	Embeddings       bool
 	Tools            bool
 	MinContextWindow int
+	// The four MODALITY needs, derived from the call kind by Needs() above
+	// (epic memql#5137, D4). Same direction as the three above: an
+	// unadvertised capability rules a machine out rather than degrading the
+	// call.
+	Vision   bool
+	AudioIn  bool
+	AudioOut bool
+	ImageGen bool
 }
 
 // FleetCallRequest is one model call.
@@ -206,9 +241,21 @@ type FleetCallRequest struct {
 	// Schema's presence requires a structured-output one.
 	Tools          []common.ToolDefinition
 	EmbeddingInput []string
-	Purpose        string
-	RunId          string
-	StepId         string
+	// The four MODALITY payloads (epic memql#5137, D4). Each is set for exactly
+	// one kind and nil for the rest -- the KIND is what says which, so a
+	// populated field on the wrong kind is ignored rather than reinterpreted.
+	//
+	// Images ride the request rather than the message here, unlike on the wire,
+	// because a FleetCallRequest carries one turn: the wire needs the
+	// per-message form so a multi-turn conversation can say which turn an image
+	// belonged to, and this side has only ever built single-turn vision calls.
+	Images  []FleetImage
+	Audio   *FleetAudio
+	Speech  *FleetSpeechRequest
+	Image   *FleetImageRequest
+	Purpose string
+	RunId   string
+	StepId  string
 	// OnDelta, when set, receives streamed content as it arrives.
 	OnDelta func(string)
 }
@@ -221,6 +268,16 @@ func (r FleetCallRequest) Needs() FleetNeeds {
 		StructuredOutput: r.Schema != nil,
 		Embeddings:       r.Kind == FleetKindEmbedding,
 		Tools:            len(r.Tools) > 0,
+		// The four modality needs come from the KIND, which is the only thing
+		// that can say them: a vision call is a vision call because of what it
+		// carries, not because the caller remembered to ask for a seeing model.
+		// Deriving them here rather than at each call site is what stops one
+		// site from forgetting -- the failure being a turn routed to a machine
+		// that cannot serve it.
+		Vision:   r.Kind == FleetKindVision,
+		AudioIn:  r.Kind == FleetKindTranscribe,
+		AudioOut: r.Kind == FleetKindSpeak,
+		ImageGen: r.Kind == FleetKindImage,
 	}
 }
 
@@ -246,6 +303,16 @@ type FleetCallResult struct {
 	ExecutionSurface string
 	// MachineLabel is the human-readable name for a card or a log line.
 	MachineLabel string
+	// The three MODALITY results (epic memql#5137, D4). Segments accompany a
+	// transcription's Content; Audio is a speak result; Images an image one.
+	//
+	// A transcription's TEXT is on Content rather than in a fourth field,
+	// because it is the same thing every other kind puts there and a caller
+	// that only wants the words should not have to know which kind produced
+	// them.
+	Segments []FleetTranscriptSegment
+	Audio    *FleetAudio
+	Images   []FleetImage
 }
 
 // FleetInference is the contract an agent-tagged build fills in.
@@ -971,12 +1038,29 @@ func (p *fleetProvider) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 
 // Dimensions implements EmbeddingAIProvider.
 //
-// ZERO IS THE HONEST ANSWER for a local model, and callers treat it as
-// "unknown" rather than as a dimensionality. Every runtime in the v1 set
-// (Ollama, OpenAI-compatible endpoints) reports the vector length only by
-// producing one, and inventing a number here would be a claim that survives
-// long after the model behind it was swapped.
-func (p *fleetProvider) Dimensions() int { return 0 }
+// IT ASKS THE CATALOG NOW (epic memql#5137, D6), where before it returned 0 and
+// said zero was the honest answer. That was true and is no longer the whole
+// story: a runtime still reports its vector length only by producing one, but
+// the CATALOG records it -- `dimensions` on the `v1:models:modelProfile` row for
+// this exact model id -- because the embedder binding cannot create its
+// `node_vectors_<dims>` table without knowing the width before the first vector
+// exists.
+//
+// Zero is still what an unknown model gets, and callers still read zero as
+// "unknown" rather than as a dimensionality. The difference is that a model the
+// catalog knows can now be BOUND, and one it does not cannot -- which is a
+// better failure than a table created at the wrong width, because a mismatched
+// vector column is not an error anywhere. It is a search space that quietly
+// returns the wrong neighbours.
+func (p *fleetProvider) Dimensions() int {
+	if p == nil {
+		return 0
+	}
+	if dims, ok := catalogDimensionsFor(p.modelId); ok {
+		return dims
+	}
+	return 0
+}
 
 var (
 	_ AIProvider                         = (*fleetProvider)(nil)
@@ -985,5 +1069,6 @@ var (
 	_ common.ChatStreamProvider          = (*fleetProvider)(nil)
 	_ common.ToolCallingChatAIProvider   = (*fleetProvider)(nil)
 	_ common.ChatStreamWithToolsProvider = (*fleetProvider)(nil)
+	_ common.VisionAIProvider            = (*fleetProvider)(nil)
 	_ EmbeddingAIProvider                = (*fleetProvider)(nil)
 )

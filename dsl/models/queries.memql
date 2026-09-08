@@ -1,0 +1,39 @@
+// models/queries.memql -- reading the curated catalog.
+
+use common.traits.{ isActiveRecord }
+
+/// The catalog, optionally narrowed.
+///
+/// Every argument is OPTIONAL and absent means "do not narrow". The Fleet models surface asks for
+/// the whole catalog and groups it client-side; a page that had to ask once per category would show
+/// nine loading states for one answer, and the set is a few dozen release-time rows.
+@unbounded("the curated catalog -- a small bounded release-time set consumed whole")
+@cache(300)
+query modelProfile modelProfiles {
+  args {
+    /// Narrow to one category.
+    category         enum("text", "reasoning", "omni", "vision", "audioIn", "audioOut", "imageGen", "videoGen", "embeddings")
+    /// Narrow to one runtime.
+    runtime          enum("ollama", "mlx", "whispercpp", "nemo", "kokoro", "mflux", "comfyui")
+    /// Narrow to entries whose declared floor is exactly this machine class. NOT "everything a
+    /// machine of this class can run" -- that is a comparison across five values, and doing it here
+    /// would make the answer depend on an ordering the caller cannot see. The Fleet surface holds
+    /// the machine's class and filters.
+    minMachineClass  enum("16", "24", "32", "64", "128")
+  }
+  filter  isActiveRecord && when(args.category) { category==args.category } && when(args.runtime) { runtime==args.runtime } && when(args.minMachineClass) { minMachineClass==args.minMachineClass }
+  shape   modelProfileFull
+}
+
+/// One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through
+/// this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider
+/// is a machine that does not know it.
+@unbounded("catalog entry by model id -- bounded to a single row; modelId is unique per category and the caller wants the one match")
+@cache(300)
+query modelProfile modelProfileById {
+  args {
+    modelId  string!
+  }
+  filter  modelId==args.modelId && isActiveRecord
+  shape   modelProfileFull
+}

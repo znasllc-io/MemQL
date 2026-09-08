@@ -212,7 +212,7 @@ func TestTheFleetProviderItselfPassesTheGuard(t *testing.T) {
 	sharedLLMGuard = newTestFleetGuard(&now)
 
 	stub := &stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}, answer: "ok"}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(stub)
 	entry, _ := r.EntryForContext(userCtx("alice"), "fleet:llama3.1:8b")
 	chat := entry.Client.(common.ChatAIProvider)

@@ -26,12 +26,13 @@
 // retired: it said "any", which is not what it did.
 //
 // A POLICY NOTHING CAN NAME IS A DECORATION. That rule cost this file four
-// policies once already and six more in this epic. `localOnly` is the one
-// exemption and it is deliberate: no shipped rule names it, because it exists
-// as the VOCABULARY a custom rule uses -- an owner saying "this work does not
-// leave my hardware" needs a policy to point at, and inventing one from the OS
-// is a worse first experience than finding one. Delete it only if the rule
-// grammar stops being able to name it.
+// policies once already and six more in the epic that wrote it. It has no
+// exemptions now: `localOnly` was the one, held open as the VOCABULARY a
+// custom rule could point at, and epic memql#5137's `compilerLocalOnly` names
+// it -- so the rule that compiles a person's sentence about where their work
+// may run is itself pinned to their own hardware. It is still the policy an
+// owner writing "this does not leave my machines" points at; it is no longer
+// only that.
 
 /// The default chain: local strongest, then a signed-in app on the person's own
 /// machine, then the cheapest federated model that qualifies. Named by every
@@ -50,8 +51,8 @@ policy localFirst { }
 /// serve the call the rule's onUnavailable decides, and every door being shut
 /// is the honest answer rather than a vendor call the person did not ask for.
 ///
-/// No shipped rule names this. It is the policy a CUSTOM rule points at, which
-/// is why it survives the no-decorations rule this file's header states.
+/// Named by `compilerLocalOnly`, and it is the policy a CUSTOM rule points at
+/// when an owner wants work pinned to their own hardware.
 @primary("fleet:strongest")
 policy localOnly { }
 
@@ -66,3 +67,22 @@ policy localOnly { }
 @fallback("app:*")
 @fallback("federation:strongest")
 policy federationStrongest { }
+
+/// The cluster's bound embedder, and nothing after it (epic memql#5137).
+///
+/// A ONE-ENTRY CHAIN IS THE POINT, and it is the one place in this file where
+/// a fallback would be a defect rather than a kindness. Every other policy here
+/// degrades to a weaker model that gives a worse answer to the same question.
+/// An embedder does not do that: a different embedder answers in a DIFFERENT
+/// VECTOR SPACE, so its output does not belong in the index it is about to be
+/// written to. A fallback would fill `node_vectors_<dims>` with vectors that
+/// are not comparable to the ones already in it, and nothing downstream can
+/// tell -- every subsequent similarity read returns plausible neighbours that
+/// are simply wrong.
+///
+/// `embedder:active` resolves to whatever the operator BOUND, which may be a
+/// fleet model or a federated one; the door is derived from the ref rather
+/// than stated here, so binding a local embedder and binding OpenAI's are the
+/// same authoring act.
+@primary("embedder:active")
+policy embeddingsBinding { }

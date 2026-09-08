@@ -2039,6 +2039,14 @@ jobs:
             exit 1
           fi
           echo "go.work covers all $(echo "$on_disk" | wc -l) modules"
+      # `scripts/ci/module-boundaries.sh` runs THIS step locally, and is the
+      # thing to point somebody at when they ask how they could have known.
+      # Nothing a developer runs resolves outside the workspace, so an import
+      # that crosses a boundary the wrong way builds, vets, tests and passes
+      # review before reaching here (epic memql#5137). The script deliberately
+      # covers only this step -- the one whose failure is hardest to predict --
+      # and says so; the go.work, tidy and version-set steps below stay here,
+      # where their reasoning is.
       - name: every module builds and vets with GOWORK=off
         run: |
           set -euo pipefail

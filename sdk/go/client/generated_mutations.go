@@ -8254,6 +8254,185 @@ func MintSkillBuild(args MintSkillArgs) string {
 	return b.String()
 }
 
+// ModelProfileAdd -- Add a model to the catalog by id. The operator's entry, marked `curated: false`.
+// The catalog is release-time curation; this is the escape hatch for a model an operator wants their fleet told about before the next release curates it. It gates nothing either -- a machine still has to advertise the model before anything routes to it -- so the blast radius of a wrong entry is a recommendation nobody can act on, which is why the floor is a rank rather than the cluster owner alone.
+//
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileAdd"] in generated_concepts.go).
+type ModelProfileAddArgs struct {
+	ProfileId string
+	ModelId   string
+	// Enum: text | reasoning | omni | vision | audioIn | audioOut | imageGen | videoGen | embeddings
+	Category string
+	// Enum: ollama | mlx | whispercpp | nemo | kokoro | mflux | comfyui
+	Runtime string
+	// Enum: 16 | 24 | 32 | 64 | 128
+	MinMachineClass string
+	Family          string
+	Params          int
+	Quant           string
+	SizeBytes       int
+	MemoryNeedBytes int
+	ContextWindow   int
+	// The subset of {structured, tools, thinking, vision, audioIn, audioOut, imageGen, streaming} that is true.
+	Flags []string
+	// Vector width. Required in practice for an embeddings entry -- a binding cannot create its table without one -- and the seed gate says so; here it is an ordinary field, because an operator adding a text model has no dimensions to give.
+	Dimensions     int
+	License        string
+	Source         string
+	RecommendedFor []string
+	OfferedOn      []string
+	Notes          string
+}
+
+// ModelProfileAdd calls the engine mutation modelProfileAdd.
+func (qc *QueryClient) ModelProfileAdd(ctx context.Context, args ModelProfileAddArgs) (*Result, error) {
+	call := ModelProfileAddBuild(args)
+	return qc.executeNamed(ctx, "modelProfileAdd", call)
+}
+
+func ModelProfileAddBuild(args ModelProfileAddArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation modelProfileAdd(")
+	b.WriteString("profileId: ")
+	b.WriteString(quoteMemQL(args.ProfileId))
+	if b.Len() > 25 {
+		b.WriteString(", ")
+	}
+	b.WriteString("modelId: ")
+	b.WriteString(quoteMemQL(args.ModelId))
+	if b.Len() > 25 {
+		b.WriteString(", ")
+	}
+	b.WriteString("category: ")
+	b.WriteString(quoteMemQL(args.Category))
+	if b.Len() > 25 {
+		b.WriteString(", ")
+	}
+	b.WriteString("runtime: ")
+	b.WriteString(quoteMemQL(args.Runtime))
+	if b.Len() > 25 {
+		b.WriteString(", ")
+	}
+	b.WriteString("minMachineClass: ")
+	b.WriteString(quoteMemQL(args.MinMachineClass))
+	if args.Family != "" {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("family: ")
+		b.WriteString(quoteMemQL(args.Family))
+	}
+	if args.Params != 0 {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("params: ")
+		b.WriteString(fmt.Sprintf("%v", args.Params))
+	}
+	if args.Quant != "" {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("quant: ")
+		b.WriteString(quoteMemQL(args.Quant))
+	}
+	if args.SizeBytes != 0 {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("sizeBytes: ")
+		b.WriteString(fmt.Sprintf("%v", args.SizeBytes))
+	}
+	if args.MemoryNeedBytes != 0 {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("memoryNeedBytes: ")
+		b.WriteString(fmt.Sprintf("%v", args.MemoryNeedBytes))
+	}
+	if args.ContextWindow != 0 {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("contextWindow: ")
+		b.WriteString(fmt.Sprintf("%v", args.ContextWindow))
+	}
+	if args.Flags != nil {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("flags: ")
+		b.WriteString(renderMemQLValue(args.Flags))
+	}
+	if args.Dimensions != 0 {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("dimensions: ")
+		b.WriteString(fmt.Sprintf("%v", args.Dimensions))
+	}
+	if args.License != "" {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("license: ")
+		b.WriteString(quoteMemQL(args.License))
+	}
+	if args.Source != "" {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("source: ")
+		b.WriteString(quoteMemQL(args.Source))
+	}
+	if args.RecommendedFor != nil {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("recommendedFor: ")
+		b.WriteString(renderMemQLValue(args.RecommendedFor))
+	}
+	if args.OfferedOn != nil {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("offeredOn: ")
+		b.WriteString(renderMemQLValue(args.OfferedOn))
+	}
+	if args.Notes != "" {
+		if b.Len() > 25 {
+			b.WriteString(", ")
+		}
+		b.WriteString("notes: ")
+		b.WriteString(quoteMemQL(args.Notes))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
+// ModelProfileRemove -- Remove an operator's catalog entry.
+// REFUSES A CURATED ROW, and the refusal is the point rather than caution. A curated entry is re-materialized by the SeedMaterializer on every boot, so "removing" one succeeds, looks correct, and is undone at the next pod restart with nothing to explain it. A refusal that names the reason is the only honest answer; the way to retire a curated entry is a release.
+//
+// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileRemove"] in generated_concepts.go).
+type ModelProfileRemoveArgs struct {
+	ProfileId string
+}
+
+// ModelProfileRemove calls the engine mutation modelProfileRemove.
+func (qc *QueryClient) ModelProfileRemove(ctx context.Context, args ModelProfileRemoveArgs) (*Result, error) {
+	call := ModelProfileRemoveBuild(args)
+	return qc.executeNamed(ctx, "modelProfileRemove", call)
+}
+
+func ModelProfileRemoveBuild(args ModelProfileRemoveArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation modelProfileRemove(")
+	b.WriteString("profileId: ")
+	b.WriteString(quoteMemQL(args.ProfileId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // MoveArtifactToFolder -- Re-file a Library artifact into a folder (memql#4781, design B2) -- the organizational write of the Files app, and deliberately a READ-MERGE update: labels, archived, provenance and every other index field survive a move untouched, which is what makes moving cheap enough to be the only filing operation the tree needs. An absent folderId (or an explicit "") files it at the root -- ?? is blank-coalescing, and no folder's id is "". updatedAt advances because a move IS a change a person made to the row, and the Library's default sort should say so. Works on every content kind (file, document, generated_output); the backing row's own folderId copy is the initial filing only and is deliberately not chased (the index is authoritative after promotion).
 //
 // Bound concept: v1:library:artifact (machine-readable: BoundConcepts["moveArtifactToFolder"] in generated_concepts.go).

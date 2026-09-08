@@ -14,7 +14,6 @@
 /// forgeSubmitRequest for reader/writer/admin submitters; the resulting text is shown to the user
 /// and then recorded as a 'mentored' requestEvent via forgeRecordMentoring.
 @level("fast")
-@defaultProvider("chat54Mini")
 @templateFile("prompts/forgeMentoringExplanation.tmpl")
 prompt forgeMentoringExplanation {
   projectSlug   string! @description("Short slug of the project the request targets (e.g. 'memql', 'acme-app'). Used to ground the explanation in the right codebase/context.")

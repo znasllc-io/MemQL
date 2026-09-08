@@ -79,6 +79,30 @@ var promptLevels = map[string]string{
 	// forgeMentoringExplanation: three to six sentences of feedback to a
 	// non-owner submitter. Prose, short, and re-runnable.
 	"forgeMentoringExplanation": "fast",
+
+	// The router's own two (epic memql#5137, D7 and D9).
+	//
+	// compileRule: turns one sentence into a rule. It reads as authoring, and
+	// the reasoning band is where authoring lives -- but it is deliberately
+	// STRONG, and the difference is who checks the answer. authoringEmit and
+	// authoringRepair produce a construct that goes on to run, so a confident
+	// wrong answer becomes cluster behaviour; this one produces a rule a person
+	// reads beside a restatement and a simulation of what it would have done to
+	// their last hundred calls, and confirms or discards. A human gate that
+	// SHOWS THE CONSEQUENCE is what makes strong sufficient here.
+	//
+	// It is also the one prompt whose subject is where work may run, which is
+	// why the shipped compilerLocalOnly rule pins it to the fleet at precedence
+	// 120 and parks rather than degrading. The level says how capable a model
+	// it needs; the rule says whose hardware -- and reasoning would have made
+	// those two fight, since reasoningParks routes to federationStrongest.
+	"compileRule": "strong",
+	// classifyRequest: one word plus a confidence, over a request the
+	// deterministic table already declined to settle. Short, bounded, and cheap
+	// to redo -- the fast band's shape exactly, and it must stay there: this is
+	// a classifier that runs to AVOID spending, so a classifier that spends is
+	// the failure it exists to prevent.
+	"classifyRequest": "fast",
 }
 
 var (

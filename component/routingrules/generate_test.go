@@ -130,6 +130,11 @@ func TestValidateRefusals(t *testing.T) {
 		{"a shipped rule's name", func(f *Form) { f.Name = "reasoningParks" }, "shipped rule"},
 		{"no policy", func(f *Form) { f.Policy = "" }, "names no policy"},
 		{"a policy: reference", func(f *Form) { f.Policy = "policy:localFirst" }, "policy NAME"},
+		// A policy nobody registered. ValidatePolicyEntry passes it -- any
+		// identifier is a well-formed chain entry -- so without the existence
+		// check the rule renders, loads, and refuses every call it matches at
+		// REQUEST time, where the person who wrote it is not looking.
+		{"an unregistered policy", func(f *Form) { f.Policy = "cheapEverything" }, "not registered on this cluster"},
 		{"an unknown level", func(f *Form) { f.Level = "smart" }, "not one of fast"},
 		{"an unknown onUnavailable", func(f *Form) { f.OnUnavailable = "retry" }, "onUnavailable"},
 		{"an unknown condition key", func(f *Form) { f.When = map[string]string{"model": "gpt"} }, "not a condition key"},

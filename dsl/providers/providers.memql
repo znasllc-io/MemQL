@@ -43,6 +43,7 @@ provider anthropic {
 @model("gpt-5.3-chat-latest")
 provider chat53Latest {
   params {
+    streaming                  true
     contextWindow        128000
     maxCompletionTokens  4096
   }
@@ -55,6 +56,7 @@ provider chat53Latest {
 @model("gpt-5.4")
 provider chat54 {
   params {
+    streaming                  true
     contextWindow              128000
     maxCompletionTokens        4096
     inputCostPerMillion        2.50
@@ -70,6 +72,7 @@ provider chat54 {
 @model("gpt-5.4-mini")
 provider chat54Mini {
   params {
+    streaming                  true
     contextWindow              128000
     // Bumped 4096 -> 16384 because seedDomainContent's structured
     // schema (up to 50 chunks, 100-300 words each) hit the cap with
@@ -104,6 +107,7 @@ provider chat54Mini {
 @model("gpt-5.4-nano")
 provider chat54Nano {
   params {
+    streaming                  true
     contextWindow              32000
     maxCompletionTokens        2048
     inputCostPerMillion        0.10
@@ -131,6 +135,7 @@ provider chat54Nano {
 @model("gpt-5.4")
 provider chat54Pro {
   params {
+    streaming                  true
     contextWindow              256000
     maxCompletionTokens        8192
     inputCostPerMillion        5.00
@@ -145,6 +150,7 @@ provider chat54Pro {
 @model("claude-haiku-4-5-20251001")
 provider claudeHaiku {
   params {
+    streaming                  true
     contextWindow              200000
     maxTokens                  4096
     inputCostPerMillion        0.80
@@ -159,6 +165,7 @@ provider claudeHaiku {
 @model("claude-opus-4-6")
 provider claudeOpus {
   params {
+    streaming                  true
     contextWindow              200000
     maxTokens                  4096
     inputCostPerMillion        15.00
@@ -173,27 +180,12 @@ provider claudeOpus {
 @model("claude-sonnet-4-6")
 provider claudeSonnet {
   params {
+    streaming                  true
     contextWindow              200000
     maxTokens                  4096
     inputCostPerMillion        3.00
     outputCostPerMillion       15.00
     cachedInputCostPerMillion  0.30
-  }
-}
-
-// ---- providers/v1/openai/computerUse.memql ----
-
-/// OpenAI computer-use-preview - agentic control of a virtual machine. The preview label is kept
-/// because this is the only non-dated computer-use alias available today. Placeholder type until
-/// the computer-use client lands.
-@extends("openai")
-@type("OpenAIComputerUse")
-@model("computer-use-preview")
-@modality("computerUse")
-provider computerUse {
-  params {
-    displayWidth  1024
-    displayHeight 768
   }
 }
 
@@ -232,48 +224,7 @@ provider embedding3Small {
   }
 }
 
-// ---- providers/v1/openai/image15.memql ----
-
-/// OpenAI gpt-image-1.5 - newest generative image model. Placeholder type until the image client
-/// lands.
-@extends("openai")
-@type("OpenAIImage")
-@model("gpt-image-1.5")
-@modality("image")
-provider image15 {
-  params {
-    size    "1024x1024"
-    quality "high"
-  }
-}
-
-// ---- providers/v1/openai/image1Mini.memql ----
-
-/// OpenAI gpt-image-1-mini - smaller/cheaper generative image model. Placeholder type until the
-/// image client lands.
-@extends("openai")
-@type("OpenAIImage")
-@model("gpt-image-1-mini")
-@modality("image")
-provider image1Mini {
-  params {
-    size    "1024x1024"
-    quality "standard"
-  }
-}
-
 // ---- providers/v1/openai/moderationOmni.memql ----
-
-/// OpenAI omni-moderation-latest - self-updating moderation alias for text + image safety
-/// classification. Placeholder type until the moderation client lands.
-@extends("openai")
-@type("OpenAIModeration")
-@model("omni-moderation-latest")
-@modality("moderation")
-provider moderationOmni {
-  params {
-  }
-}
 
 @base
 @type("OpenAI")
@@ -295,151 +246,6 @@ provider openai {
     identityProviderId  env("MEMQL_AI_OPENAI_IDENTITY_PROVIDER_ID")
     serviceAccountId    env("MEMQL_AI_OPENAI_SERVICE_ACCOUNT_ID")
     identityTokenFile   env("MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE")
-  }
-}
-
-// ---- providers/v1/openai/research3.memql ----
-
-/// OpenAI o3-deep-research - higher-tier long-form deep-research pipeline. Placeholder type until
-/// the deep-research client lands.
-@extends("openai")
-@type("OpenAIDeepResearch")
-@model("o3-deep-research")
-@modality("research")
-provider research3 {
-  params {
-    contextWindow        200000
-    maxCompletionTokens  16384
-  }
-}
-
-// ---- providers/v1/openai/research4Mini.memql ----
-
-/// OpenAI o4-mini-deep-research - long-form deep-research pipeline (cheaper tier). Placeholder type
-/// until the deep-research client lands.
-@extends("openai")
-@type("OpenAIDeepResearch")
-@model("o4-mini-deep-research")
-@modality("research")
-provider research4Mini {
-  params {
-    contextWindow        200000
-    maxCompletionTokens  16384
-  }
-}
-
-// ---- providers/v1/openai/search5.memql ----
-
-/// OpenAI gpt-5-search-api - web-search-grounded chat. Placeholder type until the search client
-/// lands.
-@extends("openai")
-@type("OpenAISearch")
-@model("gpt-5-search-api")
-@modality("search")
-provider search5 {
-  params {
-    contextWindow        128000
-    maxCompletionTokens  4096
-  }
-}
-
-// ---- providers/v1/openai/sora2.memql ----
-
-/// OpenAI sora-2 - generative video model. Placeholder type until the video client lands.
-@extends("openai")
-@type("OpenAIVideo")
-@model("sora-2")
-@modality("video")
-provider sora2 {
-  params {
-    resolution "720p"
-    duration   5
-  }
-}
-
-// ---- providers/v1/openai/sora2Pro.memql ----
-
-/// OpenAI sora-2-pro - higher-quality / longer-duration generative video model. Placeholder type
-/// until the video client lands.
-@extends("openai")
-@type("OpenAIVideo")
-@model("sora-2-pro")
-@modality("video")
-provider sora2Pro {
-  params {
-    resolution "1080p"
-    duration   10
-  }
-}
-
-// ---- providers/v1/openai/stream53Latest.memql ----
-
-/// OpenAI gpt-5.3-chat-latest - auto-updated chat-tuned alias (streaming); useful for dev where you
-/// want newest tuning without a code change
-@extends("openai")
-@type("OpenAIStream")
-@model("gpt-5.3-chat-latest")
-provider stream53Latest {
-  params {
-    contextWindow        128000
-    maxCompletionTokens  4096
-  }
-}
-
-// ---- providers/v1/openai/stream54.memql ----
-
-/// OpenAI GPT-5.4 - flagship standard-tier chat (streaming); marked @default so every caller that
-/// does not explicitly pick a provider lands here
-@extends("openai")
-@type("OpenAIStream")
-@model("gpt-5.4")
-@default
-provider stream54 {
-  params {
-    contextWindow              128000
-    maxCompletionTokens        4096
-    inputCostPerMillion        2.50
-    outputCostPerMillion       10.00
-    cachedInputCostPerMillion  1.25
-  }
-}
-
-// ---- providers/v1/openai/stream54Mini.memql ----
-
-/// OpenAI GPT-5.4 Mini - balanced cost/latency streaming chat
-@extends("openai")
-@type("OpenAIStream")
-@model("gpt-5.4-mini")
-provider stream54Mini {
-  params {
-    contextWindow              128000
-    maxCompletionTokens        4096
-    // CORRECTED 2026-08-16 (memql#3854), for the reason recorded in full on
-    // chat54Mini above. THE SAME @model, THE SAME STALE NUMBERS: this is the
-    // streaming sibling, and it carried an identical copy of the gpt-4o-mini
-    // rates. Finding one and not the other would have left the two providers
-    // for one model disagreeing about what that model costs -- and the
-    // streaming one is the one the agent reply path actually uses, so it is
-    // the copy that was wrong more often.
-    inputCostPerMillion        0.75
-    outputCostPerMillion       4.50
-    cachedInputCostPerMillion  0.075
-  }
-}
-
-// ---- providers/v1/openai/stream54Nano.memql ----
-
-/// OpenAI GPT-5.4 Nano - cheapest high-volume streaming chat for low-complexity tasks
-@extends("openai")
-@type("OpenAIStream")
-@model("gpt-5.4-nano")
-provider stream54Nano {
-  params {
-    contextWindow              32000
-    maxCompletionTokens        2048
-    inputCostPerMillion        0.10
-    outputCostPerMillion       0.40
-    cachedInputCostPerMillion  0.05
   }
 }
 
@@ -477,51 +283,6 @@ provider stream54Nano {
 //   gpt-5.4-pro -> 404 "not a chat model"
 //   gpt-5.4     -> OK (streams + tools work)
 
-/// OpenAI GPT-5.4 Pro tier (streaming) -- aliases to gpt-5.4 because gpt-5.4-pro is responses-API
-/// only; switch the @model back when responses-API support lands
-@extends("openai")
-@type("OpenAIStream")
-@model("gpt-5.4")
-provider stream54Pro {
-  params {
-    contextWindow              256000
-    maxCompletionTokens        8192
-    inputCostPerMillion        5.00
-    outputCostPerMillion       20.00
-    cachedInputCostPerMillion  2.50
-  }
-}
-
-// ---- providers/v1/anthropic/streamClaudeHaiku.memql ----
-
-@extends("anthropic")
-@type("AnthropicStream")
-@model("claude-haiku-4-5-20251001")
-provider streamClaudeHaiku {
-  params {
-    contextWindow              200000
-    maxTokens                  4096
-    inputCostPerMillion        0.80
-    outputCostPerMillion       4.00
-    cachedInputCostPerMillion  0.08
-  }
-}
-
-// ---- providers/v1/anthropic/streamClaudeOpus.memql ----
-
-@extends("anthropic")
-@type("AnthropicStream")
-@model("claude-opus-4-6")
-provider streamClaudeOpus {
-  params {
-    contextWindow              200000
-    maxTokens                  4096
-    inputCostPerMillion        15.00
-    outputCostPerMillion       75.00
-    cachedInputCostPerMillion  1.50
-  }
-}
-
 // ---- providers/v1/anthropic/reasoningClaudeOpus.memql ----
 //
 // Claude Opus 4.6 with extended-thinking enabled. The same model as
@@ -556,10 +317,10 @@ provider streamClaudeOpus {
 /// training-plan-composition workloads; stay on streamClaudeOpus for chat replies and
 /// latency-sensitive flows.
 @extends("anthropic")
-@type("AnthropicStream")
 @model("claude-opus-4-6")
 provider reasoningClaudeOpus {
   params {
+    streaming                  true
     contextWindow              200000
     maxTokens                  16384
     thinkingBudgetTokens       8192
@@ -569,91 +330,44 @@ provider reasoningClaudeOpus {
   }
 }
 
-// ---- providers/v1/anthropic/streamClaudeSonnet.memql ----
-
-@extends("anthropic")
-@type("AnthropicStream")
-@model("claude-sonnet-4-6")
-provider streamClaudeSonnet {
-  params {
-    contextWindow              200000
-    maxTokens                  4096
-    enablePromptCache          "true"
-    inputCostPerMillion        3.00
-    outputCostPerMillion       15.00
-    cachedInputCostPerMillion  0.30
-  }
-}
-
-// ---- providers/v1/openai/streamCodex51Max.memql ----
+// ---- providers/v1/openai/codex51Max.memql ----
 
 /// OpenAI gpt-5.1-codex-max - heavy long-context coding model (streaming); preferred for multi-file
 /// refactors and large-repo understanding tasks
 @extends("openai")
-@type("OpenAIStream")
 @model("gpt-5.1-codex-max")
-provider streamCodex51Max {
+provider codex51Max {
   params {
+    streaming                  true
     contextWindow        400000
     maxCompletionTokens  16384
   }
 }
 
-// ---- providers/v1/openai/streamCodex53.memql ----
+// ---- providers/v1/openai/codex53.memql ----
 
 /// OpenAI gpt-5.3-codex - coding-specialized chat model (streaming); use for NemoClaw /
 /// code-generation flows
 @extends("openai")
-@type("OpenAIStream")
 @model("gpt-5.3-codex")
-provider streamCodex53 {
+provider codex53 {
   params {
+    streaming                  true
     contextWindow        256000
     maxCompletionTokens  8192
   }
 }
 
-// ---- providers/v1/openai/streamReasoning4Mini.memql ----
+// ---- providers/v1/openai/reasoning4Mini.memql ----
 
 /// OpenAI o4-mini - efficient reasoning-focused model (o-series); streaming
 @extends("openai")
-@type("OpenAIStream")
 @model("o4-mini")
-provider streamReasoning4Mini {
+provider reasoning4Mini {
   params {
+    streaming                  true
     contextWindow        200000
     maxCompletionTokens  16384
-  }
-}
-
-// ---- providers/v1/openai/transcribeDiarize.memql ----
-
-/// OpenAI gpt-4o-transcribe-diarize - speech-to-text with speaker diarization. Use for
-/// multi-speaker recordings where speaker attribution matters. Placeholder type until
-/// diarization-aware client lands.
-@extends("openai")
-@type("OpenAISTT")
-@model("gpt-4o-transcribe-diarize")
-@modality("stt")
-provider transcribeDiarize {
-  params {
-    format     "wav"
-    sampleRate 16000
-  }
-}
-
-// ---- providers/v1/openai/whisper1.memql ----
-
-/// OpenAI whisper-1 - verbatim speech-to-text; the MemQL default STT model (see
-/// integrations/stt/openai_whisper.go and MEMQL_WHISPER_MODEL)
-@extends("openai")
-@type("OpenAISTT")
-@model("whisper-1")
-@modality("stt")
-provider whisper1 {
-  params {
-    format    "wav"
-    sampleRate 16000
   }
 }
 

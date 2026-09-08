@@ -100,7 +100,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"sourceRef": "string (optional) - origin tag, e.g. 'opid:agents.new' or 'doc:README.md'",
 				"chunkSize": "int (optional) - approx chars per chunk (default 1800)",
 				"overlap":   "int (optional) - char overlap between chunks (default 180)",
-				"provider":  "string (optional) - embedding provider name (default embedding3Small)",
+				"provider":  "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 		},
 		{
@@ -180,7 +180,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Handler:     i.embedChunkHandler,
 			ArgsSchema: map[string]string{
 				"chunkId":  "string (required) - the chunk to embed.",
-				"provider": "string (optional) - embedding provider name (default embedding3Small).",
+				"provider": "string (optional) - embedding provider name; omit to use the cluster's active embedder binding.",
 			},
 		},
 		{
@@ -197,7 +197,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			ArgsSchema: map[string]string{
 				"domainId":   "string (required) - the knowledge domain whose chunks to embed.",
 				"documentId": "string (optional) - scope the run to one Document's chunks. Empty = the whole domain.",
-				"provider":   "string (optional) - embedding provider name (default embedding3Small).",
+				"provider":   "string (optional) - embedding provider name; omit to use the cluster's active embedder binding.",
 			},
 		},
 		{
@@ -227,7 +227,6 @@ const (
 	defaultChunkSize = 1800
 	defaultOverlap   = 180
 	defaultLimit     = 5
-	defaultProvider  = "embedding3Small"
 )
 
 // Chunk splits text into overlapping windows. It prefers paragraph and
@@ -301,7 +300,17 @@ func (i *Integration) ingestHandler(ctx context.Context, args map[string]any, _ 
 	}
 	providerName, _ := args["provider"].(string)
 	if providerName == "" {
-		providerName = defaultProvider
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This was
+		// `defaultProvider`, a package const reading "embedding3Small" -- one of
+		// five copies of the same paid pin, which happened never to drift only
+		// because nobody had ever changed it. There is no fallback: an embedder
+		// chosen for the caller writes vectors into a search space nobody
+		// picked, and a mismatched width is not an error anywhere.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 	chunkSize := intArg(args, "chunkSize", defaultChunkSize)
 	overlap := intArg(args, "overlap", defaultOverlap)

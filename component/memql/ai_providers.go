@@ -26,15 +26,20 @@ import (
 	"github.com/znasllc-io/memql/core/num"
 )
 
-const envDefaultProvider = "MEMQL_DEFAULT_PROVIDER"
-
-// Variable names for default provider configuration.
-// These are stored in v1:platform:partitionVariable and resolved at runtime.
-const (
-	VarDefaultTTSProvider    = "MEMQL_DEFAULT_TTS_PROVIDER"
-	VarDefaultStreamProvider = "MEMQL_DEFAULT_STREAM_PROVIDER"
-	VarDefaultChatProvider   = "MEMQL_DEFAULT_CHAT_PROVIDER"
-)
+// VarDefaultTTSProvider is the ONE default-provider variable left, and it is
+// left because text-to-speech has no level yet (epic memql#5137, D3).
+//
+// MEMQL_DEFAULT_PROVIDER, MEMQL_DEFAULT_CHAT_PROVIDER and
+// MEMQL_DEFAULT_STREAM_PROVIDER are deleted. Each named a vendor model in a
+// deployment manifest, which put a routing decision somewhere no rule could see
+// and no decision record could explain -- and since every concrete record is a
+// paid model, each was a paid default with an operator's name on it. Chat and
+// streaming resolve through the router at a LEVEL now.
+//
+// Speech does not, yet. The fleet gained a speak door in memql#5141, but the
+// four levels are chat levels, so a TTS call still names a provider. When the
+// speech door has a level of its own this goes the way of the other three.
+const VarDefaultTTSProvider = "MEMQL_DEFAULT_TTS_PROVIDER"
 
 // ProviderModality defines the input/output mode of a provider.
 type ProviderModality string
@@ -44,21 +49,29 @@ const (
 	ModalityTTS       ProviderModality = "tts"       // Text input → audio output (text-to-speech)
 	ModalitySTT       ProviderModality = "stt"       // Audio input → text output (speech-to-text)
 	ModalityEmbedding ProviderModality = "embedding" // Text input → vector output (embeddings)
-	// The following modalities are declared so provider .memql files can
-	// register intent; their handlers are placeholders today (newAIProvider
-	// routes them through newOpenAIPlaceholderProvider, which validates
-	// auth and returns codes.Unimplemented on invocation). Add real
-	// client implementations as capabilities come online; the .memql
-	// files stay untouched when that happens.
-	ModalityRealtime    ProviderModality = "realtime"    // Bidirectional audio + text over WebSocket
-	ModalityAudio       ProviderModality = "audio"       // Single-shot audio in/out (unified)
-	ModalityImage       ProviderModality = "image"       // Text input → image output
-	ModalityVideo       ProviderModality = "video"       // Text input → video output
-	ModalityComputerUse ProviderModality = "computerUse" // Agentic control of a virtual machine
-	ModalityModeration  ProviderModality = "moderation"  // Text/image input → safety classifications
-	ModalitySearch      ProviderModality = "search"      // Web-search-grounded chat
-	ModalityResearch    ProviderModality = "research"    // Long-form deep-research pipelines
 )
+
+// THE OTHER EIGHT MODALITIES ARE GONE, and their absence is the point (epic
+// memql#5137, D3).
+//
+// realtime, audio, image, video, computerUse, moderation, search and research
+// were declared here so a provider .memql file could "register intent", and
+// eleven records did. Every one of them routed through
+// newOpenAIPlaceholderProvider: a client that validated the credential at
+// registration, reported itself AVAILABLE, and returned "the Go client is not
+// wired yet" to any call that reached it.
+//
+// That is worse than an absence. A registered, available provider is one a
+// policy can name, a page can list and a router can pick -- so the failure
+// arrived at call time, three layers from the record that promised the
+// capability, in a cluster where the operator had every reason to believe the
+// door was open.
+//
+// The four modalities the fleet wire now serves locally (vision, transcribe,
+// speak, image -- memql#5141) are NOT re-declarations of these. They are call
+// KINDS on WorkerService.Stream, served by a machine that advertised the
+// capability, and a machine that advertises nothing is skipped during
+// selection rather than picked and then failed.
 
 // ProviderConfig captures serialized provider metadata.
 type ProviderConfig struct {
@@ -94,12 +107,46 @@ func (c ProviderConfig) ContextWindow() int {
 	return 0
 }
 
+// Streaming reports whether this record's model should be served by the
+// streaming client (epic memql#5137, D3).
+//
+// IT IS A CAPABILITY, NOT A TYPE, and that is the whole point of the field.
+// Every vendor model used to carry TWO records -- `chat54Mini` and
+// `stream54Mini`, one @type("OpenAI") and one @type("OpenAIStream") -- for one
+// model with one price. The two drifted, exactly as a duplicated fact does:
+// they disagreed about gpt-5.4-mini's maxCompletionTokens, and the streaming
+// copy was the one the agent reply path actually used, so it was the copy that
+// was wrong more often.
+//
+// The collapse is safe because the streaming clients are a strict SUPERSET:
+// openAIStreamProvider and anthropicStreamProvider implement Call, CallChat and
+// CallChatWithTools alongside the three streaming methods, so a record that
+// declares `streaming true` can still serve every non-streaming caller.
+//
+// Absent reads as false, which is the fail-closed direction: a model whose
+// record says nothing gets the plain client, and a caller wanting a stream from
+// it gets a typed "provider does not stream" rather than a silent buffer of the
+// whole completion.
+func (c ProviderConfig) Streaming() bool {
+	switch v := c.Params["streaming"].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	return false
+}
+
 // ResolvedModality returns the effective modality, inferring from Type if not explicitly set.
 func (c ProviderConfig) ResolvedModality() ProviderModality {
 	if c.Modality != "" {
 		return ProviderModality(strings.ToLower(c.Modality))
 	}
-	// Infer from provider type
+	// Infer from provider type. Four types, four modalities: the eight that
+	// inferred a placeholder modality went with the placeholder client (D3).
+	// An unrecognised type reads as text, which is what it read as before and
+	// is the right default -- a chat record is by far the common case, and a
+	// modality guessed wrong here would take a text call out of the text pool.
 	switch strings.ToLower(c.Type) {
 	case "openaitts":
 		return ModalityTTS
@@ -107,24 +154,6 @@ func (c ProviderConfig) ResolvedModality() ProviderModality {
 		return ModalitySTT
 	case "openaiembedding":
 		return ModalityEmbedding
-	case "openairealtime":
-		return ModalityRealtime
-	case "openaiaudio":
-		return ModalityAudio
-	case "openaiimage":
-		return ModalityImage
-	case "openaivideo":
-		return ModalityVideo
-	case "openaicomputeruse":
-		return ModalityComputerUse
-	case "openaimoderation":
-		return ModalityModeration
-	case "openaisearch":
-		return ModalitySearch
-	case "openaideepresearch":
-		return ModalityResearch
-	case "anthropic", "anthropicchat", "anthropicstream":
-		return ModalityText
 	default:
 		return ModalityText
 	}
@@ -293,12 +322,7 @@ const (
 // ProviderRegistry tracks configured providers and their availability.
 type ProviderRegistry struct {
 	mu              sync.RWMutex
-	byName          map[string]*ProviderConfigEntry
-	defaultProvider string
-	// defaultPinned is true when MEMQL_DEFAULT_CHAT_PROVIDER was set at
-	// construction time; in that case no @default annotation or
-	// first-wins fallback is allowed to override the operator's choice.
-	defaultPinned bool
+	byName map[string]*ProviderConfigEntry
 	// declared holds every provider NAME the DSL tree declares, including
 	// the @disabled ones that never become registry entries. The two sets
 	// differ on purpose and the difference is load-bearing: "@disabled, so
@@ -338,13 +362,17 @@ func (e *ProviderConfigEntry) Err() error {
 	return e.err
 }
 
-func newProviderRegistry(defaultName string) *ProviderRegistry {
-	pinned := strings.TrimSpace(defaultName) != ""
+// newProviderRegistry builds an empty registry.
+//
+// It TOOK a default provider name, read from MEMQL_DEFAULT_PROVIDER, and takes
+// none now (epic memql#5137, D3). A provider named by an environment variable
+// is a routing decision made in a deployment manifest: nothing in the graph
+// records it, no decision record can name it, and an operator reading the rules
+// to find out why a paid model answered would find nothing that says so.
+func newProviderRegistry() *ProviderRegistry {
 	return &ProviderRegistry{
-		byName:          make(map[string]*ProviderConfigEntry),
-		defaultProvider: strings.TrimSpace(defaultName),
-		defaultPinned:   pinned,
-		declared:        make(map[string]bool),
+		byName:   make(map[string]*ProviderConfigEntry),
+		declared: make(map[string]bool),
 	}
 }
 
@@ -397,20 +425,22 @@ func (r *ProviderRegistry) setEntry(entry *ProviderConfigEntry) {
 	defer r.mu.Unlock()
 	r.byName[strings.TrimSpace(entry.Config.Name)] = entry
 
-	// Precedence when choosing the runtime default:
-	//   1. MEMQL_DEFAULT_CHAT_PROVIDER env var (defaultPinned=true): never overridden.
-	//   2. A provider marked @default: always wins over a prior first-wins fallback.
-	//   3. First available registered provider: only used when nothing else applies.
-	if r.defaultPinned {
-		return
-	}
-	if entry.Config.Default && entry.Available {
-		r.defaultProvider = entry.Config.Name
-		return
-	}
-	if r.defaultProvider == "" && entry.Available {
-		r.defaultProvider = entry.Config.Name
-	}
+	// THE REGISTRY HAS NO DEFAULT (epic memql#5137, D3), and this function
+	// used to be where one was chosen. It carried three tiers -- an env pin,
+	// a record's @default, and "first available registered provider" -- and all
+	// three are gone.
+	//
+	// The third is the one worth explaining, because it looked harmless. Every
+	// concrete record in dsl/providers/providers.memql is a paid vendor model,
+	// so "first available" meant: on any cluster with federation configured,
+	// the alphabetically-first vendor record silently became the answer to
+	// every call that named nothing. No policy said so, no rule said so, and
+	// the decision record for the resulting call could not say who chose,
+	// because nothing did.
+	//
+	// What replaces it is the shipped `default` RULE (epic memql#5127): a
+	// declaration, in the tree, that says local first and paid last, which a
+	// person can read and override with a rule of their own.
 }
 
 // adoptContents replaces everything this registry holds with the contents of
@@ -447,15 +477,12 @@ func (r *ProviderRegistry) adoptContents(next *ProviderRegistry) {
 	for k, v := range next.declared {
 		declared[k] = v
 	}
-	defaultProvider, defaultPinned := next.defaultProvider, next.defaultPinned
 	next.mu.RUnlock()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.byName = byName
 	r.declared = declared
-	r.defaultProvider = defaultProvider
-	r.defaultPinned = defaultPinned
 }
 
 // AvailableCount returns how many REGISTERED entries are callable.
@@ -478,31 +505,6 @@ func (r *ProviderRegistry) AvailableCount() int {
 		}
 	}
 	return n
-}
-
-func (r *ProviderRegistry) finalizeDefault(logger *slog.Logger) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.defaultProvider != "" {
-		if entry, ok := r.byName[r.defaultProvider]; ok && entry != nil && entry.Available {
-			return
-		}
-		if logger != nil {
-			logger.Warn("default AI provider unavailable; selecting first available entry",
-				"component", ComponentName,
-				"provider", r.defaultProvider)
-		}
-		r.defaultProvider = ""
-	}
-	for name, entry := range r.byName {
-		if entry != nil && entry.Available {
-			r.defaultProvider = name
-			break
-		}
-	}
 }
 
 // Count returns the number of registered providers.
@@ -535,15 +537,79 @@ func (r *ProviderRegistry) Names() []string {
 	return out
 }
 
-// Default returns the preferred provider name, if any.
-func (r *ProviderRegistry) Default() string {
+// FederatedByStrength lists the available federated providers, strongest first.
+//
+// IT IS NOT A DEFAULT, and the distinction is the whole reason it may exist at
+// all (epic memql#5137, D3). Nothing reaches it without an explicit human
+// consent on the call in front of them; there is no path where the platform
+// picks from this list on its own. What it exists for is the case the consent
+// path has to survive: a cluster whose rule and policy corpus failed to load has
+// no `federationStrongest` to resolve through, and consent is precisely the
+// escape for when the ordinary chain already refused -- so making the escape
+// depend on the corpus would leave a person saying yes and nothing happening.
+//
+// ORDERED BY DECLARED CONTEXT WINDOW, TIE-BROKEN BY NAME, and both halves are
+// deliberate. Context window is the one capability every chat record declares,
+// so it is the only ordering available without epic memql#5146's measurements;
+// the name tie-break is what makes two replicas choose identically and a person
+// able to predict the answer. Map order -- which is what the deleted default
+// actually was -- would fail both.
+func (r *ProviderRegistry) FederatedByStrength() []string {
 	if r == nil {
-		return ""
+		return nil
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.defaultProvider
+
+	type entry struct {
+		name   string
+		window int
+	}
+	var candidates []entry
+	for name, e := range r.byName {
+		if e == nil || !e.Available || e.Config.Base {
+			continue
+		}
+		// Fleet and app doors are not what a CLOUD consent is about: the fleet
+		// entry is the one that was unavailable when the consent was asked for,
+		// and a subscription app is a door the chain tries before federation.
+		switch strings.ToLower(e.Config.Type) {
+		case strings.ToLower(FleetProviderType), strings.ToLower(AppProviderType):
+			continue
+		}
+		if e.Config.ResolvedModality() != ModalityText {
+			continue
+		}
+		candidates = append(candidates, entry{name: name, window: e.Config.ContextWindow()})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].window != candidates[j].window {
+			return candidates[i].window > candidates[j].window
+		}
+		return candidates[i].name < candidates[j].name
+	})
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		out = append(out, c.name)
+	}
+	return out
 }
+
+// THE REGISTRY HAS NO Default() ANY MORE (epic memql#5137, D3).
+//
+// It returned the provider name an env var pinned, or a record's @default, or
+// -- when neither applied, which was the ordinary case -- whichever available
+// entry happened to be reached first. Every concrete record in
+// dsl/providers/providers.memql is a paid vendor model, so on any cluster with
+// federation configured that last tier silently made one of them the answer to
+// every call that named nothing, with no rule, no policy and no decision record
+// able to say who chose.
+//
+// Callers that used to fall back to it now REFUSE, and the refusal names what
+// is missing. Under epic memql#5127 that refusal is unreachable in practice --
+// the shipped `default` rule supplies a chain before any caller gets there --
+// which is the correct shape: the default is a declaration in the tree, not a
+// property of a map.
 
 // Entry retrieves a provider configuration entry by name.
 //
@@ -708,22 +774,25 @@ func (r *ProviderRegistry) ChatProvider(defaultName string) common.ChatAIProvide
 		}
 	}
 
-	// Try preferred provider names in priority order.
-	// These are stable, production-ready models known to work with /v1/chat/completions.
-	// Using an explicit list avoids random Go map iteration picking incompatible models
-	// (e.g., codex models, deep-research / reasoning models that use /v1/responses
-	// instead, or provider-type stubs that aren't wired to a real client).
-	// Order: flagship mid-tier → mini → nano → pro → chat-latest alias.
-	preferredNames := []string{"chat54", "chat54Mini", "chat54Nano", "chat54Pro", "chat53Latest"}
-	for _, name := range preferredNames {
-		if entry, ok := r.Entry(name); ok && entry.Available {
-			if cp, ok := entry.Client.(common.ChatAIProvider); ok && isNonStreamingType(entry.Config.Type) {
-				return cp
-			}
-		}
-	}
-
-	// Last resort: iterate all providers, filtering strictly
+	// THE PREFERRED-NAMES LIST IS GONE (epic memql#5137, D3).
+	//
+	// It was five paid OpenAI records in priority order -- chat54, chat54Mini,
+	// chat54Nano, chat54Pro, chat53Latest -- which is a paid default written in
+	// Go, the exact shape TestNoPaidDefault's third arm exists to catch.
+	//
+	// Its stated purpose was real: stop map iteration picking a model that
+	// cannot serve /v1/chat/completions. What was wrong was solving that by
+	// naming five vendor records rather than by asking whether a record is
+	// chat-compatible -- isChatCompatibleModel already answers exactly that
+	// question, and the scan below applies it.
+	//
+	// What the list DID, as opposed to what it was for, was decide silently
+	// that every unnamed synchronous call went to OpenAI: on a cluster whose
+	// operator had configured only Anthropic it walked five names that were
+	// never going to resolve, and on one with both it chose a vendor with
+	// nothing in the decision record naming the choice.
+	//
+	// Iterate all providers, filtering strictly.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, entry := range r.byName {
@@ -754,16 +823,10 @@ func (r *ProviderRegistry) ChatStructuredProvider(defaultName string) common.Cha
 			}
 		}
 	}
-	// Preferred models, same priority order as ChatProvider.
-	preferredNames := []string{"chat54", "chat54Mini", "chat54Nano", "chat54Pro", "chat53Latest"}
-	for _, preferred := range preferredNames {
-		if entry, ok := r.Entry(preferred); ok && entry.Available {
-			if cp, ok := entry.Client.(common.ChatStructuredProvider); ok && isNonStreamingType(entry.Config.Type) {
-				return cp
-			}
-		}
-	}
-	// Last resort: any structured-capable non-streaming provider.
+	// The five-name paid preference list is gone here too, for the reason
+	// recorded in full on ChatProvider above (epic memql#5137, D3).
+	//
+	// Any structured-capable non-streaming provider.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, entry := range r.byName {
@@ -800,18 +863,17 @@ func (r *ProviderRegistry) SuggestChatProvider() common.ChatAIProvider {
 		return nil
 	}
 
-	// Prefer fast models for suggestions -- smaller models generate structured JSON quickly.
-	// Nano is the cheapest; Mini is the balanced fallback; full 5.4 as a last resort.
-	fastNames := []string{"chat54Nano", "chat54Mini", "chat54"}
-	for _, name := range fastNames {
-		if entry, ok := r.Entry(name); ok && entry.Available {
-			if cp, ok := entry.Client.(common.ChatAIProvider); ok && isNonStreamingType(entry.Config.Type) {
-				return cp
-			}
-		}
-	}
-
-	// Fall back to default chat provider
+	// THE THREE FAST NAMES ARE GONE (epic memql#5137, D3), and this one is
+	// worth naming separately from ChatProvider's five because it was the same
+	// mistake made for a BETTER reason: "prefer a small, cheap model for a
+	// suggestion" is exactly right, and encoding it as chat54Nano, chat54Mini,
+	// chat54 made it a preference for three specific paid records.
+	//
+	// The judgement survives as a LEVEL. `fast` is what a suggestion declares
+	// (epic memql#5127), and the rules decide which model serves it against
+	// what the cluster actually has -- which on a local fleet is a 9B running
+	// on somebody's laptop, and was previously nothing at all, because none of
+	// the three names could resolve.
 	return r.ChatProvider("")
 }
 
@@ -951,11 +1013,8 @@ func (r *ProviderRegistry) ProvidersByModality(modality ProviderModality) []*Pro
 // dsl/v1/providers/. Providers now load via LoadUnifiedProviders
 // (component/memql/unified_kinds_loader.go) which walks
 // dsl/providers/<vendor>.memql.
-func loadAIProviders(logger *slog.Logger) (*ProviderRegistry, error) {
-	defaultName := strings.TrimSpace(os.Getenv(envDefaultProvider))
-	registry := newProviderRegistry(defaultName)
-	registry.finalizeDefault(logger)
-	return registry, nil
+func loadAIProviders(_ *slog.Logger) (*ProviderRegistry, error) {
+	return newProviderRegistry(), nil
 }
 
 func parseProviderConfigs(origin string, raw []byte) ([]ProviderConfig, error) {
@@ -1292,39 +1351,19 @@ func streamingHTTPClient() *http.Client {
 func newAIProvider(cfg ProviderConfig) (AIProvider, error) {
 	switch strings.ToLower(cfg.Type) {
 	case "openai", "openaichat":
+		if cfg.Streaming() {
+			return newOpenAIStreamProvider(cfg)
+		}
 		return newOpenAIProvider(cfg)
-	case "openaistream":
-		return newOpenAIStreamProvider(cfg)
 	case "openaitts":
 		return newOpenAITTSProvider(cfg)
 	case "openaiembedding":
 		return newOpenAIEmbeddingProvider(cfg)
 	case "anthropic", "anthropicchat":
+		if cfg.Streaming() {
+			return newAnthropicStreamProvider(cfg)
+		}
 		return newAnthropicProvider(cfg)
-	case "anthropicstream":
-		return newAnthropicStreamProvider(cfg)
-	// Placeholder types. These provider .memql files declare the model +
-	// auth today; when the real Go client lands we swap the dispatch
-	// case here to a concrete newXxxProvider(cfg) call. Until then the
-	// stub validates auth and returns codes.Unimplemented on Call().
-	case "openaistt", "openaiwhisper":
-		return newOpenAIPlaceholderProvider(cfg, "stt")
-	case "openairealtime":
-		return newOpenAIPlaceholderProvider(cfg, "realtime")
-	case "openaiaudio":
-		return newOpenAIPlaceholderProvider(cfg, "audio")
-	case "openaiimage":
-		return newOpenAIPlaceholderProvider(cfg, "image")
-	case "openaivideo":
-		return newOpenAIPlaceholderProvider(cfg, "video")
-	case "openaicomputeruse":
-		return newOpenAIPlaceholderProvider(cfg, "computer-use")
-	case "openaimoderation":
-		return newOpenAIPlaceholderProvider(cfg, "moderation")
-	case "openaisearch":
-		return newOpenAIPlaceholderProvider(cfg, "search")
-	case "openaideepresearch":
-		return newOpenAIPlaceholderProvider(cfg, "deep-research")
 	case "fleet":
 		// The base `fleet` provider is @base and never reaches this switch.
 		// Anything that DOES reach it is a static per-model child, which the
@@ -1349,51 +1388,6 @@ func newAIProvider(cfg ProviderConfig) (AIProvider, error) {
 	}
 }
 
-// openAIPlaceholderProvider stands in for capabilities that have a
-// declared provider (.memql) but no Go client wired up yet. It
-// validates auth at registration time so misconfigurations surface
-// early, and returns codes.Unimplemented when someone actually calls
-// it so the failure mode is obvious. When a real client is added,
-// swap the dispatch case in newAIProvider and delete this provider's
-// use for that type.
-type openAIPlaceholderProvider struct {
-	name       string
-	model      string
-	capability string // human-readable capability tag for error messages
-}
-
-func newOpenAIPlaceholderProvider(cfg ProviderConfig, capability string) (AIProvider, error) {
-	// IT VALIDATES THE FEDERATED CREDENTIAL, exactly as the real constructors
-	// do (epic memql#5088, design D5). It used to check auth.apiKey, and
-	// leaving that check would have made every one of these ten types the only
-	// thing in the tree still demanding a key -- so a keyless cluster would
-	// register the real providers as unavailable with a federation message and
-	// these with a message naming a variable that no longer exists.
-	//
-	// The client is thrown away: a placeholder has no call to make. What is
-	// wanted is the DECISION -- federated, unavailable, or half-configured --
-	// so the registry's answer for a placeholder matches its answer for the
-	// provider beside it.
-	if _, _, err := newOpenAIClientWithCredential(cfg, guardedHTTPClient(nil)); err != nil {
-		return nil, fmt.Errorf("provider %q (%s): %w", cfg.Name, capability, err)
-	}
-	return &openAIPlaceholderProvider{
-		name:       cfg.Name,
-		model:      cfg.Model,
-		capability: capability,
-	}, nil
-}
-
-// Call satisfies AIProvider. Returns an informative error rather than
-// pretending to succeed -- we never want a placeholder to silently
-// absorb a real request.
-func (p *openAIPlaceholderProvider) Call(_ context.Context, _ string) (any, error) {
-	return nil, fmt.Errorf(
-		"provider %q (%s / model=%s) is declared but the Go client is not wired yet; "+
-			"add a dispatch case in component/memql/ai_providers.go:newAIProvider",
-		p.name, p.capability, p.model,
-	)
-}
 
 // ============================================================================
 // OpenAI Embedding Provider

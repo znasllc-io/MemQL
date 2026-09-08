@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -76,16 +75,28 @@ func (e *MemQLEngine) RegisterIntegration(provider IntegrationProvider) error {
 // the runtime exact-hash-only (a clean degrade -- the primitive becomes a
 // no-op and every AI call behaves exactly as pre-5.9).
 //
-// embeddingProviderName selects the embedding model (empty => "embedding3Small",
-// the instance default that matches node_vectors' 1536-dim schema). The
-// namespace enablement registry is loaded from defaults + env here, so an
-// operator can enable a vetted namespace without a rebuild.
+// embeddingProviderName selects the embedding model. EMPTY NOW MEANS "ask the
+// cluster's embedder binding" rather than "embedding3Small" (epic memql#5137,
+// D6): that literal was one of five copies of the same paid pin, and it also
+// encoded node_vectors' 1536-dim schema as a fact about the whole cluster. A
+// cluster with no binding wires no semantic cache, which is the honest degrade
+// -- the alternative is embedding into a space nobody chose. The namespace
+// enablement registry is loaded from defaults + env here, so an operator can
+// enable a vetted namespace without a rebuild.
 func (e *MemQLEngine) WireSemanticCache(embeddingProviderName string, dbGetter func() *sql.DB) {
 	if e == nil || e.aiRuntime == nil {
 		return
 	}
 	if strings.TrimSpace(embeddingProviderName) == "" {
-		embeddingProviderName = "embedding3Small"
+		bound, err := ResolveEmbedderProvider(context.Background())
+		if err != nil {
+			if e.Component != nil && e.Logger != nil {
+				e.Logger.Info("semantic AI cache not wired: no embedder is bound",
+					"component", ComponentName)
+			}
+			return
+		}
+		embeddingProviderName = bound
 	}
 	if e.providers == nil {
 		return
@@ -395,7 +406,7 @@ func (e *MemQLEngine) ReloadAIProviders(ctx context.Context) (int, error) {
 	// for that reason; this reload has three uses of it, so it resolves once.
 	logger := e.safeLogger()
 
-	next := newProviderRegistry(strings.TrimSpace(os.Getenv(envDefaultProvider)))
+	next := newProviderRegistry()
 	if _, err := LoadUnifiedProviders(logger, next); err != nil {
 		// The LIVE registry is untouched. A reload that cannot build a
 		// replacement leaves the node serving what it was already serving,
@@ -459,16 +470,20 @@ func (e *MemQLEngine) VisionProvider() common.VisionAIProvider {
 	return e.providers.VisionProvider("")
 }
 
-// StreamProvider returns the default Streaming provider from the registry.
-// Resolves MEMQL_DEFAULT_STREAM_PROVIDER from v1:platform:globalVariable (the
-// global instance default), then falls back to the first available
-// Streaming provider.
+// StreamProvider returns a streaming provider from the registry.
+//
+// IT NAMES NOTHING (epic memql#5137, D3). It used to resolve
+// MEMQL_DEFAULT_STREAM_PROVIDER first, which let a deployment manifest pin
+// every streaming call to one paid vendor model with nothing in the graph
+// recording that it had. The empty name asks the registry for the first
+// available streaming provider, which on a cluster with no federation is none
+// -- and nil is the honest answer there, because the caller's alternative is
+// a paid call the operator never asked for.
 func (e *MemQLEngine) StreamProvider() StreamingAIProvider {
 	if e.providers == nil {
 		return nil
 	}
-	defaultName, _ := e.ResolveSystemVariable(context.Background(), VarDefaultStreamProvider)
-	return e.providers.StreamProvider(defaultName)
+	return e.providers.StreamProvider("")
 }
 
 // ChatStreamProvider returns the default streaming chat provider.
@@ -484,30 +499,28 @@ func (e *MemQLEngine) ChatStreamProvider() common.ChatStreamProvider {
 	return nil
 }
 
-// DefaultChatProvider returns the default non-streaming chat provider for synchronous
-// AI calls (e.g., suggest endpoints). Resolves the optional MEMQL_DEFAULT_CHAT_PROVIDER
-// from v1:platform:globalVariable (instance default), then falls back to the first
-// available non-streaming chat provider. Returns nil if no suitable provider
-// is available.
+// DefaultChatProvider returns a non-streaming chat provider for synchronous AI
+// calls. Nil when none is available.
+//
+// IT NAMES NOTHING, for the reason on StreamProvider above:
+// MEMQL_DEFAULT_CHAT_PROVIDER is deleted (epic memql#5137, D3).
 func (e *MemQLEngine) DefaultChatProvider() common.ChatAIProvider {
 	if e.providers == nil {
 		return nil
 	}
-	defaultName, _ := e.ResolveSystemVariable(context.Background(), VarDefaultChatProvider)
-	return e.providers.ChatProvider(defaultName)
+	return e.providers.ChatProvider("")
 }
 
 // StructuredChatProvider returns a provider that enforces a JSON schema
 // on the model output. Used for routing, classification, prediction,
 // suggestion -- all the "logic" prompts where the output is parsed as
 // JSON and a schema violation is a bug rather than degraded content.
-// Falls back to DefaultChatProvider's name.
+// Names nothing, for the reason on StreamProvider above.
 func (e *MemQLEngine) StructuredChatProvider() common.ChatStructuredProvider {
 	if e.providers == nil {
 		return nil
 	}
-	defaultName, _ := e.ResolveSystemVariable(context.Background(), VarDefaultChatProvider)
-	return e.providers.ChatStructuredProvider(defaultName)
+	return e.providers.ChatStructuredProvider("")
 }
 
 // StructuredChatProviderByName returns the named provider iff it
@@ -603,14 +616,6 @@ func (e *MemQLEngine) ProviderEntry(name string) (*ProviderConfigEntry, bool) {
 		return nil, false
 	}
 	return e.providers.Entry(name)
-}
-
-// DefaultProviderName returns the name of the default AI provider.
-func (e *MemQLEngine) DefaultProviderName() string {
-	if e.providers == nil {
-		return ""
-	}
-	return e.providers.Default()
 }
 
 // Providers returns the provider registry for direct provider access.

@@ -190,8 +190,23 @@ func (p *Parser) parseProviderParamsBlock(decl *ast.ProviderDecl) error {
 				}
 				decl.Params[key] = i
 			}
+		case p.check(TokenIdentifier) && (p.current.Literal == "true" || p.current.Literal == "false"):
+			// BOOLEANS, added for `streaming` (epic memql#5137, D3). Every
+			// param was a size or a price until a vendor model needed to say
+			// what it CAN do rather than how big it is -- streaming used to be
+			// a second provider record per model, and collapsing those two rows
+			// into one capability flag is what needs a bool here.
+			//
+			// Stored as a Go bool rather than the string "true", so a reader
+			// asking `Params["streaming"].(bool)` gets an answer and a typo
+			// like `streaming "ture"` is a parse error rather than a silent
+			// false. The alternative -- reusing the string form the way
+			// @default("true") does -- would have made every boolean param a
+			// place where a misspelling reads as "off".
+			decl.Params[key] = p.current.Literal == "true"
+			p.advance()
 		default:
-			return newParseErrorf(&p.current, "provider %q params %q: expected string or number literal, got %q", decl.Name, key, p.current.Literal)
+			return newParseErrorf(&p.current, "provider %q params %q: expected string, number or boolean literal, got %q", decl.Name, key, p.current.Literal)
 		}
 	}
 	return p.expect(TokenBraceClose)

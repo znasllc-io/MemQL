@@ -75,10 +75,16 @@ var (
 func engineWithFleetDefaultPrompt(t *testing.T, fleet FleetInference, cloudURL string) *MemQLEngine {
 	t.Helper()
 
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	providers.SetFleetInference(fleet)
+	// No SetDefaultForTest: the registry has no default any more (epic
+	// memql#5137, D3). The cloud provider is registered and callable, which is
+	// what this fixture needs -- the point of the test is that a prompt naming a
+	// FLEET model must not fall through to it, and a registered-but-unpinned
+	// cloud provider is a stronger version of that setup than a pinned one:
+	// under the old default the fall-through had somewhere obvious to land, and
+	// now it has to be found by a scan, which is the path that actually runs.
 	providers.RegisterForTest("chat54Mini", "openai", "gpt-5.4-mini", cloudStructuredStub{url: cloudURL})
-	providers.SetDefaultForTest("chat54Mini")
 
 	tmpl, err := template.New("localConductorTurn").Parse("decide: {{.utterance}}")
 	if err != nil {

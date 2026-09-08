@@ -41,6 +41,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/znasllc-io/memql/component/memql"
 	"io"
 	"net/http"
 	"net/url"
@@ -248,9 +249,17 @@ func (i *Integration) writeTierCWikipediaChunks(
 	if len(articles) == 0 {
 		return 0, fmt.Errorf("writeTierCWikipediaChunks: no articles configured for %q", d.ID)
 	}
-	provider, err := i.embeddingProvider(ctx, defaultProvider)
+	// The cluster's embedder BINDING, not a package const (epic memql#5137,
+	// D6). A seeder writes vectors the recall path will later compare against,
+	// so seeding with a different embedder than the one bound produces a corpus
+	// that returns confident wrong neighbours -- never an error.
+	boundEmbedder, err := memql.ResolveEmbedderProvider(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("resolve embedding provider %q: %w", defaultProvider, err)
+		return 0, err
+	}
+	provider, err := i.embeddingProvider(ctx, boundEmbedder)
+	if err != nil {
+		return 0, fmt.Errorf("resolve embedding provider %q: %w", boundEmbedder, err)
 	}
 
 	written := 0

@@ -36,6 +36,7 @@ import (
 	"time"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	"github.com/znasllc-io/memql/component/memql"
 )
 
 // The two concepts this file's statements scan, named so the staged-DATA gate
@@ -61,7 +62,14 @@ func (i *Integration) embedChunkHandler(ctx context.Context, args map[string]any
 	}
 	providerName, _ := args["provider"].(string)
 	if providerName == "" {
-		providerName = defaultProvider
+		// The cluster's embedder binding, not a package const (epic
+		// memql#5137, D6). No fallback: an embedder chosen for the caller
+		// writes into a search space nobody picked.
+		bound, bindErr := memql.ResolveEmbedderProvider(ctx)
+		if bindErr != nil {
+			return nil, bindErr
+		}
+		providerName = bound
 	}
 
 	if i.db() == nil {
@@ -134,7 +142,14 @@ func (i *Integration) embedDomainItemsHandler(ctx context.Context, args map[stri
 	documentId = strings.TrimSpace(documentId)
 	providerName, _ := args["provider"].(string)
 	if providerName == "" {
-		providerName = defaultProvider
+		// The cluster's embedder binding, not a package const (epic
+		// memql#5137, D6). No fallback: an embedder chosen for the caller
+		// writes into a search space nobody picked.
+		bound, bindErr := memql.ResolveEmbedderProvider(ctx)
+		if bindErr != nil {
+			return nil, bindErr
+		}
+		providerName = bound
 	}
 
 	if i.db() == nil {

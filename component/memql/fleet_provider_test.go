@@ -66,7 +66,7 @@ func userCtx(userId string) context.Context {
 // rather than at load is what lets an asleep fleet boot and a waking machine
 // become usable with no reload.
 func TestFleetReferenceResolvesThroughTheRegistryEntry(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}, answer: "hello"})
 
 	entry, ok := r.EntryForContext(userCtx("alice"), "fleet:llama3.1:8b")
@@ -93,7 +93,7 @@ func TestFleetReferenceResolvesThroughTheRegistryEntry(t *testing.T) {
 func TestAnOfflineFleetModelIsUnavailableRatherThanMissing(t *testing.T) {
 	offline := onlineModel("llama3.1:8b", true)
 	offline.Machines[0].Online = false
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{offline}})
 
 	entry, ok := r.EntryForContext(userCtx("alice"), "fleet:llama3.1:8b")
@@ -114,7 +114,7 @@ func TestAnOfflineFleetModelIsUnavailableRatherThanMissing(t *testing.T) {
 // A node with no worker service has an UNAVAILABLE fleet, not a broken one:
 // the same state as "no machine is awake", flowing through the same path.
 func TestANodeWithNoFleetInferenceHasAnUnavailableFleet(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	if r.FleetInferenceInstalled() {
 		t.Fatal("a fresh registry has no fleet inference")
 	}
@@ -129,7 +129,7 @@ func TestANodeWithNoFleetInferenceHasAnUnavailableFleet(t *testing.T) {
 
 // A name that is not a fleet reference must not become one.
 func TestOnlyAFleetPrefixResolvesDynamically(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}})
 	for _, name := range []string{"streamClaudeSonnet", "fleet", "fleet:", " ", "notfleet:llama3.1:8b"} {
 		if _, ok := r.EntryForContext(context.Background(), name); ok {
@@ -142,7 +142,7 @@ func TestOnlyAFleetPrefixResolvesDynamically(t *testing.T) {
 // CONTEXT because the provider interfaces have nowhere to carry it.
 func TestTheActingUserComesFromTheCallContext(t *testing.T) {
 	stub := &stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}, answer: "hi"}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(stub)
 
 	entry, _ := r.EntryForContext(userCtx("v1:identity:user:alice"), "fleet:llama3.1:8b")
@@ -160,7 +160,7 @@ func TestTheActingUserComesFromTheCallContext(t *testing.T) {
 // the opposite default would be the cross-user routing memql#4678 prevents.
 func TestNoAccessContextMeansSystemWorkNotEveryUser(t *testing.T) {
 	stub := &stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}, answer: "hi"}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(stub)
 	if _, err := r.FleetCatalog(context.Background(), ""); err != nil {
 		t.Fatalf("FleetCatalog: %v", err)
@@ -175,7 +175,7 @@ func TestNoAccessContextMeansSystemWorkNotEveryUser(t *testing.T) {
 // capability, so a runtime returning prose has broken its own advertisement.
 func TestStructuredCallsCarryTheSchemaToTheRuntime(t *testing.T) {
 	stub := &stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}, answer: `{"ok":true}`}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(stub)
 
 	entry, _ := r.EntryForContext(userCtx("alice"), "fleet:llama3.1:8b")
@@ -197,7 +197,7 @@ func TestStructuredCallsCarryTheSchemaToTheRuntime(t *testing.T) {
 // up, and guessing the alignment attaches the wrong meaning to a row that then
 // looks correct forever.
 func TestMismatchedEmbeddingCountsAreRefusedRatherThanAligned(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{{
 		ModelId:  "nomic-embed-text",
 		Machines: []FleetMachine{{RegistrationId: "laptop", Online: true}},
@@ -212,7 +212,7 @@ func TestMismatchedEmbeddingCountsAreRefusedRatherThanAligned(t *testing.T) {
 // The provider surfaces return a bare string, so the machine and usage have to
 // be read back -- memql#4681 stamps the ledger from this.
 func TestTheLastCallReportsItsMachineAndUsage(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}, answer: "hey"})
 	entry, _ := r.EntryForContext(userCtx("alice"), "fleet:llama3.1:8b")
 	chat := entry.Client.(common.ChatAIProvider)
@@ -230,7 +230,7 @@ func TestTheLastCallReportsItsMachineAndUsage(t *testing.T) {
 
 // A fleet call that fails must read as unavailable so the chain falls through.
 func TestAFailedFleetCallReadsAsUnavailable(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{
 		models: []FleetModel{onlineModel("llama3.1:8b", true)},
 		err:    ErrFleetUnavailable,
@@ -265,7 +265,7 @@ func TestAFleetDefaultProviderDoesNotRefuseBoot(t *testing.T) {
 		"plannerAgent": "fleet:llama3.1:8b",
 		"conductor":    "streamClaudeSonnet",
 	})
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	providers.markDeclared("streamClaudeSonnet")
 
 	if err := ValidatePromptDefaultProviders(prompts, providers); err != nil {
@@ -277,7 +277,7 @@ func TestAFleetDefaultProviderDoesNotRefuseBoot(t *testing.T) {
 // which is what this gate exists for.
 func TestATypoedDefaultProviderStillRefusesBoot(t *testing.T) {
 	prompts := newPromptRegistryForTest(map[string]string{"conductor": "streamCloudeSonnet"})
-	providers := newProviderRegistry("")
+	providers := newProviderRegistry()
 	providers.markDeclared("streamClaudeSonnet")
 
 	if err := ValidatePromptDefaultProviders(prompts, providers); err == nil {
@@ -292,7 +292,7 @@ func TestATypoedDefaultProviderStillRefusesBoot(t *testing.T) {
 func TestAnUnavailableFleetPromptProviderYieldsTheTypedRefusal(t *testing.T) {
 	offline := onlineModel("llama3.1:8b", true)
 	offline.Machines[0].Online = false
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{offline}})
 
 	refusal := r.FleetRefusal(userCtx("alice"), "alice", "llama3.1:8b")

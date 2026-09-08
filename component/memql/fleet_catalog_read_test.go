@@ -21,7 +21,7 @@ func engineWithFleet(models []FleetModel) *MemQLEngine {
 }
 
 func newProviderRegistryForTestWithFleet(models []FleetModel) *ProviderRegistry {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: models})
 	return r
 }
@@ -151,7 +151,7 @@ func TestInferenceStatusIsExactlyOneRow(t *testing.T) {
 // A cloud key opens the door even with no fleet at all -- and the row says
 // WHICH door, so a person looking at a gate can see what it read.
 func TestACloudKeyOpensTheDoorWithNoFleet(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", &stubChatOnly{})
 	e := &MemQLEngine{providers: r}
 
@@ -178,7 +178,7 @@ func TestTheCallersFleetAndTheSharedSetMergeIntoOneRowPerModel(t *testing.T) {
 	shared := capable("llama3.1:8b")
 	shared.Machines = []FleetMachine{{RegistrationId: "desktop", Name: "desktop", Online: true}}
 
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&perActorFleet{
 		mine:   []FleetModel{capable("llama3.1:8b")},
 		shared: []FleetModel{shared},

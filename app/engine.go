@@ -383,10 +383,12 @@ func (a *App) engineAndBus() {
 	// exists for exactly that reason.
 	a.engine.SetAIResolver(a.router)
 
+	// NO "default" FIELD (epic memql#5137, D3). The registry has no default any
+	// more, and logging one was the last place in the tree still claiming a paid
+	// model was the cluster's ordinary choice.
 	a.Logger.Info("AI Router initialized",
 		"providers", a.engine.Providers().Count(),
 		"policies", a.engine.Policies().Count(),
 		"rules", a.engine.Rules().Count(),
-		"default", a.engine.Providers().Default(),
 	)
 }

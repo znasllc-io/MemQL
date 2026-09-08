@@ -40,6 +40,7 @@ import (
 	"time"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/id"
 )
 
@@ -351,9 +352,17 @@ func (i *Integration) generateBridgeContent(
 		return 0, fmt.Errorf("seedDomainBridge JSON parse: %w", err)
 	}
 
-	provider, err := i.embeddingProvider(ctx, defaultProvider)
+	// The cluster's embedder BINDING, not a package const (epic memql#5137,
+	// D6). A seeder writes vectors the recall path will later compare against,
+	// so seeding with a different embedder than the one bound produces a corpus
+	// that returns confident wrong neighbours -- never an error.
+	boundEmbedder, err := memql.ResolveEmbedderProvider(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("resolve embedding provider %q: %w", defaultProvider, err)
+		return 0, err
+	}
+	provider, err := i.embeddingProvider(ctx, boundEmbedder)
+	if err != nil {
+		return 0, fmt.Errorf("resolve embedding provider %q: %w", boundEmbedder, err)
 	}
 
 	// Build a synthetic StandardDomain for the storeSeedChunk path so

@@ -1,0 +1,48 @@
+{
+  "id": "amortizedCost.a-local-fleet-serves-every-call",
+  "family": "amortizedCost",
+  "title": "A goal whose steps are all deterministic is served end to end with no provider call",
+  "goal": "Summarise the {{account}} ledger and store the summary",
+  "variables": [
+    {
+      "account": "acme"
+    }
+  ],
+  "steps": [
+    {
+      "key": "read",
+      "type": "function",
+      "target": "ledgerLines"
+    },
+    {
+      "key": "summarise",
+      "type": "function",
+      "target": "summariseLedger",
+      "dependsOn": [
+        "read"
+      ]
+    },
+    {
+      "key": "store",
+      "type": "function",
+      "target": "closeLedger",
+      "dependsOn": [
+        "summarise"
+      ]
+    }
+  ],
+  "world": {},
+  "inject": [],
+  "verify": [
+    {
+      "rows": "v1:work:run",
+      "where": {
+        "status": "succeeded"
+      },
+      "count": 1
+    }
+  ],
+  "claims": [
+    "amortizedCost.providerCalls"
+  ]
+}

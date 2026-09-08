@@ -8,6 +8,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -62,7 +63,19 @@ func newParkRouter(t *testing.T, models []memql.FleetModel, chain []string, clou
 	if cloudName != "" {
 		providers.RegisterForTest(cloudName, "AnthropicStream", "claude-sonnet", cloud)
 	}
-	policies := memql.NewPolicyRegistryForTest(map[string][]string{"testPolicy": chain})
+	// `federationStrongest` is the DECLARED chain a one-shot cloud consent
+	// resolves through (epic memql#5137, D3). It replaced `providers.Default()`,
+	// which -- since every concrete record is a paid vendor model -- meant a
+	// consent landed on whichever entry the registry had picked first, a
+	// different decision from the one the person thought they were making.
+	//
+	// Declaring it in the FIXTURE rather than pinning a default is the point:
+	// the test exercises the same path production does.
+	policyChains := map[string][]string{"testPolicy": chain}
+	if cloudName != "" {
+		policyChains["federationStrongest"] = []string{cloudName}
+	}
+	policies := memql.NewPolicyRegistryForTest(policyChains)
 	return New(providers, policies, testRules(t, defaultRule("testPolicy")), nil, nil), cloud, fleet
 }
 
@@ -252,7 +265,6 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 
 	// Without consent: refused, and nothing paid is touched.
 	r, cloud, _ := newParkRouter(t, models, []string{"fleet:llama3.1:8b"}, "streamClaudeSonnet")
-	r.Providers().SetDefaultForTest("streamClaudeSonnet")
 	if _, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"}); err == nil {
 		t.Fatal("without consent this must refuse")
 	}
@@ -260,9 +272,8 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 		t.Fatalf("a paid provider ran %d times with no consent and no authored fallback", cloud.calls)
 	}
 
-	// With consent: the cluster's DEFAULT provider serves it, once.
+	// With consent: the federationStrongest chain serves it, once.
 	r2, cloud2, _ := newParkRouter(t, models, []string{"fleet:llama3.1:8b"}, "streamClaudeSonnet")
-	r2.Providers().SetDefaultForTest("streamClaudeSonnet")
 	client, resolved, err := r2.ResolveChat(ResolveRequest{UserId: "alice", CloudConsent: true})
 	if err != nil {
 		t.Fatalf("consent must be honoured: %v", err)
@@ -297,5 +308,58 @@ func TestConsentOnAFullyLocalClusterStillRefusesAndExplains(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the refusal must say why the consent could not be used, got %v", refusal.Doors)
+	}
+}
+
+// TestConsentSurvivesWithNoPolicyCorpus is memql-2a's objection, made a test
+// (epic memql#5137, D3).
+//
+// CONSENT EXISTS FOR THE CASE WHERE THE CHAIN ALREADY REFUSED. Routing it
+// through the `federationStrongest` POLICY is the reviewable answer and is what
+// runs on a healthy cluster -- but it made the one-shot human escape depend on
+// the rule and policy corpus being loaded. On a cluster whose corpus failed to
+// load, the person says yes and nothing happens, which is worse than the
+// registry default it replaced.
+//
+// So the chain falls back to a direct strongest-federated pick. That is not a
+// default: nothing reaches it without an explicit yes on the call in front of
+// the person, which is the whole difference between it and what was deleted.
+func TestConsentSurvivesWithNoPolicyCorpus(t *testing.T) {
+	models := []memql.FleetModel{fleetModel("llama3.1:8b", false)}
+	cloud := &countingCloud{}
+	fleet := &stubFleetInference{models: models}
+
+	providers := memql.NewProviderRegistryForTest()
+	providers.SetFleetInference(fleet)
+	providers.RegisterForTest("streamClaudeSonnet", "AnthropicStream", "claude-sonnet", cloud)
+
+	// The policy registry holds a local-only chain and NOTHING ELSE -- no
+	// federationStrongest, which is the state of a cluster whose corpus did not
+	// load. The rule corpus is one rule naming it, so the request resolves the
+	// way every request does and the missing thing is the FALLBACK policy
+	// rather than the routing.
+	policies := memql.NewPolicyRegistryForTest(map[string][]string{"testPolicy": {"fleet:llama3.1:8b"}})
+	r := New(providers, policies, testRules(t, defaultRule("testPolicy")), nil, nil)
+
+	req := func(consent bool) ResolveRequest {
+		return ResolveRequest{Level: airoute.LevelStrong, UserId: "alice", CloudConsent: consent}
+	}
+
+	// Without consent it still refuses: the fallback is reached by consent, not
+	// by the absence of a policy.
+	if _, _, err := r.ResolveChat(req(false)); err == nil {
+		t.Fatal("with no consent this must still refuse")
+	}
+	if cloud.calls != 0 {
+		t.Fatalf("a paid provider ran %d times with no consent", cloud.calls)
+	}
+
+	// With consent it resolves, corpus or no corpus.
+	_, resolved, err := r.ResolveChat(req(true))
+	if err != nil {
+		t.Fatalf("an explicit consent must be honoured even with no policy corpus loaded: %v", err)
+	}
+	if resolved.ProviderName != "streamClaudeSonnet" {
+		t.Errorf("consent resolved to %q, want the only federated record available", resolved.ProviderName)
 	}
 }

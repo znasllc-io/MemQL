@@ -71,9 +71,8 @@ var LegacyAliases = map[string]string{
 
 	// Epic 7.3 (memql#2106).
 
-	"MEMQL_AI_OPENAI_PROJECT_ID":   "MEMQL_SI_OPENAI_PROJECT_ID",
-	"MEMQL_DATABASE_DSN":           "MEMORY_NODES_DATABASE_DSN",
-	"MEMQL_DEFAULT_AGENT_PROVIDER": "DEFAULT_AGENT_PROVIDER",
+	"MEMQL_AI_OPENAI_PROJECT_ID": "MEMQL_SI_OPENAI_PROJECT_ID",
+	"MEMQL_DATABASE_DSN":         "MEMORY_NODES_DATABASE_DSN",
 	// The blob-storage string every deployed secret actually carries
 	// (memql#4843): seed-secrets.sh seeds it locally and the cloud's ESO
 	// sync writes it into memql-secrets, but no Go reader was left after the
@@ -148,7 +147,6 @@ var LegacyAliases = map[string]string{
 	"MEMQL_IDENTITY_VERIFIER_JWKS_FETCH_TIMEOUT_SECONDS":    "IDENTITY_VERIFIER_JWKS_FETCH_TIMEOUT_SECONDS",
 	"MEMQL_IDENTITY_VERIFIER_JWKS_REFRESH_SECONDS":          "IDENTITY_VERIFIER_JWKS_REFRESH_SECONDS",
 	"MEMQL_IDENTITY_VERIFIER_JWKS_URL":                      "IDENTITY_VERIFIER_JWKS_URL",
-	"MEMQL_OPERATOR_AGENT_PROVIDER":                         "OPERATOR_AGENT_PROVIDER",
 	"MEMQL_OPERATOR_APP_PROFILES_DIR":                       "OPERATOR_APP_PROFILES_DIR",
 	"MEMQL_POLYPHON_OPENAI_ASR_MODEL":                       "POLYPHON_OPENAI_ASR_MODEL",
 	"MEMQL_POLYPHON_OPENAI_VAD_SILENCE_MS":                  "POLYPHON_OPENAI_VAD_SILENCE_MS",

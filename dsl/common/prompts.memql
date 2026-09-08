@@ -5,7 +5,6 @@
 
 /// Summarize a document in 2-3 sentences for a business user.
 @level("fast")
-@defaultProvider("chat54Nano")
 @templateFile("prompts/docSummary.tmpl")
 prompt docSummary {
   title    string

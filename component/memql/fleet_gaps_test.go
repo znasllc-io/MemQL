@@ -27,7 +27,7 @@ func embeddingModel(id string) FleetModel {
 // found", and the seeded local embeddings policy had no consumer that could
 // ever have worked.
 func TestEmbeddingProviderResolvesAFleetName(t *testing.T) {
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{embeddingModel("nomic-embed-text")}})
 
 	provider, err := r.EmbeddingProvider(userCtx("alice"), FleetReferencePrefix+"nomic-embed-text")
@@ -50,7 +50,7 @@ func TestEmbeddingProviderResolvesAFleetName(t *testing.T) {
 // registered.
 func TestAFleetEmbeddingResolvesAgainstTheCallersMachines(t *testing.T) {
 	fleet := &stubFleet{models: []FleetModel{embeddingModel("nomic-embed-text")}}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(fleet)
 
 	if _, err := r.EmbeddingProvider(userCtx("alice"), FleetReferencePrefix+"nomic-embed-text"); err != nil {
@@ -77,7 +77,7 @@ func TestAFleetEmbeddingResolvesAgainstTheCallersMachines(t *testing.T) {
 func TestAnOfflineFleetEmbeddingModelIsUnavailableNotMissing(t *testing.T) {
 	offline := embeddingModel("nomic-embed-text")
 	offline.Machines[0].Online = false
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{offline}})
 
 	_, err := r.EmbeddingProvider(userCtx("alice"), FleetReferencePrefix+"nomic-embed-text")
@@ -100,7 +100,7 @@ func TestAFleetModelCanServeAToolCallingTurn(t *testing.T) {
 			{ID: "call_a", Name: "searchLibrary", Arguments: `{"q":"invoice"}`},
 		},
 	}
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(fleet)
 
 	entry, ok := r.EntryForUser(userCtx("alice"), "alice", FleetReferencePrefix+"llama3.1:8b")
@@ -167,7 +167,7 @@ func TestAToolTurnNeedsAToolCapableModel(t *testing.T) {
 func TestTheCatalogReportsToolSupportAsACapability(t *testing.T) {
 	m := onlineModel("llama3.1:8b", true)
 	m.Tools = true
-	r := newProviderRegistry("")
+	r := newProviderRegistry()
 	r.SetFleetInference(&stubFleet{models: []FleetModel{m}})
 
 	models, err := r.FleetCatalog(userCtx("alice"), "alice")

@@ -1,0 +1,30 @@
+// models/shapes.memql -- projections of the curated catalog.
+
+/// The whole profile. The Fleet models surface reads the catalog once and groups it client-side,
+/// so there is no narrower shape for the list: a card that omitted `flags` would send the page back
+/// for a second read per row to answer "can this model see", which is the question the page is about.
+@row
+shape modelProfile modelProfileFull {
+  row.id
+  modelId
+  category
+  runtime
+  family
+  params
+  quant
+  sizeBytes
+  memoryNeedBytes
+  contextWindow
+  flags
+  dimensions
+  license
+  source
+  recommendedFor
+  minMachineClass
+  offeredOn
+  notes
+  measured
+  curated
+  unavailable
+  row.createdAt
+}

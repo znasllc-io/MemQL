@@ -54,13 +54,14 @@ nothing done to one at runtime survives a restart.
 
 ## What lands here
 
-The six shipped rules land in `rules.memql`:
+The seven shipped rules land in `rules.memql`:
 
 | Rule | Matches | Policy | Exhausted chain |
 |---|---|---|---|
 | `default` | every call | `localFirst` | degrade |
 | `reasoningParks` | `level="reasoning"` | `federationStrongest` | park |
-| `embeddingsPark` | `level="embeddings"` | `localFirst` | park |
+| `embeddingsBound` | `level="embeddings"` | `embeddingsBinding` | park |
+| `compilerLocalOnly` | `prompt="compileRule"` | `localOnly` | park |
 | `backgroundLane` | `tag="background"` | `localFirst` | degrade |
 | `backgroundEscalation` | `tag="backgroundEscalation"` | `localFirst` | degrade |
 | `operatorReasoning` | `prompt="agentReply", role="operator"` | `federationStrongest` | degrade |
@@ -68,7 +69,22 @@ The six shipped rules land in `rules.memql`:
 `default` is the floor: it states no conditions, so it matches every call, and
 a call that matches no rule is impossible by construction rather than by care.
 
-`embeddingsPark` parks rather than degrading because a degraded embedder
+`embeddingsBound` parks rather than degrading because a degraded embedder
 answers in a **different vector space** -- the result is not a worse vector, it
 is one that does not belong in the index it is about to be written to, and
 nothing downstream can tell the difference.
+
+It **replaced `embeddingsPark`**, which named `localFirst` (epic memql#5137).
+That chain opens at `fleet:strongest` -- the best model this fleet can serve
+the call with -- which for an embedding call is whichever embedder happens to
+be biggest today. A fine answer to "which model" and the wrong answer to
+"which vector space": it moves when a laptop wakes and the index does not move
+with it. `embeddingsBinding` names `embedder:active`, the one entry that
+cannot change underneath an index built with it, and has no fallback.
+
+`compilerLocalOnly` pins the rule compiler to this cluster's own hardware. It
+is the one prompt whose entire subject is where work may run, and sending it to
+a vendor would mean the act that decides what leaves the cluster is itself the
+thing that leaves -- before the rule exists to forbid it. It matches on the
+prompt NAME rather than a tag, because a tag is something a call site has to
+remember and this must hold for paths written later.

@@ -112,6 +112,10 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 			"structuredOutput": m.StructuredOutput,
 			"embeddings":       m.Embeddings,
 			"tools":            m.Tools,
+			"vision":           m.Vision,
+			"audioIn":          m.AudioIn,
+			"audioOut":         m.AudioOut,
+			"imageGen":         m.ImageGen,
 			"params":           m.Params,
 			"quant":            m.Quant,
 			"online":           m.Online(),
@@ -290,6 +294,11 @@ func (e *MemQLEngine) fleetCatalogForCaller(ctx context.Context) ([]FleetModel, 
 			entry.StructuredOutput = entry.StructuredOutput || m.StructuredOutput
 			entry.Embeddings = entry.Embeddings || m.Embeddings
 			entry.Tools = entry.Tools || m.Tools
+			// The four modality flags, same union (epic memql#5137, D4).
+			entry.Vision = entry.Vision || m.Vision
+			entry.AudioIn = entry.AudioIn || m.AudioIn
+			entry.AudioOut = entry.AudioOut || m.AudioOut
+			entry.ImageGen = entry.ImageGen || m.ImageGen
 			if m.Params > entry.Params {
 				entry.Params = m.Params
 			}

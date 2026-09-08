@@ -28,11 +28,37 @@ import (
 // lives in the memql-cockpit repo. This repo fixes the contract.
 
 // Model call kinds.
+//
+// SIX, not two (epic memql#5137, D4). The four added here are what give vision,
+// transcription, speech and image generation a LOCAL door: before them the
+// fleet wire carried chat and embedding only, so every other modality had to
+// reach a paid vendor or not happen.
+//
+// They are KINDS on the existing stream rather than a second transport, because
+// the stream, the credential and the ledger already exist -- and a second
+// transport would be a second place for selection, limits, usage and cancel to
+// drift apart.
+//
+// The strings are the wire contract, fixed with the cockpit on 2026-09-07.
+// Changing one is a silent no-route: the cockpit refuses a kind it does not
+// know, so a rename here does not fail loudly anywhere.
 const (
 	// ModelCallKindChat is messages in, text out.
 	ModelCallKindChat = "chat"
 	// ModelCallKindEmbedding is strings in, vectors out.
 	ModelCallKindEmbedding = "embedding"
+	// ModelCallKindVision is messages carrying image parts in, text out.
+	// Served by a machine advertising `vision=1`.
+	ModelCallKindVision = "vision"
+	// ModelCallKindTranscribe is audio in, text with timestamps out.
+	// Served by a machine advertising `audioin=1`.
+	ModelCallKindTranscribe = "transcribe"
+	// ModelCallKindSpeak is text in (on `messages`), audio bytes out.
+	// Served by a machine advertising `audioout=1`.
+	ModelCallKindSpeak = "speak"
+	// ModelCallKindImage is a prompt in (on `messages`), image bytes out.
+	// Served by a machine advertising `imagegen=1`.
+	ModelCallKindImage = "image"
 )
 
 // Finish reasons carried on ModelCallEnd.
@@ -84,12 +110,42 @@ var ErrModelCallNotFound = errors.New("worker: model call not found")
 var ErrModelCallIdle = errors.New("worker: model call went silent past its idle ceiling")
 
 // IsValidModelCallKind reports whether kind is one the protocol defines.
+//
+// UNKNOWN IS FALSE, which is the fail-closed direction and the reason this
+// function exists rather than a nil check: a kind nothing recognises must be
+// refused at the boundary, not passed to a worker that will interpret it as a
+// chat turn and answer prose to a transcription request.
 func IsValidModelCallKind(kind string) bool {
 	switch kind {
-	case ModelCallKindChat, ModelCallKindEmbedding:
+	case ModelCallKindChat, ModelCallKindEmbedding,
+		ModelCallKindVision, ModelCallKindTranscribe,
+		ModelCallKindSpeak, ModelCallKindImage:
 		return true
 	}
 	return false
+}
+
+// ModelCallKindNeedsFlag maps a call kind to the `model:<id>` label flag a
+// machine must advertise to serve it, and reports false for the kinds that need
+// no flag.
+//
+// chat and embedding need none for a reason worth stating: `embeddings=1` gates
+// which MODEL answers an embedding call, and every machine that serves any model
+// serves chat. The four new kinds are different -- they are runtime capabilities
+// a machine either implements or does not, and a machine that has not said so is
+// skipped rather than tried.
+func ModelCallKindNeedsFlag(kind string) (string, bool) {
+	switch kind {
+	case ModelCallKindVision:
+		return "vision", true
+	case ModelCallKindTranscribe:
+		return "audioin", true
+	case ModelCallKindSpeak:
+		return "audioout", true
+	case ModelCallKindImage:
+		return "imagegen", true
+	}
+	return "", false
 }
 
 // ModelCallTool is one function the model may call, as the caller declared

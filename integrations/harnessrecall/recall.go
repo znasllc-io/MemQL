@@ -66,8 +66,6 @@ const (
 	// defaultConcept is the primary recall source. Observations carry
 	// `content` embedded into node_vectors keyed by the observation id.
 	defaultConcept = memorynodes.ConceptWorkObservation
-	// defaultProvider matches the embedding write-path + similarTo.
-	defaultProvider = "embedding3Small"
 	// defaultK is the top-k when the caller omits it.
 	defaultK = 10
 	// defaultHalfLifeSeconds: 1h. Recent, relevant memories rank
@@ -136,7 +134,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"halfLife": "number (optional) - recency half-life in seconds (default 3600); the recency term halves every halfLife of age",
 				"wSem":     "number (optional) - semantic (cosine) weight (default 0.7)",
 				"wRec":     "number (optional) - recency (decay) weight (default 0.3)",
-				"provider": "string (optional) - embedding provider name (default embedding3Small)",
+				"provider": "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 			// The handler scores + orders server-side; PreserveOrder
 			// stamps monotonic CreatedAt so the engine's default
@@ -214,6 +212,21 @@ func (i *Integration) recallHandler(ctx context.Context, args map[string]any, ta
 		return nil, fmt.Errorf("harnessRecall.recall: embedding provider not configured")
 	}
 
+	// THE CLUSTER'S EMBEDDER BINDING (epic memql#5137, D6), resolved here rather
+	// than in resolveParams so the staged-concept gate above answers first.
+	//
+	// Recall compares a query vector against STORED ones, so an embedder that
+	// does not match the one the corpus was written with returns confident
+	// nonsense and never an error. There is deliberately no fallback: refusing
+	// is the only honest answer when nobody has chosen an embedder.
+	if p.provider == "" {
+		bound, bindErr := memql.ResolveEmbedderProvider(ctx)
+		if bindErr != nil {
+			return nil, bindErr
+		}
+		p.provider = bound
+	}
+
 	provider, err := i.embeddingProvider(ctx, p.provider)
 	if err != nil {
 		return nil, fmt.Errorf("harnessRecall.recall: resolve provider %q: %w", p.provider, err)
@@ -286,9 +299,15 @@ func (i *Integration) recallHandler(ctx context.Context, args map[string]any, ta
 // resolveParams validates + defaults the caller args and resolves the
 // owner-scope key (partition isolation) from the auth context.
 func (i *Integration) resolveParams(ctx context.Context, args map[string]any, target int) (recallParams, error) {
+	// `provider` is left EMPTY here and resolved at the point of use (epic
+	// memql#5137, D6). It defaulted to the package const "embedding3Small"; the
+	// cluster's embedder binding replaces that, but resolving it HERE would put
+	// the "no embedder is bound" refusal in front of the staged-concept gate --
+	// and a staged concept must answer EMPTY, as a concept with no memories
+	// does, whatever the cluster's embedding configuration happens to be.
+	// An explicit `provider` argument still overrides, below.
 	p := recallParams{
 		concept:  defaultConcept,
-		provider: defaultProvider,
 		k:        defaultK,
 		halfLife: defaultHalfLifeSeconds,
 		wSem:     defaultWSem,

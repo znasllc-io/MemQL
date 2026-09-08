@@ -763,3 +763,15 @@ query moduleReadiness moduleReadinessAll {
   shape   moduleReadinessFull
   asOf    latest
 }
+
+/// The cluster's active embedder.
+///
+/// ONE ROW, AT A LITERAL ID, so this reads by id rather than by a filter that could return two
+/// (memql#5137, D6). A query that answered "which embedder is active" with a list would have no way
+/// to choose, and the caller would pick the first -- which is map order wearing a query's name.
+@unbounded("the active embedder binding -- one row at a literal id")
+@cache(60)
+query embedderBinding activeEmbedderBinding {
+  filter  row.id=="active"
+  shape   embedderBindingFull
+}

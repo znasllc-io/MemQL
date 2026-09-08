@@ -937,27 +937,73 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// consentedCloudPolicy is the DECLARED chain a one-shot cloud consent resolves
+// through. It is a shipped, locked policy (epic memql#5127), so the answer to
+// "what did I just consent to" is a thing in the tree a person can read.
+const consentedCloudPolicy = "federationStrongest"
+
 // consentedCloudFallback finds a paid provider to honour a one-shot consent.
 //
-// It takes the registry DEFAULT rather than scanning for anything that
-// answers, because the default is the provider an operator configured as the
-// cluster's ordinary choice -- and a consent that landed on whichever entry
-// happened to sort first would be a different decision from the one the person
-// thought they were making.
+// THE DECLARED CHAIN FIRST, THEN A DIRECT PICK, and the second half is the part
+// that matters (epic memql#5137, D3).
+//
+// It used to read `providers.Default()`. That had to go: since every concrete
+// record became a paid vendor model, "the registry default" meant whichever
+// entry a map yielded first or whatever a Deployment manifest pinned -- a
+// different decision from the one the person thought they were making, which is
+// exactly the objection the old comment here raised and then failed to answer.
+//
+// Resolving through `federationStrongest` answers it: the person consented to
+// cloud, and which cloud model that means is a policy they can read. But a
+// policy is not sufficient on its own, because CONSENT EXISTS FOR THE CASE
+// WHERE THE CHAIN ALREADY REFUSED. Making the one-shot human escape depend on
+// the rule and policy corpus being loaded means a cluster whose corpus failed to
+// load has no escape at all -- the person says yes and nothing happens, which is
+// worse than the default it replaced.
+//
+// So: the policy when it is there, and a deterministic strongest-federated pick
+// when it is not. The fallback is not a default -- nothing reaches it without an
+// explicit human yes on this call -- which is the whole difference between it
+// and what was deleted.
 func (r *Router) consentedCloudFallback(mod providerModality) (any, Resolved, bool) {
 	if r == nil || r.providers == nil {
 		return nil, Resolved{}, false
 	}
-	name := strings.TrimSpace(r.providers.Default())
-	if name == "" {
-		return nil, Resolved{}, false
+	for _, name := range r.consentedCloudChain() {
+		if _, isFleet := memql.IsFleetReference(name); isFleet {
+			// Consenting to cloud cannot resolve to a local model: the fleet
+			// entry is exactly the one that was unavailable when the consent
+			// was asked for.
+			continue
+		}
+		if client, resolved, found := r.providerLookup(context.Background(), "", name, mod); found {
+			return client, resolved, true
+		}
 	}
-	if _, isFleet := memql.IsFleetReference(name); isFleet {
-		// A fully-local cluster's default is a fleet model, and consenting to
-		// cloud cannot resolve to the same local model that was unavailable.
-		return nil, Resolved{}, false
+	return nil, Resolved{}, false
+}
+
+// consentedCloudChain is the order a consent tries federated providers in.
+func (r *Router) consentedCloudChain() []string {
+	if r.policies != nil {
+		if policy, ok := r.policies.Lookup(consentedCloudPolicy); ok {
+			var chain []string
+			for _, name := range policy.ProviderChain() {
+				if n := strings.TrimSpace(name); n != "" {
+					chain = append(chain, n)
+				}
+			}
+			if len(chain) > 0 {
+				return chain
+			}
+		}
 	}
-	return r.providerLookup(context.Background(), "", name, mod)
+	// NO POLICY LOADED. Pick the strongest federated record directly, ordered
+	// by declared context window and tie-broken by name so two replicas make
+	// the same choice and a person can predict it.
+	//
+	// It is deliberately NOT map order, which is what the deleted default was.
+	return r.providers.FederatedByStrength()
 }
 
 // Providers exposes the registry this router resolves against, so a caller

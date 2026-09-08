@@ -75,7 +75,6 @@ func loadFromEnv() *busv1.ConfigSnapshot {
 
 		// AI
 		SiOpenaiProjectId: envStr("MEMQL_AI_OPENAI_PROJECT_ID"),
-		SiDefaultProvider: envStr("MEMQL_DEFAULT_PROVIDER"),
 
 		// Server
 		GrpcAddress:    envStr("MEMQL_GRPC_ADDRESS"),

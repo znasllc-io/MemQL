@@ -77,7 +77,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Handler:     i.embedHandler,
 			ArgsSchema: map[string]string{
 				"text":     "string (required) - text to embed",
-				"provider": "string (optional) - embedding provider name (default: embedding3Small)",
+				"provider": "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 		},
 		{
@@ -100,7 +100,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"text":        "string (required) - text to embed and store",
 				"concept":     "string (optional) - concept of the node (stored for filtered queries)",
 				"vectorField": "string (optional) - field name for the vector (default: content)",
-				"provider":    "string (optional) - embedding provider name (default: embedding3Small)",
+				"provider":    "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 		},
 	}
@@ -114,7 +114,18 @@ func (i *Integration) Embed(ctx context.Context, text, providerName string) ([]f
 		return nil, fmt.Errorf("embed: text is required")
 	}
 	if providerName == "" {
-		providerName = "embedding3Small"
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This read
+		// "embedding3Small" -- one of five copies of the same paid pin, in five
+		// files, which happened never to drift only because nobody had ever
+		// changed it. There is no fallback: an embedder chosen for the caller
+		// writes vectors into a search space nobody picked, and a mismatched
+		// width is not an error anywhere -- it is a corpus that quietly returns
+		// the wrong neighbours.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 
 	if i.embeddingProvider == nil {
@@ -122,7 +133,7 @@ func (i *Integration) Embed(ctx context.Context, text, providerName string) ([]f
 	}
 
 	// Check cache first.
-	key := cacheKey(text, providerName)
+	key := cacheKey(text, providerName, activeBindingID())
 	if i.db() != nil {
 		cached, err := i.lookupCache(ctx, key)
 		if err == nil && cached != nil {
@@ -157,7 +168,18 @@ func (i *Integration) embedHandler(ctx context.Context, args map[string]any, _ i
 	}
 	providerName, _ := args["provider"].(string)
 	if providerName == "" {
-		providerName = "embedding3Small"
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This read
+		// "embedding3Small" -- one of five copies of the same paid pin, in five
+		// files, which happened never to drift only because nobody had ever
+		// changed it. There is no fallback: an embedder chosen for the caller
+		// writes vectors into a search space nobody picked, and a mismatched
+		// width is not an error anywhere -- it is a corpus that quietly returns
+		// the wrong neighbours.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 
 	vec, err := i.Embed(ctx, text, providerName)
@@ -172,7 +194,7 @@ func (i *Integration) embedHandler(ctx context.Context, args map[string]any, _ i
 		"provider":   providerName,
 		"textLen":    len(text),
 		"dimensions": len(vec),
-		"cacheKey":   cacheKey(text, providerName),
+		"cacheKey":   cacheKey(text, providerName, activeBindingID()),
 	})
 
 	return []memorynodes.MemoryNode{{
@@ -373,7 +395,18 @@ func (i *Integration) storeHandler(ctx context.Context, args map[string]any, _ i
 		vectorField = "content"
 	}
 	if providerName == "" {
-		providerName = "embedding3Small"
+		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This read
+		// "embedding3Small" -- one of five copies of the same paid pin, in five
+		// files, which happened never to drift only because nobody had ever
+		// changed it. There is no fallback: an embedder chosen for the caller
+		// writes vectors into a search space nobody picked, and a mismatched
+		// width is not an error anywhere -- it is a corpus that quietly returns
+		// the wrong neighbours.
+		bound, err := memql.ResolveEmbedderProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		providerName = bound
 	}
 
 	if i.db() == nil {
@@ -445,23 +478,77 @@ func (i *Integration) lookupCache(ctx context.Context, key string) ([]float32, e
 	return parseVectorLiteral(vecStr)
 }
 
+// embeddingCacheTTL is how long a cached vector stays servable.
+//
+// THE COLUMN EXISTED AND NOTHING EVER SET IT, so every entry lived forever --
+// a table that only grows, holding vectors for models the cluster may no longer
+// use. Thirty days is long enough that a working corpus keeps its hits and
+// short enough that a cluster which switched embedder a month ago is not still
+// carrying the old one's vectors.
+//
+// It is a BACKSTOP, not the mechanism. What actually retires a vector is the
+// binding changing, because the key includes the binding -- a switch makes
+// every old entry unreachable the moment it lands, without waiting for a clock.
+const embeddingCacheTTL = 30 * 24 * time.Hour
+
 // storeCache inserts an embedding into the embedding_cache table.
 func (i *Integration) storeCache(ctx context.Context, key, provider string, vec []float32) error {
 	vecLiteral := vectorLiteral(vec)
 	_, err := i.db().ExecContext(ctx,
-		`INSERT INTO embedding_cache (cache_key, embedding, provider, created_at) VALUES ($1, $2::vector, $3, NOW()) ON CONFLICT (cache_key) DO UPDATE SET embedding = EXCLUDED.embedding, provider = EXCLUDED.provider, created_at = NOW()`,
-		key, vecLiteral, provider,
+		`INSERT INTO embedding_cache (cache_key, embedding, provider, binding_id, created_at, expires_at)
+		 VALUES ($1, $2::vector, $3, $4, NOW(), NOW() + $5::interval)
+		 ON CONFLICT (cache_key) DO UPDATE SET
+		   embedding  = EXCLUDED.embedding,
+		   provider   = EXCLUDED.provider,
+		   binding_id = EXCLUDED.binding_id,
+		   created_at = NOW(),
+		   expires_at = EXCLUDED.expires_at`,
+		key, vecLiteral, provider, activeBindingID(),
+		fmt.Sprintf("%d seconds", int(embeddingCacheTTL.Seconds())),
 	)
 	return err
 }
 
 // cacheKey generates a deterministic key for the embedding cache.
-func cacheKey(text, provider string) string {
+//
+// IT INCLUDES THE BINDING, not only the provider (epic memql#5137, D6), and the
+// difference is not pedantic. Two bindings can name the SAME provider at
+// different widths -- qwen3-embedding truncates from 4096 down to 32 -- and two
+// different bindings can produce vectors of the same width that mean entirely
+// different things. A vector served from the cache under the wrong binding is
+// not a stale answer: it is a vector from another geometry handed back as
+// though it were this one's, and every cosine distance measured against it is a
+// number with no meaning. It does not error. It ranks.
+//
+// An EMPTY binding id is what a call with an explicitly named provider gets,
+// and it keys its own space -- such a call is not using the cluster's embedder
+// and its vectors must not be served to one that is.
+func cacheKey(text, provider, bindingID string) string {
 	return string(id.New().MustFromMap(map[string]any{
 		"kind":     "embedding-cache",
 		"text":     text,
 		"provider": provider,
+		"binding":  bindingID,
 	}))
+}
+
+// activeBindingID names the binding a cached vector belongs to, or "" when the
+// caller named a provider itself.
+//
+// IT CARRIES THE WIDTH, AND THE PROVIDER NAME ALONE IS NOT ENOUGH. Two bindings
+// can name the same provider at different widths -- qwen3-embedding truncates
+// from 4096 all the way down to 32 -- and those produce vectors in different
+// geometries. Keyed on the name alone, a re-binding from that provider at 4096
+// to the same provider at 1024 would serve the 4096-dimension entry as though
+// it were the new one: not a stale answer, a vector from another space, with a
+// cosine distance against it that is a number with no meaning. The width is the
+// part that differs, so the width is in the key.
+func activeBindingID() string {
+	b, ok := memql.ActiveEmbedderBinding()
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("%s@%d", b.ProviderRef, b.Dimensions)
 }
 
 // vectorLiteral formats a float32 slice as a pgvector literal: [0.1,0.2,...].
