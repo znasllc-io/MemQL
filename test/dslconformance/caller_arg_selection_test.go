@@ -453,7 +453,15 @@ func TestCallerSuppliedRowSelectionOnPersonScopedConcepts(t *testing.T) {
 			// enforced at runtime. That exemption happens BEFORE the
 			// exemption-map bookkeeping below, so the construct was not even
 			// recorded in `seen`.
+			// THE THIRD WAY A CONSTRUCT CAN BE GATED (epic memql#5166):
+			// `@requiresRank` / `@requiresCapability` in the HEAD rather than a
+			// conjunct in the filter. Asked here because a detector that reads
+			// only the filter sees a construct migrating to one of these as a
+			// gate that vanished -- and the annotation is the STRONGER form,
+			// checked at load and enforced on the direct call and on every plan
+			// that expands the construct.
 			gated := serverOnlyConstructs(t)[serverOnlyKey{Path: p, Name: name}] ||
+				carriesAnnotationGate(src, name) ||
 				(strings.TrimSpace(clause) != "" && clauseGuarantees(clause, leaf))
 			if gated {
 				continue

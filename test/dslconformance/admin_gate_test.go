@@ -120,16 +120,24 @@ func TestAdminGateCompositionRules(t *testing.T) {
 
 		// Word boundaries: a different identifier is not the gate.
 		{"identifier containing the spec name", `x==args.x && requiresClusterOwnerXyz`, false},
-		{"identifier prefixed by the spec name", `x==args.x && myRequiresAdmin`, false},
+		{"identifier prefixed by the spec name", `x==args.x && myRequiresOwner`, false},
 
 		// The live context-spec gates. Which of them the corpus uses is
 		// computed by TestAdminGateNamesAreDeclaredOrRecorded rather than
 		// claimed here -- the claim that used to sit on this line said "none
 		// of which the corpus filters use yet" and was false (memql#3016).
-		{"requiresAdmin as a conjunct", `statusIsActive && requiresAdmin`, true},
-		{"requiresOwnerOrAdmin as a conjunct", `statusIsActive && requiresOwnerOrAdmin`, true},
-		{"requiresOwnerOrAdmin is not requiresOwner", `statusIsActive && requiresOwnerOrAdmin`, true},
-		{"requiresAdmin as a disjunct", `statusIsActive || requiresAdmin`, false},
+		//
+		// THE THREE ROLE-COMPARING SPECS ARE GONE (epic memql#5166). These
+		// cases named `requiresAdmin` and `requiresOwnerOrAdmin`, and the
+		// recogniser no longer matches either, because dsl/common/specs.memql
+		// no longer declares them: a slug comparison cannot see a custom role,
+		// so a role question is `@requiresRank` or `@requiresCapability` and
+		// neither is a filter leaf. `requiresClusterOwner` is the surviving
+		// name and stands in here -- it asks about the ACTOR rather than about
+		// a rung, which is what a context-spec is still for.
+		{"requiresClusterOwner as a conjunct", `statusIsActive && requiresClusterOwner`, true},
+		{"requiresClusterOwner is not requiresOwner", `statusIsActive && requiresClusterOwner`, true},
+		{"requiresClusterOwner as a disjunct", `statusIsActive || requiresClusterOwner`, false},
 
 		// Whitespace around the comparison is legal.
 		{"spaced comparison", `x==args.x && actor.isClusterOwner == true`, true},
@@ -320,7 +328,12 @@ func TestNamedQueriesKeepTheirAdminGate(t *testing.T) {
 			found[p][name] = true
 
 			clause := filterClauseOf(src[m[1]:closeIdx])
-			if !mentionsAdminGate(clause) {
+			// An annotation gate counts (epic memql#5166). These queries are
+			// pinned because their only caller-scope protection was an admin
+			// gate in the filter; `@requiresCapability("update", "principal")`
+			// is that protection stated as what it means, enforced at the call
+			// rather than by emptying the result.
+			if !mentionsAdminGate(clause) && !carriesAnnotationGate(src, name) {
 				lineNo := strings.Count(src[:m[0]], "\n") + 1
 				t.Errorf("%s:%d  %s: the admin gate is GONE from this query's filter.\n"+
 					"    filter  %s\n"+

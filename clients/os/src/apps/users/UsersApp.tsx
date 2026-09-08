@@ -24,7 +24,7 @@ import {
 // mint enrolment links -- and NOT because it can manage them (memql#4917).
 //
 // All of it is PRESENTATION (spec section E): `searchUsers` and
-// `pendingUserInvitations` carry `requiresDeveloperOrAbove` in their own
+// `pendingUserInvitations` carry `@requiresRank("developer")` in their own
 // filters, `adminops` gates every write behind one of its TWO gates (the
 // admission four, the owner/admin ten), and row admission gates the
 // subscriptions. Hiding a control here is a courtesy to the person reading,

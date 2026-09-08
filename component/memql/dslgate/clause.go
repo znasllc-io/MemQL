@@ -79,8 +79,21 @@ var UserScopeFieldRe = regexp.MustCompile(`(^|[^.\w])(ownerUserId|userId|actorUs
 // authorization gates in production filters the composition rule had never once
 // run on. They were correctly written, which was luck rather than a checked
 // property.
+//
+// THREE NAMES LEFT THIS PATTERN IN EPIC memql#5166, and their absence is the
+// point rather than an omission. `requiresAdmin`, `requiresOwnerOrAdmin` and
+// `requiresDeveloperOrAbove` compared the actor's role STRING against one or
+// three literals, which cannot see a custom role at all -- `role == "admin"` is
+// false for a rank-250 role holding every principal verb. They are deleted from
+// dsl/common/specs.memql, and the nine constructs that named them now carry
+// `@requiresRank` or `@requiresCapability` instead.
+//
+// AN ANNOTATION IS NOT A FILTER LEAF, so this pattern cannot see one and must
+// not pretend to. ConstructCarriesActorGate below is the question to ask about
+// a construct's HEAD; this stays the question about a filter's leaves, and the
+// callers that decide "is this construct caller-gated" must ask both.
 var AdminGateRe = regexp.MustCompile(
-	`(^|[^A-Za-z0-9_.])(?:actor\.isClusterOwner[ \t]*==[ \t]*true|requiresDeveloperOrAbove|requiresOwnerOrAdmin|requiresClusterOwner|requiresAdmin|requiresOwner|forgeApprover|forgeDeveloper)([^A-Za-z0-9_]|$)`)
+	`(^|[^A-Za-z0-9_.])(?:actor\.isClusterOwner[ \t]*==[ \t]*true|requiresClusterOwner|requiresOwner|forgeApprover|forgeDeveloper)([^A-Za-z0-9_]|$)`)
 
 // AdminGateMentionRe is the POLARITY-BLIND twin, and the two must stay
 // separate: selection has to be broad and assertion strict.
@@ -91,7 +104,38 @@ var AdminGateRe = regexp.MustCompile(
 // another. Selecting on any MENTION and then demanding the strict form is what
 // turns the inverted spelling into an error instead of a silence.
 var AdminGateMentionRe = regexp.MustCompile(
-	`(^|[^A-Za-z0-9_.])(?:actor\.isClusterOwner|requiresDeveloperOrAbove|requiresOwnerOrAdmin|requiresClusterOwner|requiresAdmin|requiresOwner|forgeApprover|forgeDeveloper)([^A-Za-z0-9_]|$)`)
+	`(^|[^A-Za-z0-9_.])(?:actor\.isClusterOwner|requiresClusterOwner|requiresOwner|forgeApprover|forgeDeveloper)([^A-Za-z0-9_]|$)`)
+
+// ActorGateAnnotationRe matches the SERVER-SIDE SURFACE gates a construct
+// declares above its signature: `@requiresRank("<slug>")` (a floor on the
+// cluster's ladder, epic memql#4832) and `@requiresCapability("<verb>",
+// "<resource>")` (a grant a role holds, epic memql#5166).
+//
+// THEY ARE CALLER GATES AND THEY LIVE IN THE HEAD, which is why they need a
+// pattern of their own. Every gate this package knew until now was a filter
+// LEAF, so a caller check moving out of the filter and onto the construct reads
+// to every one of those checks as a gate that simply vanished -- which is
+// exactly what the four conformance gates reported when the nine constructs
+// migrated. A recogniser that cannot see a gate treats the construct as
+// ungated, and the composition rule never runs on it: that is the failure mode
+// this file's own header describes, arriving from the other direction.
+//
+// STRICTER THAN THE FILTER GATES IN ONE WAY: there is no polarity to get wrong.
+// An annotation cannot be negated or put inside a disjunction, which is the
+// whole reason D11 chose the annotation form over another spec.
+var ActorGateAnnotationRe = regexp.MustCompile(
+	`@requires(?:Rank|Capability)\s*\(`)
+
+// ConstructCarriesActorGate reports whether a construct's annotation HEAD --
+// the text between the previous construct and this one's signature -- declares
+// an enforced actor gate.
+//
+// Pass the head, not the whole file: an annotation belonging to the construct
+// above would otherwise read as this one's, which is the same mistake the
+// filter-leaf gates avoid by taking a single clause.
+func ConstructCarriesActorGate(head string) bool {
+	return ActorGateAnnotationRe.MatchString(head)
+}
 
 // OwnerScopeLeaf and AdminGateLeaf name the leaf predicates the authz gates
 // recognise. They live together so the classification gate and the

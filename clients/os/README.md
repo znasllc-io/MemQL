@@ -922,7 +922,7 @@ rules rather than repetitions of the five before it.
   part of it.
 
 - **A REFUSAL IS NOT A ZERO.** `invitationsForAccount` carries
-  `requiresOwnerOrAdmin`, so below that floor the engine refuses the read.
+  `@requiresRank("developer")`, so below that floor the engine refuses the read.
   The band renders "Not yours to read" plus the server's own sentence, and
   never a count -- a `0` there would be this window inventing a fact about a
   client. Each band settles on its own for the same reason: one

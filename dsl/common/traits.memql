@@ -201,11 +201,13 @@ trait isUsable {
   return active==true && validationState!="draft"
 }
 
-// `requiresAdmin` was an actor.* predicate; under the spec/shape binding
+// The retired `requiresAdmin` was an actor.* predicate; under the spec/shape binding
 // redesign (epic #2281) a caller predicate is a `spec` bound to an
 // @actor shape, not a trait (a trait is the deliberately-unbound row
 // predicate over payload fields). It now lives in dsl/common/specs.memql
-// as `spec actorEnvelope requiresAdmin`.
+// as `spec actorEnvelope requiresAdmin`. It has since been deleted outright
+// (epic memql#5166): a slug comparison cannot see a custom role, so a role
+// question is `@requiresRank` or `@requiresCapability` rather than any spec.
 
 // ---- specs/v1/common/statusIsActive.memql ----
 

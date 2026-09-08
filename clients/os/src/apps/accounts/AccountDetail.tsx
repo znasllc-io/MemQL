@@ -400,7 +400,7 @@ function Band({ band }: { band: BandSpec }) {
   const { rollup } = band;
 
   // A REFUSAL IS NOT A ZERO. The guest-invitation rollup carries
-  // `requiresOwnerOrAdmin`, so below that floor the engine refuses the read --
+  // `@requiresRank("developer")`, so below that floor the engine refuses the read --
   // and rendering that as "0 invitations" would be this window inventing a
   // fact about a client. The server's own sentence goes on screen instead.
   if (rollup.state === "error") {

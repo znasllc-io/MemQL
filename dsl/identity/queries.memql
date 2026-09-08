@@ -4,7 +4,6 @@
 // files cover the other construct kinds.
 
 use common.traits.{ identityIsApiKey, identityIsBadge, identityIsMagicLink, identityIsNodeToken, identityIsOidc, identityIsPasskey, identityIsRecoveryKey, identityIsWorkerToken, isActiveRecord, isDeletionScheduled, statusIsPending }
-use common.specs.{ requiresOwnerOrAdmin, requiresDeveloperOrAbove }
 
 // account -- the operator's customer records
 // ==========================================
@@ -331,19 +330,30 @@ query user usersForSeedSweep {
 /// client caller: the MCP tool. Gating by origin would delete the tool; gating by role keeps it
 /// working for the administrators it was built for.
 ///
-/// WIDENED FROM requiresOwnerOrAdmin TO requiresDeveloperOrAbove (memql#4917), which restores what
-/// the capability catalog already said: dsl/rbac/seeds.memql grants developer `read` on
-/// `principal`, described as "see the user list; no management". The narrower spec contradicted
-/// that seed -- and once developers could invite people (auth.CanAdmitPeople) they would have been
-/// inviting them into a cluster whose roster they could not see.
+/// WIDENED FROM owner-or-admin to developer-and-above (memql#4917), which restores what the
+/// capability catalog already said: dsl/rbac/seeds.memql grants developer `read` on `principal`,
+/// described as "see the user list; no management". The narrower gate contradicted that seed --
+/// and once developers could invite people (auth.CanAdmitPeople) they would have been inviting
+/// them into a cluster whose roster they could not see.
+///
+/// A FLOOR RATHER THAN A GRANT (epic memql#5166). This is `@requiresRank("developer")` and not
+/// `@requiresCapability("read", "principal")`, and the two are genuinely different questions
+/// here: the read is bounded by "who works on this cluster", which is a rung, rather than by a
+/// permission a role was given. The three credential-adjacent siblings below go the other way,
+/// because what excludes a developer from those is a GRANT it does not hold.
+///
+/// It replaced the `requiresDeveloperOrAbove` spec, which could not see a custom role at all --
+/// `role == "developer" || role == "admin" || role == "owner"` is false for a rank-350 role a
+/// cluster authored for itself, whatever that role holds.
 ///
 /// The MANAGEMENT verbs are untouched: a developer reading this list still cannot edit, re-role,
 /// suspend or delete anybody on it.
+@requiresRank("developer")
 query user searchUsers {
   args {
     active  boolean
   }
-  filter  requiresDeveloperOrAbove && when(args.active) { active==args.active }
+  filter  when(args.active) { active==args.active }
   sort    "row.createdAt", "desc"
   shape   userFull
 }
@@ -838,11 +848,12 @@ query authSession authSessionsForSelfIncludingRevoked {
 
 /// Another person's auth-session rows, newest first, for an owner/admin operator surface. Includes
 /// revoked rows so a reader can tell a live session from a retired one. No token hashes.
+@requiresCapability("update", "principal")
 query authSession sessionsForSubjectAdmin {
   args {
     subject  string!
   }
-  filter   subject==args.subject && requiresOwnerOrAdmin
+  filter   subject==args.subject
   sort     "row.createdAt", "desc"
   paginate 50
   shape    authSessionAdminSummary
@@ -1345,18 +1356,31 @@ query magicLinkRequest magicLinkRequestById {
 // inside a disjunction, correctly -- the other arm switches it off, so a false
 // gate would not zero the row set.
 //
-// `requiresOwnerOrAdmin` is a TOP-LEVEL CONJUNCT here, which is what makes a
-// false gate empty the result. It reads `actor.role`, which resolves from the
-// AccessContext -- NOT from the claims map. The two operator surfaces stamped
-// claims only, so this gate would have denied them both; memql#3178 gives each
-// a real AccessContext (identity.ContextWithSystemActor for the CLI,
-// requireAdmin for /admin/tokens). Verified by
+// THE GATE IS AN ANNOTATION NOW (epic memql#5166), not a conjunct. It was
+// `requiresOwnerOrAdmin` as a top-level conjunct, which is what made a false
+// gate empty the result; `@requiresCapability` refuses the CALL instead, which
+// is the more honest answer -- an empty result is indistinguishable from
+// "there is nothing here", which is exactly what a caller who may not reach
+// the surface should not be handed.
+//
+// `update` ON `principal` rather than `read`, and that is what preserves the
+// exclusion the old spec produced: a developer holds read-on-principal and no
+// update, so it keeps reaching the user list and stays out of the
+// credential-adjacent reads. The old spec said "owner or admin" and happened to
+// mean this; the annotation says it.
+//
+// Both resolve `actor.role` from the AccessContext -- NOT from the claims map.
+// The two operator surfaces stamped claims only, so this gate would have denied
+// them both; memql#3178 gives each a real AccessContext
+// (identity.ContextWithSystemActor for the CLI, requireAdmin for
+// /admin/tokens). Verified by
 // component/memql/identity_credential_self_scope_3178_test.go.
+@requiresCapability("update", "principal")
 query identity patIdentitiesForUser {
   args {
     userId  string!
   }
-  filter  userId==args.userId && identityIsApiKey && requiresOwnerOrAdmin
+  filter  userId==args.userId && identityIsApiKey
   // Pagination (5.3 / epic #1964): bounded first page + keyset cursor over
   // (createdAt, id) instead of a full-table pull. Literal page size -- the
   // struct-query paginate directive only accepts an integer literal.
@@ -1660,9 +1684,9 @@ query user userByEmail {
 // component/auth/identity_resolver.go:79.
 //
 // This query is the caller-facing one and is gated by
-// requiresOwnerOrAdmin: its filter keys on a caller-supplied id, so
-// reading someone else's full row requires being them or holding
-// admin/owner.
+// `@requiresCapability("read", "principal")`: its filter keys on a
+// caller-supplied id, so reading someone else's full row requires a grant
+// rather than a filter term.
 //
 // Arguments:
 //   userId (string, required) - the v1:identity:user id
@@ -1670,16 +1694,24 @@ query user userByEmail {
 // Returns:
 //   Array with 0 or 1 user record in userFull shape.
 
-/// Get a user by id -- FULL row, owner-or-admin only.
+/// Get a user by id -- FULL row, for a caller holding `read` on `principal`.
 ///
 /// memql#2800: the filter keys on a caller-supplied id, so it is not a caller
-/// check. Reading someone else's full row now requires being them or holding
-/// admin/owner.
+/// check. Reading someone else's full row requires the grant.
+///
+/// WIDENED FROM owner-or-admin (epic memql#5166), deliberately and to what the
+/// catalog already said. dsl/rbac/seeds.memql grants developer `read` on
+/// `principal` -- developers read the user list through searchUsers and reach
+/// the Users app -- so a gate that named two slugs was refusing them a row they
+/// could already see in a list. The MANAGEMENT verbs are untouched: reading
+/// somebody is not editing them, and the three credential-adjacent reads carry
+/// `update` on `principal` precisely to keep that line.
+@requiresCapability("read", "principal")
 query user userById {
   args {
     userId  string!
   }
-  filter  row.id==args.userId && isActiveRecord && requiresOwnerOrAdmin
+  filter  row.id==args.userId && isActiveRecord
   shape   userFull
 }
 
@@ -2439,11 +2471,17 @@ query identity nodeTokenIdentities {
 // The wire-reachable twin of nodeTokenIdentities above, for the portal's
 // Tokens surface (memql#3324). Two differences, and both are the point:
 //
-//   1. requiresOwnerOrAdmin as a TOP-LEVEL CONJUNCT, evaluated in-process
-//      against the auth envelope. The @serverOnly original is reachable only
+//   1. `@requiresCapability("update", "principal")`, enforced against the
+//      auth envelope at the call. The @serverOnly original is reachable only
 //      from Go under an internal origin, which is the right gate for a caller
 //      that has ALREADY been authorized in Go -- and no gate at all for a
-//      browser, which is why the portal cannot simply call it.
+//      browser, which is why a client cannot simply call it.
+//
+//      It was `requiresOwnerOrAdmin` as a top-level conjunct until epic
+//      memql#5166. `update` on `principal` is what those two slugs were
+//      standing for: a developer holds read-on-principal and no update, so the
+//      exclusion is preserved by a rule that says why rather than by a list of
+//      names.
 //   2. nodeTokenSummary rather than identityFull. identityFull projects the
 //      whole `credentials` object, keyHash included; a read a browser can
 //      issue must not carry a credential whatever the caller's role. The
@@ -2469,8 +2507,9 @@ query identity nodeTokenIdentities {
 /// bootstrap user rather than any reader, so `userId==actor.userId` returns nothing for the admin
 /// who consumes this. The gate that fits is the role, and it is stated here rather than left to a
 /// route.
+@requiresCapability("update", "principal")
 query identity nodeTokenIdentitiesAdmin {
-  filter   identityIsNodeToken && requiresOwnerOrAdmin
+  filter   identityIsNodeToken
   sort     "row.createdAt", "desc"
   paginate 200
   shape    nodeTokenSummary
@@ -2615,15 +2654,20 @@ query identity activeRecoveryKeys {
 /// on. Developer and above: an invitation names an address somebody chose to
 /// invite, which is not a fact every authenticated reader is owed -- but it is
 /// one every caller who can ISSUE an invitation needs, and developer can
-/// (auth.CanAdmitPeople). A caller able to send invitations and unable to see
+/// (auth.CanAdmitPeople). A FLOOR rather than a grant (epic memql#5166): the
+/// three roles that can issue are a contiguous top of the ladder, which is
+/// what `@requiresRank` says and what the deleted `requiresDeveloperOrAbove`
+/// spec was approximating with a three-value list that no custom role could
+/// ever match. A caller able to send invitations and unable to see
 /// the outstanding ones cannot revoke a link sent to the wrong address, which
 /// is the one repair this list exists for.
 ///
 /// kind=="user" is load-bearing rather than decorative: guest invitations live
 /// in the same concept, belong to a space rather than to the cluster, and have
 /// their own product-side surface.
+@requiresRank("developer")
 query invitation pendingUserInvitations {
-  filter  kind=="user" && statusIsPending && isActiveRecord && requiresDeveloperOrAbove
+  filter  kind=="user" && statusIsPending && isActiveRecord
   sort    "row.createdAt", "desc"
   // AN EXPLICIT SHAPE, ADDED LATE (memql#4735). This query declared none, and a query with no
   // shape projects the bound concept's EVERY field -- so it handed `tokenHash`,

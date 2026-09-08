@@ -92,9 +92,20 @@ spec participant isAIParticipant {
 //
 // (the `actorEnvelope` shape is imported in the file-top preamble above)
 
-@description("Caller must hold an admin or owner role.")
-spec actorEnvelope requiresAdmin {
-  return role == "admin" || role == "owner"
+// A ROLE COMPARISON IS NOT AN EXAMPLE HERE ANY MORE (epic memql#5166). This
+// slot held `requiresAdmin` -- `role == "admin" || role == "owner"` -- and that
+// shape is retired from the corpus, because a slug comparison cannot see a
+// custom role at all: it is false for a rank-250 role holding every principal
+// verb. Write `@requiresRank("admin")` for a FLOOR on the cluster's ladder, or
+// `@requiresCapability("update", "principal")` for a GRANT a role was given.
+// Both are validated at load and enforced at execution.
+//
+// What still belongs in a context-spec is a caller predicate no rank and no
+// grant can express -- a question about the actor themselves:
+
+@description("Caller is acting on their own behalf rather than through a delegation.")
+spec actorEnvelope isSelfActing {
+  return identityId == userId
 }
 
 @description("Caller is the cluster owner.")

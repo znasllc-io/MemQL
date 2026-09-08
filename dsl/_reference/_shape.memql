@@ -221,14 +221,14 @@ shape participant pathSyntaxExample {
 //
 //         use common.shapes.{ actorEnvelope }
 //
-//         spec actorEnvelope requiresAdmin {
-//           return role == "admin"
+//         spec actorEnvelope isSelfActing {
+//           return identityId == userId
 //         }
 //
 //     The bound shape must exist at engine startup. The post-load
 //     spec-binding resolver (resolveSpecBindings) resolves the signature
 //     binding, rewrites the body's bare keys to their underlying access
-//     form (here `role` -> `actor.role`), and classifies the spec
+//     form (here `userId` -> `actor.userId`), and classifies the spec
 //     (an @actor shape -> context-spec). A binding that resolves to no
 //     registered shape or concept is reported as a violation.
 //
