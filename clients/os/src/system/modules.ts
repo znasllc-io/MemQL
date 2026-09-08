@@ -21,7 +21,14 @@ export function isModuleId(id: string): id is ModuleId {
  * is only the short label a row or a dot needs.
  */
 export const MODULE_NAMES: Record<ModuleId, string> = {
-  ai: "AI providers",
+  // INFERENCE, not "AI providers" (epic memql#5153, D1). The module has three
+  // lanes -- a fleet machine advertising a qualifying model, a signed-in
+  // Claude Code or Codex, and a federated vendor -- and only the third is an
+  // "AI provider". The old name took one of three doors and called it the
+  // module, which is exactly the confusion this epic's screens exist to
+  // remove. It is also the word the readiness feed, the core gate's own body
+  // copy and `inferenceStatus` all already use.
+  ai: "Inference",
   storage: "Storage",
   email: "Email sender",
   githubApp: "GitHub App",
@@ -41,7 +48,7 @@ export const MODULE_NAMES: Record<ModuleId, string> = {
  * the engine's answer, never this map, when deciding whether to offer an act.
  */
 export const MODULE_SETTINGS_SECTION: Record<ModuleId, { section: string; name: string } | null> = {
-  ai: { section: "providers", name: "AI providers" },
+  ai: { section: "providers", name: "Doors" },
   email: { section: "integrations", name: "Integrations" },
   storage: null,
   githubApp: null,

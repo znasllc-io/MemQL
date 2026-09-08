@@ -1,6 +1,6 @@
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 
-import { absent, figureFrom, type Figure } from "../../../cluster/figure";
+import { absent, figureFrom, type Figure } from "../../../kit/measure";
 import { boolOr, flatten, stringsOf } from "../../../kit";
 
 // Joining the data-origins INVENTORY to the connector HEALTH, and every

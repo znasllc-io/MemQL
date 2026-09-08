@@ -8,7 +8,7 @@ import {
   parseLabelChip,
 } from "../../src/apps/fleet/labels";
 import { formatDuration, formatFreshness, formatMoment } from "../../src/kit/format";
-import { figureValue } from "../../src/cluster/figure";
+import { figureValue } from "../../src/kit/measure";
 import {
   activePolicy,
   appSessionDetailFromRow,

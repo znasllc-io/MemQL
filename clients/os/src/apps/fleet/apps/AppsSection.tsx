@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Button, Check, Chip, Field, Head, Input, Notice, Panel, Row, Select, Subhead } from "../../../kit";
 import { formatFreshness, formatMoment } from "../../../kit/format";
 import { useNow } from "../../../kit/useNow";
-import { FigureValue } from "../../../cluster/FigureValue";
+import { Measure } from "../../../kit/Measure";
 import {
   appLabel,
   DELEGATABLE_KINDS,
@@ -144,7 +144,7 @@ function SessionLine({
               said nothing did not say zero, and a 0 beside "tokens" is a
               measurement -- it reads as a run that spent nothing. */}
           <span className="os-fleet-session-tokens">
-            <FigureValue figure={totalTokens(session)} suffix=" tokens" />
+            <Measure figure={totalTokens(session)} suffix=" tokens" />
           </span>
           <span className="os-caption">{formatFreshness(session.startedAt, now)}</span>
         </>

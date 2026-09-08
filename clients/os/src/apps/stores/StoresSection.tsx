@@ -2,8 +2,8 @@ import { useCallback, useState } from "react";
 import { Plus, RefreshCw, Store as StoreIcon } from "lucide-react";
 
 import { Button, Caption, Head, Notice, Panel, Row as ListRow } from "../../kit";
-import { FigureValue } from "../../cluster/FigureValue";
-import { isPositive } from "../../cluster/figure";
+import { Measure } from "../../kit/Measure";
+import { isPositive } from "../../kit/measure";
 import { mirroredDomainCount, type StoreHealth } from "./health";
 import { AddStoreForm } from "./AddStoreForm";
 import { StorePage } from "./StorePage";
@@ -206,7 +206,7 @@ function StoreLine({ store, onOpen }: { store: StoreHealth; onOpen: () => void }
       }
     >
       <span className="os-stores-subline">
-        <FigureValue figure={mirrored} /> mirrored domain
+        <Measure figure={mirrored} /> mirrored domain
         {mirrored.kind === "measured" && mirrored.value === 1 ? "" : "s"}
         {" · "}
         protected data {protectedDataWord(store)}
@@ -219,12 +219,12 @@ function StoreLine({ store, onOpen }: { store: StoreHealth; onOpen: () => void }
           {isPositive(drift) ? (
             <>
               {" · "}
-              <FigureValue figure={drift} /> rows of drift on the last reconcile
+              <Measure figure={drift} /> rows of drift on the last reconcile
             </>
           ) : drift.kind === "absent" ? (
             <>
               {" · "}
-              drift <FigureValue figure={drift} />
+              drift <Measure figure={drift} />
             </>
           ) : null}
         </span>

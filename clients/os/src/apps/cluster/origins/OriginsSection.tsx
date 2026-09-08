@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 
 import { Button, Caption, Chip, Head, Notice, Panel, Subhead } from "../../../kit";
-import { FigureValue } from "../../../cluster/FigureValue";
+import { Measure } from "../../../kit/Measure";
 import { useOsConnection } from "../../../live/connection";
 import { useReading } from "../../../cluster/reading";
 import { DeadLetterBand } from "./DeadLetters";
@@ -276,16 +276,16 @@ function OriginLine({
         )}
       </span>
       <span role="cell">
-        <FigureValue figure={row.lagSeconds} suffix="s" />
+        <Measure figure={row.lagSeconds} suffix="s" />
       </span>
       <span role="cell">
-        <FigureValue figure={row.driftCount} />
+        <Measure figure={row.driftCount} />
       </span>
       <span role="cell">
-        <FigureValue figure={row.outboxDepth} />
+        <Measure figure={row.outboxDepth} />
       </span>
       <span role="cell">
-        <FigureValue figure={row.deadLetterCount} />
+        <Measure figure={row.deadLetterCount} />
       </span>
       <span role="cell" className="os-cluster-td-acts">
         {acts.map((which) => (

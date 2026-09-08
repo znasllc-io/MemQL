@@ -1,6 +1,22 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
-import { Button, Caption, Chip, Chips, Fact, Facts, Head, Notice, Panel, Subhead } from "../../../kit";
+import {
+  Button,
+  Caption,
+  Check,
+  Chip,
+  Chips,
+  Fact,
+  Facts,
+  Head,
+  Measure,
+  Notice,
+  Panel,
+  Refine,
+  Select,
+  Subhead,
+} from "../../../kit";
+import { figureFrom, type Figure } from "../../../kit/measure";
 import { eligibleFor, formatContext, formatParams, orderModels, type ModelNeeds } from "./ordering";
 import { useInference, type CatalogModel, type DoorsReading } from "./useInference";
 
@@ -29,6 +45,28 @@ import { useInference, type CatalogModel, type DoorsReading } from "./useInferen
 // per kind of turn, and printing a single one would be confidently wrong for
 // two thirds of the traffic. The header row names all four.
 
+/**
+ * What has been measured about a model, or the reason nothing has.
+ *
+ * `measured` is filled by epic memql#5146's probe and is ABSENT everywhere
+ * until it lands. That absence is a value, not a gap: a machine nobody has
+ * probed showing "0 tok/s" is worse than showing nothing, because a zero says
+ * "we measured, and the answer is none" -- which for a throughput figure is a
+ * claim that the model does not work.
+ *
+ * `figureFrom` reads an absent key as `unmeasured` rather than as a number, so
+ * this is total against a wire that does not carry the field yet.
+ */
+function measuredOf(model: CatalogModel): Figure {
+  return figureFrom(model as unknown as Record<string, unknown>, "measuredTokensPerSecond");
+}
+
+const CAPABILITY_LABEL: Record<string, string> = {
+  structured: "structured output",
+  tools: "tool calling",
+  embeddings: "embeddings",
+};
+
 /** The turns the platform makes, and what each needs of a model. */
 const TURNS: Array<{ id: string; label: string; needs: ModelNeeds }> = [
   { id: "chat", label: "Chat", needs: {} },
@@ -42,10 +80,52 @@ export function ModelsSection() {
   const models = catalog.value ?? [];
   const reading = catalog.state === "reading" || doors.state === "reading";
 
+  // REFINE, not a standing filter strip (DESIGN.md rule 2): collapsed until
+  // asked, active constraints as removable chips beside it, and never shown
+  // over an empty list.
+  //
+  // THESE ARE THE FACETS THIS BRANCH CAN SERVE. Epic memql#5137's catalog adds
+  // category, runtime and "what this fleet lacks" to the same control; they are
+  // deliberately not stubbed here, because a facet that narrows nothing is
+  // worse than one that is absent -- it reads as a fleet with no entries in
+  // that category rather than as a control that does not work yet.
+  const [search, setSearch] = useState("");
+  const [capability, setCapability] = useState("");
+  const [onlineOnly, setOnlineOnly] = useState(false);
+
   // ORDERED ONCE, here, and rendered in that order. Every "which model" answer
   // below reads this array rather than re-sorting, so the marks and the list
   // cannot disagree about the ranking.
   const ranked = useMemo(() => orderModels(models, preference), [models, preference]);
+
+  // THE RANKS ARE THE FULL LIST'S, NOT THE FILTERED VIEW'S. A model's rank is
+  // its position in what the router would pick from, so renumbering a narrowed
+  // view would print a different answer to the question this screen exists to
+  // answer -- "rank 1" under a filter would name a model the router reaches
+  // third. The filter hides rows; it never renumbers them.
+  const shown = useMemo(
+    () =>
+      ranked.filter((m) => {
+        if (onlineOnly && !m.online) return false;
+        if (capability === "structured" && !m.structuredOutput) return false;
+        if (capability === "tools" && !m.tools) return false;
+        if (capability === "embeddings" && !m.embeddings) return false;
+        const q = search.trim().toLowerCase();
+        return q === "" || m.modelId.toLowerCase().includes(q);
+      }),
+    [ranked, onlineOnly, capability, search],
+  );
+
+  // Whether ANY model on this fleet has been measured. When none has, the
+  // column is absent and one sentence says why -- a measured column of
+  // forty-four identical absence marks is forty-four things to read past. When
+  // SOME have, an unmeasured row shows its absence mark, because somebody
+  // scanning a column of figures for the one that is missing has to see the
+  // gap.
+  const anyMeasured = useMemo(
+    () => ranked.some((m) => measuredOf(m).kind === "measured"),
+    [ranked],
+  );
 
   // The first eligible model per turn kind. `null` when the fleet cannot serve
   // that kind at all, which is a state the header states rather than hides.
@@ -121,6 +201,44 @@ export function ModelsSection() {
 
           <Caption>What each kind of turn would land on right now:</Caption>
           <NextForEachTurn next={nextByTurn} known />
+
+          <div className="os-fleet-models-scope">
+            <Refine
+              label="Refine models"
+              search={search}
+              onSearch={setSearch}
+              placeholder="Search"
+              chips={[
+                ...(capability === ""
+                  ? []
+                  : [
+                      {
+                        id: "capability",
+                        label: CAPABILITY_LABEL[capability] ?? capability,
+                        onRemove: () => setCapability(""),
+                      },
+                    ]),
+                ...(onlineOnly
+                  ? [{ id: "online", label: "online now", onRemove: () => setOnlineOnly(false) }]
+                  : []),
+              ]}
+            >
+              <Select
+                id="models-facet-capability"
+                label="Capability"
+                value={capability}
+                onChange={setCapability}
+              >
+                <option value="">Any capability</option>
+                <option value="structured">Structured output</option>
+                <option value="tools">Tool calling</option>
+                <option value="embeddings">Embeddings</option>
+              </Select>
+              <Check checked={onlineOnly} onChange={setOnlineOnly}>
+                Online now
+              </Check>
+            </Refine>
+          </div>
         </>
       )}
 
@@ -132,17 +250,33 @@ export function ModelsSection() {
         />
       ) : null}
 
+      {ranked.length > 0 && shown.length === 0 ? (
+        <Caption>No model matches that.</Caption>
+      ) : null}
+
       <ul className="os-fleet-models">
-        {ranked.map((model, index) => (
+        {shown.map((model) => (
           <ModelLine
             key={model.modelId}
             model={model}
-            rank={index + 1}
+            rank={ranked.indexOf(model) + 1}
             preferred={preference.includes(model.modelId)}
             serves={TURNS.filter((t) => nextByTurn.get(t.id) === model.modelId).map((t) => t.label)}
+            measured={measuredOf(model)}
+            showMeasured={anyMeasured}
           />
         ))}
       </ul>
+
+      {/* SAID ONCE, UNDER THE LIST, rather than as a column of identical
+          absence marks. When the probe lands (epic memql#5146) the column
+          appears and this line goes away on its own. */}
+      {ranked.length > 0 && !anyMeasured ? (
+        <Caption>
+          Nothing on this fleet has been measured yet, so there are no figures
+          to compare. That is not the same as a model that measured badly.
+        </Caption>
+      ) : null}
 
       {catalog.at === null ? null : (
         <Caption>Read {catalog.at.toLocaleTimeString()}.</Caption>
@@ -286,11 +420,16 @@ function ModelLine({
   rank,
   preferred,
   serves,
+  measured,
+  showMeasured,
 }: {
   model: CatalogModel;
   rank: number;
   preferred: boolean;
   serves: string[];
+  measured: Figure;
+  /** Whether ANY model on this fleet is measured -- see `anyMeasured`. */
+  showMeasured: boolean;
 }) {
   const size = formatParams(model.params);
   const window = formatContext(model.contextWindow);
@@ -332,6 +471,13 @@ function ModelLine({
               : `${model.onlineCount} of ${model.machineCount} online`
           }
         />
+        {/* MEASURED, and only once something on this fleet has been. An
+            unmeasured row here draws `Measure`'s absence mark rather than a
+            zero -- the gap is visible on purpose, because somebody scanning
+            the column for what is missing has to be able to see it. */}
+        {showMeasured ? (
+          <Fact label="Measured" value={<Measure figure={measured} suffix=" tok/s" />} />
+        ) : null}
       </Facts>
 
       <Chips label="Capabilities">

@@ -81,7 +81,7 @@ describe("the rail a fresh cluster shows", () => {
     const rail = await screen.findByRole("list", { name: "Set up this cluster" });
     expect([...rail.querySelectorAll(".os-rail-label")].map((el) => el.textContent)).toEqual([
       "Your passkey",
-      "AI providers",
+      "Inference",
       "Storage",
       "Email sender",
     ]);

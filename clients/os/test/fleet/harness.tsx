@@ -35,6 +35,20 @@ export interface FakeQuery {
    *  broadcast routing rule, so this seeds a collection the fake
    *  subscriptions can then fold events into. */
   modelPullsForWorker: ReturnType<typeof vi.fn>;
+  /**
+   * The Models SECTION's two readings (epic memql#5096) -- the fleet catalog
+   * and which doors this cluster can reach.
+   *
+   * NEITHER IS LIVE and neither is a graph row: both are virtual projections
+   * computed per request, so they are plain on-demand reads rather than seeds
+   * behind a subscription. They are here because a `FakeQuery` missing them
+   * makes the whole section unmountable -- `useInference` calls
+   * `connection.query.fleetModels(...)` and an absent key is a TypeError, not
+   * an empty read -- which is why nothing mounted that section until the acts
+   * sweep needed to (memql#5159).
+   */
+  fleetModels: ReturnType<typeof vi.fn>;
+  inferenceStatus: ReturnType<typeof vi.fn>;
   // The Apps section's reads (epic memql#5009). Neither concept broadcasts,
   // so both are on-demand reads rather than seeds behind a subscription.
   delegationPolicyForUser: ReturnType<typeof vi.fn>;
@@ -116,6 +130,8 @@ export function fakeConnection(seed: Partial<Record<keyof FakeQuery, Row[]>> = {
       clusterNodes: read("clusterNodes"),
       invocationsForWorker: read("invocationsForWorker"),
       modelPullsForWorker: read("modelPullsForWorker"),
+      fleetModels: read("fleetModels"),
+      inferenceStatus: read("inferenceStatus"),
       delegationPolicyForUser: read("delegationPolicyForUser"),
       appSessionsForUser: read("appSessionsForUser"),
       appSessionById: read("appSessionById"),

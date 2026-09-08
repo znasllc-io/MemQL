@@ -110,7 +110,27 @@ const settings: OsAppManifest = {
     // administration. `{ min: "developer" }` cannot express that -- the
     // ladder ranks developer 300 ABOVE admin 200, so a floor there admits
     // exactly the role the engine refuses.
-    { id: "providers", name: "AI providers", roles: { any: ["owner", "developer"] } },
+    // Settings -> AI is four sections named for what a person asks (epic
+    // memql#5153, D1/D2): where a call can come from, how much it needs, who
+    // gets what, and what actually happened. It replaces one page called "AI
+    // providers" that was three panels of prose.
+    //
+    // THE `providers` ID IS KEPT DELIBERATELY. Doors is that section's
+    // successor -- same role gate, same vendor forms, same intent -- and two
+    // things in epic 1's tree reach for `settings/providers` by name: the core
+    // gate's inference stop, and MODULE_SETTINGS_SECTION's `ai` entry. Renaming
+    // the id buys a nicer string and costs a cross-epic edit to a screen an
+    // owner cannot dismiss on a cluster with no other door. The id is not
+    // user-visible; the name is.
+    { id: "providers", name: "Doors", roles: { any: ["owner", "developer"] } },
+    // Levels and Decisions are readable one rung wider than Doors and Rules
+    // (D7). `{ min: "admin" }` on this ladder admits admin (200), developer
+    // (300) and owner -- so this is WIDER than the owner-or-developer set, not
+    // narrower. A decision record carries neither prompt nor error message, so
+    // an admin answering "why did this go to a vendor" can have it.
+    { id: "levels", name: "Levels", roles: { min: "admin" } },
+    { id: "rules", name: "Rules", roles: { any: ["owner", "developer"] } },
+    { id: "decisions", name: "Decisions", roles: { min: "admin" } },
     { id: "tokens", name: "Tokens", roles: { min: "admin" } },
     { id: "keys", name: "Keys", roles: { min: "admin" } },
     // The shell's own lines (epic memql#4895): what the OS front end

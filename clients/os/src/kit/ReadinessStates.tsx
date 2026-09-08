@@ -184,7 +184,7 @@ export function moduleActFor(args: {
   //  - There is a window to open. `canOpenWindows` is `!== "phone"` rather
   //    than `=== "desktop"`: the iPad chrome carries windows too.
   //  - THIS ACTOR MAY REACH THAT SECTION. Settings' own `providers` section
-  //    is OWNER-ONLY, so a developer offered "Open AI providers" would
+  //    is gated, so an actor offered "Open Doors" who cannot reach it would
   //    navigate a window to a section `sectionsForRole` does not return.
   //
   // Asked of the REGISTRY rather than restated here: a literal copy of

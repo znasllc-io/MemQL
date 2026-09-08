@@ -4,6 +4,8 @@ import {
   approvalFromRow,
   approvalOptions,
   approvalSubjectLine,
+  decisionLine,
+  decisionsByStep,
   figure,
   formatMoney,
   formatTokens,
@@ -13,6 +15,7 @@ import {
   idTail,
   kindBreakdown,
   kindBreakdownLabel,
+  modelCallFromRow,
   pendingApprovalsOfRun,
   runFingerprint,
   runFromRow,
@@ -361,5 +364,114 @@ describe("the postcondition has three answers", () => {
       stepFromRow({ id: "s", key: "k", seq: 0, postcondition: { passed: true } })
         .postconditionPassed,
     ).toBe(true);
+  });
+});
+
+describe("which door answered a step", () => {
+  const call = (over: Record<string, unknown>) =>
+    modelCallFromRow({
+      runId: "r1",
+      stepKey: "classify",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      served: "live",
+      createdAt: "2026-09-01T09:00:00Z",
+      ...over,
+    });
+
+  it("folds a step's calls into one reading rather than one line each", () => {
+    // The step row is a ROW: the spine works by weight, and a row that is
+    // sometimes one line tall and sometimes four takes that away from every
+    // other row on the page.
+    const decisions = decisionsByStep([
+      call({ id: "m1", cost: 0.002, inputTokens: 100, outputTokens: 40 }),
+      call({ id: "m2", cost: 0.003, inputTokens: 200, outputTokens: 60, model: "claude-opus-5", createdAt: "2026-09-01T09:01:00Z" }),
+    ]);
+    expect(decisions.size).toBe(1);
+    const decision = decisions.get("classify");
+    expect(decision?.calls).toBe(2);
+    expect(decision?.cost).toBeCloseTo(0.005, 10);
+    expect(decision?.tokens).toBe(400);
+    // The LAST model in time, not the first the read happened to answer with.
+    expect(decision?.model).toBe("claude-opus-5");
+  });
+
+  it("orders by TIME, because @unbounded excludes sort and the read arrives folded", () => {
+    const decisions = decisionsByStep([
+      call({ id: "m2", model: "second", createdAt: "2026-09-01T09:05:00Z" }),
+      call({ id: "m1", model: "first", createdAt: "2026-09-01T09:01:00Z" }),
+    ]);
+    expect(decisions.get("classify")?.model).toBe("second");
+  });
+
+  it("reports the MOST EXPENSIVE door a step went through, with the model that went through it", () => {
+    // A step that made two fleet calls and one vendor call WAS billed. Naming
+    // it "your fleet" would print money under a line saying nothing was
+    // billed -- the row contradicting itself, in the one place this surface
+    // exists to be trusted.
+    const decisions = decisionsByStep([
+      call({ id: "m1", served: "local", provider: "", model: "qwen3:8b" }),
+      call({ id: "m2", served: "live", provider: "anthropic", model: "claude-sonnet-4", cost: 0.004, createdAt: "2026-09-01T09:01:00Z" }),
+      call({ id: "m3", served: "local", provider: "", model: "qwen3:8b", createdAt: "2026-09-01T09:02:00Z" }),
+    ]);
+    const decision = decisions.get("classify");
+    expect(decision?.served).toBe("live");
+    expect(decision?.provider).toBe("anthropic");
+    expect(decision?.model).toBe("claude-sonnet-4");
+    expect(decisionLine(decision!)).toBe("anthropic · claude-sonnet-4 · $0.0040 · 3 calls");
+  });
+
+  it("drops a call that names no step rather than attributing it to one", () => {
+    // The journal panel below still lists it. Guessing which step it belonged
+    // to would put a cost on a row that did not incur it.
+    expect(decisionsByStep([call({ id: "m1", stepKey: "" })]).size).toBe(0);
+  });
+
+  it("says a vendor cost was not reported, rather than rendering it as free", () => {
+    // The visible difference between a fleet line and a vendor line is the
+    // money, so a vendor line with the money silently missing is a billed call
+    // dressed as a free one. Absent is not zero, here as everywhere.
+    const decision = decisionsByStep([call({ id: "m1" })]).get("classify");
+    expect(decision?.cost).toBeNull();
+    expect(decisionLine(decision!)).toBe("anthropic · claude-sonnet-4 · cost not reported");
+  });
+
+  it("puts no money on a fleet line at all", () => {
+    const decision = decisionsByStep([
+      call({ id: "m1", served: "local", provider: "", model: "qwen3:8b" }),
+    ]).get("classify");
+    expect(decisionLine(decision!)).toBe("your fleet · qwen3:8b");
+  });
+
+  it("counts a replay's ANSWERS, because 'no calls made · 3 calls' argues with itself", () => {
+    const decision = decisionsByStep([
+      call({ id: "m1", served: "journal", model: "claude-haiku" }),
+      call({ id: "m2", served: "journal", model: "claude-haiku", createdAt: "2026-09-01T09:01:00Z" }),
+    ]).get("classify");
+    expect(decisionLine(decision!)).toBe("replayed · claude-haiku, no calls made · 2 answers");
+  });
+
+  it("keeps an unknown door VISIBLE rather than hiding it behind a free one", () => {
+    // A door this build has no word for might be a billed one. Reporting the
+    // step as "your fleet" would be this window claiming nothing was billed on
+    // the strength of a value it does not understand.
+    const decision = decisionsByStep([
+      call({ id: "m1", served: "local", provider: "", model: "qwen3:8b" }),
+      call({ id: "m2", served: "somethingNew", createdAt: "2026-09-01T09:01:00Z" }),
+    ]).get("classify");
+    expect(decision?.served).toBe("somethingNew");
+    // ...and still below a vendor call, which is the claim that asserts most.
+    const billed = decisionsByStep([
+      call({ id: "m1", served: "somethingNew" }),
+      call({ id: "m2", served: "live", cost: 0.004, createdAt: "2026-09-01T09:01:00Z" }),
+    ]).get("classify");
+    expect(billed?.served).toBe("live");
+  });
+
+  it("names an unknown door by its own value rather than guessing the commonest", () => {
+    // Guessing would put a confident claim about money on a row nothing here
+    // understands.
+    const decision = decisionsByStep([call({ id: "m1", served: "somethingNew" })]).get("classify");
+    expect(decisionLine(decision!)).toBe("somethingNew · claude-sonnet-4");
   });
 });

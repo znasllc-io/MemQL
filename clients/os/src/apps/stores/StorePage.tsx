@@ -4,8 +4,8 @@ import { ArrowLeft, RefreshCw, Sparkles } from "lucide-react";
 
 import { Button, Caption, Chips, Fact, Facts, Head, Notice, Panel, Subhead } from "../../kit";
 import { ActionBar, type Act } from "../../kit/ActionBar";
-import { FigureValue } from "../../cluster/FigureValue";
-import { absent } from "../../cluster/figure";
+import { Measure } from "../../kit/Measure";
+import { absent } from "../../kit/measure";
 import { OpenLogsButton } from "../../logs/OpenLogs";
 import type { DomainState, StoreHealth } from "./health";
 import {
@@ -196,16 +196,16 @@ function CostBucketValue({ store }: { store: StoreHealth }) {
   if (bucket === null) {
     return (
       <>
-        <FigureValue figure={absent("unmeasured", "No Admin API call has reported a cost bucket yet.")} />{" "}
+        <Measure figure={absent("unmeasured", "No Admin API call has reported a cost bucket yet.")} />{" "}
         <span className="os-stores-note">not observed yet</span>
       </>
     );
   }
   return (
     <>
-      <FigureValue figure={bucket.currentlyAvailable} format={round} /> of{" "}
-      <FigureValue figure={bucket.maximumAvailable} format={round} /> points, restoring{" "}
-      <FigureValue figure={bucket.restoreRate} format={round} suffix="/s" />
+      <Measure figure={bucket.currentlyAvailable} format={round} /> of{" "}
+      <Measure figure={bucket.maximumAvailable} format={round} /> points, restoring{" "}
+      <Measure figure={bucket.restoreRate} format={round} suffix="/s" />
     </>
   );
 }
@@ -269,8 +269,8 @@ function SubscriptionsBand({ store, writes }: { store: StoreHealth; writes: Stor
       ) : (
         <>
           <p className="os-stores-line">
-            <FigureValue figure={record.existing} /> registered of{" "}
-            <FigureValue figure={record.desired} /> the mirror wants, last checked{" "}
+            <Measure figure={record.existing} /> registered of{" "}
+            <Measure figure={record.desired} /> the mirror wants, last checked{" "}
             {record.at === "" ? "at an unrecorded time" : new Date(record.at).toLocaleString()}.
           </p>
           {record.failed.length === 0 ? null : (
@@ -420,17 +420,17 @@ function DomainRow({ domain }: { domain: DomainState }) {
         </span>
       </td>
       <td>
-        <FigureValue figure={domain.driftLast} />
+        <Measure figure={domain.driftLast} />
       </td>
       <td>
-        <FigureValue figure={domain.lagSeconds} suffix="s" />
+        <Measure figure={domain.lagSeconds} suffix="s" />
       </td>
       <td>
-        <FigureValue figure={domain.outboxDepth} />
+        <Measure figure={domain.outboxDepth} />
       </td>
       <td className="os-stores-note">
         {domain.lastAppliedAt === "" ? (
-          <FigureValue figure={absent("unmeasured", "Live delivery has applied nothing for this domain yet.")} />
+          <Measure figure={absent("unmeasured", "Live delivery has applied nothing for this domain yet.")} />
         ) : (
           new Date(domain.lastAppliedAt).toLocaleString()
         )}

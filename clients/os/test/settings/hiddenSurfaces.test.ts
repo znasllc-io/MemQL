@@ -115,7 +115,7 @@ describe("the permissions self-view (memql#4744)", () => {
     // the assertion above would compare two empty lists and pass against a
     // registry that hid everything from an admin.
     expect(gated).toContain("Settings -- Integrations");
-    expect(gated).toContain("Settings -- AI providers");
+    expect(gated).toContain("Settings -- Doors");
   });
 
   it("names both roles when a set requirement is what hid the surface", () => {

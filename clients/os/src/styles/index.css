@@ -10422,7 +10422,7 @@ a.os-button {
  * NOT HERE: the Figure component's own rules
  * ------------------------------------------------------------------------- */
 /* `.os-figure`, `.os-figure-unit` and `.os-figure-absent` belong to
- * `src/cluster/FigureValue.tsx`, which is shared with the Stores app, and
+ * `src/kit/Measure.tsx`, which is shared with the Stores app, and
  * index.css already carries them ("the honest-figure vocabulary"). They are
  * deliberately absent from this file so the fold-in cannot produce a second,
  * drifting copy of a rule that three surfaces read. */
@@ -10814,7 +10814,7 @@ a.os-button {
  * class belongs to that app and only carries ok / warn.
  * ======================================================================== */
 
-/* `.os-figure*` (src/cluster/FigureValue.tsx) is deliberately ABSENT from
+/* `.os-figure*` (src/kit/Measure.tsx) is deliberately ABSENT from
  * this file. Those three rules are SHARED -- Stores, Cluster and whatever
  * reports a count next all render through the same component -- and they are
  * already folded into index.css under "the honest-figure vocabulary". A copy
@@ -11001,7 +11001,7 @@ a.os-button {
  * `.os-fleet-session-status` rather than a third tone bolted onto Deployables'
  * `.os-deploy-status`, which belongs to that app and carries ok / warn only.
  *
- * `.os-figure*` (src/cluster/FigureValue.tsx) is deliberately ABSENT here:
+ * `.os-figure*` (src/kit/Measure.tsx) is deliberately ABSENT here:
  * `_pending_stores.css` and `_pending_cluster.css` already carry the same
  * three rules with a note to fold one copy and drop the other. A third copy
  * would be a third thing to keep in step.
@@ -11746,4 +11746,590 @@ a.os-button {
   color: var(--os-muted);
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+/* ===========================================================================
+ * SETTINGS -> AI: DOORS, LEVELS, RULES, DECISIONS (epic memql#5153)
+ * ===========================================================================
+ * IF THIS BLOCK CONFLICTS ON A MERGE, REBUILD THE FILE AS THE OTHER SIDE PLUS
+ * THIS BLOCK WHOLE. Two appended CSS blocks INTERLEAVE on a three-way merge
+ * rather than taking both, and the result still compiles while silently
+ * dropping rules -- and only `make os-build` parses this file at all, so
+ * os-typecheck will not notice.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ONE MARK ON ALL FOUR SCREENS IS MONEY
+ * ---------------------------------------------------------------------------
+ * Four sections, four shapes -- a list of places, four sentences, an ordered
+ * argument, a log -- and the shapes differ because the questions do. What is
+ * SHARED is where the eye is sent: the two doors that cost nothing are quiet,
+ * and the warm ink appears only where a call is billed. A person scanning any
+ * of these screens for "what is this costing me" finds it without reading.
+ *
+ * That is also why none of these rules spends `--os-accent` on a heading, a
+ * border or a hover. The accent means "this is what happens next"; warn means
+ * "this one bills". Two marks, two meanings, and nothing else is coloured.
+ * ======================================================================== */
+
+/* --- Doors ---------------------------------------------------------------
+ * A door is a place, four places is a list, and the ORDER is the try order.
+ * An open door is the only row with a filled ground -- three channels (word,
+ * weight, ground) of which the WORD is the one that survives greyscale, a
+ * colour-blind reader and a screenshot. */
+.os-doorlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.os-doorrow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-left: 2px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+}
+
+.os-doorrow[data-os-door="open"] {
+  background: var(--os-raised);
+  border-left-color: var(--os-accent);
+}
+
+.os-doorrow[data-os-door="half"] {
+  border-left-color: var(--os-warn);
+}
+
+.os-doorrow-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: 62ch;
+}
+
+.os-doorrow-name {
+  margin: 0;
+  font-size: var(--os-text-md);
+  color: var(--os-ink);
+}
+
+.os-doorrow-said {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  line-height: 1.5;
+}
+
+/* The cost line is the argument, so it is not a caption. It is the same size
+ * as the state and sits in the muted ink until the door bills. */
+.os-doorrow-cost {
+  margin: 0;
+  font-size: var(--os-text-sm);
+  color: var(--os-muted);
+}
+
+.os-doorrow[data-os-doorid="anthropic"] .os-doorrow-cost,
+.os-doorrow[data-os-doorid="openai"] .os-doorrow-cost {
+  color: var(--os-warn);
+}
+
+.os-doorrow-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: none;
+}
+
+/* --- Levels --------------------------------------------------------------
+ * Rows that read as sentences, not a table: a level with no local door would
+ * leave three cells to fill and the mark you fill them with is a dash, so
+ * four levels would carry nine dashes and read as a broken screen rather than
+ * as a cluster that has not pulled a model. Written as a sentence, the same
+ * row is the answer. (The owner picked this over the table on 2026-09-07.) */
+.os-levels {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.os-level {
+  display: grid;
+  grid-template-columns: minmax(0, 15ch) minmax(0, 1fr);
+  gap: 4px 20px;
+  padding: 12px 14px;
+  border-left: 2px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+}
+
+/* A level that costs money is the one to notice. */
+.os-level[data-os-metered] {
+  border-left-color: var(--os-warn);
+}
+
+.os-level-name {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.os-level-word {
+  font-family: var(--os-font-mono);
+  font-size: var(--os-text-md);
+  color: var(--os-ink);
+}
+
+.os-level-meaning {
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  line-height: 1.4;
+}
+
+.os-level-body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 68ch;
+}
+
+.os-level-said {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  line-height: 1.55;
+}
+
+.os-level-note,
+.os-level-measured {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  line-height: 1.5;
+}
+
+/* Advice renders only where there is something to do, so when it appears it
+ * is worth reading -- it is never the row's standing furniture. */
+.os-level-advice {
+  margin: 0;
+  font-size: var(--os-text-sm);
+  color: var(--os-warn);
+  line-height: 1.5;
+}
+
+/* --- Rules ---------------------------------------------------------------
+ * The one list in this shell where a number in the gutter is DATA: rules are
+ * tried in an order, first match wins, and the number is the order -- a value
+ * the person sets, reads back and collides with. */
+.os-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.os-rule {
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--os-radius-xs);
+}
+
+/* A shipped rule is the floor, not the work. Your own rules are what you are
+ * managing, so they carry the full ink and the shipped ones step back. */
+.os-rule[data-os-locked] {
+  opacity: 0.72;
+}
+
+/* THE FLOOR SITS APART, because it is the one shipped rule that runs LAST.
+ * A hairline above it says "everything above was tried first" -- without it
+ * the row reads as a sorting mistake, since it is locked and at the bottom. */
+.os-rule[data-os-floor] {
+  border-top: 1px solid var(--os-line);
+  margin-top: 6px;
+  padding-top: 14px;
+}
+
+.os-rule-precedence {
+  font-size: var(--os-text-sm);
+  color: var(--os-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-top: 2px;
+}
+
+.os-rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: 74ch;
+}
+
+.os-rule-name {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--os-text-sm);
+  color: var(--os-muted);
+}
+
+.os-rule-said {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  line-height: 1.55;
+}
+
+.os-rule-described {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.os-rule-line-acts,
+.os-rule-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.os-rule-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.os-rules-scope,
+.os-decisions-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The compiled rule: the person wrote a sentence, so they are shown a
+ * sentence -- the exact line that will appear in the list afterwards, so
+ * there is no second form to learn. */
+.os-rule-describe,
+.os-rule-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.os-rule-textarea {
+  height: auto;
+  min-height: calc(var(--os-control-h) * 2);
+  padding: 8px 10px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.os-rule-compiled {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--os-raised);
+  border-left: 2px solid var(--os-accent);
+  border-radius: var(--os-radius-xs);
+}
+
+.os-rule-compiled-label {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+
+.os-rule-compiled-said {
+  margin: 0;
+  font-size: var(--os-text-md);
+  color: var(--os-ink);
+  line-height: 1.55;
+  max-width: 74ch;
+}
+
+.os-rule-simulation {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.os-rule-simulation-said {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  line-height: 1.55;
+  max-width: 74ch;
+}
+
+.os-rule-cond {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --- Decisions -----------------------------------------------------------
+ * The one section that is genuinely a table: many rows, read down a column,
+ * scanned for the one that is different. Tabular numerals so the columns of
+ * figures line up and a long duration is visible as a longer bar of digits. */
+.os-decisions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.os-decision-item {
+  border-bottom: 1px solid var(--os-line);
+}
+
+.os-decision {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 9ch) minmax(0, 1.2fr) minmax(0, 1.5fr)
+    minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 11ch) minmax(0, 7ch);
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: var(--os-text-sm);
+  color: var(--os-ink);
+  cursor: pointer;
+  border-radius: var(--os-radius-xs);
+}
+
+.os-decision:hover,
+.os-decision[data-open] {
+  background: var(--os-raised);
+}
+
+.os-decision > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.os-decision-when,
+.os-decision-cost,
+.os-decision-took {
+  color: var(--os-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.os-decision-level {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* THE CHIP MUST NOT BE CLIPPED. `overflow: hidden` on the cell cut "degraded"
+ * to "degr", which does not read as a truncation -- it reads as a short word
+ * nobody recognises, on the one row in the list whose level was not the level
+ * that was asked for. The words shrink; the state does not. */
+.os-decision-level > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.os-decision-level .os-chip {
+  flex: none;
+}
+
+.os-decision-door {
+  color: var(--os-muted);
+}
+
+/* THE ONE COLOURED THING IN THE LOG. A call that went to a paid vendor is the
+ * row somebody is scanning for, so it is the row that carries the mark -- and
+ * a free call reads as the quiet default rather than as a zero. */
+.os-decision[data-os-door="federation"] .os-decision-cost {
+  color: var(--os-warn);
+}
+
+.os-decision-free {
+  color: var(--os-muted);
+  font-family: var(--os-font);
+  font-size: var(--os-text-xs);
+}
+
+.os-decision[data-os-outcome="error"] .os-decision-door {
+  color: var(--os-error);
+}
+
+.os-decision-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 10px 14px 10px;
+}
+
+.os-decision-detail-line {
+  margin: 0;
+  font-size: var(--os-text-sm);
+  color: var(--os-ink);
+  line-height: 1.5;
+  max-width: 74ch;
+}
+
+/* The walk: every door the chain passed over, and why. This is the half that
+ * separates "had no alternative" from "every alternative was shut". */
+.os-decision-walk {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.os-decision-walk > li {
+  display: grid;
+  grid-template-columns: minmax(0, 22ch) minmax(0, 16ch) minmax(0, 1fr);
+  gap: 12px;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+  padding: 3px 0;
+}
+
+.os-decision-walk > li[data-os-served] {
+  color: var(--os-ink);
+}
+
+.os-decision-walk-door,
+.os-decision-walk-why {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Rule 9: at a narrow measure the log stops pretending to be seven columns
+ * and becomes rows of facts, rather than seven ellipsised fragments. */
+@media (max-width: 900px) {
+  .os-decision {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .os-decision > span {
+    white-space: normal;
+  }
+
+  .os-level {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .os-rule {
+    grid-template-columns: 4ch minmax(0, 1fr);
+  }
+
+  .os-rule-line-acts {
+    grid-column: 2;
+  }
+}
+
+/* --- The run step's decision (memql#5157, D2) -----------------------------
+ * Kept in THIS block rather than beside `.os-nexus-step-call` so the epic has
+ * one conflict to resolve rather than two.
+ *
+ * The weight goes on the BILLED line, which is the same choice the other four
+ * screens make: a call your own hardware answered is the quiet default, and
+ * the one that cost money is the one the eye is sent to. Colour is never the
+ * only carrier -- the words say it, and so does the accessible name. */
+.os-nexus-step-decision[data-served="live"] {
+  color: var(--os-ink);
+}
+
+.os-nexus-step-decision[data-served="local"],
+.os-nexus-step-decision[data-served="journal"] {
+  color: var(--os-muted);
+}
+
+/* --- Fleet -> Routing's five fields (epic memql#5159, D3) -----------------
+ * The fieldset and its legend STAY -- a legend names its group to assistive
+ * tech better than any div can, and DESIGN.md rule 8 keeps those semantics on
+ * purpose. What changes is the dress: a legend styled as a Subhead makes a
+ * five-FIELD form read as five SECTIONS, which is the exact complaint this
+ * restyle answers ("the routing page explains nothing" -- it explained
+ * nothing while looking like five explanations).
+ *
+ * Re-dressed as the kit's `Field` label, with the group margin dropped so the
+ * Panel's own 12px gap is the only space between fields. It must live in this
+ * appended block: it beats `.os-field-group legend` on source order, and
+ * moving it earlier in the file would silently stop applying. */
+.os-fleet-routing-field {
+  margin-bottom: 0;
+}
+
+.os-fleet-routing-field > legend {
+  margin-bottom: 3px;
+  font-size: var(--os-text-xs);
+  font-weight: 400;
+  color: var(--os-muted);
+}
+
+/* The custom block's own boundary, the same hairline the floor gets. Together
+ * they draw the three partitions the evaluation order actually has -- shipped,
+ * yours, the floor -- which is what stops the gutter reading 60, 40, 70, 0 as
+ * a sort that failed. */
+.os-rule[data-os-first-custom] {
+  border-top: 1px solid var(--os-line);
+  margin-top: 6px;
+  padding-top: 14px;
+}
+
+/* The one answer, when all four levels have the same one. It is the section's
+ * content at that moment, so it takes the reading ink and the reading size --
+ * not a caption, which would file the only fact on the page as a footnote. */
+.os-levels-shared {
+  margin: 0 0 4px 0;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+  line-height: 1.55;
+  max-width: 68ch;
+}
+
+/* The shared advice sits directly under the shared answer, so the pair reads
+ * as one statement: what happens, and what to do about it. */
+.os-levels-shared-advice {
+  margin: 0 0 6px 0;
+  max-width: 68ch;
+}
+
+/* DESIGN.md rule 9: "Lists take the window; forms take a readable measure."
+ *
+ * `.os-settings` caps at 560px, which is the readable measure and is right for
+ * Doors and Levels -- both are prose with one act. Rules and Decisions are
+ * LISTS: a seven-column log at 560px truncates every column to an ellipsis, so
+ * the door a call went through renders as "a paid ..." and the whole point of
+ * the screen is unreadable. They take the window instead. */
+.os-settings-wide {
+  max-width: none;
 }

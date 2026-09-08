@@ -352,127 +352,13 @@ export function useProviderRegistry(enabled: boolean): ProvidersState {
   return { rows, loading, error, fetchedAt, reload };
 }
 
-/**
- * The third door: the machines this person owns.
- *
- * ITS OWN READ, AND ITS OWN FAILURE. `inferenceStatus` is a different question
- * from `providerAuthStatus` -- one is scoped to the caller's fleet, the other
- * is this node's provider registry -- so they settle separately and a refusal
- * of one never decides the state of the other. The precedent is the Readiness
- * section, which takes the same two-readings-settling-separately position for
- * the same reason.
- *
- * IT IS THE SAME READING READINESS SHOWS, deliberately. Two surfaces answering
- * "can this cluster reach a model" from two derivations is how they come to
- * disagree, and the disagreement would be invisible to both.
- *
- * WHAT IT MEASURES IS A LOCAL MODEL, and the copy does not overclaim. Running
- * a delegated task inside a signed-in Claude Code or Codex is a real second
- * fleet route (epic memql#4358) and it spends a subscription rather than this
- * cluster's credit -- but it is not an inference provider the router picks, so
- * it is stated as what it is and never counted as this door's state.
- */
-export interface FleetDoor {
-  state: "open" | "unset" | "unknown";
-  /** What the reading means, in the reader's words. */
-  said: string;
-  /** The engine's own sentence when the read failed. Empty otherwise. */
-  error: string;
-  loading: boolean;
-  reload: () => void;
-}
-
-/** Read one numeric field, defaulting to zero. */
-function num(row: RowBag, key: string): number {
-  const raw = row[key];
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string" && raw.trim() !== "") {
-    const parsed = Number(raw);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
-}
-
-/** Pure, so the four readings are pinned without a connection. */
-export function fleetDoorFrom(row: RowBag | null): { state: FleetDoor["state"]; said: string } {
-  if (row === null) {
-    return {
-      state: "unknown",
-      said: "The cluster answered with no reading at all.",
-    };
-  }
-  const models = num(row, "localModelCount");
-  const floor = num(row, "minimumContextWindow");
-  const eligible = Array.isArray(row["eligibleModelIds"]) ? row["eligibleModelIds"].length : 0;
-  if (bool(row, "localEligible")) {
-    return {
-      state: "open",
-      said: `${eligible} of ${models} ${models === 1 ? "model" : "models"} on your machines ${eligible === 1 ? "meets" : "meet"} the ${floor.toLocaleString()}-token floor, so a call can go there instead of to a vendor.`,
-    };
-  }
-  // The two zero states look identical on a page and have entirely different
-  // fixes, which is the whole reason the engine reports them apart.
-  if (!bool(row, "fleetInferenceInstalled")) {
-    return {
-      state: "unset",
-      said: "The node that answered cannot place fleet model calls at all, so a machine is not a route from here.",
-    };
-  }
-  if (models === 0) {
-    return {
-      state: "unset",
-      said: "No machine you own is offering a model. Pair one in Fleet, under Machines.",
-    };
-  }
-  return {
-    state: "unset",
-    said:
-      models === 1
-        ? `Your machines offer one model, and it does not meet the ${floor.toLocaleString()}-token floor with structured output.`
-        : `Your machines offer ${models} models, and none of them meets the ${floor.toLocaleString()}-token floor with structured output.`,
-  };
-}
-
-export function useFleetDoor(enabled: boolean): FleetDoor {
-  const connection = useOsConnection();
-  const [reading, setReading] = useState<{ state: FleetDoor["state"]; said: string }>({
-    state: "unknown",
-    said: "",
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [epoch, setEpoch] = useState(0);
-  const reload = useCallback(() => setEpoch((n) => n + 1), []);
-
-  useEffect(() => {
-    if (!enabled || connection === null) return;
-    const controller = new AbortController();
-    let stale = false;
-    setLoading(true);
-    setError("");
-    void connection.query
-      .inferenceStatus({}, { signal: controller.signal })
-      .then((result) => {
-        if (stale) return;
-        const rows = materialize(result);
-        setReading(fleetDoorFrom(rows.length > 0 ? (rows[0] ?? null) : null));
-      })
-      .catch((err: unknown) => {
-        if (stale) return;
-        setReading({ state: "unknown", said: "" });
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!stale) setLoading(false);
-      });
-    return () => {
-      stale = true;
-      controller.abort();
-    };
-  }, [connection, enabled, epoch]);
-
-  return { ...reading, error, loading, reload };
-}
+// THE FLEET DOOR MOVED, AND IT IS NOT HERE ANY MORE (epic memql#5153).
+// `fleetDoorFrom` / `useFleetDoor` read `inferenceStatus` and turned it into a
+// door state and a sentence; `routingFacts.doorReadings` now answers that for
+// all FOUR doors at once, out of one read, so keeping a second reading of the
+// same rows here would be a second place for them to disagree -- and the
+// disagreement would be invisible to both. Its four sentences are carried over
+// verbatim, and its tests moved with them.
 
 // ---------------------------------------------------------------------------
 // Writes

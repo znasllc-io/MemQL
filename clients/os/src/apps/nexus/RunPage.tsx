@@ -20,6 +20,7 @@ import { KindBand } from "./KindBand";
 import { StepSpineRow } from "./StepSpine";
 import type { DeriveRunState } from "./actions";
 import {
+  decisionsByStep,
   formatSpend,
   kindBreakdown,
   runIsTerminal,
@@ -113,6 +114,13 @@ export function RunPage({
 
   const breakdown = useMemo(() => kindBreakdown(steps), [steps]);
   const spend = useMemo(() => runSpend(run), [run]);
+  // WHICH DOOR ANSWERED, PER STEP -- from the journal this page already holds,
+  // so the timeline costs no extra read. The journal is read on demand
+  // (`useJournal` does not read on open, and a test pins that), so these lines
+  // appear when somebody asks for it and the map is empty until then. That is
+  // the honest state: before the read, this window does not know which door
+  // answered, and a row cannot say what it has not been told.
+  const decisions = useMemo(() => decisionsByStep(journal.modelCalls), [journal.modelCalls]);
   const openStep = steps.find((step) => step.key === openStepKey) ?? null;
 
   const terminal = runIsTerminal(run);
@@ -363,6 +371,7 @@ export function RunPage({
                   last={index === steps.length - 1}
                   open={step.key === openStepKey}
                   onOpen={() => setOpenStepKey(step.key === openStepKey ? "" : step.key)}
+                  decision={decisions.get(step.key) ?? null}
                 />
                 {step.key === openStepKey ? <StepDetail step={step} onOpenRun={onOpenRun} /> : null}
               </li>

@@ -669,6 +669,211 @@ export function servedWord(served: string): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Which door answered: one decision per step
+// ---------------------------------------------------------------------------
+
+/**
+ * What one step's model calls came to, folded into a single reading.
+ *
+ * ONE READING PER STEP, NOT ONE PER CALL. The step row is a ROW, and the spine
+ * works by weight -- the eye finds where the machine thought before a word is
+ * read, which it can only do while every row is the same height. A step that
+ * made four calls growing to four lines would take that away from every other
+ * row on the page. The per-call detail is already in the journal panel below,
+ * where somebody can read it deliberately.
+ *
+ * `cost` and `tokens` are summed over the calls that REPORTED one, and stay
+ * null when none did -- `figure`'s rule, for `figure`'s reason. A step whose
+ * calls reported nothing must not render "$0.00" beside a provider that
+ * answered.
+ */
+export interface StepDecision {
+  /** The door, in the wire's own word: `local`, `live` or `journal`. */
+  served: string;
+  /** The provider as the router resolved it. Blank unless one answered. */
+  provider: string;
+  /** The model as the router resolved it. */
+  model: string;
+  cost: number | null;
+  tokens: number | null;
+  /** How many calls this step made. Never less than 1. */
+  calls: number;
+}
+
+/**
+ * Which door a step is reported as having gone through, when its calls
+ * disagree.
+ *
+ * THE MOST EXPENSIVE ONE WINS, and that is the whole rule. A step that made
+ * two fleet calls and one vendor call DID reach a vendor and was billed for
+ * it, so reporting it as "your fleet" would put a money figure under a line
+ * that says nothing was billed -- the row contradicting itself, in the one
+ * place this epic exists to make trustworthy. Under-reporting the door is the
+ * only error here that a reader cannot catch.
+ *
+ * WHICH IS ALSO WHERE A DOOR THIS BUILD HAS NO WORD FOR SITS: above the two
+ * readings that claim nothing was billed, below the one that says something
+ * was. A newer engine's door hidden behind "your fleet" is the confident
+ * claim; naming the value it sent asserts less, and is the reading that
+ * cannot mislead somebody about their bill.
+ */
+const DOOR_RANK: Record<string, number> = { live: 4, local: 2, journal: 1 };
+
+function doorRank(served: string): number {
+  // A call that named no door at all never outranks one that did.
+  if (served.trim() === "") return 0;
+  return DOOR_RANK[served] ?? 3;
+}
+
+/** A sum over the values that were REPORTED. Null when none were. */
+function sumReported(values: readonly (number | null)[]): number | null {
+  let total = 0;
+  let reported = false;
+  for (const value of values) {
+    if (value === null) continue;
+    total += value;
+    reported = true;
+  }
+  return reported ? total : null;
+}
+
+/** One call's tokens. Null only when NEITHER half was reported. */
+function callTokens(call: ModelCallRow): number | null {
+  if (call.inputTokens === null && call.outputTokens === null) return null;
+  return (call.inputTokens ?? 0) + (call.outputTokens ?? 0);
+}
+
+/**
+ * The journal's model calls, keyed by the step that made them.
+ *
+ * ORDERED HERE RATHER THAN BY THE READ, for `stepsInOrder`'s reason:
+ * `workModelCallsForOwnerRun` carries `@unbounded`, `@unbounded` excludes
+ * `sort`, so the rows arrive in whatever order the read folded them. This
+ * fold names "the last call" as the one whose model and provider the line
+ * carries, and "last" has to mean last in TIME or the line names a different
+ * model on every read of the same journal.
+ *
+ * A call with no `stepKey` is DROPPED rather than attributed to a step: the
+ * journal panel below still lists it, and guessing which step it belonged to
+ * would put a cost on a row that did not incur it.
+ */
+export function decisionsByStep(calls: readonly ModelCallRow[]): Map<string, StepDecision> {
+  const grouped = new Map<string, ModelCallRow[]>();
+  for (const call of calls) {
+    const key = call.stepKey.trim();
+    if (key === "") continue;
+    const held = grouped.get(key);
+    if (held === undefined) grouped.set(key, [call]);
+    else held.push(call);
+  }
+
+  const out = new Map<string, StepDecision>();
+  for (const [key, group] of grouped) {
+    const decision = foldDecision(group);
+    if (decision !== null) out.set(key, decision);
+  }
+  return out;
+}
+
+function foldDecision(group: readonly ModelCallRow[]): StepDecision | null {
+  if (group.length === 0) return null;
+
+  // Decorated sort with the arrival index as the tiebreak: two calls of one
+  // step can share a timestamp, and a fold that reshuffles equal rows names a
+  // different model each time the panel is re-read.
+  const ordered = group
+    .map((call, index) => ({ call, index }))
+    .sort((a, b) =>
+      a.call.createdAt === b.call.createdAt
+        ? a.index - b.index
+        : a.call.createdAt.localeCompare(b.call.createdAt),
+    )
+    .map((entry) => entry.call);
+
+  let served = "";
+  for (const call of ordered) {
+    if (doorRank(call.served) > doorRank(served)) served = call.served;
+  }
+  if (served === "") served = ordered[ordered.length - 1]?.served ?? "";
+
+  // THE MODEL AND THE PROVIDER COME FROM A CALL THAT WENT THROUGH THE DOOR
+  // BEING NAMED. Taking the last call of the group regardless would pair a
+  // vendor door with a model that answered on somebody's laptop, and print a
+  // blank provider beside it -- a line that is wrong in a way nothing on the
+  // page could correct.
+  const throughTheDoor = ordered.filter((call) => call.served === served);
+  const last = throughTheDoor[throughTheDoor.length - 1] ?? ordered[ordered.length - 1] ?? null;
+
+  return {
+    served,
+    provider: last?.provider ?? "",
+    model: last?.model ?? "",
+    cost: sumReported(ordered.map((call) => call.cost)),
+    tokens: sumReported(ordered.map(callTokens)),
+    calls: ordered.length,
+  };
+}
+
+/**
+ * THE DECISION, IN ONE LINE, NAMING THE DOOR IN THE PRODUCT'S OWN WORDS.
+ *
+ * This is the sentence the whole epic is for: a person reading a run should be
+ * able to see, per step, whether their own hardware answered, whether a vendor
+ * was billed, or whether nothing was called at all. So the door leads the
+ * line, before the model and before any figure.
+ *
+ * ONE FUNCTION, TWO CONSUMERS. `StepSpine` renders this string and puts the
+ * same string in the row's accessible name, because the file's contract is
+ * that the name says everything the drawing says -- and two spellings of one
+ * sentence is two things to keep in step.
+ *
+ * A live call whose cost was not reported says so IN WORDS rather than
+ * rendering an em dash: the visible difference between a fleet line and a
+ * vendor line is the money, so a vendor line with the money silently missing
+ * is a billed call dressed as a free one.
+ */
+export function decisionLine(decision: StepDecision): string {
+  const model = decision.model.trim() === "" ? "an unnamed model" : decision.model.trim();
+  const parts: string[] = [];
+
+  switch (decision.served) {
+    case "local":
+      // No money, deliberately. Nothing was billed, and a figure here would
+      // invite the reader to look for the charge.
+      parts.push(`your fleet · ${model}`);
+      break;
+    case "live": {
+      const provider = decision.provider.trim();
+      parts.push(`${provider === "" ? "a provider" : provider} · ${model}`);
+      parts.push(decision.cost === null ? "cost not reported" : formatMoney(decision.cost));
+      break;
+    }
+    case "journal":
+      parts.push(`replayed · ${model}, no call${decision.calls === 1 ? "" : "s"} made`);
+      break;
+    default:
+      // A door this build has no word for. `servedWord` answers with the raw
+      // value, which is what somebody greps for -- guessing the commonest door
+      // would put a confident claim about money on a row nothing here
+      // understands. A call that named NO door says only what it can: a model
+      // answered. "-- · claude-sonnet-4" reads as a rendering fault.
+      parts.push(
+        `${decision.served.trim() === "" ? "a model answered" : servedWord(decision.served)} · ${model}`,
+      );
+  }
+
+  // The count only appears when there is more than one call to fold, for the
+  // reason the cost readout only appears on the steps that cost something: a
+  // "1 call" on every row is a row of noise. A replayed step counts ANSWERS,
+  // because "no calls made · 3 calls" is a line arguing with itself.
+  if (decision.calls > 1) {
+    parts.push(`${decision.calls} ${decision.served === "journal" ? "answers" : "calls"}`);
+  }
+
+  return parts.join(" · ");
+}
+
 export interface ObservationRow {
   id: string;
   runId: string;

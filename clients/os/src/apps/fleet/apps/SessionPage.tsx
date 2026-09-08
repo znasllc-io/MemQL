@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 
 import { Button, Chip, Fact, Facts, Head, Notice, Panel, Subhead, formatBytes, formatMoment } from "../../../kit";
-import { FigureValue } from "../../../cluster/FigureValue";
+import { Measure } from "../../../kit/Measure";
 import {
   appLabel,
   sessionIsLive,
@@ -117,19 +117,19 @@ function SessionBody({
           {/* TOKENS THE APP DID NOT REPORT ARE ABSENT, NOT ZERO. An app that
               said nothing did not say it spent nothing, and the two lead to
               opposite conclusions about a run. */}
-          <Fact label="Tokens in" value={<FigureValue figure={session.usage.inputTokens} />} />
-          <Fact label="Tokens out" value={<FigureValue figure={session.usage.outputTokens} />} />
-          <Fact label="Tokens" value={<FigureValue figure={totalTokens(session)} />} />
+          <Fact label="Tokens in" value={<Measure figure={session.usage.inputTokens} />} />
+          <Fact label="Tokens out" value={<Measure figure={session.usage.outputTokens} />} />
+          <Fact label="Tokens" value={<Measure figure={totalTokens(session)} />} />
           <Fact
             label="Reported cost"
-            value={<FigureValue figure={session.usage.costUSD} format={(v) => `$${v.toFixed(4)}`} />}
+            value={<Measure figure={session.usage.costUSD} format={(v) => `$${v.toFixed(4)}`} />}
           />
           <Fact label="Machine" value={session.workerId || "not recorded"} mono />
           <Fact label="Workspace" value={session.workspace || "not recorded"} mono />
           <Fact label="Started" value={formatMoment(session.startedAt)} />
           <Fact label="Ended" value={session.endedAt === "" ? "still running" : formatMoment(session.endedAt)} />
           {session.status === "failed" ? (
-            <Fact label="Exit code" value={<FigureValue figure={session.exitCode} />} mono />
+            <Fact label="Exit code" value={<Measure figure={session.exitCode} />} mono />
           ) : null}
           {session.runId === "" ? null : <Fact label="Run" value={session.runId} mono />}
           {session.stepId === "" ? null : <Fact label="Step" value={session.stepId} mono />}
@@ -168,7 +168,7 @@ function SessionBody({
 
       <Subhead>Transcript</Subhead>
       <p className="os-caption">
-        <FigureValue figure={session.transcriptBytes} format={formatBytes} />
+        <Measure figure={session.transcriptBytes} format={formatBytes} />
         {session.transcriptTruncated ? " kept -- truncated" : " kept"}
       </p>
 

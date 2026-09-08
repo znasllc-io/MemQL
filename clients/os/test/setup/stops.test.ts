@@ -72,7 +72,7 @@ describe("stopsFor: which stops exist", () => {
 
   it("names each module as the shell names it, and says what it is for", () => {
     const ai = stopsFor(facts()).find((s) => s.id === "ai");
-    expect(ai?.name).toBe("AI providers");
+    expect(ai?.name).toBe("Inference");
     expect(ai?.sentence).toBe(
       "Inference needs a provider: a machine on your fleet serving a model, or a federated cloud vendor.",
     );

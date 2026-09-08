@@ -99,12 +99,12 @@ describe("the doors an owner is offered", () => {
     expect(calls).toEqual([["fleet", "machines", { addMachine: { inference: true } }]]);
   });
 
-  it("opens AI providers at the named vendor, for each federation door", () => {
+  it("opens Doors at the named vendor, for each federation door", () => {
     const calls = mount("owner");
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Open AI providers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Doors" }));
     fireEvent.click(screen.getByRole("radio", { name: /OpenAI/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Open AI providers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Doors" }));
     expect(calls).toEqual([
       ["settings", "providers", { vendor: "anthropic" }],
       ["settings", "providers", { vendor: "openai" }],
@@ -133,10 +133,10 @@ describe("the doors a developer is offered", () => {
   it("gets the BUTTON for a federation door, since a developer may federate", () => {
     const calls = mount("developer");
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Open AI providers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Doors" }));
     expect(calls).toEqual([["settings", "providers", { vendor: "anthropic" }]]);
     expect(
-      screen.queryByText("An owner can set Anthropic up in Settings, under AI providers."),
+      screen.queryByText("An owner can set Anthropic up in Settings, under Doors."),
     ).toBeNull();
   });
 
@@ -160,6 +160,6 @@ describe("with no shell to open into", () => {
     render(<InferenceStop role="owner" />);
     expect(screen.getByText("Pair a machine in Fleet, under Machines.")).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic/ }));
-    expect(screen.getByText("An owner can set Anthropic up in Settings, under AI providers.")).toBeTruthy();
+    expect(screen.getByText("An owner can set Anthropic up in Settings, under Doors.")).toBeTruthy();
   });
 });

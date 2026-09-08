@@ -73,6 +73,24 @@ export { useLiveView, type LiveView } from "../live/liveView";
 export { useThreeFeedView, useTwoFeedView } from "../live/mergedView";
 export { useNow } from "./useNow";
 export { formatBytes, formatDuration, formatFreshness, formatMoment } from "./format";
+// A figure with its own provenance, and the component that refuses to draw
+// a number it does not have (epic memql#5153, D3). Promoted from
+// src/cluster/; the pure half is importable on its own as "kit/measure" so a
+// .ts module need not pull JSX through this barrel.
+export { Measure } from "./Measure";
+export {
+  absent,
+  absentSentence,
+  figureFrom,
+  figureOf,
+  figureValue,
+  isPositive,
+  type AbsentFigure,
+  type AbsentReason,
+  type Figure,
+  type MeasuredFigure,
+} from "./measure";
+
 export { boolOr, flatten, stringsOf } from "./rows";
 export { deriveProvenance, roleAdmits, roleGrantSlug, roleLadder, roleLadderLoaded, roleRank, roleRungOf };
 export type { ClusterRole, MachinePresence, ProvenanceFacts, ProvenanceTone, RoleRequirement, RoleRung };

@@ -13,11 +13,13 @@ import {
   type RoutingFallback,
   type RoutingStrategy,
 } from "../rows";
-import { Button, ChoiceStack, Notice, Panel, Head } from "../../../kit";
+import { Button, Caption, ChoiceStack, Head, Notice, Panel } from "../../../kit";
 import { useRoutingPolicy, type RoutingPolicyDraft } from "./useRoutingPolicy";
 
 // The routing policy: how the router orders the machines it could send a call
-// to, for this person's fleet.
+// to, for this person's fleet. It decides WHICH MACHINE and nothing else --
+// which model answers, and which door a call goes through, are Settings ->
+// Rules.
 
 export function RoutingSection() {
   const state = useRoutingPolicy();
@@ -92,6 +94,18 @@ export function RoutingSection() {
         ) : null}
       </Head>
 
+      {/* WHAT A MACHINE STRATEGY DECIDES, AND WHAT IT DOES NOT (epic
+          memql#5159, D3). This screen has always been five fields with no
+          sentence saying what a strategy is, and the reading people arrive
+          with is that it chooses the MODEL -- which is a different screen
+          altogether. Both halves have to be said, in that order: the one it
+          does, then the one it is mistaken for. */}
+      <p className="os-caption">
+        A strategy decides which of your machines runs a call, when more than one of them could.
+        It does not decide which model answers or which door a call goes through -- those are
+        Settings -&gt; Rules.
+      </p>
+
       <Panel label="Routing policy">
         {state.loading ? <p className="os-caption">Reading your routing policy.</p> : null}
 
@@ -128,8 +142,23 @@ export function RoutingSection() {
           </Notice>
         ) : null}
 
-        <fieldset className="os-field-group">
+        {/* THE FIVE FIELDS, IN ONE GRAMMAR (DESIGN.md rule 8, epic memql#5159).
+            Each one is a name, then the single thing it decides said quietly,
+            then its control. The fieldset/legend SEMANTICS stay -- a legend
+            names its group to assistive tech better than any div -- and the
+            legend dresses as a Subhead, which is what rule 8 asks for.
+
+            They were five differently-shaped blocks before: one legend was a
+            whole sentence, two carried no explanation at all, and one had a
+            caption above its control and a second one below it. Five fields
+            that do not look like five fields is what made this screen read as
+            a page of groups rather than one form. */}
+        <fieldset className="os-field-group os-fleet-routing-field">
           <legend>Strategy</legend>
+          <Caption>
+            How the machines that are still candidates get ordered, once the labels below have
+            narrowed them.
+          </Caption>
           <ChoiceStack
             name="fleet-strategy"
             label="Routing strategy"
@@ -143,8 +172,15 @@ export function RoutingSection() {
           />
         </fieldset>
 
-        <fieldset className="os-field-group">
-          <legend>When the chosen machine refuses before the call starts</legend>
+        {/* The legend here used to BE the question -- "When the chosen machine
+            refuses before the call starts" -- so one of five fields was named
+            with a sentence. Same question, said in the caption; the name lines
+            up with the other four. */}
+        <fieldset className="os-field-group os-fleet-routing-field">
+          <legend>Fallback</legend>
+          <Caption>
+            What to do when the machine the router chose refuses before the call has started.
+          </Caption>
           <ChoiceStack
             name="fleet-fallback"
             label="Routing fallback"
@@ -158,14 +194,14 @@ export function RoutingSection() {
           />
         </fieldset>
 
-        <fieldset className="os-field-group">
+        <fieldset className="os-field-group os-fleet-routing-field">
           <legend>Required labels</legend>
-          <p className="os-caption">
+          <Caption>
             A machine must carry all of these to be a candidate at all, on top of whatever the
             call itself requires. This narrows and never widens -- a policy cannot make a machine
             eligible for work the agent did not ask to run there. Values match exactly; there is
             no wildcard.
-          </p>
+          </Caption>
           <MapEditor
             value={draft.requireLabels}
             onChange={(requireLabels) => edit({ requireLabels })}
@@ -177,17 +213,21 @@ export function RoutingSection() {
         </fieldset>
 
         {/* THE MODEL ORDER, not a label. It answers a different question from
-            the two label editors above -- those pick a MACHINE, this picks a
-            MODEL -- so it is its own group rather than a third map. */}
-        <fieldset className="os-field-group">
+            the two label editors around it -- those pick a MACHINE, this ranks
+            the models once a machine is picked -- so it is its own field rather
+            than a third map. It is NOT the model DECISION either: which model a
+            call asks for is Settings -> Rules, and this only ranks the fleet's
+            own models after a rule has already sent the call here. */}
+        <fieldset className="os-field-group os-fleet-routing-field">
           <legend>Preferred models</legend>
-          <p className="os-caption">
+          <Caption>
             An ordered list of model ids, consulted when a policy names{" "}
             <span className="os-mono">fleet:*</span>. It ORDERS and does not filter: a model that
             is not on this list is still eligible, tried after every model that is. Leave it empty
             and the default applies -- strongest first, by parameters, then context window, then
-            model id, with a model that did not report its size sorting last.
-          </p>
+            model id, with a model that did not report its size sorting last. Fleet -&gt; Models
+            shows the ranking this produces, and which model each kind of turn would land on.
+          </Caption>
           {/* A raw textarea, as five other surfaces in this shell do. The kit
               has no multiline control yet and promoting one here would be a
               sixth caller's worth of change inside an epic about routing;
@@ -204,18 +244,14 @@ export function RoutingSection() {
             value={draft.modelPreference.join("\n")}
             onChange={(e) => edit({ modelPreference: e.target.value.split("\n") })}
           />
-          <p className="os-caption">
-            Fleet -&gt; Models shows the ranking this produces, and which model each kind of turn
-            would land on.
-          </p>
         </fieldset>
 
-        <fieldset className="os-field-group">
+        <fieldset className="os-field-group os-fleet-routing-field">
           <legend>Preferred labels</legend>
-          <p className="os-caption">
+          <Caption>
             An ordering hint, not a filter. Under labelMatch, candidates matching more of these
             sort first; under the other strategies they break ties.
-          </p>
+          </Caption>
           <MapEditor
             value={draft.preferLabels}
             onChange={(preferLabels) => edit({ preferLabels })}
