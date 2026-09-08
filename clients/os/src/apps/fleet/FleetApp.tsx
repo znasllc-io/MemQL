@@ -4,6 +4,7 @@ import { Concepts } from "@znasllc-io/memql-sdk-core/client";
 import { AppLogsSection } from "../../logs/AppLogsSection";
 import type { OsAppProps } from "../../system/registry";
 import { AppsSection } from "./apps/AppsSection";
+import { useAddMachineFlow } from "./addMachine/useAddMachineFlow";
 import { MachinesSection } from "./machines/MachinesSection";
 import { ModelsSection } from "./models/ModelsSection";
 import { RoutingSection } from "./routing/RoutingSection";
@@ -52,6 +53,13 @@ export function FleetApp({
   // parameter exists -- nothing in the shell passes one.
   const settingsStore = useMemo(() => store ?? new LocalFleetSettingsStore(), [store]);
   const [settings, setSettings] = useState<FleetSettings>(() => settingsStore.load());
+
+  // THE GUIDED INSTALL'S STATE LIVES HERE, NOT IN THE MACHINES SECTION (design
+  // record 2026-09-08-cockpit-install-wizard, D7). This component stays
+  // mounted while the section changes; the section does not. A person who
+  // clicks Routing while a download runs on their machine and comes back
+  // finds the token still on screen and the cluster still listening.
+  const addMachine = useAddMachineFlow();
 
   function update(patch: Partial<FleetSettings>) {
     const next = { ...settings, ...patch, version: 1 as const };
@@ -107,7 +115,14 @@ export function FleetApp({
   if (sectionId === "routing") return <RoutingSection />;
   if (sectionId === "workbenches") return <WorkbenchesSection />;
   if (sectionId === "apps") return <AppsSection />;
-  return <MachinesSection showRevoked={settings.showRevoked} intent={intent} consumeIntent={consumeIntent} />;
+  return (
+    <MachinesSection
+      showRevoked={settings.showRevoked}
+      flow={addMachine}
+      intent={intent}
+      consumeIntent={consumeIntent}
+    />
+  );
 }
 
 function FleetSettingsSection({

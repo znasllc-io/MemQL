@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { CallHistory } from "../routing/CallHistory";
-import { Button, Chip, Chips, Fact, Facts, Notice, Panel, Subhead } from "../../../kit";
+import { Button, Caption, Chip, Chips, CopyField, Fact, Facts, Notice, Panel, Subhead } from "../../../kit";
 import { formatFreshness, formatMoment } from "../../../kit/format";
+import { uninstallCommand, type InstallPlatform } from "../addMachine/install";
+import { roundTripSentence } from "../addMachine/flow";
 import { isWorkerOnline } from "../online";
-import { machineName, type MachineRow } from "../rows";
+import { hasRoundTrip, machineName, type MachineRow } from "../rows";
 import { HardwareGroup } from "./HardwareGroup";
 import { LabelEditor } from "./LabelEditor";
 import { ModelsGroup } from "./ModelsGroup";
@@ -47,6 +49,15 @@ export function MachineDetail({
           title={machine.lastSeenAt || undefined}
         />
         <Fact label="Online" value={online ? "yes" : "no"} />
+        {/* THE CLUSTER'S OWN ROUND TRIP (design record
+            2026-09-08-cockpit-install-wizard, D11): the last Ping the holding
+            replica sent and this machine answered. ABSENT IS "NOT MEASURED",
+            never slow -- a cockpit that predates the ping never answers one. */}
+        <Fact
+          label="Round trip"
+          value={hasRoundTrip(machine) ? roundTripSentence(machine, now) : "not measured -- this cockpit does not answer pings"}
+          title={machine.rttAt || undefined}
+        />
         <Fact label="Calls in flight" value={String(machine.activeCount)} />
         <Fact label="Registered" value={formatMoment(machine.registeredAt)} />
         <Fact label="Cockpit version" value={machine.version} mono />
@@ -93,7 +104,7 @@ export function MachineDetail({
 
       <CallHistory workerId={machine.id} machineLabel={label} />
 
-      <RevokeControl machine={machine} busy={busy} revoke={writes.revoke} />
+      <RemoveControl machine={machine} busy={busy} revoke={writes.revoke} />
 
       {writes.actionError ? (
         <Notice
@@ -255,7 +266,24 @@ function AppsGroup({ machine }: { machine: MachineRow }) {
   );
 }
 
-function RevokeControl({
+/** The uninstaller the machine's own platform takes. Anything that is not
+ *  recognisably Linux gets the macOS line, the same reading the guided
+ *  install's default makes. */
+function platformOf(machine: MachineRow): InstallPlatform {
+  return /linux/i.test(machine.os) ? "linux" : "mac";
+}
+
+// REMOVE THIS MACHINE (design record 2026-09-08-cockpit-install-wizard, D12):
+// the revoke, and the one line that takes the cockpit off the machine.
+//
+// Two halves in one act because they are one decision with two sides. The
+// cluster's half is the revoke -- the token stops working, the registration
+// stays as audit history. The machine's half is the uninstall line: without
+// it the worker on the machine keeps retrying with a dead token, its service
+// restarts it at every login, and nothing on the machine says why. So the line
+// is shown BEFORE the revoke is confirmed and stays after, on the revoked
+// row, for the person who revoked first and wondered about the machine later.
+function RemoveControl({
   machine,
   busy,
   revoke,
@@ -267,6 +295,7 @@ function RevokeControl({
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
   const label = machineName(machine);
+  const uninstall = uninstallCommand(platformOf(machine));
 
   if (machine.revokedAt) {
     return (
@@ -276,6 +305,12 @@ function RevokeControl({
           {machine.revokeReason ? ` -- ${machine.revokeReason}` : ""}. The registration row is kept
           as audit history and its credential can never be used again.
         </p>
+        <Caption>To take the cockpit off the machine as well, run this on it:</Caption>
+        <CopyField value={uninstall} label="the uninstall command" />
+        <Caption>
+          It stops the service, removes the binary and the token file, and keeps the logs; add
+          --purge to remove those too.
+        </Caption>
       </div>
     );
   }
@@ -288,19 +323,25 @@ function RevokeControl({
     return (
       <div className="os-head-actions">
         <Button tone="danger" onClick={() => setConfirming(true)}>
-          Revoke this machine
+          Remove this machine
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="os-fleet-confirm" role="group" aria-label={`Revoke ${label}`}>
+    <div className="os-fleet-confirm" role="group" aria-label={`Remove ${label}`}>
       <p className="os-fleet-confirm-line">
-        Revoke <strong>{label}</strong>? Its worker token stops working immediately and it can no
+        Remove <strong>{label}</strong>? Its worker token stops working immediately and it can no
         longer take calls. The registration stays as audit history; pairing it again means minting
         a new token.
       </p>
+      <Caption>Then, on the machine itself, this takes the cockpit off it:</Caption>
+      <CopyField value={uninstall} label="the uninstall command" />
+      <Caption>
+        It stops the service, removes the binary and the token file, and keeps the logs; add
+        --purge to remove those too.
+      </Caption>
       <label className="os-sr-only" htmlFor={`fleet-revoke-reason-${machine.id}`}>
         Reason (optional)
       </label>

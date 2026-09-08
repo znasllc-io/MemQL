@@ -18,8 +18,9 @@ const { fakeConnection, withSession } = await import("./harness");
 
 // ARRIVING FROM THE WIZARD (epic memql#5106). The first-run wizard's fleet
 // door opens Fleet at Machines with `{ addMachine: { inference: true } }`, and
-// this is the receiving half: the Add machine panel is already open when they
-// land, with "will run local models" already ticked.
+// this is the receiving half: the guided install (design record
+// 2026-09-08-cockpit-install-wizard) is already open when they land, with
+// "will run local models" already ticked.
 //
 // LANDING ON THE LIST WITH THE BUTTON STILL TO FIND is what this prevents.
 // The act a person took was "pair a machine that serves a model" -- delivering
@@ -67,11 +68,13 @@ async function open(payload: Record<string, unknown> | null) {
 }
 
 describe("Fleet, opened to add a machine", () => {
-  it("opens the Add machine panel and consumes the intent by id", async () => {
+  it("opens the guided install and consumes the intent by id", async () => {
     const { consume } = await open({ addMachine: {} });
     expect(screen.getByRole("region", { name: "Add a machine" })).toBeTruthy();
-    // The Head's control says Close, because the panel is already open.
-    expect(screen.getByRole("button", { name: "Add a machine" }).textContent).toBe("Close");
+    // The page replaced the list: its Head carries the way back, and the
+    // list's own Add control is gone with the list.
+    expect(screen.getByRole("button", { name: "Back to Machines" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
     expect(consume).toHaveBeenCalledExactlyOnceWith("intent-3");
   });
 
@@ -98,25 +101,22 @@ describe("Fleet, opened to add a machine", () => {
   // ===========================================================================
   // AN INTENT CONSUMED ONCE MUST NOT RE-ARM
   // ===========================================================================
-  // There are TWO ways to close this panel -- the Head's control and the
-  // panel's own Done -- and the pre-tick was reset by only one of them. So a
-  // person who arrived from the wizard's inference door, closed the panel from
-  // the Head and re-opened it got "will run local models" ticked again: a
-  // several-gigabyte download pre-selected by an intent that was spent minutes
-  // earlier, with nothing on screen explaining why.
-  it("does not re-tick the box when the panel is closed and re-opened", async () => {
+  // A person who arrived from the wizard's inference door, left the page and
+  // opened it again from the Head must NOT find "will run local models"
+  // ticked again: a several-gigabyte download pre-selected by an intent that
+  // was spent minutes earlier, with nothing on screen explaining why. The
+  // hook starts every flow from an empty draft unless the START says
+  // otherwise, which is what makes this hold.
+  it("does not re-tick the box when the page is left and re-opened", async () => {
     await open({ addMachine: { inference: true } });
     expect(
       (screen.getByRole("checkbox", { name: /will run local models/i }) as HTMLInputElement)
         .checked,
     ).toBe(true);
 
-    // The Head's control, which is the close a person actually reaches for
-    // while reading -- the panel's own Done is gated behind the token
-    // acknowledgement and is not available until a token has been minted.
-    const head = screen.getByRole("button", { name: "Add a machine" });
+    // Before a mint, the Head's arrow leaves at once: nothing was created.
     await act(async () => {
-      head.click();
+      screen.getByRole("button", { name: "Back to Machines" }).click();
     });
     expect(screen.queryByRole("region", { name: "Add a machine" })).toBeNull();
 

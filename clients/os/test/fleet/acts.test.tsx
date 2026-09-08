@@ -64,13 +64,12 @@ vi.mock("@znasllc-io/memql-sdk-core/identity", () => ({
 }));
 
 const { MachinesProvider } = await import("../../src/live/machines");
-const { MachinesSection } = await import("../../src/apps/fleet/machines/MachinesSection");
 const { ModelsSection } = await import("../../src/apps/fleet/models/ModelsSection");
 const { RoutingSection } = await import("../../src/apps/fleet/routing/RoutingSection");
 const { AppsSection } = await import("../../src/apps/fleet/apps/AppsSection");
 const { WorkbenchesSection } = await import("../../src/apps/fleet/workbenches/WorkbenchesSection");
 const { FleetApp } = await import("../../src/apps/fleet/FleetApp");
-const { fakeConnection, machineRow, modelPullRow, delegationPolicyRow, withSession } = await import(
+const { fakeConnection, machineRow, modelPullRow, delegationPolicyRow, withSession, MachinesWithFlow } = await import(
   "./harness"
 );
 
@@ -374,7 +373,7 @@ function mountMachines(connection: Conn) {
   render(
     withSession(
       <MachinesProvider>
-        <MachinesSection showRevoked={false} />
+        <MachinesWithFlow showRevoked={false} />
       </MachinesProvider>,
     ),
   );
@@ -399,7 +398,7 @@ const CASES: ActsCase[] = [
       await screen.findByText(MACHINE_LABEL);
     },
     acts: [
-      { name: "Add a machine", count: 1, note: "the Head toggle, before it opens the panel" },
+      { name: "Add a machine", count: 1, note: "the Head's one act, before it opens the guided install" },
       { name: "Your machines", count: 1 },
       { name: `Labels on ${MACHINE_LABEL}`, count: 1 },
     ],
@@ -411,23 +410,28 @@ const CASES: ActsCase[] = [
       mountMachines(fakeConnection({ myWorkersWithStatus: [MACHINE] }));
       await screen.findByText(MACHINE_LABEL);
       await click(screen.getByLabelText("Add a machine"));
+      // Mint is ABSENT until there is a name (interface rule 12): the engine
+      // refuses a nameless mint, so it is not offered. Typing one is what
+      // makes the act appear, and the sweep asserts both halves.
+      await type(screen.getByLabelText("What is this machine called") as HTMLInputElement, "mini");
     },
     acts: [
       {
         name: "Add a machine",
-        count: 2,
-        note: "the Head toggle AND the panel it opened -- a control and a container, not a duplicate act",
+        count: 1,
+        note: "the page's own region; the Head's act went with the list it opened over (design record 2026-09-08-cockpit-install-wizard, D1)",
       },
+      { name: "Back to Machines", count: 1 },
       { name: "What is this machine called", count: 1 },
       { name: "Operating system", count: 1 },
       { name: "Mint a token", count: 1 },
+      { name: "Cancel", count: 1, note: "always reachable while there is something to cancel (D6)" },
       { name: /^Install the computer-use build\b/, count: 1 },
       { name: /^This machine will run local models\b/, count: 1 },
       // The token half is behind a successful mint, and offering any of it
       // before one would be an act with nothing to act on.
       { name: "Copy the worker token", count: 0 },
       { name: "Copy the install command", count: 0 },
-      { name: /^I have copied the token\b/, count: 0 },
       { name: "Done", count: 0 },
     ],
   },
@@ -443,15 +447,19 @@ const CASES: ActsCase[] = [
       await settle();
     },
     acts: [
+      { name: "the worker token", count: 1, note: "the copy field itself" },
       { name: "Copy the worker token", count: 1 },
+      { name: "the install command", count: 1 },
       { name: "Copy the install command", count: 1 },
-      {
-        name: /^I have copied the token\b/,
-        count: 1,
-        note: "the acknowledgement that gates Done -- closing is when the token stops existing anywhere",
-      },
-      { name: "Done", count: 1 },
-      { name: "Mint a token", count: 1, note: "still offered; a second mint is a second credential" },
+      { name: "Cancel", count: 1, note: "the one act while the cluster listens; after a mint it asks Keep or Revoke" },
+      { name: "Back to Machines", count: 1, note: "asks the same question Cancel does" },
+      // GONE WITH THE PANEL, deliberately: the acknowledgement box that gated
+      // Done is replaced by the cancel question (D6), Done is legal only once
+      // the machine has registered, and a second mint is a second credential
+      // that this flow does not offer while the first is waiting.
+      { name: /^I have copied the token\b/, count: 0 },
+      { name: "Done", count: 0 },
+      { name: "Mint a token", count: 0 },
     ],
   },
 
@@ -481,7 +489,8 @@ const CASES: ActsCase[] = [
       { name: "Pull", count: 1 },
       { name: `Recent calls on ${MACHINE_LABEL}`, count: 1 },
       { name: "Re-read", count: 1, note: "the call history's own; telemetry is not broadcast" },
-      { name: "Revoke this machine", count: 1 },
+      { name: "Remove this machine", count: 1, note: "revoke, then the uninstall line (D12)" },
+      { name: "Copy the uninstall command", count: 0, note: "offered inside the confirm, not beside the opener" },
 
       // The scanner's four (epic memql#5146), moved here from the
       // ARRIVING_WITH_5146 list now that they exist -- which is the edit that
@@ -520,20 +529,23 @@ const CASES: ActsCase[] = [
   },
 
   {
-    what: "Machines -- the revoke confirmation",
+    what: "Machines -- the remove confirmation",
     open: async () => {
       await openMachineDetail(fakeConnection({ myWorkersWithStatus: [MACHINE] }));
-      await click(screen.getByRole("button", { name: "Revoke this machine" }));
+      await click(screen.getByRole("button", { name: "Remove this machine" }));
     },
     acts: [
       {
-        name: `Revoke ${MACHINE_LABEL}`,
-        count: 2,
-        note: "the confirm group and the danger button inside it -- both NAME the machine, which is the point",
+        name: `Remove ${MACHINE_LABEL}`,
+        count: 1,
+        note: "the confirm group NAMES the machine, which is the point",
       },
+      { name: `Revoke ${MACHINE_LABEL}`, count: 1, note: "the danger button inside it, naming it too" },
       { name: "Reason (optional)", count: 1 },
       { name: "Keep it", count: 1 },
-      { name: "Revoke this machine", count: 0, note: "replaced by the confirm, never beside it" },
+      { name: "the uninstall command", count: 1, note: "the machine's half of the act, as a copy field (D12)" },
+      { name: "Copy the uninstall command", count: 1 },
+      { name: "Remove this machine", count: 0, note: "replaced by the confirm, never beside it" },
     ],
   },
 

@@ -13223,3 +13223,186 @@ a.os-button {
   gap: 4px;
   margin: 6px 0 0;
 }
+
+/* ==========================================================================
+ * The guided cockpit install (design record 2026-09-08-cockpit-install-wizard)
+ * ==========================================================================
+ *
+ * NO NEW VISUAL IDEA, deliberately. The page is the compose reading on the
+ * Fleet: the pane and the scroll are Deployables' (`.os-deploy-pane`), the
+ * stops are the kit rail's, the bar is the kit's. What is new is only what
+ * the content needs -- a numbered list because the manual steps ARE a
+ * sequence, a rail inside a stop because the checks are stops, and a field
+ * whose only control is the copy icon at its end.
+ */
+
+/* ---- the copy field (kit CopyField, D15) ---- */
+.os-copyfield {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.os-copyfield-line {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.os-copyfield-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Room for the icon, so the last characters of a long value never sit
+   * under it. */
+  padding-right: 32px;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+.os-copyfield-input.os-mono {
+  font-size: var(--os-text-sm);
+}
+/* THE ICON IS ALWAYS THERE. CopyValue's arrives on hover because a standing
+ * icon on every line of a facts list is noise; here the icon is the field's
+ * only control and the reason the field exists. Muted until the pointer
+ * reaches it, the accent once it has copied. */
+.os-copyfield-copy {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--os-radius-xs);
+  background: transparent;
+  color: var(--os-muted);
+  cursor: pointer;
+  transition: color var(--os-duration-fast) var(--os-ease);
+}
+.os-copyfield-copy:hover {
+  color: var(--os-ink);
+}
+.os-copyfield-copy:focus-visible {
+  outline: 2px solid var(--os-accent);
+  outline-offset: 1px;
+}
+.os-copyfield-copy[data-copied] {
+  color: var(--os-accent);
+}
+.os-copyfield-note {
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-copyfield-copy {
+    transition: none;
+  }
+}
+
+/* ---- the stops' bodies ---- */
+.os-fleet-addstop {
+  gap: 10px;
+}
+.os-fleet-addstop .os-subhead {
+  margin: 4px 0 0;
+}
+/* The choice cards sit inside a rail body that is already indented, so they
+ * take the remaining width rather than the panel's. */
+.os-fleet-addstop .os-choice-stack {
+  gap: 4px;
+}
+
+/* THE MANUAL STEPS ARE NUMBERED because they are a sequence -- a terminal, a
+ * paste, a password, a dialog, a download, each after the one before, on a
+ * machine the reader is about to walk over to. The numbers are the shell's
+ * own muted figures, not a device. */
+.os-fleet-steps {
+  margin: 4px 0 0;
+  padding: 0 0 0 1.4em;
+  display: grid;
+  gap: 6px;
+  font-size: var(--os-text-sm);
+  color: var(--os-ink);
+  text-wrap: pretty;
+}
+.os-fleet-steps li::marker {
+  color: var(--os-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The usual causes, after a long wait: a plain list, because there is no
+ * order to them. */
+.os-fleet-causes {
+  margin: 0;
+  padding: 0 0 0 1.2em;
+  display: grid;
+  gap: 4px;
+  font-size: var(--os-text-sm);
+  color: var(--os-ink);
+}
+
+/* THE CHECKS ARE A RAIL INSIDE A STOP. Same marks, same states, same colours
+ * as the page's rail; tighter, because it sits in a body that is already
+ * indented by one mark. */
+.os-fleet-checks .os-rail {
+  margin: 4px 0 0;
+}
+.os-fleet-checks .os-rail-stage {
+  padding: 4px 0;
+}
+.os-fleet-repair {
+  gap: 8px;
+  margin-top: 4px;
+}
+.os-fleet-repair-act {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+/* ---- the leave question, in the bar ---- */
+.os-fleet-leave {
+  display: grid;
+  gap: 6px;
+  max-width: 78ch;
+}
+.os-fleet-leave-question {
+  margin: 0;
+}
+.os-fleet-leave .os-caption {
+  margin: 0;
+}
+
+/* ---- ask it something (D14) ---- */
+.os-fleet-askit {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0;
+}
+.os-fleet-askit-act {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+/* THE ANSWER IS CONTENT, not a notice: nothing went wrong and there is
+ * nothing to dismiss. It reads at the surface's own size, with the figure
+ * beside it in the caption voice. */
+.os-fleet-askit-answer {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--os-text-base);
+  color: var(--os-ink);
+}
+.os-fleet-askit-text {
+  padding: 4px 9px;
+  border: 1px solid var(--os-line);
+  border-radius: var(--os-radius-xs);
+  background: var(--os-raised);
+}

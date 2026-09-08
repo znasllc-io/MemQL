@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
 import { MonitorSmartphone } from "lucide-react";
 
@@ -6,7 +6,8 @@ import type { OsAppProps } from "../../../system/registry";
 import { LiveList } from "../../../live/LiveList";
 import { useMachines } from "../../../live/machines";
 import { ProvenanceDot } from "../../../kit";
-import { AddMachine } from "../addMachine/AddMachine";
+import { AddMachinePage } from "../addMachine/AddMachinePage";
+import type { AddMachineFlow } from "../addMachine/useAddMachineFlow";
 import { useLiveView } from "../../../live/liveView";
 import { formatFreshness } from "../../../kit/format";
 import { isWorkerOnline } from "../online";
@@ -18,60 +19,50 @@ import { useMachineWrites } from "./useMachineWrites";
 
 // The machines directory: every machine the caller owns, live, with the four
 // things an owner does to one -- name it, label it, revoke it, and look at
-// what it is.
+// what it is -- and the guided install that adds one (design record
+// 2026-09-08-cockpit-install-wizard, D1): a PAGE that replaces this list
+// while a flow is live, held by the Fleet app so it survives the window's own
+// navigation.
 
 export function MachinesSection({
   showRevoked,
+  flow,
   intent,
   consumeIntent,
 }: {
   showRevoked: boolean;
+  /** The guided install's state, held by FleetApp (D7). */
+  flow: AddMachineFlow;
   intent?: OsAppProps["intent"];
   consumeIntent?: OsAppProps["consumeIntent"];
 }) {
-  const { collection, count } = useMachines();
+  const { collection } = useMachines();
   const writes = useMachineWrites();
   const [openId, setOpenId] = useState("");
-  const [adding, setAdding] = useState(false);
-  // Whether the panel opens with "will run local models" already ticked. It
-  // is held HERE rather than read inside the panel because the panel is
-  // remounted by the Add/Close control, and an intent consumed once must not
-  // re-arm on the next open.
-  const [addInference, setAddInference] = useState(false);
 
-  // CLOSING ALWAYS DISARMS, through one function, because there are TWO ways to
-  // close the panel and only one of them used to reset this. The Head's control
-  // toggles `adding` directly, so after arriving from the wizard's inference
-  // door a person who closed and re-opened got "will run local models" ticked
-  // again -- a multi-gigabyte download pre-selected by an intent that was
-  // consumed once, which is exactly what the state below says must not happen.
-  const closeAddMachine = useCallback(() => {
-    setAdding(false);
-    setAddInference(false);
-  }, []);
-
-  // ARRIVING BY INTENT OPENS ADD MACHINE (epic memql#5106). The first-run
-  // wizard's fleet door sends somebody here to pair a machine that will serve
-  // a model, and landing them on a list with an "Add machine" button still to
-  // find is one step of the act left undone.
+  // ARRIVING BY INTENT OPENS THE GUIDED INSTALL (epic memql#5106). The
+  // first-run wizard's fleet door sends somebody here to pair a machine that
+  // will serve a model, and landing them on a list with an "Add machine"
+  // button still to find is one step of the act left undone.
   //
-  // CONSUMED BY ID, so acting on a stale render can never re-open the panel
+  // CONSUMED BY ID, so acting on a stale render can never re-open the page
   // somebody has since closed -- the rule every intent in this shell follows.
-  // PRESENCE OF THE OBJECT means "open the panel"; `inference` inside it is a
+  // PRESENCE OF THE OBJECT means "open the page"; `inference` inside it is a
   // separate question, so `{ addMachine: {} }` is a valid request that opens
-  // the panel with nothing pre-ticked. The shape is an OBJECT and not a
-  // boolean specifically so a merely-truthy value cannot pre-select a
+  // it with nothing pre-selected. The shape is an OBJECT and not a boolean
+  // specifically so a merely-truthy value cannot pre-select a
   // several-gigabyte download: `true`, `"yes"` and `1` are all malformed here
-  // and open nothing.
+  // and open nothing. A flow already past its mint is left where it is: the
+  // hook's start() refuses to throw a live credential away.
   const request = intent?.payload["addMachine"];
   const wants = typeof request === "object" && request !== null && !Array.isArray(request);
   const presetInference = wants && (request as { inference?: unknown }).inference === true;
+  const start = flow.start;
   useEffect(() => {
     if (!intent || !wants) return;
-    setAdding(true);
-    setAddInference(presetInference);
+    start({ inference: presetInference });
     consumeIntent?.(intent.id);
-  }, [intent, wants, presetInference, consumeIntent]);
+  }, [intent, wants, presetInference, consumeIntent, start]);
   // ONE clock for the section, ticking at the heartbeat cadence. Every
   // freshness reading and every online dot resolves against the same instant,
   // so two rows cannot disagree about what "now" is -- and a machine going
@@ -88,29 +79,27 @@ export function MachinesSection({
     return showRevoked ? machines : machines.filter((m) => !isRevoked(m));
   });
 
+  // THE PAGE REPLACES THE LIST (interface rule 11). Two Heads in one scroller
+  // is the tell that neither a page nor a list happened; the guided install
+  // takes the whole section and hands back to the list through its own bar.
+  if (flow.active) {
+    return (
+      <AddMachinePage
+        flow={flow}
+        onLeave={(openMachineId) => {
+          if (openMachineId !== "") setOpenId(openMachineId);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="os-fleet">
       <Head title="Machines">
-        <Button
-          tone={adding ? "quiet" : "primary"}
-          // NOT a bare toggle: closing has to go through closeAddMachine, or
-          // this path leaves the pre-tick armed for the next open. It is the
-          // close a person actually reaches for while reading -- the panel's
-          // own Done sits behind the token acknowledgement.
-          onClick={() => (adding ? closeAddMachine() : setAdding(true))}
-          ariaLabel="Add a machine"
-        >
-          {adding ? "Close" : "Add machine"}
+        <Button tone="primary" onClick={() => flow.start({})} ariaLabel="Add a machine">
+          Add machine
         </Button>
       </Head>
-
-      {adding ? (
-        <AddMachine
-          machineCount={count}
-          presetInference={addInference}
-          onClose={closeAddMachine}
-        />
-      ) : null}
 
       {/* Keyed on the filter so flipping the toggle RE-BASELINES the arrival
           cues. Without it, revealing revoked rows makes them flash "new" on

@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { vi } from "vitest";
 import { Result, type Row } from "@znasllc-io/memql-sdk-core/client";
 
+import { useAddMachineFlow } from "../../src/apps/fleet/addMachine/useAddMachineFlow";
+import { MachinesSection } from "../../src/apps/fleet/machines/MachinesSection";
 import { SessionProvider } from "../../src/chrome/access";
 import { UNKNOWN_RUNTIME_CONFIG, type OsRuntimeConfig } from "../../src/cluster/config";
 
@@ -163,6 +165,27 @@ export function fakeConnection(seed: Partial<Record<keyof FakeQuery, Row[]>> = {
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },
   };
+}
+
+/**
+ * The Machines section as FleetApp mounts it: the guided install's flow is
+ * held ABOVE the section (design record 2026-09-08-cockpit-install-wizard,
+ * D7), so a suite mounting the section alone has to hold it the same way.
+ * Must sit inside a MachinesProvider and a session.
+ */
+export function MachinesWithFlow({
+  showRevoked = false,
+  intent,
+  consumeIntent,
+}: {
+  showRevoked?: boolean;
+  intent?: { id: string; payload: Record<string, unknown> };
+  consumeIntent?: (intentId: string) => void;
+}) {
+  const flow = useAddMachineFlow();
+  return (
+    <MachinesSection showRevoked={showRevoked} flow={flow} intent={intent} consumeIntent={consumeIntent} />
+  );
 }
 
 export function withSession(

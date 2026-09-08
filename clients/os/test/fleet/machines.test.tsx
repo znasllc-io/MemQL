@@ -13,8 +13,7 @@ vi.mock("../../src/live/connection", () => ({
 }));
 
 const { MachinesProvider } = await import("../../src/live/machines");
-const { MachinesSection } = await import("../../src/apps/fleet/machines/MachinesSection");
-const { fakeConnection, machineRow, withSession } = await import("./harness");
+const { fakeConnection, machineRow, MachinesWithFlow, withSession } = await import("./harness");
 
 type Conn = ReturnType<typeof fakeConnection>;
 
@@ -23,7 +22,7 @@ function mount(connection: Conn, showRevoked = false) {
   return render(
     withSession(
       <MachinesProvider>
-        <MachinesSection showRevoked={showRevoked} />
+        <MachinesWithFlow showRevoked={showRevoked} />
       </MachinesProvider>,
     ),
   );
@@ -170,10 +169,13 @@ describe("the machines directory", () => {
     mount(connection);
     await click(await screen.findByText("Studio mini"));
 
-    await click(screen.getByRole("button", { name: "Revoke this machine" }));
+    await click(screen.getByRole("button", { name: "Remove this machine" }));
     // Nothing has been written yet -- the confirm is a step, not a label.
     expect(connection.query.revokeWorker).not.toHaveBeenCalled();
-    expect(screen.getByRole("group", { name: "Revoke Studio mini" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Remove Studio mini" })).toBeTruthy();
+    // The machine's half of the act is right there: the uninstall line for
+    // its platform (design record 2026-09-08-cockpit-install-wizard, D12).
+    expect((screen.getByLabelText("the uninstall command") as HTMLInputElement).value).toContain("uninstall-mac.sh");
 
     await type(screen.getByLabelText("Reason (optional)") as HTMLInputElement, "returned it");
     await click(screen.getByRole("button", { name: "Revoke Studio mini" }));
