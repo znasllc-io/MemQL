@@ -442,27 +442,68 @@ cockpit predating the message looks like (its dispatcher ignores the `Ping`). Th
 OS shows "round trip 12 ms, checked 40 s ago" beside the heartbeat, and shows
 nothing as a number while the pair is absent.
 
-### 5.5 Pairing a machine from the portal
+### 5.5 Pairing a machine from MemQL OS: the guided install
 
-`/fleet/machines` -> **Add a machine**. It mints a worker token over
-`CreateWorkerTokenMsg` on the connection's own credential, shows the plain
-`mql_wkr_...` value **once**, and renders the install one-liner for macOS or
-Linux with the token and cluster URL filled in. Only the SHA-256 hash persists,
-so a lost token is replaced rather than looked up -- there is no lookup, and the
-value is deliberately never written to browser storage or a URL.
+Fleet -> Machines -> **Add machine** replaces the list with a page (design
+record `docs/superpowers/specs/2026-09-08-cockpit-install-wizard-design.md`):
+four stops on the same rail the compose flow and the first-run card use, and
+one action bar carrying the state and the acts legal from it.
 
-The panel reports success by watching the machine POPULATION grow (a
-`v1:worker:registration` the cluster wrote), not by the mint succeeding: a
-minted token proves nothing about the machine, whose install can fail or whose
-cluster URL can be wrong. It counts rather than matching by name, because the
-token's name is what the operator typed here and the registration's is the
-cockpit's hostname, so the two are routinely different and a name match would
-report failure on a success.
+1. **This machine** -- a name, the operating system, and two choices: the
+   computer-use build and local models. Mint is the bar's forward act and is
+   absent until there is a name; Cancel leaves with nothing created.
+2. **Install** -- the plain `mql_wkr_...` token, shown ONCE (only its SHA-256
+   hash persists; it is never written to browser storage or a URL, and it goes
+   with the window), the one-line install command for that platform with the
+   token and `https://api.<domain>` filled in, and the manual steps in the
+   order they happen on the machine: a terminal, the paste, the password
+   prompt, on macOS the two permission dialogs, the download. When local
+   models were asked for, the second command -- `memql worker setup
+   --inference`, run once the installer prints SUCCESS -- is stated up front,
+   because the one-liner cannot approve a runtime install unattended. Every
+   value is a field whose only control is the copy icon at its end.
+3. **Connect** -- the cluster listens. Success is the registration whose
+   `identityId` is the identity the mint returned, MATCHED and never counted:
+   two people adding machines at once, or another machine of yours
+   reconnecting, grows the population with the wrong machine, and a machine
+   revoked elsewhere shrinks it and hides a real arrival. While it waits,
+   Install is the person's stop and Connect is the cluster's, and the rail
+   draws both lit. On arrival the name typed first is put on the machine
+   (`displayName`), once; the hostname stays the cockpit's.
+4. **Checks** -- online and steady (two heartbeats past the registration, the
+   online window, with the cluster's own round trip beside it once measured,
+   section 5.4); the build that registered against the one asked for; on a
+   computer-use Mac, Accessibility and Screen Recording from the registration's
+   `permissions`, with the repair and `memql worker setup` when one is missing
+   (the worker re-registers on reconnect and the check settles); on Linux, a
+   Wayland session is skipped with the installer's own sentence, never failed;
+   when local models were asked for, the runtime (else the setup command) and
+   the models -- **Pull the recommended models** once a runtime is reported,
+   the pulls drawn live, and **Ask it something** once a model is served: one
+   chat pinned to `fleet:<modelId>` through the router, answered on the same
+   stream the cockpit holds open, with the time it took.
 
-The portal cannot drive identity's `POST /pair/codes` flow: that endpoint
-authenticates with `Authorization: Bearer <access token>` and the portal
-deliberately has no way to read the token it holds. `memql worker pair`
-stays the right shape for a machine that can redeem a short code interactively.
+Cancel is reachable while there is something to cancel. After a mint it asks
+which of two things: **keep the token** (an install already running will still
+finish and the machine appears in Machines by itself) or **revoke it**
+(`RevokeWorkerTokenMsg` on the minted identity, because a credential nobody
+will use should not stay live), with the uninstall line beside the question
+for a person who already ran the install. Once the machine has connected there
+is nothing to cancel: the acts are **Open <machine>** and **Done**, and Done is
+primary only when every check has settled. The flow's state is held by the
+Fleet app, so leaving for Routing and coming back finds it where it was.
+
+The OS still cannot drive identity's `POST /pair/codes` flow: that endpoint
+authenticates with `Authorization: Bearer <access token>` and the OS
+deliberately has no way to read the token it holds. `memql worker pair` stays
+the right shape for a machine that can redeem a short code interactively.
+
+**Removing a machine** is the same act in reverse, on the machine's page:
+**Remove this machine** revokes the registration (the row stays as audit
+history) and shows the uninstall one-liner for its platform --
+`scripts/install/uninstall-{mac,linux}.sh` in the cockpit repository, which
+stops and removes the service, the binary and `worker.yaml`, and keeps the
+logs unless `--purge` is passed.
 
 ### 5.6 The cross-node forward (memql#4352)
 

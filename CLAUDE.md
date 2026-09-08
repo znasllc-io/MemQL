@@ -415,6 +415,7 @@ and `scripts/identity/build-css.sh` all branch on `darwin`/`linux`.
 ```
 Front door (TLS 443) -> bff gRPC :50051 (h2c)
                      -> bff-http :8085 (the documented HTTP exceptions)
+                     -> agent gRPC :50051 for WorkerService only (the cockpit's stream)
    |
    MemQL Engine  <-  Automations System  <-  Functions System
    |
@@ -1022,9 +1023,21 @@ first-choice surface for headless work is the Workbench, below.
   for the owner named by the token's identity row -- and must NOT stamp internal
   origin, which is why it is deliberately absent from `call_origin.go`'s
   allowlist.
-- **Operator surface:** the Fleet app in MemQL OS -- pair, rename
-  (`displayName`), edit operator labels, revoke, edit the routing policy, read
-  each call's `routing` record.
+- **Operator surface:** the Fleet app in MemQL OS -- the guided install
+  (a page over the kit rail: mint, install, connect, checks; the registration
+  MATCHED by the mint's identity, never counted; design record
+  `docs/superpowers/specs/2026-09-08-cockpit-install-wizard-design.md`),
+  rename (`displayName`), edit operator labels, remove (revoke plus the
+  uninstall one-liner), edit the routing policy, read each call's `routing`
+  record.
+- **The worker stream reaches the agent by its service prefix** (memql#5224).
+  `WorkerService` is served by the agent and by nothing else, and the api
+  front door routed every gRPC call to the bff -- so until that fix no cockpit
+  dialling the documented `https://api.<domain>` ever registered, locally or
+  in the cloud. The rule is `component/frontdoor.WorkerServicePath` ->
+  `svc/agent:50051`, above the catch-all in both overlays and on every
+  account api host, gated by render tests; the agent Service carries the
+  same h2c annotation the bff's does.
 - **Audit + hardening:** security signals on `v1:identity:auditEvent`; per-call
   telemetry on `v1:worker:invocation` (`WORKER_INVOCATION_RETENTION_DAYS`
   default 90); per-call rlimits on Linux + Darwin via `policy.shell.max_*`;
