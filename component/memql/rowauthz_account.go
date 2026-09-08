@@ -280,6 +280,13 @@ func (e *MemQLEngine) accountIdsForActor(ctx context.Context, userId string) []s
 	return accountIdsForActiveGroups(ctx, db, groupIds)
 }
 
+// staged-data: MUST-NOT-GATE -- an AUTHORIZATION read, and gating it produces
+// a false DENIAL rather than a false disclosure. A staged membership row hidden
+// here does not leak anything; it removes a grant the operator believes they
+// made, which presents as "I cannot see my client's work" and reads as a
+// membership problem rather than a staging one. The read is not a disclosure
+// surface -- it is what CREATES the grant.
+//
 // activeGroupIdsForUser collapses v1:identity:groupMembership to the newest
 // version per id -- the `DISTINCT ON (id)` principalRoles performs, and for
 // the same reason: MemQL rows are append-only, so removing somebody writes a
@@ -326,6 +333,12 @@ func activeGroupIdsForUser(ctx context.Context, db *bun.DB, userId string) []str
 	return out
 }
 
+// staged-data: MUST-NOT-GATE -- the second half of the same authorization
+// read, and the same verdict for the same reason. Worse here, in fact: hiding a
+// staged GROUP silently drops every membership pointing at it, so a whole
+// client's people lose their access at once rather than one person losing
+// theirs.
+//
 // accountIdsForActiveGroups reads the named groups and returns the non-empty
 // accountId of each ACTIVE one.
 //

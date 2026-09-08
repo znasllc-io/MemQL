@@ -36,6 +36,7 @@ export interface AddRecipientArgs {
   displayName?: string;
   fields?: Record<string, unknown>;
   source?: string;
+  accountId?: string;
 }
 
 export function buildAddRecipient(args: AddRecipientArgs): string {
@@ -46,6 +47,7 @@ export function buildAddRecipient(args: AddRecipientArgs): string {
   if (args.displayName !== undefined) parts.push("displayName: " + renderMemQLValue(args.displayName));
   if (args.fields !== undefined) parts.push("fields: " + renderMemQLValue(args.fields));
   if (args.source !== undefined) parts.push("source: " + renderMemQLValue(args.source));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
   return "mutation addRecipient(" + parts.join(", ") + ")";
 }
 
@@ -1337,7 +1339,7 @@ export interface CreateAuditEventArgs {
   actorEmail?: string;
   actorRole?: string;
   actorIdentityId?: string;
-  // Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant
+  // Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant | group | groupMembership
   targetType?: string;
   targetId?: string;
   targetEmail?: string;
@@ -3502,7 +3504,6 @@ export interface CreateUserArgs {
   primaryEmail: string;
   // Enum: owner | admin | developer | writer | reader
   role?: string;
-  groupIds?: Record<string, unknown>;
   preferences?: Record<string, unknown>;
 }
 
@@ -3512,7 +3513,6 @@ export function buildCreateUser(args: CreateUserArgs): string {
   parts.push("displayName: " + renderMemQLValue(args.displayName));
   parts.push("primaryEmail: " + renderMemQLValue(args.primaryEmail));
   if (args.role !== undefined) parts.push("role: " + renderMemQLValue(args.role));
-  if (args.groupIds !== undefined) parts.push("groupIds: " + renderMemQLValue(args.groupIds));
   if (args.preferences !== undefined) parts.push("preferences: " + renderMemQLValue(args.preferences));
   return "mutation createUser(" + parts.join(", ") + ")";
 }
@@ -3543,7 +3543,6 @@ export interface CreateUserOnFirstLoginArgs {
   role?: string;
   internal: boolean;
   sharedMailbox?: boolean;
-  groupIds?: Record<string, unknown>;
   preferences?: Record<string, unknown>;
 }
 
@@ -3561,7 +3560,6 @@ export function buildCreateUserOnFirstLogin(args: CreateUserOnFirstLoginArgs): s
   if (args.role !== undefined) parts.push("role: " + renderMemQLValue(args.role));
   parts.push("internal: " + renderMemQLValue(args.internal));
   if (args.sharedMailbox !== undefined) parts.push("sharedMailbox: " + renderMemQLValue(args.sharedMailbox));
-  if (args.groupIds !== undefined) parts.push("groupIds: " + renderMemQLValue(args.groupIds));
   if (args.preferences !== undefined) parts.push("preferences: " + renderMemQLValue(args.preferences));
   return "mutation createUserOnFirstLogin(" + parts.join(", ") + ")";
 }
@@ -4027,6 +4025,7 @@ clusterOwner tier, so no actor and no owner stamp: these rows have no owner, and
 export interface EnqueueCampaignSendArgs {
   campaignId: string;
   campaignOwnerUserId: string;
+  campaignAccountId?: string;
   audienceId: string;
   templateId: string;
   status?: string;
@@ -4037,6 +4036,7 @@ export function buildEnqueueCampaignSend(args: EnqueueCampaignSendArgs): string 
   const parts: string[] = [];
   parts.push("campaignId: " + renderMemQLValue(args.campaignId));
   parts.push("campaignOwnerUserId: " + renderMemQLValue(args.campaignOwnerUserId));
+  if (args.campaignAccountId !== undefined) parts.push("campaignAccountId: " + renderMemQLValue(args.campaignAccountId));
   parts.push("audienceId: " + renderMemQLValue(args.audienceId));
   parts.push("templateId: " + renderMemQLValue(args.templateId));
   if (args.status !== undefined) parts.push("status: " + renderMemQLValue(args.status));
@@ -4745,6 +4745,7 @@ export interface RecordConsentBounceArgs {
   occurredAt?: string;
   recipientId?: string;
   campaignId?: string;
+  accountId?: string;
 }
 
 export function buildRecordConsentBounce(args: RecordConsentBounceArgs): string {
@@ -4755,6 +4756,7 @@ export function buildRecordConsentBounce(args: RecordConsentBounceArgs): string 
   if (args.occurredAt !== undefined) parts.push("occurredAt: " + renderMemQLValue(args.occurredAt));
   if (args.recipientId !== undefined) parts.push("recipientId: " + renderMemQLValue(args.recipientId));
   if (args.campaignId !== undefined) parts.push("campaignId: " + renderMemQLValue(args.campaignId));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
   return "mutation recordConsentBounce(" + parts.join(", ") + ")";
 }
 
@@ -4777,6 +4779,7 @@ export interface RecordConsentComplaintArgs {
   occurredAt?: string;
   recipientId?: string;
   campaignId?: string;
+  accountId?: string;
 }
 
 export function buildRecordConsentComplaint(args: RecordConsentComplaintArgs): string {
@@ -4787,6 +4790,7 @@ export function buildRecordConsentComplaint(args: RecordConsentComplaintArgs): s
   if (args.occurredAt !== undefined) parts.push("occurredAt: " + renderMemQLValue(args.occurredAt));
   if (args.recipientId !== undefined) parts.push("recipientId: " + renderMemQLValue(args.recipientId));
   if (args.campaignId !== undefined) parts.push("campaignId: " + renderMemQLValue(args.campaignId));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
   return "mutation recordConsentComplaint(" + parts.join(", ") + ")";
 }
 
@@ -4809,6 +4813,7 @@ export interface RecordConsentGrantArgs {
   occurredAt?: string;
   recipientId?: string;
   campaignId?: string;
+  accountId?: string;
 }
 
 export function buildRecordConsentGrant(args: RecordConsentGrantArgs): string {
@@ -4819,6 +4824,7 @@ export function buildRecordConsentGrant(args: RecordConsentGrantArgs): string {
   if (args.occurredAt !== undefined) parts.push("occurredAt: " + renderMemQLValue(args.occurredAt));
   if (args.recipientId !== undefined) parts.push("recipientId: " + renderMemQLValue(args.recipientId));
   if (args.campaignId !== undefined) parts.push("campaignId: " + renderMemQLValue(args.campaignId));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
   return "mutation recordConsentGrant(" + parts.join(", ") + ")";
 }
 
@@ -4842,6 +4848,7 @@ export interface RecordConsentSuppressArgs {
   occurredAt?: string;
   recipientId?: string;
   campaignId?: string;
+  accountId?: string;
 }
 
 export function buildRecordConsentSuppress(args: RecordConsentSuppressArgs): string {
@@ -4853,6 +4860,7 @@ export function buildRecordConsentSuppress(args: RecordConsentSuppressArgs): str
   if (args.occurredAt !== undefined) parts.push("occurredAt: " + renderMemQLValue(args.occurredAt));
   if (args.recipientId !== undefined) parts.push("recipientId: " + renderMemQLValue(args.recipientId));
   if (args.campaignId !== undefined) parts.push("campaignId: " + renderMemQLValue(args.campaignId));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
   return "mutation recordConsentSuppress(" + parts.join(", ") + ")";
 }
 
@@ -4875,6 +4883,7 @@ export interface RecordConsentWithdrawArgs {
   occurredAt?: string;
   recipientId?: string;
   campaignId?: string;
+  accountId?: string;
 }
 
 export function buildRecordConsentWithdraw(args: RecordConsentWithdrawArgs): string {
@@ -4885,6 +4894,7 @@ export function buildRecordConsentWithdraw(args: RecordConsentWithdrawArgs): str
   if (args.occurredAt !== undefined) parts.push("occurredAt: " + renderMemQLValue(args.occurredAt));
   if (args.recipientId !== undefined) parts.push("recipientId: " + renderMemQLValue(args.recipientId));
   if (args.campaignId !== undefined) parts.push("campaignId: " + renderMemQLValue(args.campaignId));
+  if (args.accountId !== undefined) parts.push("accountId: " + renderMemQLValue(args.accountId));
   return "mutation recordConsentWithdraw(" + parts.join(", ") + ")";
 }
 

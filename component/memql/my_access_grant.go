@@ -101,6 +101,11 @@ func (e *MemQLEngine) ResolveAccessGrant(ctx context.Context) AccessGrant {
 	return out
 }
 
+// staged-data: MUST-NOT-GATE -- it must AGREE with the row gate, which does
+// not gate either. A staged group hidden here but admitted there tells a client
+// it belongs to fewer groups than its own reads will return, which is the one
+// disagreement this whole function exists to prevent.
+//
 // accessGrantGroups reads the caller's active memberships and the groups they
 // name, with each group's account name folded in.
 func (e *MemQLEngine) accessGrantGroups(ctx context.Context, userId string) []AccessGrantGroup {
@@ -170,6 +175,11 @@ func (e *MemQLEngine) accessGrantGroups(ctx context.Context, userId string) []Ac
 	return out
 }
 
+// staged-data: MUST-NOT-GATE -- gating buys no privacy and costs a label. The
+// caller's membership already grants them that account's ROWS, so withholding
+// its NAME shows them a group they demonstrably belong to labelled with an
+// account id and nothing else.
+//
 // accountNames resolves display names for the accounts a caller's groups name.
 //
 // ONE READ for the whole set rather than one per group: a person is in a

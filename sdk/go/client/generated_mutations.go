@@ -46,6 +46,7 @@ type AddRecipientArgs struct {
 	DisplayName string
 	Fields      map[string]any
 	Source      string
+	AccountId   string
 }
 
 // AddRecipient calls the engine mutation addRecipient.
@@ -89,6 +90,13 @@ func AddRecipientBuild(args AddRecipientArgs) string {
 		}
 		b.WriteString("source: ")
 		b.WriteString(quoteMemQL(args.Source))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 22 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
 	}
 	b.WriteString(")")
 	return b.String()
@@ -2081,7 +2089,7 @@ type CreateAuditEventArgs struct {
 	ActorEmail      string
 	ActorRole       string
 	ActorIdentityId string
-	// Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant
+	// Enum: user | session | identity | invitation | accessRequest | config | magicLinkRequest | authCode | clusterSettings | deviceCode | delegation | workerPairingCode | enrolmentToken | passkeyIdentity | badgeIdentity | appSession | shopifyStore | releaseCut | oauthClient | upstreamIdentity | rowOwnership | githubGrant | group | groupMembership
 	TargetType    string
 	TargetId      string
 	TargetEmail   string
@@ -6589,7 +6597,6 @@ type CreateUserArgs struct {
 	PrimaryEmail string
 	// Enum: owner | admin | developer | writer | reader
 	Role        string
-	GroupIds    map[string]any
 	Preferences map[string]any
 }
 
@@ -6621,13 +6628,6 @@ func CreateUserBuild(args CreateUserArgs) string {
 		b.WriteString("role: ")
 		b.WriteString(quoteMemQL(args.Role))
 	}
-	if args.GroupIds != nil {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("groupIds: ")
-		b.WriteString(renderMemQLValue(args.GroupIds))
-	}
 	if args.Preferences != nil {
 		if b.Len() > 20 {
 			b.WriteString(", ")
@@ -6657,7 +6657,6 @@ type CreateUserOnFirstLoginArgs struct {
 	Internal         bool
 	SharedMailbox    bool
 	SharedMailboxSet bool // set true to send sharedMailbox; required because zero-value bool is ambiguous
-	GroupIds         map[string]any
 	Preferences      map[string]any
 }
 
@@ -6742,13 +6741,6 @@ func CreateUserOnFirstLoginBuild(args CreateUserOnFirstLoginArgs) string {
 		}
 		b.WriteString("sharedMailbox: ")
 		b.WriteString(fmt.Sprintf("%v", args.SharedMailbox))
-	}
-	if args.GroupIds != nil {
-		if b.Len() > 32 {
-			b.WriteString(", ")
-		}
-		b.WriteString("groupIds: ")
-		b.WriteString(renderMemQLValue(args.GroupIds))
 	}
 	if args.Preferences != nil {
 		if b.Len() > 32 {
@@ -7481,6 +7473,7 @@ func EnablePackageDeployablesBuild(args EnablePackageDeployablesArgs) string {
 type EnqueueCampaignSendArgs struct {
 	CampaignId          string
 	CampaignOwnerUserId string
+	CampaignAccountId   string
 	AudienceId          string
 	TemplateId          string
 	Status              string
@@ -7503,6 +7496,13 @@ func EnqueueCampaignSendBuild(args EnqueueCampaignSendArgs) string {
 	}
 	b.WriteString("campaignOwnerUserId: ")
 	b.WriteString(quoteMemQL(args.CampaignOwnerUserId))
+	if args.CampaignAccountId != "" {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("campaignAccountId: ")
+		b.WriteString(quoteMemQL(args.CampaignAccountId))
+	}
 	if b.Len() > 29 {
 		b.WriteString(", ")
 	}
@@ -8765,6 +8765,7 @@ type RecordConsentBounceArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentBounce calls the engine mutation recordConsentBounce.
@@ -8807,6 +8808,13 @@ func RecordConsentBounceBuild(args RecordConsentBounceArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8821,6 +8829,7 @@ type RecordConsentComplaintArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentComplaint calls the engine mutation recordConsentComplaint.
@@ -8863,6 +8872,13 @@ func RecordConsentComplaintBuild(args RecordConsentComplaintArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 32 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8877,6 +8893,7 @@ type RecordConsentGrantArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentGrant calls the engine mutation recordConsentGrant.
@@ -8919,6 +8936,13 @@ func RecordConsentGrantBuild(args RecordConsentGrantArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 28 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8934,6 +8958,7 @@ type RecordConsentSuppressArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentSuppress calls the engine mutation recordConsentSuppress.
@@ -8981,6 +9006,13 @@ func RecordConsentSuppressBuild(args RecordConsentSuppressArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 31 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8995,6 +9027,7 @@ type RecordConsentWithdrawArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentWithdraw calls the engine mutation recordConsentWithdraw.
@@ -9036,6 +9069,13 @@ func RecordConsentWithdrawBuild(args RecordConsentWithdrawArgs) string {
 		}
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 31 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
 	}
 	b.WriteString(")")
 	return b.String()

@@ -407,24 +407,6 @@ func ActiveDelegationsForAgentBuild(args ActiveDelegationsForAgentArgs) string {
 	return b.String()
 }
 
-// ActiveEmbedderBinding -- The cluster's active embedder.
-// ONE ROW, AT A LITERAL ID, so this reads by id rather than by a filter that could return two (memql#5137, D6). A query that answered "which embedder is active" with a list would have no way to choose, and the caller would pick the first -- which is map order wearing a query's name.
-//
-// Bound concept: v1:platform:embedderBinding (machine-readable: BoundConcepts["activeEmbedderBinding"] in generated_concepts.go).
-type ActiveEmbedderBindingArgs struct {
-}
-
-// ActiveEmbedderBinding calls the engine query activeEmbedderBinding.
-func (qc *QueryClient) ActiveEmbedderBinding(ctx context.Context, args ActiveEmbedderBindingArgs) (*Result, error) {
-	call := ActiveEmbedderBindingBuild(args)
-	return qc.executeNamed(ctx, "activeEmbedderBinding", call)
-}
-
-func ActiveEmbedderBindingBuild(args ActiveEmbedderBindingArgs) string {
-	_ = args
-	return "query activeEmbedderBinding()"
-}
-
 // ActiveProjects -- List active v1:forge:project rows.
 //
 // Bound concept: v1:forge:project (machine-readable: BoundConcepts["activeProjects"] in generated_concepts.go).
@@ -3386,6 +3368,106 @@ func GlobalVariablesBuild(args GlobalVariablesArgs) string {
 	return b.String()
 }
 
+// GroupById -- One group by id, for its page.
+//
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupById"] in generated_concepts.go).
+type GroupByIdArgs struct {
+	GroupId string
+}
+
+// GroupById calls the engine query groupById.
+func (qc *QueryClient) GroupById(ctx context.Context, args GroupByIdArgs) (*Result, error) {
+	call := GroupByIdBuild(args)
+	return qc.executeNamed(ctx, "groupById", call)
+}
+
+func GroupByIdBuild(args GroupByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupById(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupsAll -- Every group in the cluster, for the Users app's Groups section.
+//
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupsAll"] in generated_concepts.go).
+type GroupsAllArgs struct {
+	IncludeArchived    bool
+	IncludeArchivedSet bool // set true to send includeArchived; required because zero-value bool is ambiguous
+}
+
+// GroupsAll calls the engine query groupsAll.
+func (qc *QueryClient) GroupsAll(ctx context.Context, args GroupsAllArgs) (*Result, error) {
+	call := GroupsAllBuild(args)
+	return qc.executeNamed(ctx, "groupsAll", call)
+}
+
+func GroupsAllBuild(args GroupsAllArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupsAll(")
+	if args.IncludeArchivedSet {
+		b.WriteString("includeArchived: ")
+		b.WriteString(fmt.Sprintf("%v", args.IncludeArchived))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupsForAccount -- The groups tied to one account -- the Accounts ledger's People band.
+//
+// Bound concept: v1:identity:group (machine-readable: BoundConcepts["groupsForAccount"] in generated_concepts.go).
+type GroupsForAccountArgs struct {
+	AccountId string
+}
+
+// GroupsForAccount calls the engine query groupsForAccount.
+func (qc *QueryClient) GroupsForAccount(ctx context.Context, args GroupsForAccountArgs) (*Result, error) {
+	call := GroupsForAccountBuild(args)
+	return qc.executeNamed(ctx, "groupsForAccount", call)
+}
+
+func GroupsForAccountBuild(args GroupsForAccountArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupsForAccount(")
+	b.WriteString("accountId: ")
+	b.WriteString(quoteMemQL(args.AccountId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// GroupsForUser -- The membership rows of one person, for their page in the Users app.
+//
+// Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["groupsForUser"] in generated_concepts.go).
+type GroupsForUserArgs struct {
+	UserId            string
+	IncludeRemoved    bool
+	IncludeRemovedSet bool // set true to send includeRemoved; required because zero-value bool is ambiguous
+}
+
+// GroupsForUser calls the engine query groupsForUser.
+func (qc *QueryClient) GroupsForUser(ctx context.Context, args GroupsForUserArgs) (*Result, error) {
+	call := GroupsForUserBuild(args)
+	return qc.executeNamed(ctx, "groupsForUser", call)
+}
+
+func GroupsForUserBuild(args GroupsForUserArgs) string {
+	var b strings.Builder
+	b.WriteString("query groupsForUser(")
+	b.WriteString("userId: ")
+	b.WriteString(quoteMemQL(args.UserId))
+	if args.IncludeRemovedSet {
+		if b.Len() > 20 {
+			b.WriteString(", ")
+		}
+		b.WriteString("includeRemoved: ")
+		b.WriteString(fmt.Sprintf("%v", args.IncludeRemoved))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // HostedBookings -- The host's bookings, newest first. Owned. Projects @pii bookerEmail, so the caller constraint is load-bearing.
 //
 // Bound concept: v1:calendar:booking (machine-readable: BoundConcepts["hostedBookings"] in generated_concepts.go).
@@ -4175,67 +4257,33 @@ func MagicLinkRequestByTokenHashBuild(args MagicLinkRequestByTokenHashArgs) stri
 	return b.String()
 }
 
-// MeasurementsForCaller -- Every measurement the caller may see, newest first (epic memql#5146, D4).
-// The read the LIVE CATALOG makes, so the measured ordering and the page read one fact rather than two. Two readers of "which model is strongest" would disagree eventually, and the disagreement would be invisible, because both answers are plausible.
-// UNFILTERED BEYOND THE TIER, deliberately. The concept's own tier decides what comes back -- a plain user sees their own machines' figures, a cluster owner sees the fleet's -- and narrowing further here would be a second implementation of a decision the declaration already made.
+// MembersOfGroup -- The membership rows of one group. Removed members are history and are excluded unless asked for -- the row stays, because who left and when is the question the versions exist to answer.
 //
-// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForCaller"] in generated_concepts.go).
-type MeasurementsForCallerArgs struct {
+// Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["membersOfGroup"] in generated_concepts.go).
+type MembersOfGroupArgs struct {
+	GroupId           string
+	IncludeRemoved    bool
+	IncludeRemovedSet bool // set true to send includeRemoved; required because zero-value bool is ambiguous
 }
 
-// MeasurementsForCaller calls the engine query measurementsForCaller.
-func (qc *QueryClient) MeasurementsForCaller(ctx context.Context, args MeasurementsForCallerArgs) (*Result, error) {
-	call := MeasurementsForCallerBuild(args)
-	return qc.executeNamed(ctx, "measurementsForCaller", call)
+// MembersOfGroup calls the engine query membersOfGroup.
+func (qc *QueryClient) MembersOfGroup(ctx context.Context, args MembersOfGroupArgs) (*Result, error) {
+	call := MembersOfGroupBuild(args)
+	return qc.executeNamed(ctx, "membersOfGroup", call)
 }
 
-func MeasurementsForCallerBuild(args MeasurementsForCallerArgs) string {
-	_ = args
-	return "query measurementsForCaller()"
-}
-
-// MeasurementsForMachine -- Every measurement for one machine, newest first. The machine page's per-model figures.
-// KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a person reading it wants every model it has been measured on -- including the ones they have forgotten they pulled.
-//
-// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForMachine"] in generated_concepts.go).
-type MeasurementsForMachineArgs struct {
-	MachineId string
-}
-
-// MeasurementsForMachine calls the engine query measurementsForMachine.
-func (qc *QueryClient) MeasurementsForMachine(ctx context.Context, args MeasurementsForMachineArgs) (*Result, error) {
-	call := MeasurementsForMachineBuild(args)
-	return qc.executeNamed(ctx, "measurementsForMachine", call)
-}
-
-func MeasurementsForMachineBuild(args MeasurementsForMachineArgs) string {
+func MembersOfGroupBuild(args MembersOfGroupArgs) string {
 	var b strings.Builder
-	b.WriteString("query measurementsForMachine(")
-	b.WriteString("machineId: ")
-	b.WriteString(quoteMemQL(args.MachineId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// MeasurementsForModel -- Every measurement of one model across the machines the caller can read, newest first.
-// The fleet-wide half of the same question. A cluster owner sees every machine's figures for a model, which is the read that makes "this model is slow" answerable as "on which hardware".
-//
-// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForModel"] in generated_concepts.go).
-type MeasurementsForModelArgs struct {
-	ModelId string
-}
-
-// MeasurementsForModel calls the engine query measurementsForModel.
-func (qc *QueryClient) MeasurementsForModel(ctx context.Context, args MeasurementsForModelArgs) (*Result, error) {
-	call := MeasurementsForModelBuild(args)
-	return qc.executeNamed(ctx, "measurementsForModel", call)
-}
-
-func MeasurementsForModelBuild(args MeasurementsForModelArgs) string {
-	var b strings.Builder
-	b.WriteString("query measurementsForModel(")
-	b.WriteString("modelId: ")
-	b.WriteString(quoteMemQL(args.ModelId))
+	b.WriteString("query membersOfGroup(")
+	b.WriteString("groupId: ")
+	b.WriteString(quoteMemQL(args.GroupId))
+	if args.IncludeRemovedSet {
+		if b.Len() > 21 {
+			b.WriteString(", ")
+		}
+		b.WriteString("includeRemoved: ")
+		b.WriteString(fmt.Sprintf("%v", args.IncludeRemoved))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -4308,132 +4356,6 @@ func MissingCapabilityByKindAndNameBuild(args MissingCapabilityByKindAndNameArgs
 	}
 	b.WriteString("capability: ")
 	b.WriteString(quoteMemQL(args.Capability))
-	b.WriteString(")")
-	return b.String()
-}
-
-// ModelEvidenceForKey -- One model's evidence at one level for one week -- the row a fold reads before deciding whether it has already proposed, and the row a decline writes back to.
-// THE THREE ARGUMENTS ARE THE KEY. A fold that read only by model would re-propose at every level on the same evidence, and one that read only by week would collapse two models into one row.
-//
-// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["modelEvidenceForKey"] in generated_concepts.go).
-type ModelEvidenceForKeyArgs struct {
-	ModelId string
-	Level   string
-	Week    string
-}
-
-// ModelEvidenceForKey calls the engine query modelEvidenceForKey.
-func (qc *QueryClient) ModelEvidenceForKey(ctx context.Context, args ModelEvidenceForKeyArgs) (*Result, error) {
-	call := ModelEvidenceForKeyBuild(args)
-	return qc.executeNamed(ctx, "modelEvidenceForKey", call)
-}
-
-func ModelEvidenceForKeyBuild(args ModelEvidenceForKeyArgs) string {
-	var b strings.Builder
-	b.WriteString("query modelEvidenceForKey(")
-	b.WriteString("modelId: ")
-	b.WriteString(quoteMemQL(args.ModelId))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("level: ")
-	b.WriteString(quoteMemQL(args.Level))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("week: ")
-	b.WriteString(quoteMemQL(args.Week))
-	b.WriteString(")")
-	return b.String()
-}
-
-// ModelProbesForWorker -- The CALLER'S probes for one machine, newest first (epic memql#5146). Backs the machine detail's Models group: a live probe renders its case counter, and finished ones answer "when was this measured, and did it work".
-//
-// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["modelProbesForWorker"] in generated_concepts.go).
-type ModelProbesForWorkerArgs struct {
-	WorkerId string
-}
-
-// ModelProbesForWorker calls the engine query modelProbesForWorker.
-func (qc *QueryClient) ModelProbesForWorker(ctx context.Context, args ModelProbesForWorkerArgs) (*Result, error) {
-	call := ModelProbesForWorkerBuild(args)
-	return qc.executeNamed(ctx, "modelProbesForWorker", call)
-}
-
-func ModelProbesForWorkerBuild(args ModelProbesForWorkerArgs) string {
-	var b strings.Builder
-	b.WriteString("query modelProbesForWorker(")
-	b.WriteString("workerId: ")
-	b.WriteString(quoteMemQL(args.WorkerId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// ModelProfileById -- One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it.
-//
-// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfileById"] in generated_concepts.go).
-type ModelProfileByIdArgs struct {
-	ModelId string
-}
-
-// ModelProfileById calls the engine query modelProfileById.
-func (qc *QueryClient) ModelProfileById(ctx context.Context, args ModelProfileByIdArgs) (*Result, error) {
-	call := ModelProfileByIdBuild(args)
-	return qc.executeNamed(ctx, "modelProfileById", call)
-}
-
-func ModelProfileByIdBuild(args ModelProfileByIdArgs) string {
-	var b strings.Builder
-	b.WriteString("query modelProfileById(")
-	b.WriteString("modelId: ")
-	b.WriteString(quoteMemQL(args.ModelId))
-	b.WriteString(")")
-	return b.String()
-}
-
-// ModelProfiles -- The catalog, optionally narrowed.
-// Every argument is OPTIONAL and absent means "do not narrow". The Fleet models surface asks for the whole catalog and groups it client-side; a page that had to ask once per category would show nine loading states for one answer, and the set is a few dozen release-time rows.
-//
-// Bound concept: v1:models:modelProfile (machine-readable: BoundConcepts["modelProfiles"] in generated_concepts.go).
-type ModelProfilesArgs struct {
-	// Narrow to one category.
-	// Enum: text | reasoning | omni | vision | audioIn | audioOut | imageGen | videoGen | embeddings
-	Category string
-	// Narrow to one runtime.
-	// Enum: ollama | mlx | whispercpp | nemo | kokoro | mflux | comfyui
-	Runtime string
-	// Narrow to entries whose declared floor is exactly this machine class. NOT "everything a machine of this class can run" -- that is a comparison across five values, and doing it here would make the answer depend on an ordering the caller cannot see. The Fleet surface holds the machine's class and filters.
-	// Enum: 16 | 24 | 32 | 64 | 128
-	MinMachineClass string
-}
-
-// ModelProfiles calls the engine query modelProfiles.
-func (qc *QueryClient) ModelProfiles(ctx context.Context, args ModelProfilesArgs) (*Result, error) {
-	call := ModelProfilesBuild(args)
-	return qc.executeNamed(ctx, "modelProfiles", call)
-}
-
-func ModelProfilesBuild(args ModelProfilesArgs) string {
-	var b strings.Builder
-	b.WriteString("query modelProfiles(")
-	if args.Category != "" {
-		b.WriteString("category: ")
-		b.WriteString(quoteMemQL(args.Category))
-	}
-	if args.Runtime != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("runtime: ")
-		b.WriteString(quoteMemQL(args.Runtime))
-	}
-	if args.MinMachineClass != "" {
-		if b.Len() > 20 {
-			b.WriteString(", ")
-		}
-		b.WriteString("minMachineClass: ")
-		b.WriteString(quoteMemQL(args.MinMachineClass))
-	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -4795,39 +4717,6 @@ func OidcIdentityBySubjectBuild(args OidcIdentityBySubjectArgs) string {
 	}
 	b.WriteString("subject: ")
 	b.WriteString(quoteMemQL(args.Subject))
-	b.WriteString(")")
-	return b.String()
-}
-
-// OpenModelProbes -- Every probe nobody is driving, for the sweep that closes them.
-// TWO CUTOFFS, for openModelPulls' reason and with the same trap: a row still at `requested` was never picked up and is judged against when it was ASKED FOR, while a row at `running` was claimed and then lost and is judged against when it last REPORTED. One cutoff applied to both fails every ACTIVE suite older than the claim grace and then flaps, because the next case stamps `running` back on the row.
-// The stall grace must exceed the worker handle's own idle ceiling, or the row watcher gives up on a probe the runtime watcher has not -- and here the two are further apart than for a pull: a single 32K case on a modest machine can be minutes of silence that is not silence at all.
-// It reads under `actor.isClusterOwner==true` because its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL; writing the conjunct is what makes the failure loud, since stripping the principal returns zero rows and the filter says why.
-//
-// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["openModelProbes"] in generated_concepts.go).
-type OpenModelProbesArgs struct {
-	// A `requested` row older than this was never claimed.
-	RequestedBefore string
-	// A `running` row that has not reported since this has stopped moving.
-	UpdatedBefore string
-}
-
-// OpenModelProbes calls the engine query openModelProbes.
-func (qc *QueryClient) OpenModelProbes(ctx context.Context, args OpenModelProbesArgs) (*Result, error) {
-	call := OpenModelProbesBuild(args)
-	return qc.executeNamed(ctx, "openModelProbes", call)
-}
-
-func OpenModelProbesBuild(args OpenModelProbesArgs) string {
-	var b strings.Builder
-	b.WriteString("query openModelProbes(")
-	b.WriteString("requestedBefore: ")
-	b.WriteString(quoteMemQL(args.RequestedBefore))
-	if b.Len() > 22 {
-		b.WriteString(", ")
-	}
-	b.WriteString("updatedBefore: ")
-	b.WriteString(quoteMemQL(args.UpdatedBefore))
 	b.WriteString(")")
 	return b.String()
 }
@@ -5838,31 +5727,6 @@ func RecentAuthActivityBuild(args RecentAuthActivityArgs) string {
 	return b.String()
 }
 
-// RecentModelEvidence -- The most recent folded weeks, newest first. The routing evidence view.
-// Cluster-owner only by the concept's tier: the question is how a MODEL behaved across the fleet, which is nobody's personal data and everybody's calls.
-//
-// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["recentModelEvidence"] in generated_concepts.go).
-type RecentModelEvidenceArgs struct {
-	Week string
-}
-
-// RecentModelEvidence calls the engine query recentModelEvidence.
-func (qc *QueryClient) RecentModelEvidence(ctx context.Context, args RecentModelEvidenceArgs) (*Result, error) {
-	call := RecentModelEvidenceBuild(args)
-	return qc.executeNamed(ctx, "recentModelEvidence", call)
-}
-
-func RecentModelEvidenceBuild(args RecentModelEvidenceArgs) string {
-	var b strings.Builder
-	b.WriteString("query recentModelEvidence(")
-	if args.Week != "" {
-		b.WriteString("week: ")
-		b.WriteString(quoteMemQL(args.Week))
-	}
-	b.WriteString(")")
-	return b.String()
-}
-
 // RecentSendJobs -- ENGINE: the most recent send jobs in any status, newest first. Cluster-owner gated, and it spans owners for the same reason drainableSendJobs does -- the question it answers is about the cluster, not about one operator. Backs one thing only: the boot-time check behind the unsubscribe-secret rotation warning (memql#3458), which needs to know whether this deployment has ever put a signed unsubscribe link in front of a recipient. The row carries no recipient data.
 //
 // Bound concept: v1:campaigns:sendJob (machine-readable: BoundConcepts["recentSendJobs"] in generated_concepts.go).
@@ -6285,77 +6149,6 @@ func RouterBudgetsBuild(args RouterBudgetsArgs) string {
 		b.WriteString("scope: ")
 		b.WriteString(quoteMemQL(args.Scope))
 	}
-	b.WriteString(")")
-	return b.String()
-}
-
-// RouterCallsInWindow -- Every router call in a window, for the nightly evidence fold.
-// It reads under `actor.isClusterOwner==true` because its only caller is the fold, running under the cluster's MAINTENANCE PRINCIPAL. The question is how a MODEL behaved across the fleet, not how it behaved for one person, so there is no owner to scope to -- and writing the conjunct is what makes the failure LOUD: strip the principal and this returns zero rows, and the filter says why. Without it a fold that proposes nothing is indistinguishable from a fleet where every model is behaving, which is the one shape of silence this feature exists to break.
-//
-// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerCallsInWindow"] in generated_concepts.go).
-type RouterCallsInWindowArgs struct {
-	// Inclusive lower bound, RFC3339.
-	Since string
-	// Exclusive upper bound, RFC3339.
-	Until string
-}
-
-// RouterCallsInWindow calls the engine query routerCallsInWindow.
-func (qc *QueryClient) RouterCallsInWindow(ctx context.Context, args RouterCallsInWindowArgs) (*Result, error) {
-	call := RouterCallsInWindowBuild(args)
-	return qc.executeNamed(ctx, "routerCallsInWindow", call)
-}
-
-func RouterCallsInWindowBuild(args RouterCallsInWindowArgs) string {
-	var b strings.Builder
-	b.WriteString("query routerCallsInWindow(")
-	b.WriteString("since: ")
-	b.WriteString(quoteMemQL(args.Since))
-	if b.Len() > 26 {
-		b.WriteString(", ")
-	}
-	b.WriteString("until: ")
-	b.WriteString(quoteMemQL(args.Until))
-	b.WriteString(")")
-	return b.String()
-}
-
-// RouterCallsOnMachine -- Every call served by ONE machine in a window, for that machine's sharing ledger.
-// SCOPED BY SURFACE, NOT BY OWNER, and the difference is a wrong answer rather than a style choice. `machineOwnerUserId` is deliberately EMPTY for a call a person ran on their own machine -- it names whose machine served a call when that machine was somebody ELSE's -- so `machineOwnerUserId==actor.userId` would return only the calls OTHER people ran on your hardware and none of your own. The fold counts the owner's own calls alongside everybody else's, because the figure answers "how busy has this machine been" rather than "how much have I lent it out", so that filter would show near-zero on a machine its owner uses constantly.
-// AUTHORIZATION IS THE CALLER'S OWNERSHIP OF THE MACHINE, checked in the builtin before this runs: `fleetSharingLedger` resolves the registration through the caller's own machines and refuses one that is not theirs, which is the same gate the pull and the probe use. The surface argument is then derived from a registration id the caller has already been proven to own, so it cannot be pointed at somebody else's machine by passing a different string.
-// It is a SEPARATE query from routerCallsInWindow for that reason: the fold's read is gated on `actor.isClusterOwner`, which is right for a maintenance sweep and returns zero rows for the machine owner this one serves.
-//
-// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerCallsOnMachine"] in generated_concepts.go).
-type RouterCallsOnMachineArgs struct {
-	// The execution surface, as `fleet:<registrationId>`.
-	Surface string
-	// Inclusive lower bound, RFC3339.
-	Since string
-	// Exclusive upper bound, RFC3339.
-	Until string
-}
-
-// RouterCallsOnMachine calls the engine query routerCallsOnMachine.
-func (qc *QueryClient) RouterCallsOnMachine(ctx context.Context, args RouterCallsOnMachineArgs) (*Result, error) {
-	call := RouterCallsOnMachineBuild(args)
-	return qc.executeNamed(ctx, "routerCallsOnMachine", call)
-}
-
-func RouterCallsOnMachineBuild(args RouterCallsOnMachineArgs) string {
-	var b strings.Builder
-	b.WriteString("query routerCallsOnMachine(")
-	b.WriteString("surface: ")
-	b.WriteString(quoteMemQL(args.Surface))
-	if b.Len() > 27 {
-		b.WriteString(", ")
-	}
-	b.WriteString("since: ")
-	b.WriteString(quoteMemQL(args.Since))
-	if b.Len() > 27 {
-		b.WriteString(", ")
-	}
-	b.WriteString("until: ")
-	b.WriteString(quoteMemQL(args.Until))
 	b.WriteString(")")
 	return b.String()
 }
