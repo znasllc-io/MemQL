@@ -581,6 +581,7 @@ func (s *Service) SetUserRole(ctx context.Context, userId, role string) Result {
 	// shape do not stay in step.
 	if refusal := auth.MayAssignRole(
 		auth.UserContext{ID: act.userID, Role: act.role},
+		auth.AssignOnReRole,
 		userID, user.Role, newRole,
 		func(accountId string) bool { return s.targetIsAccountMember(ctx, userID, accountId) },
 	); refusal != auth.AssignAllowed {
