@@ -231,6 +231,12 @@ mutate registration refreshWorkerRegistration {
     args.lastSeenAt
     lastConnectedFromIP: args.lastConnectedFromIP ?? ""
     connectedNodeId: args.connectedNodeId ?? ""
+    // `sharing` IS NOT WRITTEN HERE EITHER, and it is on the operatorLabels
+    // side of the line rather than the `hardware` side. It is the OWNER's
+    // consent, set by an act on the Fleet page, so a reconnect re-stamping it
+    // would revoke -- or grant -- a sharing decision every time a laptop woke
+    // up. setWorkerSharing is its only writer (epic memql#5146, D6).
+    //
     // operatorLabels IS NOT WRITTEN HERE, and that is the whole of design D3.
     // `labels` above is overwritten from the Register message on every
     // reconnect; an operator tag living in that map would be erased by the
@@ -1156,6 +1162,42 @@ mutate modelProbe finishModelProbe {
       measurementId: args.measurementId ?? ""
       errorMessage: args.errorMessage ?? ""
       updatedAt: args.endedAt
+    }
+  }
+}
+
+// ---- setWorkerSharing (epic memql#5146, D6) ----
+//
+// The OWNER's half of the two consents that let a machine serve the cluster.
+// The cockpit's half is capabilityDescriptor.inferenceServe, which arrives on
+// Register and is not writable from here -- deliberately: it is a decision
+// about where the machine IS, and only the machine can make it.
+//
+// NOT @serverOnly. It writes no credential, names no replica and decides
+// nothing the tier has not already decided: the concept declares
+// @rowAuthz(owner="ownerUserId", clusterOwner), so the write guard already
+// refuses any actor but the owner, and the owner offering their own machine is
+// exactly the act this exists for. `sharedBy` and `sharedAt` are stamped from
+// the actor and the clock rather than accepted, so the record of WHO shared it
+// cannot be written by whoever is holding the keyboard.
+
+/// Set the OWNER's half of a machine's sharing consent. The cockpit's half comes from that
+/// machine's own policy.yaml and is not writable here; both must say cluster before the machine
+/// serves anybody else.
+@actor
+mutate registration setWorkerSharing {
+  args {
+    registrationId  string!
+    /// owner or cluster. Anything else is read as owner by every reader, so the
+    /// enum is enforced here rather than left to be misread later.
+    mode            enum("owner", "cluster")!
+  }
+  update {
+    id: args.registrationId
+    sharing: {
+      mode: args.mode,
+      sharedAt: now,
+      sharedBy: actor.userId
     }
   }
 }

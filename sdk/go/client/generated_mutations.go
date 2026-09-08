@@ -12460,6 +12460,36 @@ func SetWorkerOperatorLabelsBuild(args SetWorkerOperatorLabelsArgs) string {
 	return b.String()
 }
 
+// SetWorkerSharing -- Set the OWNER's half of a machine's sharing consent. The cockpit's half comes from that machine's own policy.yaml and is not writable here; both must say cluster before the machine serves anybody else.
+//
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["setWorkerSharing"] in generated_concepts.go).
+type SetWorkerSharingArgs struct {
+	RegistrationId string
+	// owner or cluster. Anything else is read as owner by every reader, so the enum is enforced here rather than left to be misread later.
+	// Enum: owner | cluster
+	Mode string
+}
+
+// SetWorkerSharing calls the engine mutation setWorkerSharing.
+func (qc *QueryClient) SetWorkerSharing(ctx context.Context, args SetWorkerSharingArgs) (*Result, error) {
+	call := SetWorkerSharingBuild(args)
+	return qc.executeNamed(ctx, "setWorkerSharing", call)
+}
+
+func SetWorkerSharingBuild(args SetWorkerSharingArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation setWorkerSharing(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	if b.Len() > 26 {
+		b.WriteString(", ")
+	}
+	b.WriteString("mode: ")
+	b.WriteString(quoteMemQL(args.Mode))
+	b.WriteString(")")
+	return b.String()
+}
+
 // SoftDeleteWorkerInvocation -- Soft-delete a worker invocation row past retention.
 //
 // Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["softDeleteWorkerInvocation"] in generated_concepts.go).

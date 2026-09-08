@@ -94,7 +94,7 @@ func (f *FleetInference) Catalog(ctx context.Context, actingUserId string) ([]me
 		}
 		kept := machines[:0]
 		for _, m := range machines {
-			if m.SharedInference {
+			if m.ServesCluster() {
 				kept = append(kept, m)
 			}
 		}
@@ -239,7 +239,13 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 	if strings.TrimSpace(req.ActingUserId) == "" {
 		plan, err = f.router.PlanSharedModel(ctx, req.ModelId, needs)
 	} else {
-		plan, err = f.router.PlanModel(ctx, req.ActingUserId, req.ModelId, needs)
+		// The caller's OWN machines first, then the ones shared with the
+		// cluster (epic memql#5146, D6). Before this a user's call could land
+		// only on hardware they owned, which is what made "local by default"
+		// per person rather than per company; own-first is what keeps the
+		// common case unchanged, so a fleet that starts sharing does not
+		// silently reroute work that was already working.
+		plan, err = f.router.PlanUserModelWithShared(ctx, req.ActingUserId, req.ModelId, needs)
 	}
 	if err != nil {
 		return memqlengine.FleetCallResult{}, fmt.Errorf("%w: %v", memqlengine.ErrFleetUnavailable, err)

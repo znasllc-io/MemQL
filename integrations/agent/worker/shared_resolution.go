@@ -1,0 +1,188 @@
+//go:build agent
+
+package worker
+
+// SHARED RESOLUTION for a USER's call (epic memql#5146, design D6).
+//
+// ===========================================================================
+// WHAT CHANGES AND WHAT DOES NOT
+// ===========================================================================
+// Before this, a user's model call could land only on a machine they owned:
+// PlanModel reads WorkersForOwner, which cannot see anybody else's. That is
+// what made "local by default" per PERSON rather than per COMPANY -- a business
+// with one Mac Studio in the office had no way to make it serve the team.
+//
+// This adds the second half: a user's call may also land on a machine whose
+// owner offered it to the cluster AND whose cockpit is willing to serve it.
+// Nothing about the OWNERSHIP boundary moves. A machine reaches this list only
+// because its owner put it there, and the refusal for every machine that does
+// not names which of the two consents is missing.
+//
+// ===========================================================================
+// preferOwnMachines
+// ===========================================================================
+// A caller's OWN machines come first, always, and the ordering is not a
+// preference an operator can turn off. Three reasons, and the third is the one
+// that would be missed:
+//
+//   - a person's own machine is the one they are paying for and the one whose
+//     load they can see;
+//   - a shared machine belongs to somebody who agreed to help, not to be the
+//     default, and burning their GPU while the caller's own laptop is idle is
+//     a poor way to treat the offer;
+//   - and it keeps the common case UNCHANGED. Somebody with their own machine
+//     sees exactly the routing they saw before this epic, so a fleet that
+//     starts sharing does not silently reroute work that was already working.
+//
+// It is applied as a STABLE partition rather than a sort key, so within each
+// half the policy's own strategy still decides -- roundRobin still rotates,
+// leastLoaded still rations. Own-first is a boundary between two groups, not a
+// new comparator inside them.
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	workerservice "github.com/znasllc-io/memql/component/worker"
+)
+
+// PlanUserModelWithShared orders the machines eligible to serve one user's call
+// on one model: their own first, then the ones shared with the cluster.
+//
+// The caller's own machines are planned exactly as PlanModel plans them --
+// under the caller's own routing policy, which is theirs to state. The shared
+// half is NOT re-ordered by that policy, for the reason PlanSharedModel gives:
+// a routing policy expresses how somebody wants THEIR machines used, and
+// applying it to another person's machine would let a preference travel across
+// the ownership boundary this file exists to hold.
+func (r *Router) PlanUserModelWithShared(
+	ctx context.Context,
+	actingUserId string,
+	modelId string,
+	needs ModelNeeds,
+) (RoutePlan, error) {
+	if r == nil || r.store == nil {
+		return RoutePlan{Policy: DefaultPolicy()}, fmt.Errorf("worker router: no fleet store configured")
+	}
+	if strings.TrimSpace(actingUserId) == "" {
+		// No acting user is SYSTEM work, and system work has no own half at
+		// all. Falling through to the shared plan is the honest answer rather
+		// than an empty one.
+		return r.PlanSharedModel(ctx, modelId, needs)
+	}
+
+	own, err := r.PlanModel(ctx, actingUserId, modelId, needs)
+	if err != nil {
+		return own, err
+	}
+
+	shared, ok := r.store.(SharedFleetStore)
+	if !ok {
+		// A node whose store cannot read across owners serves the caller's own
+		// machines and says nothing about anybody else's. That is a NARROWER
+		// answer, not a wrong one, and narrowing is the safe direction here.
+		return own, nil
+	}
+	all, err := shared.SharedInferenceWorkers(ctx)
+	if err != nil {
+		// The own half is a complete answer to a narrower question, so a failed
+		// cross-owner read degrades to it rather than failing the call. A
+		// person whose own laptop can serve the turn should not be refused
+		// because a read about somebody else's machine went wrong.
+		if r.logger != nil {
+			r.logger.Warn("worker router: could not read the shared fleet; serving the caller's own machines only",
+				"acting_user_id", actingUserId, "error", err)
+		}
+		return own, nil
+	}
+
+	ownIds := map[string]bool{}
+	for _, c := range own.Candidates {
+		ownIds[c.RegistrationId] = true
+	}
+
+	now := r.clock()
+	sharedKept := make([]Candidate, 0, len(all))
+	rejected := map[string]string{}
+	for id, why := range own.Rejected {
+		rejected[id] = why
+	}
+	for _, c := range all {
+		if ownIds[c.RegistrationId] {
+			// Already in the own half. Skipping rather than de-duplicating
+			// later keeps the own-first boundary exact: a machine cannot appear
+			// in both groups and be tried twice.
+			continue
+		}
+		if sameSubjectId(c.OwnerUserId, actingUserId) {
+			// The caller's own machine that the OWN plan already ruled out --
+			// offline, revoked, missing the model. Re-admitting it through the
+			// shared list would route around their own plan's reasoning.
+			continue
+		}
+		switch {
+		case !c.ServesCluster():
+			rejected[c.RegistrationId] = c.SharingRefusal()
+		case !workerservice.IsOnline(c.LastSeenAt, c.RevokedAt, now):
+			if !c.RevokedAt.IsZero() {
+				rejected[c.RegistrationId] = "revoked"
+			} else {
+				rejected[c.RegistrationId] = "offline"
+			}
+		case !c.SupportsCapability(workerservice.ModelCapability):
+			rejected[c.RegistrationId] = "missing capability " + workerservice.ModelCapability
+		default:
+			sharedKept = append(sharedKept, c)
+		}
+	}
+
+	// The shared half is narrowed to the model and ordered under the DEFAULT
+	// policy, never the caller's -- see the doc comment.
+	sharedPlan := narrowToModel(RoutePlan{
+		Policy:     DefaultPolicy(),
+		Candidates: sharedKept,
+		Rejected:   map[string]string{},
+		Total:      len(sharedKept),
+	}, modelId, needs)
+	for id, why := range sharedPlan.Rejected {
+		rejected[id] = why
+	}
+
+	// OWN FIRST. A stable concatenation rather than a sort, so each half keeps
+	// the order its own policy gave it.
+	out := own
+	out.Candidates = append(append([]Candidate{}, own.Candidates...), sharedPlan.Candidates...)
+	out.Rejected = rejected
+	out.Total = own.Total + len(all)
+	return out, nil
+}
+
+// OwnMachineFirst reports whether a candidate belongs to the acting user.
+//
+// It is the whole of `preferOwnMachines` as a predicate, exported so the
+// decision record can say which half a pick came from -- "it chose a shared
+// machine" and "it chose one of yours" are different answers to the same
+// question, and only one of them needs explaining.
+func OwnMachineFirst(c Candidate, actingUserId string) bool {
+	return sameSubjectId(c.OwnerUserId, actingUserId)
+}
+
+// sameSubjectId compares two identity subjects tolerantly of the bare/canonical
+// split, which is the one comparison in this package that a naive == gets
+// wrong: the row carries a canonical id and a token's subject may be bare.
+func sameSubjectId(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || trimIdPrefix(a) == trimIdPrefix(b)
+}
+
+func trimIdPrefix(v string) string {
+	if i := strings.LastIndex(v, ":"); i >= 0 {
+		return v[i+1:]
+	}
+	return v
+}

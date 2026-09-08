@@ -750,6 +750,7 @@ var BoundConcepts = map[string]string{
 	"setStoreStatus":                                   "v1:shopify:store",
 	"setSurfaceAvailability":                           "v1:actions:surface",
 	"setWorkerOperatorLabels":                          "v1:worker:registration",
+	"setWorkerSharing":                                 "v1:worker:registration",
 	"shopifyAbandonedCheckoutByGid":                    "v1:shopify:abandonedCheckout",
 	"shopifyAbandonedCheckoutForStore":                 "v1:shopify:abandonedCheckout",
 	"shopifyArticleByGid":                              "v1:shopify:article",

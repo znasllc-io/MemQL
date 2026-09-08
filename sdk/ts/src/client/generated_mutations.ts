@@ -7185,6 +7185,32 @@ QueryClient.prototype.setWorkerOperatorLabels = function (this: QueryClient, arg
   return this.executeNamed("setWorkerOperatorLabels", buildSetWorkerOperatorLabels(args), opts);
 };
 
+/** Set the OWNER's half of a machine's sharing consent. The cockpit's half comes from that machine's own policy.yaml and is not writable here; both must say cluster before the machine serves anybody else. */
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["setWorkerSharing"] in generated_concepts.ts).
+export interface SetWorkerSharingArgs {
+  registrationId: string;
+  /** owner or cluster. Anything else is read as owner by every reader, so the enum is enforced here rather than left to be misread later. */
+  // Enum: owner | cluster
+  mode: string;
+}
+
+export function buildSetWorkerSharing(args: SetWorkerSharingArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  parts.push("mode: " + renderMemQLValue(args.mode));
+  return "mutation setWorkerSharing(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    setWorkerSharing(args: SetWorkerSharingArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.setWorkerSharing = function (this: QueryClient, args: SetWorkerSharingArgs = {} as SetWorkerSharingArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("setWorkerSharing", buildSetWorkerSharing(args), opts);
+};
+
 /** Soft-delete a worker invocation row past retention. */
 // Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["softDeleteWorkerInvocation"] in generated_concepts.ts).
 export interface SoftDeleteWorkerInvocationArgs {

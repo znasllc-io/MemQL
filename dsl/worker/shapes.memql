@@ -51,6 +51,7 @@ shape registration workerRegistrationFull {
   concurrency
   platformInfo
   hardware
+  sharing
   permissions
   apps
   appDescriptors
