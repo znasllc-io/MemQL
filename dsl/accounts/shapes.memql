@@ -50,3 +50,11 @@ shape account clientAccountFull {
   configuredAt
   row.createdAt
 }
+
+/// Id-only projection for the boot group backfill. The sweep needs nothing but
+/// the id -- it hands each one to groupEnsureForAccount, which reads the row
+/// it needs for itself.
+@row
+shape account accountIdRef {
+  row.id
+}

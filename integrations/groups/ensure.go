@@ -93,6 +93,26 @@ func (i *Integration) handleGroupEnsureForAccount(ctx context.Context, args map[
 	})
 }
 
+// handleGroupArchiveForAccount is the archiveAccountGroup cascade's entry
+// point.
+//
+// NO CALLER GUARD, for handleGroupEnsureForAccount's reason: the builtin
+// carries no `@sdk`, and its one caller is an automation running under the
+// engine's own actor. The authority that decided this was the archive of the
+// ACCOUNT, which `@requiresRank("admin")` on archiveClientAccount already
+// gated -- re-checking a capability here would refuse the automation, which
+// is not a person.
+func (i *Integration) handleGroupArchiveForAccount(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+	accountID := memql.BareShortId(strings.TrimSpace(asString(args["accountId"])))
+	groups, memberships, err := i.ArchiveGroupsForAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return i.node("groupArchiveForAccount", map[string]any{
+		"accountId": accountID, "groupsArchived": groups, "membershipsRemoved": memberships,
+	})
+}
+
 // ArchiveGroupsForAccount archives every group tied to one account and removes
 // their memberships -- the `archiveAccountGroup` cascade (D5).
 //

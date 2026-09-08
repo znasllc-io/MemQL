@@ -99,6 +99,12 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Handler:     i.handleGroupEnsureForAccount,
 			ArgsSchema:  map[string]string{"accountId": "string (required)"},
 		},
+		{
+			Name:        "groupArchiveForAccount",
+			Description: "Archive every group tied to one account and remove their memberships.",
+			Handler:     i.handleGroupArchiveForAccount,
+			ArgsSchema:  map[string]string{"accountId": "string (required)"},
+		},
 	}
 }
 

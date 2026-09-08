@@ -206,6 +206,30 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// stamps internal origin, which is what @serverOnly admits.
 		{Path: "rbac/mutations.memql", Name: "createRole"}:       true,
 		{Path: "rbac/mutations.memql", Name: "createCapability"}: true,
+		// epic memql#5165. The boot backfill's sweep set. It runs from the
+		// seed materializer at startup under the system actor -- the same
+		// position usersForSeedSweep is in -- so actor.userId names nobody,
+		// and the @requiresRank floor its Accounts-app sibling carries would
+		// have no role to clear. Scoping it to one person would backfill only
+		// that person's accounts, leaving every other client's people unable
+		// to reach their work.
+		{Path: "accounts/queries.memql", Name: "accountsForGroupSweep"}: true,
+
+		// epic memql#5165, D2. Both group writers, and the argument is the
+		// concept's shape rather than the caller's: v1:identity:group and
+		// v1:identity:groupMembership are UNOWNED -- ownerUserId is present
+		// and always empty, because the rows are the deployment's record of
+		// who reaches which client's work rather than anybody's property.
+		//
+		// So there is no field for actor.userId to compare against, and the
+		// membership row makes the point sharply: its natural owner field
+		// would be `userId`, the member -- and an owned row admits its
+		// OWNER'S INSERTS, so scoping it would hand every person on the
+		// cluster a primitive for writing themselves into any client's group.
+		// Authorization is the caller's capability and rank, checked in Go by
+		// integrations/groups before either of these runs.
+		{Path: "identity/mutations.memql", Name: "writeGroup"}:           true,
+		{Path: "identity/mutations.memql", Name: "writeGroupMembership"}: true,
 
 		// epic memql#4966, the work spine's promotion path. Both of these
 		// write the engine's OWN EVIDENCE about a template -- the catalog key
