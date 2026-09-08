@@ -47,9 +47,9 @@ query call routerDecisionsRecent {
     /// Only decisions at or after this RFC3339 timestamp.
     since    string
     /// Only decisions resolved at this level.
-    level    string  @enum("fast", "strong", "reasoning", "embeddings")
+    level    enum("fast", "strong", "reasoning", "embeddings")
     /// Only decisions served through this door.
-    door     string  @enum("local", "app", "federation")
+    door     enum("local", "app", "federation")
     /// Only decisions the named rule made.
     rule     string
     /// Only decisions with this outcome. A park is recorded as its refusal code.

@@ -486,6 +486,7 @@ func TestTheAIRuntimeServesAReplayWithoutCallingItsProvider(t *testing.T) {
 	newRuntime := func(journal ModelCallJournal) (*aiRuntime, *mockAIProvider) {
 		prompts := newPromptRegistry()
 		prompts.set(&PromptTemplate{
+			Level:           "fast",
 			Name:            "probe",
 			TemplateSource:  "say {{.word}}",
 			tmpl:            template.Must(template.New("probe").Parse("say {{.word}}")),
@@ -500,7 +501,7 @@ func TestTheAIRuntimeServesAReplayWithoutCallingItsProvider(t *testing.T) {
 		})
 		// Caches OFF: a cache hit is not a model call, and leaving them on
 		// would let the second run pass for the wrong reason.
-		rt := newAIRuntime(nil, prompts, providers, aiCacheConfig{})
+		rt := newTestAIRuntime(prompts, providers, aiCacheConfig{})
 		rt.seam = &modelSeam{journal: journal}
 		return rt, mock
 	}
@@ -541,6 +542,7 @@ func TestTheAIRuntimeServesAReplayWithoutCallingItsProvider(t *testing.T) {
 func TestADivergenceIsNotReportedAsAProviderFailure(t *testing.T) {
 	prompts := newPromptRegistry()
 	prompts.set(&PromptTemplate{
+		Level:           "fast",
 		Name:            "probe",
 		TemplateSource:  "x",
 		tmpl:            template.Must(template.New("probe").Parse("x")),
@@ -550,7 +552,7 @@ func TestADivergenceIsNotReportedAsAProviderFailure(t *testing.T) {
 	providers.setEntry(&ProviderConfigEntry{
 		Config: ProviderConfig{Name: "mock", Type: "test"}, Client: &mockAIProvider{}, Available: true,
 	})
-	rt := newAIRuntime(nil, prompts, providers, aiCacheConfig{})
+	rt := newTestAIRuntime(prompts, providers, aiCacheConfig{})
 	rt.seam = &modelSeam{journal: newCountingJournal()}
 
 	rc := common.RunContext{

@@ -1991,8 +1991,9 @@ Three ways to extend MemQL, in preference order:
    providers, shapes, tools, builtins. Always the first choice.
 2. **Self-registering plug-ins** -- Go integrations that call
    `memql.RegisterPlugin(name, factory)` from `init()`. The factory receives a
-   narrow `PluginContext` (Logger, Engine, BunDB getter, VisionProvider,
-   EmbeddingProviderByName, partition/variable resolvers). Build tags on the
+   narrow `PluginContext` (Logger, Engine, BunDB getter,
+   ResolveVisionProvider, ResolveEmbeddingProvider, partition/variable
+   resolvers). Build tags on the
    calling file control which binaries include the registration. Use this path
    to add product-specific Go without touching `app/` internals. See
    `component/memql/plugins.go`.

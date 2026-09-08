@@ -301,9 +301,6 @@ type IntegrationEngineAccess interface {
     InvokeAI(ctx context.Context, templateId string, data map[string]any) (any, error)
     InvokeAIStructured(ctx context.Context, templateId string, data map[string]any, schemaName string, schema json.RawMessage, strict bool) (string, error)
     RenderPrompt(templateId string, data map[string]any) (string, error)
-    ChatStreamProvider() common.ChatStreamProvider
-    ChatStreamProviderByName(name string) common.ChatStreamProvider
-    ChatStreamWithToolsProviderByName(name string) common.ChatStreamWithToolsProvider
     ToolDefinitionsForNames(names []string) []common.ToolDefinition
     ExecuteToolByName(ctx context.Context, name string, args map[string]any) (string, error)
     ResolveSkills(ctx context.Context, skillIds []string) (SkillBundle, error)

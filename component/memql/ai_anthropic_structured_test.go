@@ -2,7 +2,6 @@ package memql
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/znasllc-io/memql/core/common"
@@ -76,37 +75,5 @@ func TestAnthropicStructuredToolNameSanitized(t *testing.T) {
 	}
 	if anthropicStructuredToolName(common.StructuredSchema{}) != "structured_result" {
 		t.Fatal("an empty schema name needs a stable fallback")
-	}
-}
-
-func TestStripJSONFences(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"bare json untouched", `{"a":1}`, `{"a":1}`},
-		{"json fence", "```json\n{\"a\":1}\n```", `{"a":1}`},
-		{"upper fence", "```JSON\n{\"a\":1}\n```", `{"a":1}`},
-		{"anonymous fence", "```\n{\"a\":1}\n```", `{"a":1}`},
-		{"whitespace around", "  ```json\n{\"a\":1}\n```  ", `{"a":1}`},
-		{"prose stays prose", "not a fence at all", "not a fence at all"},
-	}
-	for _, c := range cases {
-		if got := stripJSONFences(c.in); got != c.want {
-			t.Fatalf("%s: got %q want %q", c.name, got, c.want)
-		}
-	}
-
-	// The production sample, verbatim shape: fenced JSON must round-trip
-	// through json.Unmarshal after the strip.
-	raw := "```json\n{\n  \"action\": \"create\",\n  \"reasoning\": \"the catalogs are empty\"\n}\n```"
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(stripJSONFences(raw)), &decoded); err != nil {
-		t.Fatalf("stripped fence must parse: %v", err)
-	}
-	if decoded["action"] != "create" {
-		t.Fatal("content must survive the strip intact")
-	}
-	if strings.Contains(stripJSONFences(raw), "`") {
-		t.Fatal("no backtick may survive")
 	}
 }

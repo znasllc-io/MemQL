@@ -285,6 +285,92 @@ around is not a kill switch.
   `CLAUDE.md` (the AI Integration and Policies sections), the architecture model
   regenerated.
 
+## 4a. Corrections made while building (2026-09-07)
+
+Recorded here rather than edited into section 4, so the record still shows what
+was designed and what building it found. All four are also on issue memql#5127.
+
+**C1 -- the vocabulary is in `core/airoute`, not `component/router/types.go`.**
+`component/router` is its own Go module and IMPORTS `component/memql`; the
+dependency does not go back. Every call site D2 re-points -- `InvokeAI`,
+`InvokeAIStructured`, `InvokeAIChatWithFilteredTools` (which lives in
+`ai_tool_loop.go`, not `engine_ai.go`), the semantic cache -- is inside
+`component/memql`, so declaring the request beside the router would have made
+the whole re-pointing an import cycle. Separately `component/safety`,
+`component/fileprocessor`, `component/healing`, `component/work` and
+`component/planner` depend on neither and take an injected
+`common.ChatStructuredProvider` from their caller, so a home in
+`component/memql` would have added five module edges to name a four-value enum.
+`Level`, `Modality`, `Needs`, `ResolveRequest`, `Resolution` and `Decision` are
+therefore in `core/airoute`, a package inside the existing `core` module that
+every module already requires; `component/router` type-aliases the names, and a
+test asserts the package imports nothing outside the standard library. The
+engine reaches the router through an `AIResolver` interface it declares and
+`app/` installs; unwired, it REFUSES rather than falling back, because the
+fallback would be the registry default this epic deletes.
+
+**C2 -- `@when`'s keys are validated by the rule parser itself.**
+`annotations.KeywordArgs` looks like the closed-key mechanism and is not one:
+its only consumers are `sense/complete.go` and `sense/hover.go`, so it drives
+completion and hover only, and the generic `parseAttribute` accepts any key with
+no validation -- `@trigger`, `@handler` and `@relationship` do not reject an
+unknown key either. The registry entry is added for the editor as well as, not
+instead of.
+
+**C3 -- the work failure seam is `component/automations/journal.go`.** #5134
+names `integrations/work/dispatch.go`; that file's `FailRun` handles only the
+two PRE-execution failures, both of which happen before the executor opens its
+journal. `closeRun` is where a terminal `failed` run is decided, and the branch
+that wrote `status=failed` for everything that was not an inference refusal is
+where `ClassifyByRules` went. The ACT is recorded on the run as a `waiting`
+state and served by the sweep on a node that can, because the executor runs on
+an agent replica while compile, replan and the sweeps run on the planner.
+
+**C4 -- three things D2 names have nothing live to re-point.** `TTSProvider` /
+`TTSProviderByName` and `openAITTSProvider.Synthesize` have ZERO callers and
+there is no `AiSpeechMsg` handler at all -- speech is a wiring gap, not a call
+site. Transcription goes through `integrations/stt.StreamingProvider`, which
+never touches the provider registry. `memql.ContextWithCloudConsent` likewise
+has no non-test caller; only the request field is read. The seam serves chat,
+streaming chat, tools, streaming tools, structured, vision and embeddings, and
+says in a comment why the other two are absent.
+
+**Three smaller findings that changed acceptance.**
+
+- **The shipped `default` rule made the whole authored tier unreachable.** It is
+  `@locked` and states no conditions, and locked-first ordering put it ahead of
+  every unlocked rule -- so it matched every call before any owner-authored rule
+  was consulted, and D7's "a runtime-authored rule may add and may take
+  precedence" was false of every rule anybody wrote. `default` is now exempt
+  from the locked partition and always sorts LAST, by identity rather than by
+  precedence value. It keeps `@locked` for the other two things the annotation
+  means.
+- **`MinContextWindow` had never run**, so `eligibleFor`'s context gate was dead
+  code. Live and fail-closed, it refused every embedder, because neither
+  embedding provider record declared a `contextWindow`. Both now declare the
+  vendor's real 8191-token limit.
+- **`v1:router:call` had no read surface, and it still has no tier.**
+  `routerDecisionsRecent` ships a shape as well as a query. A tier was tried and
+  REVERTED: `userId` on that row is ATTRIBUTION rather than ownership -- the row
+  is the deployment's, the writer's actor is `system:router`, and
+  `owner="userId"` asserts a guarantee nothing provides while reading as safe,
+  which is what makes an auditor stop looking. `clusterOwner` is honest and too
+  narrow: half of all decisions are system-triggered with an empty `userId`, and
+  a developer asking why a call went to a vendor needs the ledger rather than
+  their slice of it. The right shape -- an unowned row with a rank floor
+  deciding who reads it -- is not expressible, because `unowned=` requires
+  `rankVisible` which requires `owner=`. Filed as memql#5162; the read is gated
+  by `@requiresRank("developer")` on the query meanwhile, and the construct is
+  listed in the undeclared-population gate naming that issue.
+
+**One thing the epic deleted that section 4 did not name.**
+`integrations/agents/factory.go` stamped `providerConfig.llm.policyName =
+"balancedChat"` on every new agent row, defaulted from the role catalog's
+`recommendedPolicySlug`, which 97 seeded role rows carried. The replier stopped
+reading it when this epic re-pointed it, so the whole surface was a dead write
+naming a deleted policy. Both fields are removed: an agent no longer names a
+policy, and its ROLE is what a rule matches on.
+
 ## 5. Failure modes
 
 - A rule set with no match: impossible, `default` always matches and refuses removal.

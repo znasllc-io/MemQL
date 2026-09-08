@@ -10,7 +10,6 @@ package memql
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -180,34 +179,11 @@ func TestTheCatalogReportsToolSupportAsACapability(t *testing.T) {
 	}
 }
 
-// A structured call whose prompt names a fleet model that IS available is not
-// refused by the new guard. Without this, the guard could satisfy the negative
-// control by refusing everything.
-func TestTheLocalRefusalGuardLetsAnAvailableFleetModelThrough(t *testing.T) {
-	r := newProviderRegistry("")
-	r.SetFleetInference(&stubFleet{models: []FleetModel{onlineModel("llama3.1:8b", true)}})
-	e := &MemQLEngine{providers: r}
-
-	if err := e.refuseUnavailableLocalProvider(userCtx("alice"), FleetReferencePrefix+"llama3.1:8b"); err != nil {
-		t.Fatalf("an available fleet model must not be refused: %v", err)
-	}
-	// A cloud name is not this guard's business at all: an unavailable one
-	// falls through to the default, which is the established behaviour and
-	// spends money the operator already agreed to spend.
-	if err := e.refuseUnavailableLocalProvider(userCtx("alice"), "chat54Mini"); err != nil {
-		t.Fatalf("a cloud name must pass this guard untouched: %v", err)
-	}
-	offline := onlineModel("llama3.1:8b", true)
-	offline.Machines[0].Online = false
-	r2 := newProviderRegistry("")
-	r2.SetFleetInference(&stubFleet{models: []FleetModel{offline}})
-	e2 := &MemQLEngine{providers: r2}
-	err := e2.refuseUnavailableLocalProvider(userCtx("alice"), FleetReferencePrefix+"llama3.1:8b")
-	if !errors.Is(err, ErrFleetUnavailable) {
-		t.Fatalf("an unavailable fleet model must yield the typed refusal, got %v", err)
-	}
-	var refusal *FleetUnavailable
-	if errors.As(err, &refusal) && refusal.Considered["laptop"] == "" {
-		t.Error("the refusal must name the machine it ruled out and why")
-	}
-}
+// The engine-side local-refusal guard is GONE (epic memql#5127, design D2).
+// It existed because InvokeAIStructured's registry-wide scan would otherwise
+// fall through a shut local door to a paid vendor, silently; there is no scan
+// left to fall through. The property it protected -- an unavailable fleet model
+// yields the TYPED refusal naming every machine considered, so a run parks and
+// resumes when one wakes -- is the router's now, and component/router's
+// fleet_park_test.go covers it against the real chain walk rather than against
+// one helper.

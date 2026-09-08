@@ -9,6 +9,7 @@ import (
 	"github.com/znasllc-io/memql/component/safety"
 	"github.com/znasllc-io/memql/component/safety/llm"
 	"github.com/znasllc-io/memql/component/safety/recorder"
+	"github.com/znasllc-io/memql/core/common"
 	workspine "github.com/znasllc-io/memql/integrations/work"
 )
 
@@ -96,11 +97,18 @@ func (a *App) buildSafetyClassifier() safety.Classifier {
 			"component", "safety")
 		return safety.NewChainClassifier(rules, safety.NoopClassifier{})
 	}
-	provider := a.engine.StructuredChatProviderByName(context.Background(), providerName)
-	if provider == nil {
-		a.Logger.Warn("safety classifier: provider not registered; LLM layer disabled",
+	// component/safety/llm is UNTOUCHED by this and is correct as it is: it
+	// takes an injected common.ChatStructuredProvider and never sees a
+	// registry. What changed is who hands it one -- the caller now declares a
+	// level and a modality and takes what the router returns, instead of
+	// looking the env-named provider up itself.
+	provider, _, err := memql.ResolveAITyped[common.ChatStructuredProvider](
+		context.Background(), a.engine, safetyClassifierResolveRequest(providerName))
+	if err != nil {
+		a.Logger.Warn("safety classifier: no structured-output model is reachable; LLM layer disabled",
 			"component", "safety",
-			"provider", providerName)
+			"provider", providerName,
+			"error", err)
 		return safety.NewChainClassifier(rules, safety.NoopClassifier{})
 	}
 	llmClassifier, err := llm.NewClassifier(llm.Options{Provider: provider})

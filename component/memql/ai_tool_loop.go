@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -45,18 +46,36 @@ func (e *MemQLEngine) InvokeAIChatWithTools(ctx context.Context, templateId stri
 		return "", fmt.Errorf("executing prompt template %q: %w", prompt.Name, err)
 	}
 
-	providerName, err := e.aiRuntime.resolveProviderName(prompt, invocation)
+	// ONE SEAM (epic memql#5127, design D2). This is a TOOL turn, so the
+	// request derives modality `tools` and the router interface-checks it --
+	// which is also why the fallback below is now unreachable in practice: a
+	// chain entry that cannot serve tools is passed over during the walk, with
+	// its reason on the door report, rather than resolved and then discovered
+	// unsuitable here.
+	//
+	// The old path took a CONTEXT-FREE registry Entry, so a `fleet:` model on
+	// the caller's own awake laptop resolved against the shared catalog and
+	// reported itself unavailable -- a silent paid call for a user whose
+	// machine was on the whole time. The seam resolves per acting user.
+	req, err := requestForPrompt(prompt, invocation, airoute.ModalityTools, systemText)
 	if err != nil {
 		return "", err
 	}
-	entry, ok := e.providers.Entry(providerName)
-	if !ok || entry == nil || !entry.Available || entry.Client == nil {
-		return "", ErrProviderUnavailable(providerName)
+	resolved, err := e.resolveAI(ctx, req)
+	if err != nil {
+		return "", err
 	}
-
-	toolCaller, ok := entry.Client.(common.ToolCallingChatAIProvider)
+	toolCaller, ok := resolved.Client.(common.ToolCallingChatAIProvider)
 	if !ok || toolCaller == nil {
-		// Fallback: no tool calling supported.
+		// Kept as a belt: the router's modality check makes this unreachable,
+		// and an unreachable branch that falls back to a plain chat turn is a
+		// better failure than a nil dereference if the two ever disagree.
+		if e.Component != nil && e.Logger != nil {
+			e.Logger.Warn("tool loop: the router resolved a provider that does not serve tool calling; falling back to a plain chat turn",
+				"template", invocation.TemplateId,
+				"provider", resolved.Resolution.ProviderName,
+				"clientType", fmt.Sprintf("%T", resolved.Client))
+		}
 		result, err := e.aiRuntime.Invoke(ctx, invocation, data)
 		if err != nil {
 			return "", err
@@ -252,23 +271,25 @@ func (e *MemQLEngine) InvokeAIChatWithFilteredToolsOpts(ctx context.Context, tem
 		return "", fmt.Errorf("executing prompt template %q: %w", prompt.Name, err)
 	}
 
-	providerName, err := e.aiRuntime.resolveProviderName(prompt, invocation)
+	// The same seam as InvokeAIChatWithTools above, for the same reasons.
+	req, err := requestForPrompt(prompt, invocation, airoute.ModalityTools, systemText)
 	if err != nil {
 		return "", err
 	}
-	entry, ok := e.providers.Entry(providerName)
-	if !ok || entry == nil || !entry.Available || entry.Client == nil {
-		return "", ErrProviderUnavailable(providerName)
+	resolved, err := e.resolveAI(ctx, req)
+	if err != nil {
+		return "", err
 	}
+	providerName := resolved.Resolution.ProviderName
 
-	toolCaller, ok := entry.Client.(common.ToolCallingChatAIProvider)
+	toolCaller, ok := resolved.Client.(common.ToolCallingChatAIProvider)
 	if !ok || toolCaller == nil {
 		// DIAGNOSTIC: Log the provider type so we can see why tool calling is unavailable.
 		if e.Component != nil && e.Logger != nil {
 			e.Logger.Warn("tool loop: provider does not support tool calling, falling back to text-only",
 				"template", templateId,
 				"provider", providerName,
-				"clientType", fmt.Sprintf("%T", entry.Client),
+				"clientType", fmt.Sprintf("%T", resolved.Client),
 				"assertionOk", ok,
 			)
 		}

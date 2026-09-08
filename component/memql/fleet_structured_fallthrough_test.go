@@ -86,6 +86,7 @@ func engineWithFleetDefaultPrompt(t *testing.T, fleet FleetInference, cloudURL s
 	}
 	prompts := newPromptRegistry()
 	prompts.set(&PromptTemplate{
+		Level:           "fast",
 		Name:            "localConductorTurn",
 		TemplateSource:  "decide: {{.utterance}}",
 		DefaultProvider: FleetReferencePrefix + "llama3.1:8b",
@@ -93,7 +94,8 @@ func engineWithFleetDefaultPrompt(t *testing.T, fleet FleetInference, cloudURL s
 	})
 
 	e := &MemQLEngine{providers: providers, prompts: prompts, modelSeam: &modelSeam{}}
-	e.aiRuntime = newAIRuntime(nil, prompts, providers, aiCacheConfig{})
+	e.aiRuntime = newTestAIRuntime(prompts, providers, aiCacheConfig{})
+	wireTestResolver(e, providers)
 	e.aiRuntime.seam = e.modelSeam
 	return e
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 
 	"github.com/znasllc-io/memql/component/metrics"
@@ -168,79 +169,6 @@ func (e *MemQLEngine) InvokeAI(ctx context.Context, templateId string, data map[
 	return e.aiRuntime.Invoke(ctx, invocation, data)
 }
 
-// InvokeAIStructured renders the named prompt with the given data and
-// invokes the prompt's default chat provider with provider-enforced
-// structured output. Returns the raw JSON response as a string -- the
-// caller parses it into its typed result struct.
-//
-// Use this for "logic" prompts (routing, classification, prediction,
-// suggestion) where the output is parsed as JSON and the caller wants
-// provider-level guarantees that the shape is valid. For prose-reply
-// prompts (agentReply), use InvokeAI instead.
-//
-// schemaName is a short identifier the provider may surface in errors
-// and traces (e.g. "cognitionRouting"). schema must be a valid JSON
-// Schema document describing the expected object.
-//
-// When the prompt's provider does not implement ChatStructuredProvider,
-// falls back to the default chat provider with schema instructions
-// injected into the system prompt (best-effort, no shape guarantee).
-// The log line `structured chat fallback` fires so the caller can see
-// which providers lack native support.
-//
-// Caches the structured result through the same AI cache used by
-// ai() invocations. Cache key includes templateId + schema name +
-// schema body + rendered prompt text + provider name, so callers
-// with identical inputs collapse to a single LLM round-trip across
-// the entire MemQL instance (multiple frontends, multiple users,
-// any background work). TTL follows the AI cache config (default
-// 60s, ceiling 300s -- short enough that an agent or domain
-// re-train invalidates within a minute, long enough to swallow
-// click-dismiss-click-again sequences). Frontend callers that
-// want longer-lived caching keep their own per-utterance memo.
-// structuredFallbackMessages is the last-resort prompt shape when no
-// structured-capable provider is available: the rendered template stays the
-// system message and the schema directive becomes the USER turn. Two messages
-// rather than one system blob, deliberately -- the Anthropic Messages API
-// refuses a conversation with no user turn (400 "messages: Field required"),
-// and this fallback is exactly the path a Claude-only cluster takes for every
-// structured prompt (none of the Anthropic providers implement
-// CallChatStructured). toAnthropicMessages also guards the empty-messages
-// case now, but the guard is a floor; this is the shape the call should have.
-func structuredFallbackMessages(rendered string, schema json.RawMessage) []common.ChatMessage {
-	return []common.ChatMessage{
-		{Role: "system", Content: rendered},
-		{Role: "user", Content: fmt.Sprintf(
-			"Return ONLY JSON that matches this schema. No markdown, no prose:\n%s",
-			string(schema),
-		)},
-	}
-}
-
-// stripJSONFences unwraps a leading markdown code fence (```json, ```JSON or
-// bare ```) and its closing fence from a chat reply, returning the content
-// between them. Anything that does not open with a fence passes through
-// untouched -- this trims a wrapper, it does not hunt for JSON in prose.
-func stripJSONFences(s string) string {
-	trimmed := strings.TrimSpace(s)
-	if !strings.HasPrefix(trimmed, "```") {
-		return trimmed
-	}
-	rest := trimmed[3:]
-	// Drop the fence's info string ("json", "JSON", or nothing) with its line.
-	if i := strings.IndexByte(rest, '\n'); i >= 0 {
-		rest = rest[i+1:]
-	} else {
-		// A one-line "```{...}```" -- rare, but trim both ends of it.
-		rest = strings.TrimPrefix(rest, "json")
-	}
-	rest = strings.TrimSpace(rest)
-	if i := strings.LastIndex(rest, "```"); i >= 0 {
-		rest = rest[:i]
-	}
-	return strings.TrimSpace(rest)
-}
-
 func (e *MemQLEngine) InvokeAIStructured(
 	ctx context.Context,
 	templateId string,
@@ -292,91 +220,82 @@ func (e *MemQLEngine) InvokeAIStructured(
 		}
 	}
 
-	// Prefer the prompt's declared provider; fall back to the default
-	// structured-capable provider; last resort is the default chat
-	// provider with schema instructions in-prompt.
+	// ONE SEAM (epic memql#5127, design D2). The prompt declares a LEVEL and
+	// this call derives modality `structured`; the router picks the provider
+	// and records the decision.
 	//
-	// Provider-lifecycle (#1081): a prompt whose @defaultProvider has
-	// been @disabled (so it is absent from the registry) resolves to
-	// nil here and falls through to the default cleanly. Emit a single
-	// log line so the fallback is observable rather than silent.
-	// PARK, DO NOT FALL THROUGH, when the prompt named a LOCAL provider
-	// (epic memql#5096, task memql#5098, design D2/D6).
+	// THREE RESOLUTION TIERS ARE DELETED HERE, and each was a way to reach a
+	// model nobody chose:
 	//
-	// The fallback below scans the whole registry for anything
-	// structured-capable, which is right for a cloud provider that is
-	// temporarily unregistered and catastrophic for a fleet one: a closed
-	// laptop would silently hand every structured turn to a paid API, and
-	// nothing about the answer that came back would say so. The plain chat
-	// path (aiRuntime.Invoke) has always refused here; this path did not,
-	// which is the asymmetry `TestStructuredCallWithAFleetDefaultMakesNo-
-	// CloudCall` was written to catch.
+	//   1. `StructuredChatProviderByName(promptDefault)`, which was the pin --
+	//      it survives, as ExplicitProvider on the request, still winning over
+	//      every rule.
+	//   2. A REGISTRY-WIDE SCAN for anything structured-capable. Right for a
+	//      cloud provider that is momentarily unregistered and catastrophic for
+	//      a fleet one: a closed laptop silently handed every structured turn
+	//      to a paid API, and nothing about the answer said so. The chain does
+	//      this properly now -- it tries the doors in cost order and refuses
+	//      with a report naming each.
+	//   3. The DEFAULT CHAT provider with the schema pasted into the user turn.
+	//      That is not a structured call; it is a chat call wearing one, which
+	//      is why it needed stripJSONFences to survive a model that fenced its
+	//      answer. A chain that cannot serve `structured` now refuses, and the
+	//      refusal names the doors.
 	//
-	// The refusal is the TYPED one, naming every machine considered and why
-	// each was ruled out, because a caller that parks on it wants to resume
-	// when a machine wakes -- and because "your laptop is asleep" and "this
-	// cluster has no provider" are different problems with different fixes.
-	if err := e.refuseUnavailableLocalProvider(ctx, providerName); err != nil {
+	// refuseUnavailableLocalProvider is gone with them: it existed because
+	// tier 2 would otherwise have fallen through a shut local door, and there
+	// is no tier 2 left to fall through.
+	prompt, ok := e.prompts.Get(templateId)
+	if !ok || prompt == nil {
+		return "", fmt.Errorf("unknown prompt template %q", templateId)
+	}
+	req, err := requestForPrompt(prompt, nil, airoute.ModalityStructured, rendered)
+	if err != nil {
 		return "", err
 	}
-
-	var result string
-	structured := e.StructuredChatProviderByName(ctx, providerName)
-	if structured == nil && providerName != "" && e.Component != nil && e.Logger != nil {
-		e.Logger.Info("prompt @defaultProvider unavailable; falling back to default structured provider",
-			"template", templateId, "requestedProvider", providerName)
+	resolved, err := e.resolveAI(ctx, req)
+	if err != nil {
+		return "", err
 	}
+	structured, isStructured := resolved.Client.(common.ChatStructuredProvider)
+	if !isStructured || structured == nil {
+		return "", fmt.Errorf("the router resolved %q for a structured call and it does not serve one",
+			resolved.Resolution.ProviderName)
+	}
+	resolvedProvider := resolved.Resolution.ProviderName
 
-	// THE JOURNAL SEAM (memql#4999). The three branches below are unchanged;
-	// what wraps them is serveModelCall, which decides -- once, via
-	// work.DecideServe -- whether this run may be answered from its journal,
-	// and records what happened either way. Outside a work run it costs one
-	// context lookup and calls straight through.
+	// THE JOURNAL SEAM (memql#4999). What wraps the call is serveText, which
+	// decides -- once, via work.DecideServe -- whether this run may be answered
+	// from its journal, and records what happened either way. Outside a work
+	// run it costs one context lookup and calls straight through.
 	//
-	// resolvedProvider is the name the request ACTUALLY ran on, not the one
-	// the prompt asked for: a fallback that lands on a different provider is
-	// a different request, and hashing the requested name would let a replay
-	// serve one provider's answer for another's.
-	resolvedProvider := providerName
-	if structured == nil {
-		resolvedProvider = e.DefaultProviderName()
-	}
-	req := common.ModelRequest{
+	// The provider recorded is the one the request ACTUALLY ran on rather than
+	// the one the prompt asked for: hashing the requested name would let a
+	// replay serve one provider's answer for another's.
+	journalReq := common.ModelRequest{
 		Provider: resolvedProvider,
-		Model:    e.providerModel(resolvedProvider),
+		Model:    resolved.Resolution.Model,
 		Settings: e.answerAffectingSettings(resolvedProvider),
 		Messages: messages,
 		Schema:   spec,
 	}
 
-	result, err = e.modelSeam.serveText(ctx, req, templateId, func(ctx context.Context) (modelCallOutcome, error) {
+	var result string
+	result, err = e.modelSeam.serveText(ctx, journalReq, templateId, func(ctx context.Context) (modelCallOutcome, error) {
 		var out modelCallOutcome
-		var text string
-		var callErr error
-		switch {
-		case structured != nil:
-			text, out.Usage, callErr = callStructuredWithUsage(ctx, structured, messages, spec)
-		default:
-			if fallback := e.StructuredChatProvider(); fallback != nil {
-				text, out.Usage, callErr = callStructuredWithUsage(ctx, fallback, messages, spec)
-				break
-			}
-			chat := e.DefaultChatProvider()
-			if chat == nil {
-				return out, fmt.Errorf("no chat provider available for structured invocation")
-			}
-			text, callErr = chat.CallChat(ctx, structuredFallbackMessages(rendered, schema))
-			if callErr == nil {
-				// A chat model asked for "ONLY JSON" wraps it in a markdown
-				// fence often enough that the wrapper is the common case, not
-				// the exception (claude-sonnet-4-6, prod 2026-08-26: perfect
-				// JSON inside ```json, parse failed on the backtick). The
-				// structured paths above return verbatim JSON and skip this.
-				text = stripJSONFences(text)
-			}
+		text, usage, callErr := callStructuredWithUsage(ctx, structured, messages, spec)
+		out.Usage = usage
+		if callErr != nil {
+			return out, callErr
 		}
+		// A structured provider returns verbatim JSON. The fence-stripping the
+		// old chat-with-schema last resort needed is gone with it: a chat model
+		// asked for "ONLY JSON" wrapped it in a markdown fence often enough
+		// that the wrapper was the common case, and the answer to that is not
+		// to strip fences -- it is to refuse a chain that cannot serve a
+		// structured call.
 		out.Value = text
-		return out, callErr
+		return out, nil
 	})
 	if err != nil {
 		return "", err
@@ -725,29 +644,3 @@ func (e *MemQLEngine) Rules() *RuleRegistry {
 // component/bus protobuf package (which would create an import
 // cycle with the bus consumers downstream). app bootstrap calls
 // this once with the config component's Snapshot().
-
-// refuseUnavailableLocalProvider returns the typed refusal when providerName
-// names a LOCAL provider -- a fleet model today, an app door once one exists --
-// that cannot currently serve a call. It returns nil for every other name,
-// including a cloud provider that is unavailable, whose established behaviour
-// is to fall through to the default.
-//
-// The asymmetry is the design (D2): a cloud provider's fallback spends money
-// the operator has already agreed to spend, while a local provider's fallback
-// spends money nobody agreed to at all. So an unavailable local primary
-// REFUSES and the work parks, and the only ways to reach a paid API are an
-// authored @fallback or a person's explicit consent.
-func (e *MemQLEngine) refuseUnavailableLocalProvider(ctx context.Context, providerName string) error {
-	if e == nil || e.providers == nil {
-		return nil
-	}
-	modelId, isFleet := IsFleetReference(providerName)
-	if !isFleet {
-		return nil
-	}
-	entry, ok := e.providers.EntryForContext(ctx, providerName)
-	if ok && entry != nil && entry.Available && entry.Client != nil {
-		return nil
-	}
-	return e.providers.FleetRefusal(ctx, actingUserFromContext(ctx), modelId)
-}

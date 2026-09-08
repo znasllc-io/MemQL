@@ -130,7 +130,7 @@ func (a *App) mountLibraryArtifactEndpoints(uploader server.FileUploader, contai
 func (a *App) newLibraryAnalyzer(uploader server.FileUploader) server.LibraryAnalyzer {
 	lib := library.NewIntegration(a.engine)
 	lib.SetLogger(a.Logger)
-	lib.SetExtractor(fileprocessor.NewDefaultProcessor(a.engine.VisionProvider()))
+	lib.SetExtractor(fileprocessor.NewDefaultProcessor(a.resolveVisionProvider(context.Background())))
 	// The blob fetcher (memql#4782): the pass streams a chunked upload's
 	// committed blob once, for the hash always and for extraction when
 	// readable. Same checked-assertion pattern as the transport's own

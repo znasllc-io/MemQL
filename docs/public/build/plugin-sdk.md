@@ -43,7 +43,9 @@ checks at startup. For an end-to-end "build your first pack" walkthrough, see
 version** of the extension surface: the `PluginContext` fields, the
 `PluginFactory` signature, and the registration primitives.
 
-- **Current: `1`.**
+- **Current: `2`.** It moved from 1 in epic memql#5127, which renamed two
+  `PluginContext` fields and removed the three provider lookups from
+  `IntegrationEngineAccess`.
 - It bumps **only on a breaking change** to that surface -- a removed/renamed
   `PluginContext` field, a changed `PluginFactory` signature, a changed
   registration primitive.
@@ -95,11 +97,11 @@ context still observes live state.
 | Capability | Type | Use |
 |---|---|---|
 | `Logger` | `*slog.Logger` | structured logging |
-| `Engine` | `IntegrationEngineAccess` | DSL execution, prompt render, tool dispatch, streaming provider lookups |
+| `Engine` | `IntegrationEngineAccess` | DSL execution, prompt render, tool dispatch. Carries **no** provider lookup -- a model is reached through the router |
 | `BunDB` | `func() *bun.DB` | pooled DB handle (bulk queries/mutations); `nil` on a DB-less binary |
 | `DirectBunDB` | `func() *bun.DB` | direct (non-pooled) handle for session-scoped work (advisory locks, leader election) -- never for bulk |
-| `VisionProvider` | `func() common.VisionAIProvider` | default vision-capable AI provider, or `nil` |
-| `EmbeddingProviderByName` | `func(name string) (EmbeddingAIProvider, error)` | named embedding provider |
+| `ResolveVisionProvider` | `func() common.VisionAIProvider` | **resolves** a vision-capable provider through the router; `nil` when no door to one is open |
+| `ResolveEmbeddingProvider` | `func(ctx, name) (EmbeddingAIProvider, error)` | **resolves** an embedding provider through the router; a non-empty name is a **pin** (`ExplicitProvider`), not a registry lookup |
 | `ResolvePartitionFromContext` | `func(ctx) string` | active **partition** (the canonical tenant scope) for a request; `"default"` if unset |
 | `ResolveVariable` | `func(ctx, name) (string, error)` | partition-scoped plaintext variable, falling back to the global |
 | `ResolveSystemVariable` | `func(ctx, name) (string, error)` | instance-wide plaintext variable |

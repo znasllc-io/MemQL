@@ -713,8 +713,8 @@ builtin routingRuleActivate {
   policy         string!
   precedence     integer!
   description    string
-  level          string  @enum("fast", "strong", "reasoning", "embeddings")
-  onUnavailable  string  @enum("degrade", "park")
+  level          enum("fast", "strong", "reasoning", "embeddings")
+  onUnavailable  enum("degrade", "park")
 }
 
 @executor("integration.router.retireRoutingRule")

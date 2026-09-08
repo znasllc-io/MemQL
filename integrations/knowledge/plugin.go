@@ -17,8 +17,8 @@ import (
 // its Start() hook fires, which happens after the plug-in factory runs.
 func init() {
 	memql.RegisterPlugin("knowledge", func(pctx memql.PluginContext) (memql.IntegrationProvider, error) {
-		if pctx.EmbeddingProviderByName == nil {
-			return nil, fmt.Errorf("knowledge plug-in: no EmbeddingProviderByName in plugin context")
+		if pctx.ResolveEmbeddingProvider == nil {
+			return nil, fmt.Errorf("knowledge plug-in: no ResolveEmbeddingProvider in plugin context")
 		}
 		if pctx.ResolvePartitionFromContext == nil {
 			return nil, fmt.Errorf("knowledge plug-in: no ResolvePartitionFromContext in plugin context")
@@ -42,7 +42,7 @@ func init() {
 			}
 			return bunDB.DB
 		})
-		integ.SetEmbeddingProvider(pctx.EmbeddingProviderByName)
+		integ.SetEmbeddingProvider(pctx.ResolveEmbeddingProvider)
 		return integ, nil
 	})
 }

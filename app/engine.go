@@ -370,6 +370,19 @@ func (a *App) engineAndBus() {
 	// never a separate node; it's a library the agent replier, the
 	// gRPC AI handlers, and future policy-driven call sites all share.
 	a.router = router.New(a.engine.Providers(), a.engine.Policies(), a.engine.Rules(), a.engine, a.Logger)
+
+	// THE SETTER IS THE FEATURE (epic memql#5127, design D2). The engine holds
+	// the router as an INTERFACE -- component/router imports component/memql
+	// and the dependency cannot go back -- and this line is the only place in
+	// the tree where the two halves meet. Without it every call site that was
+	// re-pointed onto the seam gets ErrAIResolverUnwired, and with a fallback
+	// in place of that refusal it would instead get whatever the registry
+	// happened to default to, spending money on a paid vendor model and
+	// recording no decision. A seam whose setter is never called is green,
+	// silent and inert; app/ai_resolver_wiring_test.go asserts this call
+	// exists for exactly that reason.
+	a.engine.SetAIResolver(a.router)
+
 	a.Logger.Info("AI Router initialized",
 		"providers", a.engine.Providers().Count(),
 		"policies", a.engine.Policies().Count(),

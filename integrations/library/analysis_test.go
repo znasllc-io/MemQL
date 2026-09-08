@@ -327,14 +327,7 @@ func (s *libStub) RegisterIntegration(memql.IntegrationProvider) error { return 
 func (s *libStub) InvokeAIStructured(context.Context, string, map[string]any, string, json.RawMessage, bool) (string, error) {
 	return "", nil
 }
-func (s *libStub) RenderPrompt(string, map[string]any) (string, error) { return "", nil }
-func (s *libStub) ChatStreamProvider() common.ChatStreamProvider       { return nil }
-func (s *libStub) ChatStreamProviderByName(string) common.ChatStreamProvider {
-	return nil
-}
-func (s *libStub) ChatStreamWithToolsProviderByName(string) common.ChatStreamWithToolsProvider {
-	return nil
-}
+func (s *libStub) RenderPrompt(string, map[string]any) (string, error)      { return "", nil }
 func (s *libStub) ToolDefinitionsForNames([]string) []common.ToolDefinition { return nil }
 func (s *libStub) ExecuteToolByName(context.Context, string, map[string]any) (string, error) {
 	return "", nil

@@ -14,8 +14,84 @@ import (
 
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 )
+
+// The AI handlers reach a model through the ENGINE'S RESOLVER and nowhere else
+// (epic memql#5127, design D2). Each one declares the LEVEL the call needs and
+// the MODALITY it derives; the router picks the provider, records the
+// decision, and is the only thing in the tree that walks the registry.
+//
+// A caller-named provider is a PIN, not a lookup. It rides
+// ResolveRequest.ExplicitProvider, so it wins over every rule and still passes
+// through the doors, the ceiling check and the ledger. The three arms this
+// replaced -- "provider %q not found", "no non-streaming chat provider
+// available", "no streaming provider available" -- each answered a different
+// question with the same shrug, and none of them could say which of the four
+// doors was shut or what to do about it.
+
+// chatResolveRequest is the non-streaming chat turn: an Ask, answered whole.
+//
+// STRONG rather than fast, because this is a person's question and the answer
+// is the product. The context floor is estimated from the messages the call
+// actually carries -- a floor of zero admits every entry and reads on the
+// decision record exactly like a floor that was measured and cleared.
+func chatResolveRequest(messages []common.ChatMessage, providerName string) airoute.ResolveRequest {
+	return airoute.ResolveRequest{
+		Level:            airoute.LevelStrong,
+		Modality:         airoute.ModalityChat,
+		PromptName:       askPromptName,
+		Needs:            airoute.Needs{MinContextTokens: minContextForMessages(messages)},
+		ExplicitProvider: providerName,
+	}
+}
+
+// chatStreamResolveRequest is the same turn with the tokens arriving as they
+// are produced. Same level and same prompt; only the modality differs, because
+// only the interface the provider must satisfy differs.
+func chatStreamResolveRequest(messages []common.ChatMessage, providerName string) airoute.ResolveRequest {
+	return airoute.ResolveRequest{
+		Level:            airoute.LevelStrong,
+		Modality:         airoute.ModalityStreamingChat,
+		PromptName:       askPromptName,
+		Needs:            airoute.Needs{MinContextTokens: minContextForMessages(messages)},
+		ExplicitProvider: providerName,
+	}
+}
+
+// suggestResolveRequest is a suggestion: short, schema-shaped, and nobody is
+// reading prose. FAST, and structured -- the schema is the point of the call,
+// so Needs.Structured is asserted rather than left to the modality.
+//
+// It carries no PromptName: the rendered messages come from whichever suggest
+// domain registered the handler, and naming one here would be a guess about
+// somebody else's prompt.
+func suggestResolveRequest(messages []common.ChatMessage) airoute.ResolveRequest {
+	return airoute.ResolveRequest{
+		Level:    airoute.LevelFast,
+		Modality: airoute.ModalityStructured,
+		Needs: airoute.Needs{
+			Structured:       true,
+			MinContextTokens: minContextForMessages(messages),
+		},
+	}
+}
+
+// askPromptName is what a rule branches on to recognise the interactive Ask
+// turn. It is the name the two chat handlers declare and nothing else does.
+const askPromptName = "ask"
+
+// minContextForMessages is the context-window floor a chat turn needs: every
+// message's text, plus the default completion budget.
+func minContextForMessages(messages []common.ChatMessage) int {
+	parts := make([]string, 0, len(messages))
+	for _, m := range messages {
+		parts = append(parts, m.Content)
+	}
+	return airoute.EstimateMinContextTokensFor(0, parts...)
+}
 
 // generateErrorId creates a short unique error ID for tracing across logs.
 func generateErrorId() string {
@@ -33,6 +109,86 @@ func (s *streamSession) sendAiError(requestId, correlate string, message string,
 	return s.sendQueryErrorWithMetadata(requestId, correlate, codes.Internal, message, map[string]string{
 		"errorId": eid,
 	})
+}
+
+// sendAiModelError answers one failed AI call, and its whole job is to keep
+// three conditions that need three different fixes from wearing one code.
+//
+//   - NO DOOR IS OPEN is FailedPrecondition. The cluster is working and the
+//     call is well-formed; what is missing is a model somebody can reach --
+//     a laptop is asleep, an app is signed out, a ceiling is reached. The
+//     message NAMES THE REFUSAL CODE so a client can match on it rather than
+//     on wording, and carries the door report, which is the only part with an
+//     action in it: "no provider available" sends a person nowhere, while
+//     "your laptop is offline; the federation hop is over its ceiling" names
+//     the two places to look.
+//   - THE RESOLVER IS UNWIRED is Internal, deliberately NOT FailedPrecondition.
+//     It means nobody installed the router on this node -- a boot-wiring
+//     fault, fixed in app/ by whoever deploys, not by the person holding the
+//     laptop. Reporting it as an unavailable model sends them to their fleet
+//     for something no fleet can fix.
+//   - Anything else is Internal with an error id, as before.
+func (s *streamSession) sendAiModelError(requestId, correlate, message string, err error) {
+	text, metadata, isRefusal := aiRefusalStatus(err)
+	if !isRefusal {
+		s.sendAiError(requestId, correlate, message, err)
+		return
+	}
+	if s.logger != nil {
+		s.logger.Warn(message, "error", err, "refusalCode", metadata["refusalCode"], "requestId", requestId)
+	}
+	_ = s.sendQueryErrorWithMetadata(requestId, correlate, codes.FailedPrecondition, text, metadata)
+}
+
+// aiRefusalStatus reports whether err is a router refusal and, if so, the
+// message and metadata the FailedPrecondition carries.
+//
+// It is a PURE function over the error so the classification can be tested
+// without a stream, a session or a server: the thing worth checking is which
+// of the three conditions an error lands in and whether the code survives into
+// the message, and none of that is about gRPC plumbing.
+func aiRefusalStatus(err error) (message string, metadata map[string]string, ok bool) {
+	// Checked FIRST and by identity, not by message. An unwired resolver is a
+	// boot-wiring fault whose sentence deliberately says "not an unavailable
+	// provider" -- and if its wording ever drifted into naming a refusal code,
+	// a message match below would silently start reporting it as a shut door
+	// and send an operator to look at their fleet.
+	if errors.Is(err, memqlengine.ErrAIResolverUnwired) {
+		return "", nil, false
+	}
+	code, doors, isRefusal := work.DoorsFrom(err)
+	if !isRefusal {
+		return "", nil, false
+	}
+	// The code leads unless the rendered error already carries it. The router
+	// builds its message that way on purpose (work.InferenceRefusalCode reads
+	// it back out of a recorded string), so this prefix only ever fires for a
+	// refusal that travelled here some other way.
+	message = err.Error()
+	if !strings.Contains(message, code) {
+		message = code + ": " + message
+	}
+	metadata = map[string]string{"refusalCode": code}
+	if shut := doorsShutIn(doors); shut != "" {
+		metadata["doorsShut"] = shut
+	}
+	return message, metadata, true
+}
+
+// doorsShutIn is the SET of doors that did not open, deduplicated in the order
+// the chain tried them. The full report is in the message; this is the summary
+// a client can branch on without parsing prose.
+func doorsShutIn(doors []work.DoorReport) string {
+	seen := make(map[string]bool, len(doors))
+	names := make([]string, 0, len(doors))
+	for _, d := range doors {
+		if d.Door == "" || seen[d.Door] {
+			continue
+		}
+		seen[d.Door] = true
+		names = append(names, d.Door)
+	}
+	return strings.Join(names, ",")
 }
 
 // handleAiChat handles non-streaming and streaming chat requests.
@@ -94,29 +250,14 @@ func (s *streamSession) handleAiChat(envelope *memqlv1.MemqlClientMessage, msg *
 }
 
 func (s *streamSession) handleAiChatNonStream(requestId, correlate string, messages []common.ChatMessage, providerName string) {
-	var chatProvider common.ChatAIProvider
-
-	if providerName != "" {
-		entry, ok := s.service.engine.ProviderEntry(providerName)
-		if !ok || !entry.Available {
-			s.sendQueryError(requestId, correlate, codes.InvalidArgument, fmt.Sprintf("provider %q not found", providerName))
-			return
-		}
-		cp, ok := entry.Client.(common.ChatAIProvider)
-		if !ok {
-			s.sendQueryError(requestId, correlate, codes.InvalidArgument, fmt.Sprintf("provider %q does not support chat", providerName))
-			return
-		}
-		chatProvider = cp
-	} else {
-		chatProvider = s.service.engine.DefaultChatProvider()
-		if chatProvider == nil {
-			s.sendQueryError(requestId, correlate, codes.Internal, "no non-streaming chat provider available")
-			return
-		}
+	ctx := s.stream.Context()
+	chatProvider, _, err := memqlengine.ResolveAITyped[common.ChatAIProvider](
+		ctx, s.service.engine, chatResolveRequest(messages, providerName))
+	if err != nil {
+		s.sendAiModelError(requestId, correlate, "no model is reachable for this chat turn", err)
+		return
 	}
 
-	ctx := s.stream.Context()
 	result, err := chatProvider.CallChat(ctx, messages)
 	if err != nil {
 		s.sendAiError(requestId, correlate, "chat completion failed", err)
@@ -137,23 +278,14 @@ func (s *streamSession) handleAiChatNonStream(requestId, correlate string, messa
 }
 
 func (s *streamSession) handleAiChatStream(requestId, correlate string, messages []common.ChatMessage, providerName string) {
-	var streamProvider common.ChatStreamProvider
-
-	if providerName != "" {
-		streamProvider = s.service.engine.ChatStreamProviderByName(providerName)
-		if streamProvider == nil {
-			s.sendQueryError(requestId, correlate, codes.InvalidArgument, fmt.Sprintf("provider %q does not support streaming", providerName))
-			return
-		}
-	} else {
-		streamProvider = s.service.engine.ChatStreamProvider()
-		if streamProvider == nil {
-			s.sendQueryError(requestId, correlate, codes.Internal, "no streaming provider available")
-			return
-		}
+	ctx := s.stream.Context()
+	streamProvider, _, err := memqlengine.ResolveAITyped[common.ChatStreamProvider](
+		ctx, s.service.engine, chatStreamResolveRequest(messages, providerName))
+	if err != nil {
+		s.sendAiModelError(requestId, correlate, "no model is reachable for this streaming chat turn", err)
+		return
 	}
 
-	ctx := s.stream.Context()
 	chunks, err := streamProvider.CallChatStream(ctx, messages)
 	if err != nil {
 		s.sendAiError(requestId, correlate, "chat stream failed", err)
@@ -293,7 +425,11 @@ func (s *streamSession) handleAiSuggest(envelope *memqlv1.MemqlClientMessage, ms
 		// when no structured-capable provider is registered.
 		result, err := callSuggestWithSchema(ctx, s.service.engine, messages, schemaName, schema)
 		if err != nil {
-			s.sendAiError(requestId, correlate, fmt.Sprintf("%s suggestion failed", domain), err)
+			// sendAiModelError rather than sendAiError: this one call can fail
+			// because no door is open, which is a condition the person asking
+			// can act on, and it must not arrive wearing the same Internal
+			// code as a provider that returned malformed output.
+			s.sendAiModelError(requestId, correlate, fmt.Sprintf("%s suggestion failed", domain), err)
 			return
 		}
 
@@ -345,12 +481,17 @@ func sttFormatFromMIME(mimeType string) string {
 	}
 }
 
-// callSuggestWithSchema routes a suggest call through the structured
-// chat provider when available, falling back to the regular suggest
-// chat provider. The HTTP handlers in component/server/sihttp/ go
-// through a sibling helper with the same contract; this one lives
-// here so the gRPC AiSuggestMsg path doesn't need to import sihttp
-// just for the plumbing.
+// callSuggestWithSchema runs a suggest call against a structured-output
+// provider the router picked.
+//
+// THE PLAIN-CHAT FALLBACK IS GONE, and its absence is the point. It existed
+// because "is a structured-capable provider registered" was a question this
+// call site had to answer for itself, and its answer when the registry had
+// none was to ask for prose and hope it parsed as JSON -- which produced an
+// invalid-JSON error one layer up, naming the model rather than the missing
+// capability. The request now DECLARES Needs.Structured, so the chain refuses
+// with the door report instead of degrading into a shape the caller cannot
+// use.
 func callSuggestWithSchema(
 	ctx context.Context,
 	engine *memqlengine.MemQLEngine,
@@ -361,17 +502,15 @@ func callSuggestWithSchema(
 	if engine == nil {
 		return "", fmt.Errorf("engine unavailable")
 	}
-	if structured := engine.StructuredChatProvider(); structured != nil {
-		return structured.CallChatStructured(ctx, messages, common.StructuredSchema{
-			Name:        schemaName,
-			Description: schemaName + " output",
-			Schema:      schema,
-			Strict:      true,
-		})
+	structured, _, err := memqlengine.ResolveAITyped[common.ChatStructuredProvider](
+		ctx, engine, suggestResolveRequest(messages))
+	if err != nil {
+		return "", err
 	}
-	provider := engine.SuggestChatProvider()
-	if provider == nil {
-		return "", fmt.Errorf("no non-streaming chat provider available")
-	}
-	return provider.CallChat(ctx, messages)
+	return structured.CallChatStructured(ctx, messages, common.StructuredSchema{
+		Name:        schemaName,
+		Description: schemaName + " output",
+		Schema:      schema,
+		Strict:      true,
+	})
 }

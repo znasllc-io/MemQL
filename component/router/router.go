@@ -376,7 +376,7 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 		effective := rule.EffectiveLevel(level)
 		served = effective
 
-		chain, ok := r.chainFor(rule, report)
+		chain, removed, ok := r.chainFor(rule, report)
 		if !ok {
 			break
 		}
@@ -386,6 +386,12 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 				"resolves the chain already exhausted at a higher level, so it is not walked again")
 		} else {
 			walked[key] = true
+			// The excludes are noted HERE rather than where they are applied,
+			// so a degrade that re-matches to the same chain does not put a
+			// second copy of every exclusion on the record.
+			for _, e := range removed {
+				report.noteConsidered(e, doorFor(e), "excluded by rule "+rule.Name)
+			}
 			winner, err := r.walkChain(ctx, levelReq, mod, chain, rule.Excludes, report, rule.Policy)
 			if err != nil {
 				return nil, Resolved{}, err
@@ -472,21 +478,18 @@ func degradeFloorReason(level airoute.Level) string {
 // onUnavailable then decides, which is the answer an operator asked for when
 // they excluded every entry -- falling back to the unexcluded chain would
 // quietly undo the exclusion they wrote.
-func (r *Router) chainFor(rule *memql.RuleConfig, report *doorReporter) ([]string, bool) {
+func (r *Router) chainFor(rule *memql.RuleConfig, report *doorReporter) (chain, removed []string, ok bool) {
 	if r.policies == nil {
 		report.note("(policy "+rule.Policy+")", "no policy registry is wired into this router")
-		return nil, false
+		return nil, nil, false
 	}
-	policy, ok := r.policies.Lookup(rule.Policy)
-	if !ok {
+	policy, found := r.policies.Lookup(rule.Policy)
+	if !found {
 		report.note("(policy "+rule.Policy+")", "rule "+rule.Name+" names a policy that is not registered")
-		return nil, false
+		return nil, nil, false
 	}
-	chain, removed := applyExcludes(policy.ProviderChain(), rule.Excludes)
-	for _, e := range removed {
-		report.noteConsidered(e, doorFor(e), "excluded by rule "+rule.Name)
-	}
-	return chain, true
+	chain, removed = applyExcludes(policy.ProviderChain(), rule.Excludes)
+	return chain, removed, true
 }
 
 // walkChain tries the entries of one chain in order, at one level.
@@ -672,6 +675,7 @@ func (r *Router) resolvedFrom(
 		PolicyName:   policyName,
 		Chain:        winner.remaining,
 		Decision:     decision,
+		Entry:        winner.entry,
 	}
 }
 
@@ -746,6 +750,7 @@ func (r *Router) providerLookup(ctx context.Context, userId, name string, mod pr
 		Model:        entry.Config.Model,
 		Pricing:      entry.Config.Pricing(),
 		Streaming:    mod == modalityStreamTools,
+		Entry:        entry,
 	}
 	if ok, _ := servesModality(entry.Client, mod); !ok {
 		return nil, Resolved{}, false

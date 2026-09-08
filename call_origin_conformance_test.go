@@ -175,6 +175,28 @@ func TestOnlyAllowlistedPackagesStampInternalOrigin(t *testing.T) {
 		// `selection.go` beside it holds no engine at all.
 		"component/skills":     "the capability graph's three @serverOnly writers -- server-initiated evidence and executable lists, refused without the stamp (memql#4970)",
 		"component/emailrules": "event-email rule generation, activation and firing -- server-initiated; the callers are the authoring pipeline and an authored automation, and the three writes it stamps for are @serverOnly (memql#4829)",
+		// Routing-rule activation (epic memql#5127). Same shape as
+		// component/emailrules one line up, and the reasoning is the same
+		// three sentences: the package is SMALL, it exists for ONE operation
+		// family -- arm a routing rule, retire one -- and every call site in
+		// it is downstream of a single gate a test can enumerate
+		// (`auth.CanAuthor`, asserted by
+		// component/routingrules/gate_test.go, which drives Activate and
+		// Retire with every role against an engine that refuses everything
+		// and counts the attempts).
+		//
+		// The two writes it stamps for are `recordBundleValidation` and
+		// `recordBundleDryRun`, both @serverOnly. What internal origin buys is
+		// the ability to call them AT ALL -- origin defaults to CLIENT and the
+		// function validator refuses -- so without it a rule would be rendered,
+		// compile, and then be armed with neither gate verdict recorded, which
+		// is a bundle nobody can audit rather than a visible failure.
+		//
+		// The stamp is deliberately NOT on the bundle and construct writes,
+		// which are ordinary mutations run under the ARMING CALLER's actor:
+		// the bundle is theirs, and stamping there would hand an author's write
+		// the engine's escape.
+		"component/routingrules": "routing-rule activation and retirement -- server-initiated behind one auth.CanAuthor gate; the two writes it stamps for (recordBundleValidation, recordBundleDryRun) are @serverOnly (epic memql#5127)",
 		// The custom-domain reconciliation sweep (epic memql#4805). SERVER-
 		// INITIATED, and not one of the request-derived exceptions: the caller
 		// is a scheduled automation, not an HTTP handler, and the six writes it

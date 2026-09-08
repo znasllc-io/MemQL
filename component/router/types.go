@@ -73,6 +73,12 @@ type Resolved struct {
 	// read back were the ones that failed -- and a rule is falsifiable only if
 	// the decisions it MADE can be read.
 	Decision airoute.Decision
+
+	// Entry is the registry record the chain walk picked, handed back so
+	// component/memql's own callers keep the provider's configuration -- its
+	// answer-affecting parameters and its declared modality -- without a
+	// second lookup that could resolve differently.
+	Entry *memql.ProviderConfigEntry
 }
 
 // CallRecord is the payload for one v1:router:call row. Populated by

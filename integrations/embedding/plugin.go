@@ -17,8 +17,8 @@ import (
 // invocation time.
 func init() {
 	memql.RegisterPlugin("embedding", func(pctx memql.PluginContext) (memql.IntegrationProvider, error) {
-		if pctx.EmbeddingProviderByName == nil {
-			return nil, fmt.Errorf("embedding plug-in: no EmbeddingProviderByName in plugin context")
+		if pctx.ResolveEmbeddingProvider == nil {
+			return nil, fmt.Errorf("embedding plug-in: no ResolveEmbeddingProvider in plugin context")
 		}
 		if pctx.ResolvePartitionFromContext == nil {
 			return nil, fmt.Errorf("embedding plug-in: no ResolvePartitionFromContext in plugin context")
@@ -39,7 +39,7 @@ func init() {
 			}
 			return bunDB.DB
 		})
-		integ.SetEmbeddingProvider(pctx.EmbeddingProviderByName)
+		integ.SetEmbeddingProvider(pctx.ResolveEmbeddingProvider)
 		integ.SetPartitionFunc(pctx.ResolvePartitionFromContext)
 		return integ, nil
 	})

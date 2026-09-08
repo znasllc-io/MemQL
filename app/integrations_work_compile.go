@@ -8,6 +8,8 @@ import (
 
 	"github.com/znasllc-io/memql/component/events"
 	"github.com/znasllc-io/memql/component/healing"
+	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/integrations/planner"
 )
 
@@ -117,20 +119,28 @@ func (a *App) wireWorkFailurePath() {
 	// The healer: a precondition miss becomes a planReview approval, never a
 	// silent edit (design D5).
 	//
-	// ITS PROVIDER STILL COMES OFF THE REGISTRY BY NAME, and that is a
-	// deliberate seam of this epic rather than an oversight: the call-site
-	// sweep that re-points every model call through the router covers this one
-	// and safety's together, because they are the same shape -- a leaf package
-	// that takes an injected common.ChatStructuredProvider from its caller.
-	if provider := a.engine.StructuredChatProviderByName(context.Background(), a.engine.DefaultProviderName()); provider != nil {
-		if healer := pi.WorkHealer(healing.NewRepairLoop(provider), work, workHealApprovalTTL); healer != nil {
-			a.eventBus.Subscribe(events.TopicPreconditionMissed, healer.HandlePreconditionMissed,
-				events.WithSubscriberName("work:heal"))
-			a.Logger.Info("work healer subscribed: a precondition miss now proposes typed patches as a planReview approval",
-				"component", "work")
-		}
-	} else {
-		a.Logger.Warn("work healer not subscribed: no structured-output provider is registered on this node, so a precondition miss will be recorded and not proposed against",
+	// ITS PROVIDER NOW COMES FROM THE ROUTER (epic memql#5127, design D2).
+	// The note that used to stand here said this site and safety's would be
+	// re-pointed together because they are the same shape -- a leaf package
+	// taking an injected common.ChatStructuredProvider from its caller -- and
+	// that is what happened. component/healing is unchanged; only the hand
+	// that fills its argument is.
+	//
+	// It named `DefaultProviderName()`, which is the registry's default
+	// dressed as a choice, and that default is exactly what the rules decide
+	// now. So the request names no provider at all.
+	provider, _, err := memql.ResolveAITyped[common.ChatStructuredProvider](
+		context.Background(), a.engine, healingPatchResolveRequest())
+	if err != nil {
+		a.Logger.Warn("work healer not subscribed: no structured-output model is reachable on this node, so a precondition miss will be recorded and not proposed against",
+			"component", "work",
+			"error", err)
+		return
+	}
+	if healer := pi.WorkHealer(healing.NewRepairLoop(provider), work, workHealApprovalTTL); healer != nil {
+		a.eventBus.Subscribe(events.TopicPreconditionMissed, healer.HandlePreconditionMissed,
+			events.WithSubscriberName("work:heal"))
+		a.Logger.Info("work healer subscribed: a precondition miss now proposes typed patches as a planReview approval",
 			"component", "work")
 	}
 }

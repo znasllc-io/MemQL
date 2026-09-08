@@ -159,6 +159,25 @@ const undeclared3322AccountTokenReason = "memql#3349 -- account-token reads; v1:
 // It is on this list anyway, and that is the point the sibling reasons make:
 // a per-query predicate is exactly the author-enforced thing the tier exists to
 // stop depending on, and `v1:identity:identity` still declares no tier.
+// undeclared5162RouterDecisionsReason covers routerDecisionsRecent, added by
+// epic memql#5127 as the first read over v1:router:call.
+//
+// It postdates the seed and names its own issue rather than carrying the
+// grandfather marker, which is the distinction the marker exists to draw.
+//
+// Why the concept declares no tier, in one sentence: `userId` on that row is
+// ATTRIBUTION rather than ownership -- the row is the deployment's, the writer's
+// actor is system:router, and `owner="userId"` would assert a guarantee nothing
+// provides while reading as safe. The honest shape, an unowned row with a rank
+// floor deciding who reads it, is not expressible today: `unowned=` requires
+// `rankVisible`, which requires `owner=`. memql#5162 is that gap.
+//
+// What narrows the read meanwhile is `@requiresRank("developer")` on the query
+// itself, which gates WHO MAY CALL -- and it is listed here anyway, because a
+// surface gate is exactly the author-enforced thing the tier exists to stop
+// depending on, and the next read over this concept starts from zero again.
+const undeclared5162RouterDecisionsReason = "memql#5162 -- the router's decision ledger has no honest tier: attribution is not ownership, and a rank floor over an unowned row is unrepresentable"
+
 const undeclared3324NodeTokenAdminReason = "memql#3324 -- role-gated node-credential listing for the portal; v1:identity:identity still declares no tier"
 
 // undeclared3217SeedSweepReason covers usersForSeedSweep, added by memql#3217
@@ -798,6 +817,7 @@ var undeclaredRowAuthzConstructs = map[string]struct {
 	"nodeTokenIdentitiesAdmin":   {"v1:identity:identity", undeclared3324NodeTokenAdminReason},
 	"nodeTokenIdentityByBinding": {"v1:identity:identity", undeclaredGrandfatherReason},
 	"nodeTokenIdentityById":      {"v1:identity:identity", undeclaredGrandfatherReason},
+	"routerDecisionsRecent":      {"v1:router:call", undeclared5162RouterDecisionsReason},
 	"patIdentitiesForSelf":       {"v1:identity:identity", undeclared3178SelfScopedReason},
 	"patIdentitiesForUser":       {"v1:identity:identity", undeclaredGrandfatherReason},
 	"patIdentityById":            {"v1:identity:identity", undeclaredGrandfatherReason},

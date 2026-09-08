@@ -30,7 +30,7 @@ func init() {
 		// the provider registry is necessarily populated, and an image
 		// uploaded an hour later must see the live provider rather than
 		// whatever was there at boot.
-		i.SetExtractor(lazyProcessor{vision: pctx.VisionProvider})
+		i.SetExtractor(lazyProcessor{vision: pctx.ResolveVisionProvider})
 		return i, nil
 	})
 }

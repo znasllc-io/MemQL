@@ -389,19 +389,6 @@ func callStructuredWithUsage(
 	return text, common.ChatUsage{}, err
 }
 
-// providerModel is the model id a provider name resolves to, or "" when the
-// name resolves to nothing.
-func (e *MemQLEngine) providerModel(name string) string {
-	if e == nil {
-		return ""
-	}
-	entry, ok := e.ProviderEntry(name)
-	if !ok || entry == nil {
-		return ""
-	}
-	return entry.Config.Model
-}
-
 // costOnlyParams are the provider params that do NOT affect the answer.
 //
 // A DENYLIST RATHER THAN AN ALLOWLIST, and the direction is the decision. An

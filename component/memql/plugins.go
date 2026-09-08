@@ -32,7 +32,15 @@ import (
 // pack fails loudly at startup instead of silently mis-binding against a
 // contract it was not built for. The canonical reference for the surface is
 // docs/public/build/plugin-sdk.md.
-const PluginContractVersion = 1
+//
+// It is 2 as of epic memql#5127: PluginContext's VisionProvider and
+// EmbeddingProviderByName were RENAMED to ResolveVisionProvider and
+// ResolveEmbeddingProvider, and the three streaming-provider lookups were
+// removed from IntegrationEngineAccess. Both are breaking changes to this
+// surface by the rule above, so the version says so -- even though the
+// compiler catches a stale pack first, since the Go half of a pack is
+// compiled in rather than loaded.
+const PluginContractVersion = 2
 
 // PluginContext is the narrow Go surface every registrant -- a pack, or a
 // core integration self-registering -- receives at startup through the
@@ -47,14 +55,15 @@ const PluginContractVersion = 1
 //
 // PluginContext is built once by the app bootstrap after core state (engine,
 // database, providers) is ready, then passed to every registered factory.
-// Callbacks (BunDB, VisionProvider, resolvers) are lazily evaluated so packs
-// see the live state even if they stash the context.
+// Callbacks (BunDB, the resolvers) are lazily evaluated so packs see the live
+// state even if they stash the context.
 type PluginContext struct {
 	Logger *slog.Logger
 
-	// Engine provides DSL execution, AI invocation, tool dispatch, and
-	// streaming provider lookups. Use this for anything that speaks to the
-	// MemQL engine surface.
+	// Engine provides DSL execution, AI invocation and tool dispatch. Use
+	// this for anything that speaks to the MemQL engine surface. It carries
+	// no provider lookup: a model is reached through the router, and the two
+	// resolvers below are the only provider-shaped things on this context.
 	Engine IntegrationEngineAccess
 
 	// BunDB returns the database handle, or nil if the node-type binary
@@ -74,17 +83,29 @@ type PluginContext struct {
 	// (epic memql#1925). Bulk traffic must NOT use this getter.
 	DirectBunDB func() *bun.DB
 
-	// VisionProvider returns the default vision-capable AI provider, or nil.
-	VisionProvider func() common.VisionAIProvider
+	// ResolveVisionProvider RESOLVES a vision-capable provider through the
+	// router, or returns nil when no door to one is open.
+	//
+	// THE NAME IS THE CONTRACT (epic memql#5127, design D2). It was
+	// `VisionProvider`, which is the name of the registry accessor it used to
+	// forward to, and a pack reading that field had every reason to believe
+	// it was getting a lookup. It is a resolution: a level, a modality, a
+	// rule, a decision record. Renaming it is what stops the two from being
+	// confusable at the only place a pack sees either.
+	ResolveVisionProvider func() common.VisionAIProvider
 
-	// EmbeddingProviderByName returns a named embedding provider, or an
-	// error if no provider by that name is registered.
+	// ResolveEmbeddingProvider resolves an embedding provider through the
+	// router. A non-empty name is a PIN -- it rides
+	// airoute.ResolveRequest.ExplicitProvider and wins over every rule --
+	// rather than a registry lookup, so a binding that names its embedding
+	// model still gets that model, and still passes through the doors, the
+	// ceiling and the ledger.
 	//
 	// It takes the CALLER'S CONTEXT because a `fleet:<modelId>` name
 	// resolves against the acting user's own machines (epic memql#5096):
 	// resolved without one it would answer against the shared-inference
 	// set, which reports a live laptop as absent.
-	EmbeddingProviderByName func(ctx context.Context, name string) (EmbeddingAIProvider, error)
+	ResolveEmbeddingProvider func(ctx context.Context, name string) (EmbeddingAIProvider, error)
 
 	// ResolvePartitionFromContext returns the active partition for the
 	// given request context; "default" if none is set.

@@ -27,20 +27,29 @@ concept budget {
 /// replies, prompt renders, suggest endpoints, TTS, transcription -- produces exactly one row here
 /// with attribution, token counts, latency, and cost. Partition-scoped usage ledger; the
 /// time-series axis rides the shared MemoryNodes hypertable.
-/// TIER (epic memql#5127). The row was in the undeclared long tail, which
-/// admitted everyone -- acceptable while nothing read it, and not acceptable
-/// once routerDecisionsRecent does. Nothing outside component/router read it
-/// before this epic, so declaring a tier narrows no existing read.
+/// NO @rowAuthz TIER, DELIBERATELY, and the reasoning is filed as memql#5162
+/// because it is a gap in the vocabulary rather than in this concept.
 ///
-/// The composite owner tier alone would be wrong here: `userId` is EMPTY for
-/// every system-triggered call, which is most of them, so a developer opening
-/// the Decisions list would see an almost empty page and no error. rankVisible
-/// plus `unowned="developer"` is what makes it correct -- a person reads their
-/// own calls, anyone at or above their rank reads them too, a system call is
-/// readable from developer up, and a cluster owner reads everything. That
-/// matches the surface floor `routerDecisionsRecent` declares rather than
-/// contradicting it.
-@rowAuthz(owner="userId", rankVisible, unowned="developer", clusterOwner)
+/// `userId` here is ATTRIBUTION -- the person whose call was served -- and not
+/// ownership. The row is the DEPLOYMENT'S: nobody can delete it, nobody can
+/// edit it, and it exists whether or not that person still does. Declaring
+/// `owner="userId"` would assert a guarantee nothing provides, and it cannot be
+/// server-stamped either: the writer's actor IS system:router, so stamping
+/// actor.userId would make the router the owner of every row.
+///
+/// `clusterOwner` is the honest description of who these rows belong to and it
+/// makes the read useless to the person the read is for: roughly half of all
+/// decisions are system-triggered with an empty userId, and a developer asking
+/// "why did this call go to a vendor" needs the ledger rather than their slice
+/// of it. The right shape -- an unowned row with a RANK FLOOR deciding who
+/// reads it -- is not expressible: `unowned=` requires `rankVisible`, which
+/// requires `owner=`, which is the claim that is false.
+///
+/// So the gate is on the SURFACE: routerDecisionsRecent carries
+/// @requiresRank("developer"), which on this ladder admits owner and developer
+/// and refuses admin. That is honest about what is enforced -- a rank floor on
+/// the read, and nothing on the rows -- rather than a tier that reads as safe
+/// and guarantees nothing, which is what makes an auditor stop looking.
 @displayCard(primary="model", secondary="promptName", tertiary="vendor", status="outcome")
 concept call {
   requestId           string!  @description("Correlates this AI call to an upstream request -- an agent turn, a suggest envelope, a prompt invocation. Free-form string; uniqueness is not enforced across partitions.")

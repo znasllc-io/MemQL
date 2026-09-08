@@ -328,6 +328,13 @@ func (e *MemQLEngine) Init(concepts concept.Registry) error {
 	e.rules = ruleRegistry
 	e.aiRuntime = newAIRuntime(e.Logger, promptRegistry, providerRegistry, e.aiCacheConfig)
 	if e.aiRuntime != nil {
+		// The prompt path's route to a model (epic memql#5127, design D2). It
+		// is the ENGINE's resolveAI rather than the router directly, so the
+		// unwired refusal and the level/modality validation are one place --
+		// and so this package still cannot import component/router.
+		e.aiRuntime.resolve = e.resolveAI
+	}
+	if e.aiRuntime != nil {
 		// The SAME seam value, not a copy: SetModelCallJournal is called
 		// from app/ after this runs, and a copy here would leave the ai()
 		// path journaling nothing while the structured path journals.
