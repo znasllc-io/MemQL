@@ -159,59 +159,42 @@ const undeclared3322AccountTokenReason = "memql#3349 -- account-token reads; v1:
 // It is on this list anyway, and that is the point the sibling reasons make:
 // a per-query predicate is exactly the author-enforced thing the tier exists to
 // stop depending on, and `v1:identity:identity` still declares no tier.
-// undeclared5162RouterDecisionsReason covers routerDecisionsRecent, added by
-// epic memql#5127 as the first read over v1:router:call.
+// THE ROUTER LEDGER'S THREE ENTRIES ARE PAID OFF (memql#5162), and the
+// retirement is recorded here rather than only in the diff -- including the
+// part where the issue's own recommendation turned out to be wrong.
 //
-// It postdates the seed and names its own issue rather than carrying the
-// grandfather marker, which is the distinction the marker exists to draw.
+// `routerDecisionsRecent`, `routerCallsInWindow` and `routerCallsOnMachine` all
+// read `v1:router:call`, which declared no tier because none of them was true
+// of it: `userId` on that row is ATTRIBUTION rather than ownership, so
+// `owner="userId"` asserted a guarantee nothing provides (and
+// TestDeclaredOwnerFieldsAreServerStamped refused it, correctly -- the field is
+// written from caller args); `clusterOwner` was honest and made the read
+// useless to the developer it is for.
 //
-// Why the concept declares no tier, in one sentence: `userId` on that row is
-// ATTRIBUTION rather than ownership -- the row is the deployment's, the writer's
-// actor is system:router, and `owner="userId"` would assert a guarantee nothing
-// provides while reading as safe. The honest shape, an unowned row with a rank
-// floor deciding who reads it, is not expressible today: `unowned=` requires
-// `rankVisible`, which requires `owner=`. memql#5162 is that gap.
+// memql#5162 recommended a new argument -- an unowned RANK FLOOR -- and the
+// three constructs above are why that is not what landed. Their authorizations
+// are three different KINDS, and only two of them are ranks:
 //
-// What narrows the read meanwhile is `@requiresRank("admin")` on the query
-// itself, which gates WHO MAY CALL -- and it is listed here anyway, because a
-// surface gate is exactly the author-enforced thing the tier exists to stop
-// depending on, and the next read over this concept starts from zero again.
-const undeclared5162RouterDecisionsReason = "memql#5162 -- the router's decision ledger has no honest tier: attribution is not ownership, and a rank floor over an unowned row is unrepresentable"
-
-// The scanner's two reads of the same ledger (epic memql#5146). Neither is a
-// new argument about the CONCEPT -- memql#5162 settled that, and its finding
-// holds for these: attribution is not ownership, so there is no honest tier for
-// a row that records which provider served whose call.
+//	routerDecisionsRecent   @requiresRank("admin")        admin and above
+//	routerCallsInWindow     actor.isClusterOwner==true    the maintenance principal
+//	routerCallsOnMachine    no rank gate at all -- fleetSharingLedger proves the
+//	                        caller owns the machine       ANY rank
 //
-// What each needs to state is its OWN gate, because they are different and
-// only one of them is the shape the tier would have covered.
+// The Fleet app carries no role floor, so the third reader is a plain writer
+// asking how busy their own laptop has been. A rank floor on the ROWS would
+// have emptied that surface for exactly the person it is for, silently.
 //
-// routerCallsInWindow carries `actor.isClusterOwner==true` as a top-level
-// conjunct. Its only caller is the nightly evidence fold, running under the
-// cluster maintenance principal, and the conjunct is what makes a missing
-// principal LOUD: strip it and the read returns zero rows, which for a fold
-// that proposes demotions is indistinguishable from a fleet where every model
-// is behaving.
+// What landed instead is `@rowAuthz(public, requiresIdentity)`: there is no
+// row-level distinction this concept can draw, and that is not an invitation to
+// the internet. It removes the anonymous reach the undeclared default was
+// handing out and leaves authorization at the SURFACE, which is where all three
+// gates already are -- the placement requiresIdentity's own documentation
+// prescribes. The concept's own comment carries the full measurement.
 //
-// routerCallsOnMachine carries NO actor conjunct, and that is the entry worth
-// reading twice. It is filtered by `executionSurface`, and its authorization is
-// that `fleetSharingLedger` has already resolved the registration through the
-// caller's own machines and refused one that is not theirs -- the same gate the
-// model pull and the probe use. The surface it filters on is BUILT from that
-// verified registration id rather than taken from the caller, so it cannot be
-// pointed at somebody else's machine.
-//
-// An actor conjunct was tried and is wrong here, which is why this entry exists
-// rather than a filter. `machineOwnerUserId==actor.userId` looks like the
-// scoped form and returns the wrong ANSWER: that field is deliberately empty
-// for a call somebody ran on their own machine, so the filter would return only
-// the calls OTHER people ran on your hardware. The ledger counts the owner's
-// own calls alongside everybody else's -- it answers "how busy has this machine
-// been", not "how much have I lent it out" -- so the scoped-looking filter
-// reports near-zero on a machine its owner uses constantly.
-const undeclared5146LedgerReason = "memql#5146 -- one machine's own call ledger; the caller's ownership of the machine is checked in fleetSharingLedger before the read and the surface is derived from the verified registration, and v1:router:call still declares no tier per memql#5162"
-
-const undeclared5146FoldReason = "memql#5146 -- the nightly evidence fold's window read, gated on actor.isClusterOwner so a missing maintenance principal fails loudly rather than folding zero rows; v1:router:call still declares no tier per memql#5162"
+// WHAT DID NOT CHANGE, and is worth stating because a reader may assume it did:
+// the surface floors are untouched and still doing their own job -- epic
+// memql#4832's D6 says a surface floor and a row tier are both permanent and
+// neither stands in for the other.
 
 const undeclared3324NodeTokenAdminReason = "memql#3324 -- role-gated node-credential listing for the portal; v1:identity:identity still declares no tier"
 
@@ -852,9 +835,6 @@ var undeclaredRowAuthzConstructs = map[string]struct {
 	"nodeTokenIdentitiesAdmin":   {"v1:identity:identity", undeclared3324NodeTokenAdminReason},
 	"nodeTokenIdentityByBinding": {"v1:identity:identity", undeclaredGrandfatherReason},
 	"nodeTokenIdentityById":      {"v1:identity:identity", undeclaredGrandfatherReason},
-	"routerDecisionsRecent":      {"v1:router:call", undeclared5162RouterDecisionsReason},
-	"routerCallsInWindow":        {"v1:router:call", undeclared5146FoldReason},
-	"routerCallsOnMachine":       {"v1:router:call", undeclared5146LedgerReason},
 	"patIdentitiesForSelf":       {"v1:identity:identity", undeclared3178SelfScopedReason},
 	"patIdentitiesForUser":       {"v1:identity:identity", undeclaredGrandfatherReason},
 	"patIdentityById":            {"v1:identity:identity", undeclaredGrandfatherReason},
