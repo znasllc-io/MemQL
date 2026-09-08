@@ -1,6 +1,7 @@
 package readiness
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -95,7 +96,28 @@ const (
 // ONLY -- a registration whose labels predate app labels. The label path above
 // needs no such list, which is why this one can afford to be a fallback rather
 // than the authority.
+//
+// It is still a COPY of component/worker's set, and a copy with nothing holding
+// it equal drifts. The authority is component/worker.KnownAppIds(), which this
+// package may not import (the edge is a cycle -- see the parity test that runs
+// the other way). KnownAppIds below is what lets that test compare them.
 var knownAppIds = map[string]bool{"claude-code": true, "codex": true}
+
+// KnownAppIds returns this package's copy of the closed runnable app set,
+// sorted, so component/worker's parity test can hold it equal to the original.
+//
+// Exported FOR THE GATE, and used by nothing else here. A copy nobody can check
+// is the one shape of restatement that fails silently: a third app added to
+// component/worker would be routable, advertised and dispatchable while a
+// registration old enough to need this fallback still reported no app door.
+func KnownAppIds() []string {
+	out := make([]string, 0, len(knownAppIds))
+	for id := range knownAppIds {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // RegistrationApp is one local app a cockpit reported.
 type RegistrationApp struct {
@@ -145,10 +167,19 @@ func (r RegistrationFacts) labelMerge() map[string]string {
 // InferenceInput is everything the decision reads.
 type InferenceInput struct {
 	Registrations []RegistrationFacts
-	// FederationConfigured is structural presence of a federated provider's
-	// identity ids -- not a live token exchange. A cluster that has been told
-	// how to reach a vendor is configured for it; whether the exchange
-	// succeeds right now is a call's problem, not a setup one.
+	// FederationConfigured is structural presence of a federated provider --
+	// not a live token exchange. A cluster that has been told how to reach a
+	// vendor is configured for it; whether the exchange succeeds right now is
+	// a call's problem, not a setup one.
+	//
+	// "STRUCTURAL" IS SLIGHTLY MORE THAN THE IDENTITY IDS, and the difference
+	// is worth stating because this comment used to claim only the ids. The
+	// engine's answer (ProviderRegistry.federationConfigured) requires a
+	// registered provider that is BOTH `Available` and resolves to the
+	// federation auth source -- so a provider whose auth could not be resolved
+	// at boot is not counted, which is stricter than the sentence above and in
+	// the safe direction: it can report a configured cluster as unconfigured,
+	// never the reverse.
 	FederationConfigured bool
 	Now                  time.Time
 }

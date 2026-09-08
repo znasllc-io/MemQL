@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/znasllc-io/memql/component/memql/readiness"
@@ -63,5 +64,25 @@ func TestAppLabelsAreEmittedOnlyForRunnableApps(t *testing.T) {
 		t.Errorf("AppLabels produced %v. Only a runnable app may produce a label -- that is what "+
 			"lets component/memql/readiness read the app door off the label instead of carrying a "+
 			"second copy of the engine's closed runnable app set.", labels)
+	}
+}
+
+// AND THE FALLBACK COPY, which the label path does not save from drifting.
+//
+// The test above is why component/memql/readiness needs no runnable-app set on
+// its PRIMARY path: a label exists only for an app this package already found
+// runnable. It has one anyway, for the inventory fallback -- a registration
+// written before app labels existed, whose `apps[]` array is all there is to
+// read. That copy is held by nothing, and a third app added here would be
+// routable, advertised and dispatchable while those older registrations went on
+// reporting no app door: a real machine, correctly configured, invisible to the
+// gate that decides whether anyone may use the cluster.
+func TestReadinessRestatesTheRunnableAppSetExactly(t *testing.T) {
+	mine, theirs := KnownAppIds(), readiness.KnownAppIds()
+	if !slices.Equal(mine, theirs) {
+		t.Errorf("component/worker knows %v and component/memql/readiness's inventory fallback "+
+			"knows %v. Both are sorted, so this is a real difference: add the id to "+
+			"component/memql/readiness/inference.go's knownAppIds, or take it out of both.",
+			mine, theirs)
 	}
 }

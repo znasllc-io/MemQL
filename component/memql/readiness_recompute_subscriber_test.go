@@ -143,11 +143,19 @@ func TestANilSubscriberIsANoOp(t *testing.T) {
 	sub.Notify("registration")
 	sub.Start(context.Background())
 	sub.Stop()
+	// AND IT SAYS SO, rather than answering the same as a delivery. A caller
+	// that must not lose the rewrite -- app/run.go's delayed boot re-write --
+	// reads this to decide whether to write directly instead.
 	var eng *MemQLEngine
-	eng.NotifyReadinessRecompute("registration")
+	if eng.NotifyReadinessRecompute("registration") {
+		t.Error("a nil engine reported the notification delivered")
+	}
 	// An engine with no subscriber wired is the ordinary case for every test
 	// in this package, and it must not panic either.
-	(&MemQLEngine{}).NotifyReadinessRecompute("registration")
+	if (&MemQLEngine{}).NotifyReadinessRecompute("registration") {
+		t.Error("an engine with no subscriber reported the notification delivered -- a caller " +
+			"relying on that answer would skip its fallback and lose the rewrite entirely")
+	}
 }
 
 // The one graph subscription this node opens, and it must actually match the

@@ -252,6 +252,15 @@ func Run(cfg RunConfig) {
 				return
 			case <-timer.C:
 			}
+			// THROUGH THE DEBOUNCE WHERE THERE IS ONE, so this cannot land
+			// on top of an event-driven rewrite already in flight and write
+			// an older evaluation last. Where there is not -- a node with no
+			// event bus -- a direct write, because a re-write that quietly
+			// went nowhere is the failure this delay exists to prevent.
+			if eng.NotifyReadinessRecompute("boot") {
+				cfg.Logger.Info("module readiness: re-write after boot queued")
+				return
+			}
 			if n, err := eng.WriteModuleReadiness(bootRewrite); err != nil {
 				cfg.Logger.Warn("module readiness: delayed boot re-write failed; the first write's rows stand", "error", err)
 			} else {

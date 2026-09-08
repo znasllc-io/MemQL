@@ -7,6 +7,7 @@ import (
 	"github.com/znasllc-io/memql/component/auth"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -97,7 +98,15 @@ type MemQLEngine struct {
 	// StartReadinessRecomputeSubscriber. Nil on a hand-built engine and on any
 	// binary that has not started it, and every method on it is nil-safe --
 	// a notification with nowhere to go is a no-op, not a panic.
-	readinessRecompute *ReadinessRecomputeSubscriber
+	//
+	// ATOMIC BECAUSE THE WRITE AND THE READS ARE ON DIFFERENT GOROUTINES.
+	// `StartReadinessRecomputeSubscriber` assigns it during startup while the
+	// providers-reload subscriber -- already running, started a few lines
+	// earlier -- can call `NotifyReadinessRecompute` from its own goroutine on
+	// any broadcast that arrives in that window. A plain field is a data race
+	// there, and the race detector only sees it when the timing lines up,
+	// which on a boot-ordering window is rarely.
+	readinessRecompute atomic.Pointer[ReadinessRecomputeSubscriber]
 	wiring             *bus.Wiring
 	partition          string // active partition for data isolation
 	metadataCollector  metadataCollectorInterface

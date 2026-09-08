@@ -189,10 +189,10 @@ func (e *MemQLEngine) WriteModuleReadiness(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("module readiness: manifest: %w", err)
 	}
 	nodeId, nodeType := e.readinessIdentity()
-	// THE EVALUATION CONTEXT, NOT THE CALLER'S -- see readinessEvaluateContext
-	// for what each of the two buys and why they are not one.
-	ectx := readinessEvaluateContext(ctx)
-	reports := evaluateModules(ectx, e.readinessResolvers(), manifest.Modules, nodeId, nodeType, time.Now().UTC())
+	// THE CALLER'S CONTEXT, AND THAT IS DELIBERATE. `evaluateModule` applies
+	// the evaluation actor itself, at the one place a context reaches a
+	// resolver -- see the comment there for why this is not a line here.
+	reports := evaluateModules(ctx, e.readinessResolvers(), manifest.Modules, nodeId, nodeType, time.Now().UTC())
 	wctx := readinessWriteContext(ctx)
 	written := 0
 	for _, r := range reports {

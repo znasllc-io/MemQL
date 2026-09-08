@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,187 @@ func TestTheRegistrationQueryLoadsFromTheEmbeddedTree(t *testing.T) {
 		t.Fatalf("%q does not load from the embedded DSL tree. The ai readiness arm runs it and "+
 			"leaves every door shut when the read fails, so this node type would report `ai` "+
 			"unconfigured while its siblings reported configured.", readinessRegistrationQuery)
+	}
+}
+
+// THE EVALUATION ACTOR, OBSERVED RATHER THAN READ (memql#5118, D3).
+//
+// The engine half of this epic rests on one property: readiness is evaluated
+// as the CLUSTER, never as whoever asked. `v1:worker:registration` declares
+// `@rowAuthz(owner="ownerUserId", clusterOwner)`, so a read under a caller's
+// own actor returns ZERO ROWS AND NO ERROR -- every inference door reads shut,
+// `ai` reports `unconfigured`, and the core gate holds a cluster that is set up
+// while every manifest and every log line looks correct.
+//
+// This asserts it through a PROBE RESOLVER, which is the only way to catch it:
+// the property had been carried by one assignment in one caller, and reverting
+// that line left the whole suite green.
+func TestReadinessEvaluatesAsTheClusterAndNotAsTheCaller(t *testing.T) {
+	// A caller with exactly the authority that produces the silent failure: a
+	// signed-in person who owns none of the cluster's registrations.
+	caller := auth.ContextWithAccess(context.Background(), &auth.AccessContext{
+		UserId: "v1:identity:user:someone-else",
+		Role:   auth.RoleReader,
+	})
+
+	var seen []context.Context
+	record := func(ctx context.Context) { seen = append(seen, ctx) }
+	r := readinessResolvers{
+		Registrations: func(ctx context.Context) ([]readiness.RegistrationFacts, error) {
+			record(ctx)
+			return nil, nil
+		},
+		Variable: func(ctx context.Context, _ string) (string, error) { record(ctx); return "", nil },
+		Secret:   func(ctx context.Context, _ string) (string, error) { record(ctx); return "", nil },
+		IsSecret: func(string) bool { return false },
+		IntegrationState: func(ctx context.Context, _ string) (string, bool, bool, error) {
+			record(ctx)
+			return "", false, false, nil
+		},
+	}
+
+	// One module per evaluator arm, so no arm can be the one that leaks.
+	mods := []envregistry.Module{
+		aiModule(),
+		{Name: "email", Core: true, Evaluator: envregistry.EvaluatorIntegrationPrefix + "email"},
+		{Name: "storage", Core: true, Lanes: []envregistry.Lane{{Name: "azure", Slots: []string{"MEMQL_STORAGE_ACCOUNT"}}}},
+	}
+	evaluateModules(caller, r, mods, "node-a", "bff", inferenceNow)
+
+	if len(seen) < len(mods) {
+		t.Fatalf("only %d resolver calls were observed across %d modules -- the probe missed an arm", len(seen), len(mods))
+	}
+	for i, ctx := range seen {
+		ac, ok := auth.AccessFromContext(ctx)
+		if !ok || ac == nil {
+			t.Fatalf("resolver call %d ran with no access context at all", i)
+		}
+		// THE CALLER'S IDENTITY IS GONE. This alone is the regression: with it
+		// present the registration read is scoped to a person who owns none of
+		// the rows.
+		if ac.UserId == "v1:identity:user:someone-else" {
+			t.Errorf("resolver call %d saw the CALLER's actor (%s) -- readiness would report "+
+				"whatever that person happens to be able to read, not what is true of the cluster", i, ac.UserId)
+		}
+		// AND WHAT REPLACED IT CAN ACTUALLY READ THE ROWS. Each of these is
+		// load-bearing for a different gate, so each is named separately.
+		//
+		// RoleOwner is the `clusterOwner` half of the composite tier, which is
+		// what admits a row owned by somebody else.
+		if ac.Role != auth.RoleOwner {
+			t.Errorf("resolver call %d ran as %q -- the composite owner tier admits another "+
+				"person's registration only to a cluster owner", i, ac.Role)
+		}
+		// Unranked keeps the RANK rules from governing an actor that is the
+		// cluster rather than a person (epic memql#4832, D4).
+		if !ac.Unranked {
+			t.Errorf("resolver call %d ran ranked -- a rank floor it cannot satisfy denies, "+
+				"and an unresolvable floor denies silently", i)
+		}
+		// Synthetic says this can never be a row's owner, so nothing it touches
+		// is stamped to it.
+		if !ac.Synthetic {
+			t.Errorf("resolver call %d ran non-synthetic -- an actor that can own rows is one "+
+				"a write path may stamp onto them", i)
+		}
+		// And internal origin is what @serverOnly and the write guard check.
+		if !auth.OriginFromContext(ctx).IsInternal() {
+			t.Errorf("resolver call %d ran at client origin", i)
+		}
+	}
+}
+
+// THE CONSEQUENCE, not the mechanism: the same rows, read under two actors.
+//
+// A resolver that behaves the way row authorization does -- everyone's rows to
+// a cluster owner, nobody else's to a plain reader -- must produce `configured`
+// on BOTH, because the caller is not part of the question.
+func TestAnotherPersonsMachineStillConfiguresInference(t *testing.T) {
+	fleet := []readiness.RegistrationFacts{{
+		OwnerUserId: "v1:identity:user:the-owner",
+		Labels:      map[string]string{"model:llama3.1:8b": "ctx=8192,structured=true"},
+		LastSeenAt:  inferenceNow,
+	}}
+	// Stands in for the composite owner tier: rows come back for a cluster
+	// owner, and for anybody else only their own -- which here is none.
+	rowAuthz := readinessResolvers{
+		Registrations: func(ctx context.Context) ([]readiness.RegistrationFacts, error) {
+			ac, _ := auth.AccessFromContext(ctx)
+			if ac != nil && ac.Role == auth.RoleOwner {
+				return fleet, nil
+			}
+			var mine []readiness.RegistrationFacts
+			for _, row := range fleet {
+				if ac != nil && row.OwnerUserId == ac.UserId {
+					mine = append(mine, row)
+				}
+			}
+			return mine, nil
+		},
+	}
+
+	for _, caller := range []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"a reader who owns nothing", auth.ContextWithAccess(context.Background(),
+			&auth.AccessContext{UserId: "v1:identity:user:someone-else", Role: auth.RoleReader})},
+		{"no actor at all", context.Background()},
+	} {
+		got := evaluateModule(caller.ctx, rowAuthz, aiModule(), "bff-1", "bff", inferenceNow)
+		if got.State != readiness.Configured {
+			t.Errorf("%s: ai reported %s over a fleet machine somebody else owns -- the core gate "+
+				"would hold a configured cluster, and nothing would look wrong", caller.name, got.State)
+		}
+	}
+}
+
+// A FLEET READ THAT BROKE IS NOT A CLUSTER WITH NO DOOR (memql#5118).
+//
+// Both produce `unconfigured`, and they have to: a read that failed cannot be
+// reported as an open door, or the gate lifts and every feature behind it then
+// refuses. But the two have completely different repairs -- one is "set up
+// inference", the other is "readiness could not read the fleet" -- and the
+// verdict has no room to say which. The log line is the only place the
+// difference survives, so its absence is the defect this pins.
+func TestAFailedFleetReadIsLoggedRatherThanSilentlyShut(t *testing.T) {
+	var buf strings.Builder
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	broken := readinessResolvers{
+		Registrations: func(context.Context) ([]readiness.RegistrationFacts, error) {
+			return nil, errors.New("registration read refused")
+		},
+		Logger: logger,
+	}
+
+	got := evaluateModule(context.Background(), broken, aiModule(), "bff-1", "bff", inferenceNow)
+
+	// THE VERDICT IS STILL SHUT, and that half must not change: a door we
+	// could not ask about is not a door we may walk through.
+	if got.State != readiness.Unconfigured {
+		t.Errorf("a failed fleet read reported %s -- an unaskable door must read shut", got.State)
+	}
+	line := buf.String()
+	if line == "" {
+		t.Fatal("a failed fleet read produced no log line at all: an operator sees the same " +
+			"'set up inference' screen a fresh cluster gets, with nothing anywhere saying the read broke")
+	}
+	// The error itself, and enough to find the node it happened on.
+	for _, want := range []string{"registration read refused", "bff-1", "ai"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the log line does not carry %q, so it cannot be acted on: %s", want, line)
+		}
+	}
+}
+
+// A resolver set with no logger is legal, and the pure tests pass one.
+func TestAResolverSetWithNoLoggerStillEvaluates(t *testing.T) {
+	got := evaluateModule(context.Background(), readinessResolvers{
+		Registrations: func(context.Context) ([]readiness.RegistrationFacts, error) {
+			return nil, errors.New("boom")
+		},
+	}, aiModule(), "bff-1", "bff", inferenceNow)
+	if got.State != readiness.Unconfigured {
+		t.Errorf("state %s", got.State)
 	}
 }

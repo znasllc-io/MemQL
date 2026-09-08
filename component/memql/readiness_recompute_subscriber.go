@@ -199,7 +199,10 @@ func (e *MemQLEngine) StartReadinessRecomputeSubscriber(ctx context.Context) *Re
 	}
 	sub := NewReadinessRecomputeSubscriber(e)
 	sub.Start(ctx)
-	e.readinessRecompute = sub
+	// Stored BEFORE the subscriptions below, so a notification arriving from
+	// another goroutine during startup finds the running subscriber rather
+	// than a nil it silently drops.
+	e.readinessRecompute.Store(sub)
 
 	if e.eventBus == nil {
 		return sub
@@ -229,9 +232,20 @@ func (e *MemQLEngine) StartReadinessRecomputeSubscriber(ctx context.Context) *Re
 // StartReadinessRecomputeSubscriber. The caller that needs the rewrite to have
 // HAPPENED calls WriteModuleReadiness directly instead; this one is for the
 // callers that only need it to happen soon.
-func (e *MemQLEngine) NotifyReadinessRecompute(reason string) {
+//
+// IT REPORTS WHETHER IT WAS DELIVERED, so a caller that must not simply lose
+// the rewrite can fall back to a direct write (app/run.go's delayed boot
+// re-write does exactly that). Without the answer, "notify" and "silently
+// dropped" are the same call -- which is the shape of silence this whole epic
+// is about.
+func (e *MemQLEngine) NotifyReadinessRecompute(reason string) bool {
 	if e == nil {
-		return
+		return false
 	}
-	e.readinessRecompute.Notify(reason)
+	sub := e.readinessRecompute.Load()
+	if sub == nil {
+		return false
+	}
+	sub.Notify(reason)
+	return true
 }
