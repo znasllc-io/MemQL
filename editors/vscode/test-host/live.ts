@@ -407,10 +407,10 @@ smoke("the Cluster tab's three reads answer over a live stream", async () => {
   // with no role is the "indeterminate" case the panel has to render as
   // hidden-with-a-reason rather than as permitted.
   const access = await query.getMyAccess();
-  if (access === null || access.clusterRole === "") {
+  if (access === null || access.role === "") {
     warn("getMyAccess() produced no cluster role -- the Cluster tab will hide its actions as indeterminate");
   } else {
-    info(`caller's cluster role: ${access.clusterRole}`);
+    info(`caller's cluster role: ${access.role}`);
   }
 });
 

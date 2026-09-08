@@ -37,7 +37,7 @@ function stub(options: StubOptions = {}): PasskeyOfferDeps & { calls: string[] }
       calls.push("whoAmI");
       if (options.whoAmIThrows) throw new Error("stream closed");
       return options.caller === undefined
-        ? { userId: "v1:identity:user:abc", clusterRole: "owner" }
+        ? { userId: "v1:identity:user:abc", role: "owner" }
         : options.caller;
     },
     countOwnPasskeys: async () => {
@@ -53,7 +53,7 @@ function stub(options: StubOptions = {}): PasskeyOfferDeps & { calls: string[] }
 // ---------------------------------------------------------------------------
 
 test("a cluster owner with no passkey is offered enrolment", async () => {
-  const deps = stub({ caller: { userId: "v1:identity:user:abc", clusterRole: "owner" }, passkeys: 0 });
+  const deps = stub({ caller: { userId: "v1:identity:user:abc", role: "owner" }, passkeys: 0 });
   const decision = await decidePasskeyOffer("local", deps, new OfferMemory());
 
   assert.deepEqual(decision, { offer: true, userId: "v1:identity:user:abc" });
@@ -63,13 +63,13 @@ test("an admin is offered too -- the mint gate is owner OR admin", async () => {
   // Read ahead of time from adminops' gate rather than invented here. Offering
   // a mint that comes back PERMISSION_DENIED puts a refusal in front of
   // somebody who did nothing wrong, and audits a call that should not exist.
-  const deps = stub({ caller: { userId: "u", clusterRole: "admin" }, passkeys: 0 });
+  const deps = stub({ caller: { userId: "u", role: "admin" }, passkeys: 0 });
   const decision = await decidePasskeyOffer("local", deps, new OfferMemory());
   assert.equal(decision.offer, true);
 });
 
 test("the role is matched case- and whitespace-insensitively", async () => {
-  const deps = stub({ caller: { userId: "u", clusterRole: " Owner " }, passkeys: 0 });
+  const deps = stub({ caller: { userId: "u", role: " Owner " }, passkeys: 0 });
   assert.equal((await decidePasskeyOffer("local", deps, new OfferMemory())).offer, true);
 });
 
@@ -194,7 +194,7 @@ test("suppressing one cluster says nothing about another", async () => {
 
 test("a caller who cannot mint is not offered", async () => {
   for (const role of ["writer", "reader", ""]) {
-    const deps = stub({ caller: { userId: "u", clusterRole: role }, passkeys: 0 });
+    const deps = stub({ caller: { userId: "u", role: role }, passkeys: 0 });
     const decision = await decidePasskeyOffer("local", deps, new OfferMemory());
     assert.deepEqual(decision, { offer: false, reason: "cannotMint" }, `role ${role}`);
     assert.equal(
@@ -212,7 +212,7 @@ test("every failure is indeterminate, and indeterminate is silent", async () => 
   const cases: Array<[string, StubOptions]> = [
     ["whoAmI threw", { whoAmIThrows: true }],
     ["whoAmI answered null", { caller: null }],
-    ["whoAmI answered an empty userId", { caller: { userId: "  ", clusterRole: "owner" } }],
+    ["whoAmI answered an empty userId", { caller: { userId: "  ", role: "owner" } }],
     ["the passkey query threw", { countThrows: true }],
   ];
   for (const [name, options] of cases) {
