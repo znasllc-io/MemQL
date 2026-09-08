@@ -292,6 +292,38 @@ each carry an issue number for exactly that reason.`,
 // "gate turns into decoration" outcome the header warns about, and it is
 // the reason this is an honest entry instead.
 var ownerGateExemptions = map[string]string{
+	// The two group concepts are the deliberate case this gate's two
+	// remedies do not fit, and the decision is epic memql#5165's D2 rather
+	// than an omission.
+	//
+	// Their ownerUserId is ALWAYS EMPTY: the rows are the deployment's
+	// record of who reaches which client's work, not anybody's property.
+	// Stamping from actor.userId -- the gate's first remedy -- would make
+	// each row owned by whoever wrote it, so a group would be readable by
+	// the admin who created it and by no other admin, which is the opposite
+	// of a shared registry. Dropping the tier -- the second -- would remove
+	// `unowned="admin"`, which is the only thing that makes a
+	// present-and-empty owner readable at all; the rows would then be
+	// reachable by nobody but a cluster owner.
+	//
+	// Nothing forges anything here: both writers are @serverOnly and stamp
+	// the field to "" themselves, so `writable by` is empty. What the gate
+	// is reporting is the absence of a STAMP FROM THE ACTOR, which is
+	// exactly what these rows must not have.
+	//
+	// This entry does NOT self-expire, unlike its neighbours, and that is
+	// the honest statement: there is no later epic in which these rows gain
+	// an owner. If one ever does, the tier's arguments change with it and
+	// this entry comes out in the same commit.
+	"v1:identity:group": "memql#5165 D2 -- ownerUserId is always empty by design (the deployment's row, " +
+		"read from admin rank through unowned=\"admin\"). Stamping it from the actor would make each " +
+		"group readable by its creator alone; dropping the tier would make it readable by nobody but " +
+		"a cluster owner. Both writers are @serverOnly and stamp the field empty themselves.",
+	"v1:identity:groupMembership": "memql#5165 D2 -- the same decision, and sharper here: the natural " +
+		"owner field would be `userId`, the member, and an owned row admits its OWNER'S INSERTS -- so " +
+		"stamping it would hand every person on the cluster a primitive for writing their own " +
+		"membership into any client's group.",
+
 	"v1:library:artifact": "memql#4340 -- the composite tier lands with the Artifacts page; createArtifact " +
 		"threads ownerUserId from the promoting automation's SOURCE row because an event-triggered " +
 		"automation's actor is the system principal, not the owner. The write-as-the-owner redesign " +
