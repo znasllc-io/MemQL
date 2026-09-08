@@ -342,3 +342,61 @@ grammar accepted only strings and numbers**, so `streaming true` did not parse.
 The parser gains a boolean arm (`component/language/parser/provider_decl.go`)
 rather than the flag being spelled `"true"` as a string, so a typo is a parse
 error instead of a silent false.
+
+---
+
+## 11. What shipped differently from this record
+
+Four things landed other than as written, and each is here because the record
+would otherwise promise something the tree does not do.
+
+**One PR, not three.** Section 7 plans three. The owner's instruction was a
+single PR for all eight tasks, and that is what shipped (#5194).
+
+**`amortizedCost.providerCalls`, not a federation-call count.** Section 6 asks
+for "zero federation calls, asserted by decision records". The proving suite's
+own discipline refused it: a `federationCalls` metric's baseline figure reads
+`notMeasurableOnReplay`, so nothing would have checked the instrument, and a
+zero-claim with no working control is the shape that reads as a result and is
+not one. The scenario and its negative control are re-pointed at
+`amortizedCost.providerCalls`, which the CI tier does measure. The unmeasured
+claim is recorded in `docs/public/operate/local-models.md` as a
+`<!-- proving-pending: -->` marker -- the opposite marker, which fails the
+build when the claim quietly becomes true.
+
+**`embeddingsBound` REPLACED `embeddingsPark` rather than joining it.** Both
+carry `@when(level="embeddings")`, so a new rule above the old one would have
+left the old one matching nothing -- a rule that can never fire, in the file
+whose own header forbids exactly that for policies.
+
+**Consent falls back to `FederatedByStrength()` when no policy corpus loaded.**
+Routing the one-shot human escape through the `federationStrongest` policy is
+the reviewable answer and is what runs on a healthy cluster, but it made the
+escape depend on the corpus loading -- so on a cluster whose corpus failed,
+the person says yes and nothing happens. memql-2a raised it; the chain is now
+policy FIRST, direct strongest-federated pick second, and
+`TestConsentSurvivesWithNoPolicyCorpus` is the gate. It is not a default:
+nothing reaches it without an explicit yes on the call in front of the person.
+
+### Two literals this epic wrote that were wrong when written
+
+Both found by landing on epic memql#5127, which owns the real lists.
+
+`router.ShippedRuleNames` named five entries. One (`localFirst`) is a POLICY
+and never was a rule, and four of the six rules the tree ships were missing --
+so the gate that stops a compiled rule shadowing a shipped one was, for
+`reasoningParks`, watching nothing. It, `ShippedPolicies` and `WhenKeys` are
+deleted; `memql.ValidateRuleProposal` is the one validator both front doors
+call, reading the live registries through `ShippedNames`.
+
+`routingrules.Validate` declared `HasPolicy` and never called it. A rule could
+name a policy nobody registered -- `ValidatePolicyEntry` checks the FORM of a
+chain entry, which any identifier passes -- so the rule rendered, loaded, and
+then refused EVERY CALL IT MATCHED at request time, on a door report the person
+who wrote the rule is not reading. Closed at both doors.
+
+The first attempt to share that validator had `component/router` importing
+`component/routingrules`, which is a leaf module importing the root: a
+dependency-direction violation `go build ./...` and `make test` both resolve
+happily and only the `module-boundaries` lane catches.
+`scripts/ci/module-boundaries.sh` now runs that lane's build+vet step locally.

@@ -96,10 +96,24 @@ export interface CatalogRow {
    * Whether the machine-class floor could actually be CHECKED for this row.
    *
    * FALSE IS NOT "TOO SMALL" AND IT IS NOT "BIG ENOUGH" -- it is "no machine
-   * on this fleet has reported its memory", which is the state of every fleet
-   * until the scanner in epic memql#5146 lands. The row is deliberately not
+   * on this fleet has reported its memory". The row is deliberately not
    * blocked in that state, because guessing would tell an operator their
    * machine is too small when the truth is nobody has asked it yet.
+   *
+   * IT IS FALSE ON EVERY FLEET TODAY, AND NOTHING SCHEDULED CHANGES THAT.
+   * An earlier version of this comment said the scanner in epic memql#5146
+   * would resolve it, which read as scheduled work and would have stopped the
+   * next person looking. It will not: the memory join is UNOWNED. memql-3b traced the
+   * reader: `useInference.ts` parses registrationId / name / displayName /
+   * runtimes / online / busy / activeCount / maxConcurrent off a fleetModel
+   * row's machine entries and NO memory or platform field, and epic
+   * memql#5146's scanner writes hardware to `v1:worker:registration.hardware`
+   * -- a different row this path never reads. Three links are missing and
+   * belong to neither epic: the fleetModel row's machine entries must CARRY
+   * memory and platform, `useInference.ts` must parse them onto
+   * `CatalogMachine`, and `machineFactsFrom` must use them instead of
+   * defaulting to 0. Tracked as
+   * memql#5195.
    *
    * But `blocked: null` alone made the SENTENCE claim the opposite: an
    * uncheckable row counted toward "N of them run on a machine you already
@@ -393,8 +407,9 @@ export function categorySentence(group: CategoryGroup): string {
   }
   // AN UNCHECKABLE FLOOR IS NOT A PASSED ONE. A row whose machine-class floor
   // could not be evaluated -- because no machine on this fleet has reported its
-  // memory, which is every fleet until epic memql#5146's scanner lands -- is
-  // deliberately not blocked. Counting it as pullable, though, turns "we could
+  // memory, which is every fleet today and stays so until somebody wires the
+  // join (see CatalogRow.classKnown, memql#5195) -- is deliberately not
+  // blocked. Counting it as pullable, though, turns "we could
   // not check" into "it runs on a machine you already have": a positive claim
   // about somebody's hardware built out of the absence of data about it, and
   // wrong in the direction that gets a 122B pull started on a laptop.

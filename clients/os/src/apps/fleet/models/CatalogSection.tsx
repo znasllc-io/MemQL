@@ -56,9 +56,11 @@ function machineFactsFrom(models: CatalogModel[]): FleetMachineFacts[] {
         name: m.displayName || m.name || key,
         runtimes: [...runtimes],
         online: m.online || (prior?.online ?? false),
-        // Platform and memory are NOT on the fleetModel row's machine entries.
-        // Reporting them is epic memql#5146's scanner; until it lands they are
-        // absent, and absent means "has not said" -- which blocks nothing.
+        // Platform and memory are NOT on the fleetModel row's machine entries,
+        // and no epic currently puts them there -- memql#5146's scanner writes
+        // hardware to a DIFFERENT row (`v1:worker:registration.hardware`) that
+        // this path never reads. Absent means "has not said", which blocks
+        // nothing, and stays absent until memql#5195 wires the join.
         // Guessing either would tell an operator their machine is too small
         // when the truth is that nobody has asked it yet.
         platform: prior?.platform ?? "",
@@ -147,10 +149,10 @@ export function CatalogSection({
       )}
 
       {machineCount > 0 && hasUncheckableClass(groups) ? (
-        // The same rule, for the same reason. Until the scanner in epic
-        // memql#5146 lands, no machine reports its memory -- so the floor
-        // cannot be checked for any entry that has one, under every category
-        // at once. It is one fact about the fleet, said once.
+        // The same rule, for the same reason. No machine reports its memory
+        // today -- and nothing scheduled changes that, see memql#5195 -- so
+        // the floor cannot be checked for any entry that has one, under every
+        // category at once. It is one fact about the fleet, said once.
         //
         // Entries stay UNBLOCKED: guessing would tell somebody their machine is
         // too small when nobody has asked it yet. What changed is that the list
