@@ -336,11 +336,36 @@ func TestWireBareIds_EngineRoundTrip(t *testing.T) {
 	assert.Equal(t, "v1:agents:agent", evtPayload["concept"], "concept type preserved on the wire")
 
 	// 4) TOOL round-trip: the LLM tool-result JSON must carry bare ids. Tools
-	//    are agent-only, so stamp an acting agent on the context.
-	toolCtx := memqlengine.WithActingAgentRole(memqlengine.WithActingAgentId(ctx, agentId), "assistant")
+	//    are agent-only, so stamp an acting agent on the context -- and a
+	//    CALLER, which this did not.
+	//
+	//    IT NEEDED ONE ALL ALONG AND NOTHING SAID SO (epic memql#5166).
+	//    `searchUsers` was gated by the `requiresDeveloperOrAbove` spec as a
+	//    filter conjunct, which EMPTIES a result rather than refusing it -- so
+	//    a call carrying no caller identity got zero rows, and the assertion
+	//    below ("no canonical id leaked") passed on an empty string. The gate
+	//    is `@requiresRank("developer")` now and refuses the call, which is
+	//    what turned a vacuous assertion into a failing one.
+	//
+	//    Stamping an owner is what the tool surface's own documentation
+	//    describes: `searchUsers` is on the agent tool surface BECAUSE it has a
+	//    genuine caller, and an agent reaches it under the authority of the
+	//    person it acts for. A tool call with no caller being refused is the
+	//    correct answer -- an agent told "you may not see the roster" is better
+	//    served than one handed an empty list it reads as "this cluster has no
+	//    users".
+	toolCtx := auth.ContextWithAccess(
+		memqlengine.WithActingAgentRole(memqlengine.WithActingAgentId(ctx, agentId), "assistant"),
+		&auth.AccessContext{UserId: ownerId, Role: auth.RoleOwner},
+	)
 	toolJSON, err := eng.ExecuteToolByName(toolCtx, "searchUsers", map[string]any{"active": true, "limit": 10})
 	require.NoError(t, err)
 	assert.NotRegexp(t, memqlengine.WireCanonicalIdPattern(), toolJSON, "tool JSON leaked a canonical id: %s", toolJSON)
+	// THE ASSERTION ABOVE NEEDS ROWS TO MEAN ANYTHING. "No canonical id leaked"
+	// is trivially true of an empty result, which is exactly what this call
+	// returned while the gate was a filter conjunct and no caller was stamped.
+	assert.Contains(t, toolJSON, ownerId[len("v1:identity:user:"):],
+		"the tool returned no rows, so the canonical-id assertion above proved nothing: %s", toolJSON)
 
 	// Structural sweep: EVERY captured outbound message is canonical-id-free.
 	cs.mu.Lock()
