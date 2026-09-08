@@ -39,6 +39,13 @@ type functionValidator struct {
 	// an envelope that was never built.
 	ambient map[string]any
 
+	// requiredCapabilities accumulates the `@requiresCapability` grant of
+	// every construct this expansion pulled in, keyed by construct name
+	// (epic memql#5166, D11). Collected here and enforced at execution, for
+	// requiredRanks' reason below -- and BOTH are collected, because a
+	// construct may declare both and they compose.
+	requiredCapabilities map[string]CapabilityRequirement
+
 	// requiredRanks accumulates the `@requiresRank` floor of every
 	// construct this expansion pulled in, keyed by construct name (epic
 	// memql#4832, D6).
@@ -65,13 +72,14 @@ func newFunctionValidatorWithOrigin(functions map[string]*Function, specs *SpecR
 // so every existing caller keeps its current behaviour.
 func newFunctionValidatorWithAmbient(functions map[string]*Function, specs *SpecRegistry, origin auth.CallOrigin, ambient map[string]any) *functionValidator {
 	return &functionValidator{
-		functions: functions,
-		specs:     specs,
-		resolved:  make(map[string]ExpressionNode),
-		resolving: make(map[string]struct{}),
-		origin:        origin,
-		ambient:       ambient,
-		requiredRanks: map[string]string{},
+		functions:            functions,
+		specs:                specs,
+		resolved:             make(map[string]ExpressionNode),
+		resolving:            make(map[string]struct{}),
+		origin:               origin,
+		ambient:              ambient,
+		requiredRanks:        map[string]string{},
+		requiredCapabilities: map[string]CapabilityRequirement{},
 	}
 }
 
@@ -490,6 +498,9 @@ func (v *functionValidator) expandFunctionCall(call *FunctionCallExpression) (Ex
 	if v.requiredRanks != nil && strings.TrimSpace(fn.RequiresRank) != "" {
 		v.requiredRanks[key] = strings.TrimSpace(fn.RequiresRank)
 	}
+	if v.requiredCapabilities != nil && fn.RequiresCapability.declared() {
+		v.requiredCapabilities[key] = fn.RequiresCapability
+	}
 
 	// Validate arguments against schema. Normalise positional
 	// object-literal wrapping first: the language parser produces
@@ -599,6 +610,9 @@ func (v *functionValidator) expandFunctionCallAllowMutationLeaf(call *FunctionCa
 	// clear. Recorded rather than checked -- see requiredRanks.
 	if v.requiredRanks != nil && strings.TrimSpace(fn.RequiresRank) != "" {
 		v.requiredRanks[key] = strings.TrimSpace(fn.RequiresRank)
+	}
+	if v.requiredCapabilities != nil && fn.RequiresCapability.declared() {
+		v.requiredCapabilities[key] = fn.RequiresCapability
 	}
 	if fn.Expr == nil {
 		return nil, nil
@@ -1493,6 +1507,14 @@ func resolvePlanFunctionsWithAmbient(plan *QueryPlan, functions *FunctionRegistr
 			}
 			for name, slug := range validator.requiredRanks {
 				plan.RequiredRanks[name] = slug
+			}
+		}
+		if len(validator.requiredCapabilities) > 0 {
+			if plan.RequiredCapabilities == nil {
+				plan.RequiredCapabilities = map[string]CapabilityRequirement{}
+			}
+			for name, required := range validator.requiredCapabilities {
+				plan.RequiredCapabilities[name] = required
 			}
 		}
 	}()

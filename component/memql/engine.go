@@ -980,6 +980,13 @@ func (e *MemQLEngine) executeWith(ctx context.Context, query string, fns *Functi
 	if err := e.refusePlanBelowRequiredRank(ctx, plan); err != nil {
 		return nil, err
 	}
+	// The capability GRANT beside the rank FLOOR (epic memql#5166, D11). Both,
+	// because a construct may declare both and they compose -- and both at the
+	// PLAN level, because a query that expands a gated construct must clear its
+	// gate exactly as a direct call does.
+	if err := e.refusePlanBelowRequiredCapability(ctx, plan); err != nil {
+		return nil, err
+	}
 
 	// ANONYMOUS READS (epic memql#4541, D4). The row gate is what makes the
 	// public tier correct -- it denies every row a non-public read could
@@ -1340,6 +1347,11 @@ func (e *MemQLEngine) executeLogicFunctionCall(ctx context.Context, call *Functi
 	if err := e.refuseBelowRequiredRank(ctx, fn, call.Name); err != nil {
 		return nil, err
 	}
+	// The capability grant, repeated at each entry point for the reason the
+	// rank floor is (epic memql#5166, D11).
+	if err := e.refuseBelowRequiredCapability(ctx, fn, call.Name); err != nil {
+		return nil, err
+	}
 	if fn.LogicSteps == nil {
 		return nil, fmt.Errorf("function %q has no multi-step body (LogicSteps unset)", call.Name)
 	}
@@ -1401,6 +1413,11 @@ func (e *MemQLEngine) executeMutationFunctionCall(ctx context.Context, call *Fun
 	// here rather than through the query expansion path, so a single check
 	// in one of the three would leave the other two open.
 	if err := e.refuseBelowRequiredRank(ctx, fn, call.Name); err != nil {
+		return nil, err
+	}
+	// The capability grant, repeated at each entry point for the reason the
+	// rank floor is (epic memql#5166, D11).
+	if err := e.refuseBelowRequiredCapability(ctx, fn, call.Name); err != nil {
 		return nil, err
 	}
 	if fn.MutationTemplate == nil {

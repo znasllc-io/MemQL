@@ -164,6 +164,16 @@ type Function struct {
 	// manifest's `roles` field becomes the presentation MIRROR of this.
 	RequiresRank string
 
+	// RequiresCapability is the (verb, resource) grant a caller must hold to
+	// invoke this construct -- `@requiresCapability("read", "principal")`.
+	// The zero value on every construct that declares none.
+	//
+	// THE SIBLING OF RequiresRank, NOT AN ALTERNATIVE TO IT (epic memql#5166,
+	// D11). A rank is a FLOOR on the ladder; a capability is a GRANT, and a
+	// cluster can hold one without the other -- developer ranks above admin
+	// and holds strictly fewer principal verbs. Both together require both.
+	RequiresCapability CapabilityRequirement
+
 	// Deprecated contains deprecation message if set (empty = not deprecated)
 	Deprecated string
 
@@ -248,18 +258,19 @@ func (f *Function) clone() *Function {
 		// construct loses. The loader resolved @requiresRank correctly and the
 		// enforcement read it correctly, and the floor was still absent
 		// everywhere -- a gate that parsed, validated and gated nothing.
-		RequiresRank:      f.RequiresRank,
-		Deprecated:        f.Deprecated,
-		Version:           f.Version,
-		Timeout:           f.Timeout,
-		CacheTTL:          f.CacheTTL,
-		RateLimitRequests: f.RateLimitRequests,
-		RateLimitPer:      f.RateLimitPer,
-		Retry:             f.Retry,
-		Idempotent:        f.Idempotent,
-		Audit:             f.Audit,
-		MCPPromoted:       f.MCPPromoted,
-		LatestMode:        f.LatestMode,
+		RequiresRank:       f.RequiresRank,
+		RequiresCapability: f.RequiresCapability,
+		Deprecated:         f.Deprecated,
+		Version:            f.Version,
+		Timeout:            f.Timeout,
+		CacheTTL:           f.CacheTTL,
+		RateLimitRequests:  f.RateLimitRequests,
+		RateLimitPer:       f.RateLimitPer,
+		Retry:              f.Retry,
+		Idempotent:         f.Idempotent,
+		Audit:              f.Audit,
+		MCPPromoted:        f.MCPPromoted,
+		LatestMode:         f.LatestMode,
 	}
 }
 
