@@ -62,7 +62,19 @@ func newParkRouter(t *testing.T, models []memql.FleetModel, chain []string, clou
 	if cloudName != "" {
 		providers.RegisterForTest(cloudName, "AnthropicStream", "claude-sonnet", cloud)
 	}
-	policies := memql.NewPolicyRegistryForTest(map[string][]string{"testPolicy": chain})
+	// `federationStrongest` is the DECLARED chain a one-shot cloud consent
+	// resolves through (epic memql#5137, D3). It replaced `providers.Default()`,
+	// which -- since every concrete record is a paid vendor model -- meant a
+	// consent landed on whichever entry the registry had picked first, a
+	// different decision from the one the person thought they were making.
+	//
+	// Declaring it in the FIXTURE rather than pinning a default is the point:
+	// the test exercises the same path production does.
+	policyChains := map[string][]string{"testPolicy": chain}
+	if cloudName != "" {
+		policyChains["federationStrongest"] = []string{cloudName}
+	}
+	policies := memql.NewPolicyRegistryForTest(policyChains)
 	return New(providers, policies, testRules(t, defaultRule("testPolicy")), nil, nil), cloud, fleet
 }
 
@@ -252,7 +264,6 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 
 	// Without consent: refused, and nothing paid is touched.
 	r, cloud, _ := newParkRouter(t, models, []string{"fleet:llama3.1:8b"}, "streamClaudeSonnet")
-	r.Providers().SetDefaultForTest("streamClaudeSonnet")
 	if _, _, err := r.ResolveChat(ResolveRequest{UserId: "alice"}); err == nil {
 		t.Fatal("without consent this must refuse")
 	}
@@ -260,9 +271,8 @@ func TestExplicitConsentIsTheOnlyWayPastAnUnavailableFleet(t *testing.T) {
 		t.Fatalf("a paid provider ran %d times with no consent and no authored fallback", cloud.calls)
 	}
 
-	// With consent: the cluster's DEFAULT provider serves it, once.
+	// With consent: the federationStrongest chain serves it, once.
 	r2, cloud2, _ := newParkRouter(t, models, []string{"fleet:llama3.1:8b"}, "streamClaudeSonnet")
-	r2.Providers().SetDefaultForTest("streamClaudeSonnet")
 	client, resolved, err := r2.ResolveChat(ResolveRequest{UserId: "alice", CloudConsent: true})
 	if err != nil {
 		t.Fatalf("consent must be honoured: %v", err)

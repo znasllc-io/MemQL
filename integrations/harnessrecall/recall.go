@@ -212,6 +212,21 @@ func (i *Integration) recallHandler(ctx context.Context, args map[string]any, ta
 		return nil, fmt.Errorf("harnessRecall.recall: embedding provider not configured")
 	}
 
+	// THE CLUSTER'S EMBEDDER BINDING (epic memql#5137, D6), resolved here rather
+	// than in resolveParams so the staged-concept gate above answers first.
+	//
+	// Recall compares a query vector against STORED ones, so an embedder that
+	// does not match the one the corpus was written with returns confident
+	// nonsense and never an error. There is deliberately no fallback: refusing
+	// is the only honest answer when nobody has chosen an embedder.
+	if p.provider == "" {
+		bound, bindErr := memql.ResolveEmbedderProvider(ctx)
+		if bindErr != nil {
+			return nil, bindErr
+		}
+		p.provider = bound
+	}
+
 	provider, err := i.embeddingProvider(ctx, p.provider)
 	if err != nil {
 		return nil, fmt.Errorf("harnessRecall.recall: resolve provider %q: %w", p.provider, err)
@@ -284,18 +299,15 @@ func (i *Integration) recallHandler(ctx context.Context, args map[string]any, ta
 // resolveParams validates + defaults the caller args and resolves the
 // owner-scope key (partition isolation) from the auth context.
 func (i *Integration) resolveParams(ctx context.Context, args map[string]any, target int) (recallParams, error) {
-	// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). `provider`
-	// defaulted to the package const "embedding3Small"; recall compares a query
-	// vector against stored ones, so an embedder that does not match the one
-	// the corpus was written with returns confident nonsense rather than an
-	// error. Refusing when nothing is bound is the only honest answer.
-	boundProvider, bindErr := memql.ResolveEmbedderProvider(ctx)
-	if bindErr != nil {
-		return recallParams{}, bindErr
-	}
+	// `provider` is left EMPTY here and resolved at the point of use (epic
+	// memql#5137, D6). It defaulted to the package const "embedding3Small"; the
+	// cluster's embedder binding replaces that, but resolving it HERE would put
+	// the "no embedder is bound" refusal in front of the staged-concept gate --
+	// and a staged concept must answer EMPTY, as a concept with no memories
+	// does, whatever the cluster's embedding configuration happens to be.
+	// An explicit `provider` argument still overrides, below.
 	p := recallParams{
 		concept:  defaultConcept,
-		provider: boundProvider,
 		k:        defaultK,
 		halfLife: defaultHalfLifeSeconds,
 		wSem:     defaultWSem,

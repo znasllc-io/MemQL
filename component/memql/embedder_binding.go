@@ -172,3 +172,58 @@ func EmbedderDimensions() (int, bool) {
 	}
 	return b.Dimensions, true
 }
+
+// catalogWidths holds the vector width the CATALOG records per model id, keyed
+// by the runtime's own model id exactly as a machine advertises it.
+//
+// IT IS A CACHE OF SEEDED DSL DATA, not a second source of truth. The rows live
+// in `v1:models:modelProfile` and are re-materialized on every boot; this map is
+// filled from them once the engine has loaded, because `fleetProvider.Dimensions`
+// is on the embedding hot path and cannot run a query per call.
+//
+// A model absent from it reports 0, which callers read as "unknown". That is the
+// right answer for an operator's own pull that the catalog has never heard of,
+// and it is why a binding to such a model is refused rather than guessed: the
+// binding's whole job is to know the width before the first vector exists.
+var catalogWidths struct {
+	mu     sync.RWMutex
+	byID   map[string]int
+	loaded bool
+}
+
+// SetCatalogWidths publishes the catalog's vector widths. Called once the
+// modelProfile rows are readable; safe to call again after a re-seed.
+func SetCatalogWidths(widths map[string]int) {
+	catalogWidths.mu.Lock()
+	defer catalogWidths.mu.Unlock()
+	next := make(map[string]int, len(widths))
+	for id, dims := range widths {
+		if id = strings.TrimSpace(id); id != "" && dims > 0 {
+			next[id] = dims
+		}
+	}
+	catalogWidths.byID = next
+	catalogWidths.loaded = true
+}
+
+// catalogDimensionsFor answers the width the catalog records for one model id.
+//
+// EXACT EQUALITY, never a prefix or a fuzzy match. The model id is byte-identical
+// from the cockpit's label to the catalog row to a policy naming
+// `fleet:<modelId>` precisely so this comparison can be a string equality --
+// `qwen3-embedding:0.6b` and `qwen3-embedding:0.6b-q8` are different models with
+// potentially different widths, and matching them to each other would bind a
+// table at the wrong size.
+func catalogDimensionsFor(modelID string) (int, bool) {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return 0, false
+	}
+	catalogWidths.mu.RLock()
+	defer catalogWidths.mu.RUnlock()
+	if !catalogWidths.loaded {
+		return 0, false
+	}
+	dims, ok := catalogWidths.byID[modelID]
+	return dims, ok && dims > 0
+}

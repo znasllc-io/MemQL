@@ -201,8 +201,12 @@ func TestResolveParamsDefaults(t *testing.T) {
 	if p.concept != defaultConcept {
 		t.Fatalf("default concept = %q, want %q", p.concept, defaultConcept)
 	}
-	if p.provider != defaultProvider {
-		t.Fatalf("default provider = %q, want %q", p.provider, defaultProvider)
+	// `provider` DEFAULTS TO EMPTY now (epic memql#5137, D6), and empty means
+	// "ask the cluster's embedder binding at the point of use". It is resolved
+	// there rather than here so the staged-concept gate answers before any
+	// embedding question is asked -- see the comment on recallParams.
+	if p.provider != "" {
+		t.Fatalf("provider = %q, want empty: the binding is resolved at the point of use, not defaulted here", p.provider)
 	}
 	if p.k != defaultK {
 		t.Fatalf("default k = %d, want %d", p.k, defaultK)

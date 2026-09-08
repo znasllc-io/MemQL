@@ -163,6 +163,13 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 			entry.StructuredOutput = entry.StructuredOutput || attrs.StructuredOutput
 			entry.Embeddings = entry.Embeddings || attrs.Embeddings
 			entry.Tools = entry.Tools || attrs.Tools
+			// The four modality flags fold the same way (epic memql#5137, D4):
+			// one machine that can see makes the MODEL servable for vision, and
+			// selection then picks that machine specifically.
+			entry.Vision = entry.Vision || attrs.Vision
+			entry.AudioIn = entry.AudioIn || attrs.AudioIn
+			entry.AudioOut = entry.AudioOut || attrs.AudioOut
+			entry.ImageGen = entry.ImageGen || attrs.ImageGen
 			// MAX of params across the machines behind the model, for the
 			// same reason every capability is a union: a machine that
 			// under-reports must not shrink a model the fleet demonstrably
@@ -212,6 +219,17 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 		StructuredOutput: want.StructuredOutput,
 		Embeddings:       want.Embeddings,
 		Tools:            want.Tools,
+	}
+	// THE CALL KIND ADDS ITS OWN NEED (epic memql#5137, D4), OR-ed onto what the
+	// prompt asked for. This is the one place the mapping is applied, so a new
+	// kind cannot be added and then routed to a machine that never advertised
+	// it -- which is the failure that lands on somebody else's laptop.
+	if k := NeedsForKind(req.Kind); k.Vision || k.AudioIn || k.AudioOut || k.ImageGen || k.Embeddings {
+		needs.Vision = needs.Vision || k.Vision
+		needs.AudioIn = needs.AudioIn || k.AudioIn
+		needs.AudioOut = needs.AudioOut || k.AudioOut
+		needs.ImageGen = needs.ImageGen || k.ImageGen
+		needs.Embeddings = needs.Embeddings || k.Embeddings
 	}
 
 	var (

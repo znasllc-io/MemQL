@@ -461,11 +461,25 @@ message ModelCallStart {
   // `model:<id>` -- the router selected on this exact string, so the
   // worker resolves it without translation.
   string model = 2;
-  // kind selects what the call IS: "chat" (messages -> text) or
-  // "embedding" (embedding_input -> vectors). One field rather than two
-  // message families because everything else about the exchange --
-  // selection, the chunk rule, limits, usage, cancel -- is identical,
-  // and a second family would be a second place for that to drift.
+  // kind selects what the call IS. Six values (epic memql#5137, D4):
+  //
+  //   "chat"       messages -> text
+  //   "embedding"  embedding_input -> vectors
+  //   "vision"     messages carrying images -> text
+  //   "transcribe" audio -> text with timestamps
+  //   "speak"      messages -> audio
+  //   "image"      messages -> image bytes
+  //
+  // ONE FIELD RATHER THAN SIX MESSAGE FAMILIES because everything else about
+  // the exchange -- selection, the chunk rule, limits, usage, cancel -- is
+  // identical, and a second family would be a second place for all of that to
+  // drift. It is also why the four new kinds needed no new transport: the
+  // stream, the credential and the ledger already exist.
+  //
+  // A machine serves a kind only if its `model:<id>` label advertised the
+  // matching flag (vision=, audioin=, audioout=, imagegen=). False is ABSENCE,
+  // so a machine that says nothing is skipped during selection rather than
+  // picked and then failed.
   string kind = 3;
   repeated ModelCallMessage messages = 4;
   ModelCallParams params = 5;
@@ -492,6 +506,18 @@ message ModelCallStart {
   // reason response_format_schema is gated: a runtime that answered
   // prose to a tool turn would defeat the selection that put it there.
   repeated ModelCallTool tools = 12;
+  // audio is the kind="transcribe" INPUT: the bytes to be transcribed.
+  // Empty for every other kind.
+  ModelCallAudio audio = 13;
+  // speech carries the kind="speak" KNOBS -- voice, container, rate. The TEXT
+  // to speak rides `messages` as an ordinary role="user" turn rather than a
+  // field of its own, because a second place for a prompt to live is a second
+  // place for it to be read from and they drift.
+  ModelCallSpeech speech = 14;
+  // image carries the kind="image" KNOBS -- size, count, format. The prompt
+  // rides `messages`, for the reason on `speech` above. The generation seed is
+  // ModelCallParams.seed, reused rather than duplicated here.
+  ModelCallImageRequest image = 15;
 }
 
 // ModelCallTool is one function the model may call, as the caller
@@ -547,6 +573,19 @@ message ModelCallMessage {
   // tool_calls are the calls an assistant turn MADE, replayed back into
   // the conversation so the model can see what it already asked for.
   repeated ModelCallToolCall tool_calls = 5;
+  // images are the image parts of a kind="vision" turn.
+  //
+  // THEY BELONG TO A TURN, which is why they are here rather than on
+  // ModelCallStart (epic memql#5137, D4). Both runtimes attach images per
+  // message -- Ollama's /api/chat takes `images: [base64]` on the message, the
+  // OpenAI-compatible shape takes a content array with image_url on it -- so a
+  // repeated field on Start would need its own index back to a message to say
+  // which turn each image belonged to.
+  //
+  // Raw bytes, not base64: encoding and the data: URL are the worker's business
+  // and differ between the two runtimes, so doing it here would mean undoing it
+  // on one of them.
+  repeated ModelCallImage images = 6;
 }
 
 // ModelCallParams are the generation knobs.
@@ -605,6 +644,20 @@ message ModelCallDelta {
   // end. The engine assembles by index and reads the END's list as
   // authoritative, so a runtime that streams nothing here loses nothing.
   repeated ModelCallToolCall tool_calls = 5;
+  // segments are the timed spans of a kind="transcribe" WINDOW (epic
+  // memql#5137, D5). The streaming flow transcribes accumulated audio in
+  // five-second windows and emits one delta per window: `content` is that
+  // window's text and these are its timings. The END's segments are
+  // authoritative over anything assembled from here.
+  repeated ModelCallTranscriptSegment segments = 6;
+  // audio is a chunk of a streamed kind="speak" result.
+  //
+  // It follows `content`'s rule exactly: a worker that streams leaves the END's
+  // audio empty and the engine concatenates what it accepted; one that does not
+  // stream answers on the END. Both are supported because a Kokoro runtime
+  // streams and a one-shot TTS does not, and neither should need its own code
+  // path.
+  ModelCallAudio audio = 7;
 }
 
 // ModelCallEnd closes a call. Worker -> server.
@@ -631,11 +684,86 @@ message ModelCallEnd {
   // assembled from the deltas: a stream that dropped a fragment would
   // otherwise hand the engine arguments that parse and are wrong.
   repeated ModelCallToolCall tool_calls = 8;
+  // segments is the COMPLETE timed transcript of a kind="transcribe" call, and
+  // is authoritative over anything assembled from the deltas -- the same rule
+  // tool_calls follows above, for the same reason: a stream that dropped a
+  // window would leave a transcript that reads fine and is missing five seconds.
+  repeated ModelCallTranscriptSegment segments = 9;
+  // audio is the FULL kind="speak" result for a worker that did not stream. One
+  // that streamed leaves this empty, exactly as it does with `content`.
+  ModelCallAudio audio = 10;
+  // images is the kind="image" result, one entry per generated image, in the
+  // order requested.
+  repeated ModelCallImage images = 11;
 }
 
 // ModelCallEmbedding is one vector.
 message ModelCallEmbedding {
   repeated float values = 1;
+}
+
+// ModelCallImage is one image, in either direction: an image part on a vision
+// turn, or a generated image on the end of a kind="image" call. ONE message
+// rather than two because the shape is identical, and two would drift.
+message ModelCallImage {
+  bytes data = 1;
+  // media_type is the IANA type of `data` -- "image/png", "image/jpeg",
+  // "image/webp". Carried because the OpenAI-compatible shape needs it to build
+  // a data: URL and Ollama does not, so the wire states it once and each worker
+  // uses what its own runtime wants.
+  string media_type = 2;
+}
+
+// ModelCallAudio is one span of audio, in either direction: the input of a
+// kind="transcribe" call, or the output of a kind="speak" one.
+message ModelCallAudio {
+  bytes data = 1;
+  // media_type is the IANA type of `data` -- "audio/wav", "audio/mpeg",
+  // "audio/ogg".
+  //
+  // THE ENGINE DOES NOT VALIDATE IT AGAINST A CLOSED SET, deliberately. Which
+  // containers a runtime can decode is knowledge the WORKER has, and the worker
+  // refuses an unrecognised type by name rather than passing it through: a
+  // runtime handed bytes it decodes as something they are not returns a
+  // confident transcript of noise, which nobody notices. A second copy of that
+  // list here would be a second thing to keep current, and the engine is the
+  // half with no way to check it.
+  string media_type = 2;
+  // sample_rate_hz is what the bytes ARE, not a request for what they should
+  // become.
+  int32 sample_rate_hz = 3;
+}
+
+// ModelCallTranscriptSegment is one timed span of a transcript.
+message ModelCallTranscriptSegment {
+  double start_seconds = 1;
+  double end_seconds = 2;
+  string text = 3;
+}
+
+// ModelCallSpeech are the kind="speak" knobs. The TEXT is in `messages`.
+message ModelCallSpeech {
+  string voice = 1;
+  // format is the requested container -- "wav", "mp3", "opus". A worker whose
+  // runtime cannot produce it answers in what it can and says so on the result's
+  // media_type rather than failing: the caller wanted speech, and speech in a
+  // container they did not ask for is still speech.
+  string format = 2;
+  double speed = 3;
+  // speed_set distinguishes "no preference" from a deliberate value, the same
+  // way ModelCallParams.temperature_set does.
+  bool speed_set = 4;
+}
+
+// ModelCallImageRequest are the kind="image" knobs. The PROMPT is in
+// `messages`; the generation seed is ModelCallParams.seed, reused rather than
+// duplicated here.
+message ModelCallImageRequest {
+  int32 width = 1;
+  int32 height = 2;
+  int32 count = 3;
+  // format is the requested encoding -- "png", "jpeg", "webp".
+  string format = 4;
 }
 
 // ModelCallUsage is what the RUNTIME REPORTED about the call.

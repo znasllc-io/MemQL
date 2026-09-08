@@ -68,8 +68,44 @@ type ModelNeeds struct {
 	Embeddings bool
 	// Tools is set for a turn that offers the model functions to call.
 	Tools bool
+	// The four MODALITY needs (epic memql#5137, D4). Each is set by the call
+	// KIND rather than by the prompt: a kind="vision" call needs Vision, a
+	// kind="transcribe" call needs AudioIn, and so on.
+	//
+	// They are needs rather than a `Kind` field because Satisfies answers ONE
+	// question -- can this machine serve this turn -- and a kind would make it
+	// answer that question by switching on a second vocabulary. Every other
+	// capability here is already a need, and the reasons an entry is skipped
+	// read the same way whatever ruled it out.
+	Vision   bool
+	AudioIn  bool
+	AudioOut bool
+	ImageGen bool
 	// MinContextWindow is the floor in tokens. Zero means no floor.
 	MinContextWindow int
+}
+
+// NeedsForKind is what a model call of a given KIND requires of a machine,
+// beyond whatever the prompt itself needs.
+//
+// It exists so the mapping from kind to capability lives in ONE place. The
+// alternative -- each dispatch site setting the flag for its own kind -- is
+// four places to forget one, and forgetting sends a vision turn to a machine
+// that cannot see, which fails on somebody else's laptop.
+func NeedsForKind(kind string) ModelNeeds {
+	switch kind {
+	case "vision":
+		return ModelNeeds{Vision: true}
+	case "transcribe":
+		return ModelNeeds{AudioIn: true}
+	case "speak":
+		return ModelNeeds{AudioOut: true}
+	case "image":
+		return ModelNeeds{ImageGen: true}
+	case "embedding":
+		return ModelNeeds{Embeddings: true}
+	}
+	return ModelNeeds{}
 }
 
 // ModelAttributes is what a machine advertised about ONE model, carried as the
@@ -118,6 +154,26 @@ type ModelAttributes struct {
 	// declared none, which the load ordering reads as unlimited -- the
 	// convention loadRatio already uses.
 	MaxConcurrent uint32
+
+	// The four MODALITY flags (epic memql#5137, D4). Each says the machine can
+	// serve one of the new call kinds on WorkerService.Stream: vision (chat
+	// messages carrying images), transcribe (audio in, text out), speak (text
+	// in, audio out) and image (a prompt in, image bytes out).
+	//
+	// LIKE Tools AND StructuredOutput, THESE ARE RUNTIME CAPABILITIES AS MUCH
+	// AS MODEL ONES, which is why they are advertised per machine rather than
+	// inferred from the model id: the same weights behind an endpoint that does
+	// not implement image parts cannot see, and a catalog entry saying the model
+	// has vision does not make that endpoint able to serve it.
+	//
+	// False is the ZERO VALUE and absence is how a machine says false. An
+	// unadvertised modality costs eligibility rather than granting it -- the
+	// alternative is a vision turn routed to a machine that cannot see, failing
+	// on somebody else's laptop with an error naming nothing.
+	Vision   bool
+	AudioIn  bool
+	AudioOut bool
+	ImageGen bool
 }
 
 // Attribute keys in the label value.
@@ -129,6 +185,15 @@ const (
 	attrParams     = "params"
 	attrQuant      = "quant"
 	attrMax        = "max"
+
+	// The four modality keys (epic memql#5137, D4). Lowercase with no
+	// separator, matching what the cockpit emits -- `audioin`, not `audioIn`
+	// and not `audio_in`. The spelling is the contract; a mismatch is a machine
+	// that advertises a door the engine never sees.
+	attrVision   = "vision"
+	attrAudioIn  = "audioin"
+	attrAudioOut = "audioout"
+	attrImageGen = "imagegen"
 )
 
 // ParseModelAttributes reads the value of a `model:<id>` label.
@@ -174,6 +239,14 @@ func ParseModelAttributes(value string) ModelAttributes {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				a.MaxConcurrent = uint32(n)
 			}
+		case attrVision:
+			a.Vision = parseAdvertisedBool(v)
+		case attrAudioIn:
+			a.AudioIn = parseAdvertisedBool(v)
+		case attrAudioOut:
+			a.AudioOut = parseAdvertisedBool(v)
+		case attrImageGen:
+			a.ImageGen = parseAdvertisedBool(v)
 		}
 	}
 	return a
@@ -193,7 +266,7 @@ func parseAdvertisedBool(v string) bool {
 // String renders attributes back to the label value, so the cockpit contract
 // and the engine's reading of it have exactly one definition.
 func (a ModelAttributes) String() string {
-	parts := make([]string, 0, 7)
+	parts := make([]string, 0, 11)
 	if a.ContextWindow > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrContext, a.ContextWindow))
 	}
@@ -215,6 +288,27 @@ func (a ModelAttributes) String() string {
 	if a.MaxConcurrent > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrMax, a.MaxConcurrent))
 	}
+	// The four modality flags, last and in this order (epic memql#5137, D4).
+	//
+	// FALSE IS ABSENCE, never `=0` -- the rule the four flags above already
+	// follow, and the one the cockpit implements against. The ORDER is not
+	// load-bearing for parsing (ParseModelAttributes is order-independent, and
+	// has to be: the cockpit requires byte-identical labels for an unchanged
+	// inventory or every reconnect rewrites the registration row) but it is
+	// agreed with the cockpit session anyway, so the two renderings can be
+	// reconciled later without a fleet-wide relabel.
+	if a.Vision {
+		parts = append(parts, attrVision+"=1")
+	}
+	if a.AudioIn {
+		parts = append(parts, attrAudioIn+"=1")
+	}
+	if a.AudioOut {
+		parts = append(parts, attrAudioOut+"=1")
+	}
+	if a.ImageGen {
+		parts = append(parts, attrImageGen+"=1")
+	}
 	return strings.Join(parts, ",")
 }
 
@@ -231,6 +325,23 @@ func (a ModelAttributes) Satisfies(n ModelNeeds) (bool, string) {
 	}
 	if n.Tools && !a.Tools {
 		return false, "model does not advertise tool calling"
+	}
+	// The four modality gates (epic memql#5137, D4). Same shape and same
+	// direction as the three above: an unadvertised capability is a REFUSAL to
+	// select, not a downgrade. A machine that cannot see is skipped for a vision
+	// turn rather than handed one and left to fail with an error that names
+	// nothing about capability.
+	if n.Vision && !a.Vision {
+		return false, "model does not advertise vision"
+	}
+	if n.AudioIn && !a.AudioIn {
+		return false, "model does not advertise audio input (transcription)"
+	}
+	if n.AudioOut && !a.AudioOut {
+		return false, "model does not advertise audio output (speech)"
+	}
+	if n.ImageGen && !a.ImageGen {
+		return false, "model does not advertise image generation"
 	}
 	if n.MinContextWindow > 0 && a.ContextWindow < n.MinContextWindow {
 		if a.ContextWindow == 0 {
