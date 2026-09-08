@@ -59,6 +59,8 @@ shape registration workerRegistrationFull {
   buildTag
   registeredAt
   lastSeenAt
+  rttMs
+  rttAt
   lastConnectedFromIP
   revokedAt
   revokedBy

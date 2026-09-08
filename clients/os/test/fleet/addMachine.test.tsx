@@ -1,9 +1,13 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { FleetSettings, FleetSettingsStore } from "../../src/apps/fleet/settings";
 
 const h = vi.hoisted(() => ({
   connection: null as unknown,
   mint: vi.fn(),
+  revoke: vi.fn(),
+  chat: vi.fn(),
 }));
 
 vi.mock("../../src/live/connection", () => ({
@@ -12,24 +16,39 @@ vi.mock("../../src/live/connection", () => ({
   osBridgePath: "/_memql/ws",
 }));
 
-// The mint is the one call this panel makes that is NOT a graph read: it
-// rides the connection's dispatcher through the SDK's identity surface.
+// The mint and the revoke are the two calls this page makes that are NOT
+// graph reads: both ride the connection's dispatcher through the SDK's
+// identity surface. The chat is the round trip (D14).
 vi.mock("@znasllc-io/memql-sdk-core/identity", () => ({
   createWorkerToken: (...args: unknown[]) => h.mint(...args),
+  revokeWorkerToken: (...args: unknown[]) => h.revoke(...args),
+}));
+vi.mock("@znasllc-io/memql-sdk-core/ai", () => ({
+  aiChat: (...args: unknown[]) => h.chat(...args),
 }));
 
-const { AddMachine } = await import("../../src/apps/fleet/addMachine/AddMachine");
-const { installCommand, workerClusterUrl, INSTALL_PLATFORMS } = await import(
+const { MachinesProvider, WORKER_REGISTRATION_CONCEPT } = await import("../../src/live/machines");
+const { FleetApp } = await import("../../src/apps/fleet/FleetApp");
+const { DEFAULT_FLEET_SETTINGS } = await import("../../src/apps/fleet/settings");
+const { installCommand, uninstallCommand, workerClusterUrl, INSTALL_PLATFORMS } = await import(
   "../../src/apps/fleet/addMachine/install"
 );
-const { fakeConnection, withSession } = await import("./harness");
+const { fakeConnection, machineRow, withSession } = await import("./harness");
+
+// THE GUIDED INSTALL, through the real Fleet app (design record
+// 2026-09-08-cockpit-install-wizard, section 6). Everything goes through
+// `connection.query` and `connection.subscriptions` exactly as production
+// does, so the real LiveCollection, the real fold and the real projections run;
+// what is asserted is what a person SEES and what reached the WIRE.
 
 // ASSEMBLED FROM PARTS, deliberately. The repo's secret scanner matches
 // `mql_<kind>_<43 base64url chars>` as one literal, and a test fixture that
 // happens to reach that length would red the gitleaks lane on a file that
-// contains no secret. Joining at runtime means no line here can ever match,
-// whatever the fixture is later edited to say.
+// contains no secret. Joining at runtime means no line here can ever match.
 const TOKEN = ["mql", "wkr", "notARealTokenOnlyATestFixture"].join("_");
+const IDENTITY = "v1:identity:identity:tok-1";
+
+type Conn = ReturnType<typeof fakeConnection>;
 
 async function click(el: Element) {
   await act(async () => {
@@ -45,53 +64,165 @@ async function type(el: HTMLInputElement, value: string) {
   });
 }
 
-function mount(machineCount: number, onClose = vi.fn()) {
-  h.connection = fakeConnection();
-  const view = render(withSession(<AddMachine machineCount={machineCount} onClose={onClose} />));
-  return { view, onClose };
+async function settle() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
 
-async function mintFor(name: string) {
+function memoryStore(initial: FleetSettings): FleetSettingsStore {
+  let held = initial;
+  return { load: () => held, save: (next) => void (held = next) };
+}
+
+function mount(connection: Conn, section = "machines") {
+  h.connection = connection;
+  const view = render(
+    withSession(
+      <MachinesProvider>
+        <FleetApp
+          sectionId={section}
+          navigate={vi.fn()}
+          askContext={vi.fn()}
+          store={memoryStore(DEFAULT_FLEET_SETTINGS)}
+        />
+      </MachinesProvider>,
+    ),
+  );
+  return view;
+}
+
+function rerenderAt(view: ReturnType<typeof render>, section: string) {
+  view.rerender(
+    withSession(
+      <MachinesProvider>
+        <FleetApp
+          sectionId={section}
+          navigate={vi.fn()}
+          askContext={vi.fn()}
+          store={memoryStore(DEFAULT_FLEET_SETTINGS)}
+        />
+      </MachinesProvider>,
+    ),
+  );
+}
+
+async function openPage() {
+  await settle();
+  await click(screen.getByRole("button", { name: "Add a machine" }));
+}
+
+async function describeAndMint(name = "studio-mac-mini", opts: { computerUse?: boolean; inference?: boolean; linux?: boolean } = {}) {
+  await openPage();
   await type(screen.getByLabelText("What is this machine called") as HTMLInputElement, name);
+  if (opts.linux) await click(screen.getByRole("radio", { name: "Linux" }));
+  if (opts.computerUse) await click(screen.getByLabelText(/Install the computer-use build/));
+  if (opts.inference) await click(screen.getByLabelText(/will run local models/));
   await click(screen.getByRole("button", { name: "Mint a token" }));
+  await settle();
+}
+
+/** The registration the cockpit writes when the minted token connects. */
+function arrival(over: Record<string, unknown> = {}) {
+  return machineRow({
+    id: "v1:worker:registration:mini",
+    identityId: IDENTITY,
+    name: "mini.local",
+    displayName: "",
+    platformInfo: { os: "darwin", arch: "arm64", hostname: "mini.local" },
+    capabilities: ["HEADLESS"],
+    buildTag: "headless",
+    version: "v2026.9.1",
+    lastSeenAt: new Date().toISOString(),
+    ...over,
+  });
+}
+
+function emit(connection: Conn, row: ReturnType<typeof machineRow>, kind = "NODE_CREATED") {
+  act(() => {
+    connection.subscriptions.emit(WORKER_REGISTRATION_CONCEPT, row, kind);
+  });
+}
+
+async function beat(connection: Conn, row: ReturnType<typeof machineRow>, secondsLater: number) {
+  const at = new Date(Date.now() + secondsLater * 1000).toISOString();
+  emit(connection, { ...row, lastSeenAt: at }, "NODE_UPDATED");
+  await settle();
+}
+
+const bar = () => screen.getByRole("group", { name: "What you can do with this" });
+
+/** The page's four stops, in order -- the rail's OWN items, not the lists a
+ *  stop body holds (the numbered steps, the checks' own rail). */
+function stopStates(): (string | null)[] {
+  const rail = screen.getByRole("list", { name: "Adding a machine" });
+  return Array.from(rail.querySelectorAll(":scope > li")).map((li) => li.getAttribute("data-state"));
 }
 
 beforeEach(() => {
   h.connection = null;
   h.mint.mockReset();
+  h.revoke.mockReset();
+  h.chat.mockReset();
   h.mint.mockResolvedValue({
     success: true,
     plainToken: TOKEN,
-    identityId: "v1:identity:identity:1",
+    identityId: IDENTITY,
     ownerUserId: "v1:identity:user:me",
     errorCode: "",
     errorMessage: "",
   });
+  h.revoke.mockResolvedValue({ success: true, errorCode: "", errorMessage: "" });
   globalThis.localStorage.clear();
   globalThis.sessionStorage.clear();
 });
 
-describe("adding a machine", () => {
-  it("mints once and shows the token with the one-time warning", async () => {
-    mount(0);
-    await mintFor("studio-mac-mini");
+afterEach(cleanup);
 
+describe("the page replaces the list", () => {
+  it("opens from the Head's one act, with its own Head and a way back, and no list beneath it", async () => {
+    mount(fakeConnection({ myWorkersWithStatus: [arrival({ id: "v1:worker:registration:other", identityId: "tok-9" })] }));
+    await openPage();
+    expect(screen.getByRole("region", { name: "Add a machine" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to Machines" })).toBeTruthy();
+    // ONE Head in the scroller (interface rule 11): the list's is gone.
+    expect(screen.queryByRole("heading", { name: "Machines" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Your machines" })).toBeNull();
+    // The rail: four stops, the first open, the rest ahead.
+    expect(stopStates()).toEqual(["open", "ahead", "ahead", "ahead"]);
+  });
+
+  it("offers Mint only once a name is typed, and Cancel before that leaves with nothing created", async () => {
+    mount(fakeConnection());
+    await openPage();
+    expect(within(bar()).queryByRole("button", { name: "Mint a token" })).toBeNull();
+    await type(screen.getByLabelText("What is this machine called") as HTMLInputElement, "box");
+    expect(within(bar()).getByRole("button", { name: "Mint a token" })).toBeTruthy();
+    await click(within(bar()).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("region", { name: "Add a machine" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Machines" })).toBeTruthy();
+    expect(h.mint).not.toHaveBeenCalled();
+  });
+});
+
+describe("minting", () => {
+  it("mints once with the typed name and shows the token in a copy field with the one-time warning", async () => {
+    mount(fakeConnection());
+    await describeAndMint();
     expect(h.mint).toHaveBeenCalledTimes(1);
     expect(h.mint.mock.calls[0]?.[1]).toEqual({ name: "studio-mac-mini" });
-    expect(await screen.findByText(TOKEN)).toBeTruthy();
+    const token = screen.getByLabelText("the worker token") as HTMLInputElement;
+    expect(token.value).toBe(TOKEN);
+    expect(token.readOnly).toBe(true);
+    expect(screen.getByRole("button", { name: "Copy the worker token" })).toBeTruthy();
     expect(screen.getByText(/It is not shown again/)).toBeTruthy();
-    expect(screen.getByText(/nowhere to look it up/)).toBeTruthy();
   });
 
   it("NEVER writes the token to browser storage or a URL", async () => {
-    mount(0);
-    await mintFor("studio-mac-mini");
-    await screen.findByText(TOKEN);
-
-    // This credential does not expire in fifteen minutes and lets a machine
-    // act as its owner's worker. The OS persists a great deal to
-    // localStorage, which is exactly why this has to be asserted rather than
-    // assumed.
+    mount(fakeConnection());
+    await describeAndMint();
     const dump = [
       JSON.stringify(globalThis.localStorage),
       JSON.stringify(globalThis.sessionStorage),
@@ -102,63 +233,43 @@ describe("adding a machine", () => {
     expect(dump).not.toContain("mql_wkr_");
   });
 
-  it("composes the documented one-liner against this cluster's api host", async () => {
-    mount(0);
-    await mintFor("studio-mac-mini");
-    const command = (await screen.findByText(/curl -fsSL/)).textContent ?? "";
-
-    expect(command).toContain("--token " + TOKEN);
-    // api.<domain>, with the scheme: sdk/go/worker.ParseClusterURL treats a
-    // bare host:port as PLAINTEXT whatever the port.
-    expect(command).toContain("--cluster https://api.memql.example.com");
-    expect(command).toContain("install-mac.sh");
-    expect(command).not.toContain("--computeruse");
+  it("composes the documented one-liner against this cluster's api host, with the flags asked for", async () => {
+    mount(fakeConnection());
+    await describeAndMint("box", { linux: true, computerUse: true, inference: true });
+    const command = (screen.getByLabelText("the install command") as HTMLInputElement).value;
+    expect(command).toBe(
+      installCommand({
+        platform: "linux",
+        clusterUrl: "https://api.memql.example.com",
+        token: TOKEN,
+        computerUse: true,
+        inference: true,
+      }),
+    );
+    expect(command).toContain("install-linux.sh");
+    expect(command).toContain("--cluster https://api.memql.example.com --computeruse --inference");
   });
 
-  it("adds --computeruse only when the build was asked for", async () => {
-    mount(0);
-    await click(screen.getByLabelText(/Install the computer-use build/));
-    await mintFor("studio-mac-mini");
-    expect((await screen.findByText(/curl -fsSL/)).textContent).toContain("--computeruse");
+  it("lights two marks while waiting -- Install open for the person, Connect current for the cluster", async () => {
+    mount(fakeConnection());
+    await describeAndMint();
+    expect(stopStates()).toEqual(["done", "open", "current", "ahead"]);
+    expect(within(bar()).getByText("Waiting for studio-mac-mini")).toBeTruthy();
+    // The Connect stop's line says what the cluster is doing; its body is
+    // one click away, behind the person's own stop.
+    expect(screen.getByText("Listening for the machine")).toBeTruthy();
   });
 
-  it("reports success by the population GROWING, not by matching the name", async () => {
-    // The token's name is what the operator typed; the registration's is the
-    // cockpit's hostname. They are routinely different, so a name match would
-    // report failure on a success.
-    const { view } = mount(2);
-    await mintFor("studio-mac-mini");
-    expect(await screen.findByText(/Waiting for the machine to connect/)).toBeTruthy();
-
-    view.rerender(withSession(<AddMachine machineCount={3} onClose={vi.fn()} />));
-    expect(await screen.findByText(/A new machine has registered/)).toBeTruthy();
+  it("states the second command up front when local models were asked for", async () => {
+    mount(fakeConnection());
+    await describeAndMint("box", { inference: true });
+    expect((screen.getByLabelText("the local models setup command") as HTMLInputElement).value).toBe(
+      "memql worker setup --inference",
+    );
+    expect(screen.getByText(/once the installer prints SUCCESS/)).toBeTruthy();
   });
 
-  it("does not report success when the population merely changes without growing", async () => {
-    const { view } = mount(2);
-    await mintFor("studio-mac-mini");
-    // A machine revoked elsewhere shrinks the list; that is not this machine
-    // arriving.
-    view.rerender(withSession(<AddMachine machineCount={1} onClose={vi.fn()} />));
-    expect(screen.getByText(/Waiting for the machine to connect/)).toBeTruthy();
-  });
-
-  it("gates closing behind an explicit acknowledgment once a token exists", async () => {
-    const { onClose } = mount(0);
-    await mintFor("studio-mac-mini");
-    await screen.findByText(TOKEN);
-
-    const done = screen.getByRole("button", { name: "Done" }) as HTMLButtonElement;
-    expect(done.disabled).toBe(true);
-    await click(done);
-    expect(onClose).not.toHaveBeenCalled();
-
-    await click(screen.getByLabelText(/I have copied the token/));
-    await click(screen.getByRole("button", { name: "Done" }));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("renders a refused mint in surface and shows no token", async () => {
+  it("renders a refused mint in surface, creates nothing, and offers Mint again", async () => {
     h.mint.mockResolvedValue({
       success: false,
       plainToken: "",
@@ -167,46 +278,227 @@ describe("adding a machine", () => {
       errorCode: "forbidden",
       errorMessage: "this account may not mint worker tokens",
     });
-    mount(0);
-    await mintFor("studio-mac-mini");
-
-    await waitFor(() =>
-      expect(screen.getByText("this account may not mint worker tokens")).toBeTruthy(),
-    );
+    mount(fakeConnection());
+    await describeAndMint();
+    await waitFor(() => expect(screen.getByText("this account may not mint worker tokens")).toBeTruthy());
     expect(screen.getByText("The token was not minted.")).toBeTruthy();
-    expect(screen.queryByText(/It is not shown again/)).toBeNull();
-  });
-
-  it("says something even when the cluster refuses without a reason", async () => {
-    h.mint.mockResolvedValue({
-      success: false,
-      plainToken: "",
-      identityId: "",
-      ownerUserId: "",
-      errorCode: "",
-      errorMessage: "",
-    });
-    mount(0);
-    await mintFor("studio-mac-mini");
-    expect(
-      await screen.findByText(/refused the mint and said nothing about why/),
-    ).toBeTruthy();
+    expect(screen.queryByLabelText("the worker token")).toBeNull();
+    expect(within(bar()).getByRole("button", { name: "Mint a token" })).toBeTruthy();
   });
 });
 
-describe("the install command", () => {
+describe("the registration is matched, never counted", () => {
+  it("settles Install and Connect when the registration carrying the minted identity arrives", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint();
+    emit(connection, arrival());
+    await settle();
+    expect(stopStates()).toEqual(["done", "done", "done", "current"]);
+    expect(screen.getByText("Connected as mini.local -- darwin/arm64 -- cockpit v2026.9.1")).toBeTruthy();
+    expect(within(bar()).getByText("Connected")).toBeTruthy();
+  });
+
+  it("settles nothing when a DIFFERENT machine arrives, however many do", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint();
+    emit(connection, arrival({ id: "v1:worker:registration:a", identityId: "tok-9" }));
+    emit(connection, arrival({ id: "v1:worker:registration:b", identityId: "tok-8" }));
+    await settle();
+    expect(within(bar()).getByText("Waiting for studio-mac-mini")).toBeTruthy();
+    expect(stopStates()).toEqual(["done", "open", "current", "ahead"]);
+  });
+
+  it("matches a bare identity id, which is what the wire delivers", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint();
+    emit(connection, arrival({ identityId: "tok-1" }));
+    await settle();
+    expect(within(bar()).getByText("Connected")).toBeTruthy();
+  });
+
+  it("puts the typed name on the machine, once, and never again on a heartbeat", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint("studio-mac-mini");
+    const row = arrival();
+    emit(connection, row);
+    await settle();
+    expect(connection.query.renameWorker).toHaveBeenCalledExactlyOnceWith({
+      registrationId: "v1:worker:registration:mini",
+      displayName: "studio-mac-mini",
+    });
+    await beat(connection, row, 15);
+    await beat(connection, row, 30);
+    expect(connection.query.renameWorker).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the checks", () => {
+  it("draws the connection moving until two heartbeats past the registration, then steady and Ready", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint();
+    const row = arrival();
+    emit(connection, row);
+    await settle();
+    const checks = () => screen.getByRole("list", { name: "Checks on this machine" });
+    expect(within(checks()).getAllByRole("listitem")[0]?.getAttribute("data-state")).toBe("current");
+    expect(within(checks()).getByText(/Listening for its first heartbeat/)).toBeTruthy();
+
+    await beat(connection, row, 15);
+    expect(within(checks()).getByText(/Heartbeat 1 of 2/)).toBeTruthy();
+    await beat(connection, row, 30);
+    expect(within(checks()).getAllByRole("listitem")[0]?.getAttribute("data-state")).toBe("done");
+    expect(within(checks()).getByText(/Online and steady/)).toBeTruthy();
+    expect(within(bar()).getByText("Ready")).toBeTruthy();
+    // Done is primary now; Open names the machine.
+    expect(within(bar()).getByRole("button", { name: "Open mini.local" })).toBeTruthy();
+    expect(within(bar()).getByRole("button", { name: "Done" }).getAttribute("data-tone")).toBe("primary");
+  });
+
+  it("names the missing macOS permission with its repair and settles when the machine re-registers with it", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint("mini", { computerUse: true });
+    const row = arrival({
+      buildTag: "computeruse",
+      capabilities: ["HEADLESS", "COMPUTERUSE"],
+      permissions: { accessibility: true, screen_recording: false, x11_display: false, detail: "" },
+    });
+    emit(connection, row);
+    await settle();
+    expect(screen.getByText("Screen Recording not granted yet.")).toBeTruthy();
+    expect(screen.getByText(/System Settings -> Privacy & Security -> Screen Recording/)).toBeTruthy();
+    expect((screen.getByLabelText("the macos permissions command") as HTMLInputElement).value).toBe("memql worker setup");
+
+    emit(
+      connection,
+      { ...row, permissions: { accessibility: true, screen_recording: true, x11_display: false, detail: "" } },
+      "NODE_UPDATED",
+    );
+    await settle();
+    expect(screen.getByText("Accessibility and Screen Recording granted.")).toBeTruthy();
+  });
+
+  it("offers the recommended pull once a runtime is reported, and shows a refusal in surface", async () => {
+    const connection = fakeConnection();
+    connection.query.fleetPullRecommended.mockRejectedValueOnce(new Error("machine is under the floor for local models"));
+    mount(connection);
+    await describeAndMint("mini", { inference: true });
+    emit(connection, arrival({ hardware: { chip: "M2", memoryBytes: 1, runtimes: [{ name: "ollama", version: "0.11" }] } }));
+    await settle();
+    expect(screen.getByText("No models yet.")).toBeTruthy();
+    await click(screen.getByRole("button", { name: "Pull the recommended models" }));
+    await settle();
+    expect(connection.query.fleetPullRecommended).toHaveBeenCalledExactlyOnceWith({
+      registrationId: "v1:worker:registration:mini",
+    });
+    expect(screen.getByText("machine is under the floor for local models")).toBeTruthy();
+  });
+
+  it("asks the served model something through the router, pinned to the fleet model", async () => {
+    h.chat.mockResolvedValue({ message: { role: "assistant", content: "hello" }, provider: "fleet:llama3.1:8b" });
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint("mini", { inference: true });
+    emit(
+      connection,
+      arrival({
+        hardware: { chip: "M2", memoryBytes: 1, runtimes: [{ name: "ollama", version: "0.11" }] },
+        labels: { "model:llama3.1:8b": "ctx=131072,structured=1,max=2" },
+      }),
+    );
+    await settle();
+    expect(screen.getByText("Serving one model: llama3.1:8b.")).toBeTruthy();
+    await click(screen.getByRole("button", { name: "Ask it something" }));
+    await settle();
+    expect(h.chat).toHaveBeenCalledTimes(1);
+    expect(h.chat.mock.calls[0]?.[2]).toEqual({ provider: "fleet:llama3.1:8b" });
+    expect(screen.getByText("hello")).toBeTruthy();
+    expect(screen.getByText(/through fleet:llama3.1:8b/)).toBeTruthy();
+  });
+});
+
+describe("cancel after a mint asks which of two things", () => {
+  it("keeps the token and leaves without revoking", async () => {
+    mount(fakeConnection());
+    await describeAndMint();
+    await click(within(bar()).getByRole("button", { name: "Cancel" }));
+    expect(within(bar()).getByText("Leave?")).toBeTruthy();
+    expect(screen.getByText(/still works/)).toBeTruthy();
+    // The uninstall line is offered right here, for a person who already ran the install.
+    expect((screen.getByLabelText("the uninstall command") as HTMLInputElement).value).toBe(uninstallCommand("mac"));
+    await click(within(bar()).getByRole("button", { name: "Leave, keep the token" }));
+    expect(h.revoke).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Machines" })).toBeTruthy();
+  });
+
+  it("revokes the minted identity and leaves on success", async () => {
+    mount(fakeConnection());
+    await describeAndMint();
+    await click(within(bar()).getByRole("button", { name: "Cancel" }));
+    await click(within(bar()).getByRole("button", { name: "Revoke the token and leave" }));
+    await settle();
+    expect(h.revoke).toHaveBeenCalledTimes(1);
+    expect(h.revoke.mock.calls[0]?.[1]).toBe(IDENTITY);
+    expect(screen.getByRole("heading", { name: "Machines" })).toBeTruthy();
+  });
+
+  it("stays, with the refusal, when the revoke is refused -- and still offers Keep", async () => {
+    h.revoke.mockResolvedValue({ success: false, errorCode: "not_found", errorMessage: "identity not found" });
+    mount(fakeConnection());
+    await describeAndMint();
+    await click(within(bar()).getByRole("button", { name: "Cancel" }));
+    await click(within(bar()).getByRole("button", { name: "Revoke the token and leave" }));
+    await settle();
+    expect(screen.getByText(/identity not found/)).toBeTruthy();
+    expect(within(bar()).getByRole("button", { name: "Leave, keep the token" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Add a machine" })).toBeTruthy();
+  });
+
+  it("goes back to waiting on Keep waiting, and the Head's arrow asks the same question", async () => {
+    mount(fakeConnection());
+    await describeAndMint();
+    await click(screen.getByRole("button", { name: "Back to Machines" }));
+    expect(within(bar()).getByText("Leave?")).toBeTruthy();
+    await click(within(bar()).getByRole("button", { name: "Keep waiting" }));
+    expect(within(bar()).getByText("Waiting for studio-mac-mini")).toBeTruthy();
+  });
+
+  it("drops Cancel once the machine has connected", async () => {
+    const connection = fakeConnection();
+    mount(connection);
+    await describeAndMint();
+    emit(connection, arrival());
+    await settle();
+    expect(within(bar()).queryByRole("button", { name: "Cancel" })).toBeNull();
+    await click(within(bar()).getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("heading", { name: "Machines" })).toBeTruthy();
+  });
+});
+
+describe("the flow survives the window's own navigation", () => {
+  it("keeps the token on screen across Machines -> Routing -> Machines", async () => {
+    const view = mount(fakeConnection());
+    await describeAndMint();
+    rerenderAt(view, "routing");
+    expect(screen.queryByLabelText("the worker token")).toBeNull();
+    rerenderAt(view, "machines");
+    await settle();
+    expect((screen.getByLabelText("the worker token") as HTMLInputElement).value).toBe(TOKEN);
+    expect(within(bar()).getByText("Waiting for studio-mac-mini")).toBeTruthy();
+  });
+});
+
+describe("the install and uninstall lines", () => {
   it("renders a placeholder rather than half a URL when no domain is published", () => {
     expect(workerClusterUrl("")).toBe("");
-    const command = installCommand({
-      platform: "linux",
-      clusterUrl: "",
-      token: "tok",
-      computerUse: false,
-      inference: false,
-    });
-    // Obviously not a URL, so a copied command fails loudly at the shell
-    // rather than dialling a host nobody meant.
-    expect(command).toContain("<your cluster URL>");
+    expect(
+      installCommand({ platform: "linux", clusterUrl: "", token: "tok", computerUse: false, inference: false }),
+    ).toContain("<your cluster URL>");
   });
 
   it("strips a scheme and trailing slashes off the configured domain", () => {
@@ -214,25 +506,11 @@ describe("the install command", () => {
   });
 
   it("is ONE physical line, whatever the inputs", () => {
-    // The multi-line-with-trailing-backslashes form was split by terminal
-    // paste handling, on this very panel: `bash -s --` ran with no arguments
-    // and `--token mql_wkr_...` executed as its own failing command, with the
-    // worker token in shell history either way (memql#4875). What is pinned
-    // is the ABSENCE of the two characters a terminal can mis-handle -- any
-    // newline or backslash reintroduces the split. Every combination is swept
-    // because the computer-use branch was exactly where the old shape changed
-    // its line structure.
     for (const platform of INSTALL_PLATFORMS) {
       for (const computerUse of [false, true]) {
         for (const inference of [false, true]) {
           for (const clusterUrl of ["https://api.example.com", ""]) {
-            const command = installCommand({
-              platform,
-              clusterUrl,
-              token: TOKEN,
-              computerUse,
-              inference,
-            });
+            const command = installCommand({ platform, clusterUrl, token: TOKEN, computerUse, inference });
             expect(command).not.toContain("\n");
             expect(command).not.toContain("\\");
           }
@@ -242,53 +520,29 @@ describe("the install command", () => {
   });
 
   it("pins the exact composed shape", () => {
-    // Word for word, so a re-ordering of flags or a doubled space fails HERE
-    // rather than on an operator's machine. The runbook (memql#4874) and the
-    // portal composer (memql#4873) print this same single line; if this
-    // assertion has to change, they change with it.
-    const command = installCommand({
-      platform: "mac",
-      clusterUrl: "https://api.example.com",
-      token: TOKEN,
-      computerUse: true,
-      inference: false,
-    });
-    expect(command).toBe(
+    expect(
+      installCommand({ platform: "mac", clusterUrl: "https://api.example.com", token: TOKEN, computerUse: true, inference: false }),
+    ).toBe(
       "curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-mac.sh" +
         ` | bash -s -- --token ${TOKEN} --cluster https://api.example.com --computeruse`,
     );
-  });
-
-  // ===========================================================================
-  // --inference IS APPENDED, AND IT CHANGES NOTHING ELSE ON THE LINE
-  // ===========================================================================
-  // The failure this catches is a flag that arrives correctly and displaces
-  // something: a lost --cluster, a doubled space, --computeruse swallowed. The
-  // line is copied into a terminal by a person who will not read it, so the
-  // only place a displacement can be caught is here.
-  it("appends --inference and leaves the rest of the line untouched", () => {
-    const base = {
-      platform: "linux" as const,
-      clusterUrl: "https://api.example.com",
-      token: TOKEN,
-      computerUse: false,
-    };
-    const without = installCommand({ ...base, inference: false });
-    const withFlag = installCommand({ ...base, inference: true });
-    expect(withFlag).toBe(`${without} --inference`);
-  });
-
-  it("pins both flags together, in order", () => {
-    const command = installCommand({
-      platform: "linux",
-      clusterUrl: "https://api.example.com",
-      token: TOKEN,
-      computerUse: true,
-      inference: true,
-    });
-    expect(command).toBe(
+    expect(
+      installCommand({ platform: "linux", clusterUrl: "https://api.example.com", token: TOKEN, computerUse: true, inference: true }),
+    ).toBe(
       "curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-linux.sh" +
         ` | bash -s -- --token ${TOKEN} --cluster https://api.example.com --computeruse --inference`,
     );
+  });
+
+  it("composes the uninstall line the same way, with its two flags", () => {
+    expect(uninstallCommand("linux")).toBe(
+      "curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-linux.sh | bash -s --",
+    );
+    expect(uninstallCommand("mac", { purge: true, userLocal: true })).toBe(
+      "curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-mac.sh | bash -s -- --purge --user-local",
+    );
+    for (const platform of INSTALL_PLATFORMS) {
+      expect(uninstallCommand(platform, { purge: true })).not.toContain("\n");
+    }
   });
 });

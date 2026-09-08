@@ -179,11 +179,17 @@ after sign-in the first-run gate runs in order:
 
 ### Door 1 — run a local model (the default)
 
-Pair a machine through Fleet → Machines with **"This machine will run local
-models"** ticked, and the one-line install command grows a `--inference` flag:
-the installer checks the hardware floor, sets up a runtime and pulls a starting
-model in the same terminal, before you have opened anything else. MemQL then
-uses it for planning, routing, suggestions and embeddings. Nothing is billed
+Pair a machine through Fleet → Machines → Add machine with **"This machine
+will run local models"** ticked, and the one-line install command grows a
+`--inference` flag: the installer checks the hardware floor, sets up a runtime
+when it can do so without asking, and pulls a starting model in the same
+terminal. On a fresh machine the runtime install needs a person, so the guided
+install states the second command up front -- `memql worker setup --inference`,
+run once the installer prints SUCCESS -- and its Checks stop offers **Pull the
+recommended models** the moment the machine reports a runtime, then **Ask it
+something** the moment a model is served (the guided install is described in
+the [workers runbook](workers-runbook.md#55-pairing-a-machine-from-memql-os)).
+MemQL then uses it for planning, routing, suggestions and embeddings. Nothing is billed
 per token and no prompt leaves your hardware.
 
 A machine already paired is set up the same way from its own terminal:

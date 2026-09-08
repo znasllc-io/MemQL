@@ -105,6 +105,58 @@ export interface MachineRow {
    *  "owner": a cockpit that predates the field has said nothing, and silence
    *  is not agreement to run other people's work on somebody's laptop. */
   inferenceServe: string;
+  /** The TCC / X11 snapshot the cockpit took at register time and refreshes
+   *  on every reconnect. `present` false means the cockpit predates the
+   *  report -- NOT a machine that was refused everything. */
+  permissions: MachinePermissions;
+  /** The cluster's own round trip to this machine (design record
+   *  2026-09-08-cockpit-install-wizard, D11): the last Ping the holding
+   *  replica sent, answered by the cockpit, in milliseconds. ZERO WITH AN
+   *  EMPTY `rttAt` MEANS NOT MEASURED -- a cockpit that predates the ping
+   *  never answers -- and is never rendered as a figure. */
+  rttMs: number;
+  rttAt: string;
+}
+
+/**
+ * What the machine may do on its own desktop, as the worker probed it
+ * (`registration.permissions`: accessibility, screen_recording, x11_display,
+ * detail).
+ *
+ * PRESENCE IS DECIDED BY CONTENT, the `hardware` rule: an object with no key
+ * set and no key at all read the same, and a cockpit that never sent the
+ * snapshot has said nothing -- reading that silence as "denied" would send a
+ * person to System Settings to grant something that was never asked about.
+ */
+export interface MachinePermissions {
+  present: boolean;
+  accessibility: boolean;
+  screenRecording: boolean;
+  x11Display: boolean;
+  detail: string;
+}
+
+const NO_PERMISSIONS: MachinePermissions = {
+  present: false,
+  accessibility: false,
+  screenRecording: false,
+  x11Display: false,
+  detail: "",
+};
+
+export function permissionsFrom(raw: unknown): MachinePermissions {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return NO_PERMISSIONS;
+  const obj = raw as Record<string, unknown>;
+  const has = (key: string) => typeof obj[key] === "boolean";
+  const present = has("accessibility") || has("screen_recording") || has("x11_display") || typeof obj["detail"] === "string" && (obj["detail"] as string).trim() !== "";
+  if (!present) return NO_PERMISSIONS;
+  return {
+    present: true,
+    accessibility: obj["accessibility"] === true,
+    screenRecording: obj["screen_recording"] === true,
+    x11Display: obj["x11_display"] === true,
+    detail: typeof obj["detail"] === "string" ? obj["detail"] : "",
+  };
 }
 
 /** One local app on a machine. */
@@ -222,7 +274,15 @@ export function machineFromRow(raw: Row): MachineRow {
     sharedAt: nestedString(objectAt(row["sharing"]), "sharedAt"),
     sharedBy: nestedString(objectAt(row["sharing"]), "sharedBy"),
     inferenceServe: nestedString(descriptor, "inferenceServe") === "cluster" ? "cluster" : "owner",
+    permissions: permissionsFrom(row["permissions"]),
+    rttMs: rowNumber(row, "rttMs"),
+    rttAt: rowString(row, "rttAt"),
   };
+}
+
+/** Whether the cluster has measured a round trip to this machine at all. */
+export function hasRoundTrip(m: Pick<MachineRow, "rttAt">): boolean {
+  return m.rttAt.trim() !== "";
 }
 
 /**

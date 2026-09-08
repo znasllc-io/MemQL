@@ -281,12 +281,20 @@ spec:
                   number: 8085
           # END generated bff HTTP paths
 ---
-# The API edge's gRPC half: the h2c catch-all, on the same host.
+# The API edge's gRPC half, on the same host: the worker stream's service prefix to the
+# agent, then the h2c catch-all to the bff.
 #
-# Everything the bff serves over gRPC arrives here -- MemqlService.Stream is the primary
-# surface, so this is the rule the Cockpit, the SDKs, the VS Code extension and the
-# browser bridge all land on. It is `/` and it is a whole Ingress of its own because
-# backend-protocol is Ingress-scoped; see the object above.
+# Everything the bff serves over gRPC arrives at the catch-all -- MemqlService.Stream is
+# the primary surface, so `/` is the rule the SDKs, the VS Code extension and the browser
+# bridge all land on. The ONE gRPC service the bff does not serve is WorkerService, the
+# cockpit's stream, which the agent node registers and nothing else does (epic
+# memql#5218, D10): gRPC puts the fully qualified service name in the request path, so
+# without its own rule a cockpit dialling this host was answered `Unimplemented:
+# unknown service znasllc.memql.worker.v1.WorkerService` by the bff and never
+# registered. The prefix is component/frontdoor.WorkerServicePath, spelled once and held
+# equal to the generated service descriptor by a test. Both rules share this Ingress
+# because backend-protocol is Ingress-scoped and both backends speak h2c; see the object
+# above for why the HTTP paths cannot join them.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -304,6 +312,13 @@ spec:
     - host: api.memql.localhost
       http:
         paths:
+          - path: /znasllc.memql.worker.v1.WorkerService/
+            pathType: Prefix
+            backend:
+              service:
+                name: agent
+                port:
+                  number: 50051
           - path: /
             pathType: Prefix
             backend:

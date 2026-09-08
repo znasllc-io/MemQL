@@ -237,7 +237,7 @@ Two consequences worth knowing:
 |---|---|---|
 | Files | The Library as a live folder tree, with each file's provenance, versions and backups | none |
 | Deployables | What serves where: the map, each deployable's source, build, domains, traffic and history | none |
-| Fleet | Machines, routing policy and call history, workbenches | none |
+| Fleet | Machines (with the guided cockpit install), routing policy and call history, workbenches | none |
 | Users | People, roles, sessions, invitations and enrolment links | admin |
 | Accounts | The client registry -- who this instance does work for | admin |
 | Campaigns | Mail: audiences, templates, senders, rules and send control | none |

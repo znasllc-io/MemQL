@@ -23,6 +23,7 @@ import {
   type RecommendedSet,
 } from "./recommended";
 import { runtimeLabel } from "./hardware";
+import { AskIt } from "../addMachine/AskIt";
 import { useMachineInference } from "./useMachineInference";
 import { useModelPulls } from "./useModelPulls";
 
@@ -91,6 +92,13 @@ export function ModelsGroup({ machine }: { machine: MachineRow }) {
         blocked={live !== null}
         onPull={inference.pullRecommended}
       />
+
+      {/* THE ROUND TRIP (design record 2026-09-08-cockpit-install-wizard,
+          D14): a machine serving a model is proved by using it, and this is
+          the one act on the page that does. Offered to whoever can read the
+          page -- the router admits the call as the caller -- and only once a
+          model is advertised, because there is nothing to ask before then. */}
+      {models[0] === undefined ? null : <AskIt modelId={models[0].modelId} machineLabel={machineName(machine)} />}
 
       {models.length > 0 ? (
         <ul className="os-fleet-machinemodel-list">

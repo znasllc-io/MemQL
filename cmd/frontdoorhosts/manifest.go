@@ -205,16 +205,37 @@ func apiIngress(domain, pathBlock string) string {
 		endMarker + "\n"
 }
 
+// apiGRPCIngress carries the api host's gRPC half: the worker stream's service
+// prefix to the agent, then the h2c catch-all to the bff.
+//
+// TWO RULES, AND THE ORDER IS THE POINT. WorkerService.Stream is served by the
+// agent node and by nothing else, and gRPC puts the fully qualified service
+// name in the request path -- so with only the catch-all, every cockpit
+// dialling https://api.<domain> was answered `Unimplemented: unknown service`
+// by the bff and never registered (epic memql#5218, D10). nginx orders
+// locations by prefix length within one server block, so the longer prefix
+// wins regardless of emission order; it is emitted first anyway, so a reader
+// who scans for `/` and stops has already passed it, and so the local overlay
+// and this file show the same shape. Both live in the ONE gRPC Ingress
+// because backend-protocol is Ingress-scoped and both backends speak h2c.
 func apiGRPCIngress(domain string) string {
 	host := frontdoor.RoleHost(frontdoor.RoleAPI, domain)
 
 	return "---\n" +
-		"# The API edge's gRPC half: the h2c catch-all, on the same host.\n" +
+		"# The API edge's gRPC half, on the same host: the worker stream's service prefix to the\n" +
+		"# agent, then the h2c catch-all to the bff.\n" +
 		"#\n" +
-		"# Everything the bff serves over gRPC arrives here -- MemqlService.Stream is the primary\n" +
-		"# surface, so this is the rule the Cockpit, the SDKs, the VS Code extension and the\n" +
-		"# browser bridge all land on. It is `/` and it is a whole Ingress of its own because\n" +
-		"# backend-protocol is Ingress-scoped; see the object above.\n" +
+		"# Everything the bff serves over gRPC arrives at the catch-all -- MemqlService.Stream is\n" +
+		"# the primary surface, so `/` is the rule the SDKs, the VS Code extension and the browser\n" +
+		"# bridge all land on. The ONE gRPC service the bff does not serve is WorkerService, the\n" +
+		"# cockpit's stream, which the agent node registers and nothing else does (epic\n" +
+		"# memql#5218, D10): gRPC puts the fully qualified service name in the request path, so\n" +
+		"# without its own rule a cockpit dialling this host was answered `Unimplemented:\n" +
+		"# unknown service znasllc.memql.worker.v1.WorkerService` by the bff and never\n" +
+		"# registered. The prefix is component/frontdoor.WorkerServicePath, spelled once and held\n" +
+		"# equal to the generated service descriptor by a test. Both rules share this Ingress\n" +
+		"# because backend-protocol is Ingress-scoped and both backends speak h2c; see the object\n" +
+		"# above for why the HTTP paths cannot join them.\n" +
 		"apiVersion: networking.k8s.io/v1\n" +
 		"kind: Ingress\n" +
 		"metadata:\n" +
@@ -229,6 +250,7 @@ func apiGRPCIngress(domain string) string {
 		"    - host: " + host + "\n" +
 		"      http:\n" +
 		"        paths:\n" +
+		pathRule(frontdoor.WorkerServicePath, "agent", 50051) +
 		pathRule("/", "bff", 50051)
 }
 

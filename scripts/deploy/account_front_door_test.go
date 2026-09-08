@@ -13,13 +13,17 @@ package deploy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/znasllc-io/memql/component/deploycontrol"
 	"github.com/znasllc-io/memql/component/frontdoor"
+	"gopkg.in/yaml.v3"
 )
 
 // resultOf decodes the envelope's result object. env.Result is raw JSON so a
@@ -205,5 +209,131 @@ func TestTheScriptsUseTheSameThreeLabelsAsFrontdoor(t *testing.T) {
 	// behind it, since AccountCertificateSANs is derived from AccountRoles.
 	if got, want := strings.Count(src, ".${RESERVED_NAME}\""), len(frontdoor.AccountRoles()); got != want {
 		t.Errorf("the bind script composes %d hosts, but component/frontdoor declares %d roles", got, want)
+	}
+}
+
+// THE WORKER-STREAM PREFIX IS SPELLED TWICE -- component/frontdoor names it,
+// and this script carries it as the default for the operator's manual path --
+// and the two must agree, or a door bound by hand routes a prefix no server
+// registers. Read out of the shell source rather than restated, for the same
+// reason the three labels are.
+func TestTheBindScriptDefaultsToTheFrontdoorWorkerPrefix(t *testing.T) {
+	raw, err := os.ReadFile(aksScript(t, bindDoorScript))
+	if err != nil {
+		t.Fatalf("reading the bind script: %v", err)
+	}
+	want := fmt.Sprintf(`cap_param workerServicePath "%s"`, frontdoor.WorkerServicePath)
+	if !strings.Contains(string(raw), want) {
+		t.Errorf("the bind script does not default --workerServicePath to %q; component/frontdoor.WorkerServicePath is the one spelling the front door routes",
+			frontdoor.WorkerServicePath)
+	}
+}
+
+// The api. gRPC Ingress carries TWO rules, and the first is not the bff's
+// (epic memql#5218, D10): the worker stream's prefix to the agent, then the
+// `/` catch-all to the bff. Parsed from --renderTo rather than inferred from
+// the envelope, because the envelope re-checks the input and the objects are
+// what a cluster applies.
+func TestBindDoorRoutesTheWorkerStreamToTheAgent(t *testing.T) {
+	rendered := filepath.Join(t.TempDir(), "door.yaml")
+	env, code := envelopeFrom(t, bindDoorScript,
+		"--accountId="+testAccountID, "--reservedName="+testReservedName,
+		"--issuer=letsencrypt-prod", "--apiPaths=/healthz", "--dryRun=true",
+		"--renderTo="+rendered)
+	if code != 0 || !env.OK {
+		t.Fatalf("dry run: exit %d ok=%v", code, env.OK)
+	}
+	raw, err := os.ReadFile(rendered)
+	if err != nil {
+		t.Fatalf("reading the rendered manifest: %v", err)
+	}
+
+	type pathRule struct {
+		Path    string `yaml:"path"`
+		Backend struct {
+			Service struct {
+				Name string `yaml:"name"`
+				Port struct {
+					Number int `yaml:"number"`
+				} `yaml:"port"`
+			} `yaml:"service"`
+		} `yaml:"backend"`
+	}
+	apiHost := frontdoor.AccountRoleHost(frontdoor.AccountRoleAPI, testReservedName)
+	var grpcRules []pathRule
+	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
+	for i := 0; ; i++ {
+		var doc struct {
+			Kind     string `yaml:"kind"`
+			Metadata struct {
+				Name        string            `yaml:"name"`
+				Annotations map[string]string `yaml:"annotations"`
+			} `yaml:"metadata"`
+			Spec struct {
+				Rules []struct {
+					Host string `yaml:"host"`
+					HTTP struct {
+						Paths []pathRule `yaml:"paths"`
+					} `yaml:"http"`
+				} `yaml:"rules"`
+			} `yaml:"spec"`
+		}
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decoding document %d of the rendered manifest: %v", i+1, err)
+		}
+		if doc.Kind != "Ingress" {
+			continue
+		}
+		for _, rule := range doc.Spec.Rules {
+			if rule.Host != apiHost {
+				continue
+			}
+			if doc.Metadata.Annotations["nginx.ingress.kubernetes.io/backend-protocol"] != "GRPC" {
+				for _, p := range rule.HTTP.Paths {
+					if p.Path == frontdoor.WorkerServicePath {
+						t.Errorf("Ingress %q carries %q without backend-protocol GRPC; the stream would be handed an HTTP/1.1 hop", doc.Metadata.Name, p.Path)
+					}
+				}
+				continue
+			}
+			grpcRules = rule.HTTP.Paths
+		}
+	}
+	if len(grpcRules) != 2 {
+		t.Fatalf("the api. gRPC Ingress carries %d rule(s), want 2: the worker prefix to the agent, then `/` to the bff", len(grpcRules))
+	}
+	for i, want := range []struct {
+		path, service string
+		port          int
+	}{
+		{frontdoor.WorkerServicePath, "agent", 50051},
+		{"/", "bff", 50051},
+	} {
+		got := grpcRules[i]
+		if got.Path != want.path || got.Backend.Service.Name != want.service || got.Backend.Service.Port.Number != want.port {
+			t.Errorf("rule %d = %q -> %s:%d, want %q -> %s:%d", i, got.Path, got.Backend.Service.Name, got.Backend.Service.Port.Number,
+				want.path, want.service, want.port)
+		}
+	}
+}
+
+// A malformed prefix is refused, not rendered. An empty value would emit a
+// rule with no path and a bare `/` would shadow the bff's catch-all with the
+// agent -- every gRPC call on the host answered by a server that serves one
+// service.
+func TestBindDoorRefusesAMalformedWorkerPrefix(t *testing.T) {
+	for _, bad := range []string{"/", "no-leading-slash/", "/no.trailing.slash", "/two/segments/"} {
+		t.Run(bad, func(t *testing.T) {
+			_, code := envelopeFrom(t, bindDoorScript,
+				"--accountId="+testAccountID, "--reservedName="+testReservedName,
+				"--issuer=letsencrypt-prod", "--workerServicePath="+bad, "--dryRun=true")
+			if code != 2 {
+				t.Errorf("exit code = %d, want 2 (bad parameter)", code)
+			}
+		})
 	}
 }

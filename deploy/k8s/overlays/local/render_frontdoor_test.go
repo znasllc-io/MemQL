@@ -4,11 +4,14 @@
 package local
 
 import (
+	"errors"
+	"io"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/znasllc-io/memql/component/frontdoor"
+	"gopkg.in/yaml.v3"
 )
 
 // The six hosts the front door serves (design D3, plus the OS shell's own exact
@@ -128,4 +131,161 @@ func TestTheOsRuleReachesTheEdge(t *testing.T) {
 	if !found {
 		t.Fatalf("no Ingress in the rendered overlay carries an exact rule for %q", osHost)
 	}
+}
+
+// apiPathRule is one entry of an Ingress rule's path list, reduced to what
+// TestTheWorkerStreamReachesTheAgent reasons about.
+type apiPathRule struct {
+	Path    string `yaml:"path"`
+	Backend struct {
+		Service struct {
+			Name string `yaml:"name"`
+			Port struct {
+				Number int `yaml:"number"`
+			} `yaml:"port"`
+		} `yaml:"service"`
+	} `yaml:"backend"`
+}
+
+// apiIngressPaths returns the path list of the api host's Ingress, in the
+// order the manifest declares it. Decoded with a schema rather than by line
+// because the ORDER of two entries is the assertion, and a line scan that
+// found both would have to reconstruct which rule each backend belongs to.
+func apiIngressPaths(t *testing.T, rendered string) []apiPathRule {
+	t.Helper()
+	apiHost := frontdoor.RoleHost(frontdoor.RoleAPI, "memql.localhost")
+
+	var doc struct {
+		Kind     string `yaml:"kind"`
+		Metadata struct {
+			Name string `yaml:"name"`
+		} `yaml:"metadata"`
+		Spec struct {
+			Rules []struct {
+				Host string `yaml:"host"`
+				HTTP struct {
+					Paths []apiPathRule `yaml:"paths"`
+				} `yaml:"http"`
+			} `yaml:"rules"`
+		} `yaml:"spec"`
+	}
+	dec := yaml.NewDecoder(strings.NewReader(rendered))
+	for i := 0; ; i++ {
+		doc.Spec.Rules = nil
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decoding document %d of the rendered overlay: %v", i+1, err)
+		}
+		if doc.Kind != "Ingress" {
+			continue
+		}
+		for _, rule := range doc.Spec.Rules {
+			if rule.Host == apiHost {
+				return rule.HTTP.Paths
+			}
+		}
+	}
+	t.Fatalf("no Ingress in the rendered overlay carries a rule for %q", apiHost)
+	return nil
+}
+
+// TestTheWorkerStreamReachesTheAgent is the local half of epic memql#5218's
+// D10: the api host carries the worker stream's service prefix to the agent,
+// ABOVE the h2c catch-all.
+//
+// WorkerService.Stream is served by the agent node and by nothing else, and
+// gRPC puts the fully qualified service name in the request path. With only
+// the `/` catch-all, every cockpit dialling the documented https://api.<domain>
+// was answered `Unimplemented: unknown service` by the bff -- locally and in
+// the cloud alike, for as long as the front door has existed -- and the
+// machine never registered. This is the assertion that the hand-authored
+// local front door carries the rule the cloud generator carries (the
+// counterpart lives in ../frontdoor_worker_test.go, over both generated
+// overlays), so local keeps proving the shape.
+//
+// Three things are pinned, because each failed silently on its own:
+//
+//   - the rule exists, with the exact prefix component/frontdoor names and the
+//     agent's gRPC port behind it;
+//   - it is declared BEFORE the catch-all. traefik ranks by rule length so the
+//     order is not what routes it, but a reader scanning for `/` stops there,
+//     and the local file and the generated one should show one shape;
+//   - the agent Service carries the h2c serversscheme annotation the bff's
+//     does. traefik's backend scheme is per-SERVICE, so the rule alone hands
+//     the cockpit an HTTP/1.1 hop to a gRPC port, which fails with a protocol
+//     error naming nothing -- the same failure a missing rule produces, from
+//     the other side.
+func TestTheWorkerStreamReachesTheAgent(t *testing.T) {
+	rendered := render(t)
+	paths := apiIngressPaths(t, rendered)
+
+	worker, catchAll := -1, -1
+	for i, p := range paths {
+		switch p.Path {
+		case frontdoor.WorkerServicePath:
+			if worker >= 0 {
+				t.Errorf("the api host declares %q twice", p.Path)
+			}
+			worker = i
+			if p.Backend.Service.Name != "agent" || p.Backend.Service.Port.Number != 50051 {
+				t.Errorf("%q reaches %s:%d, want agent:50051 -- WorkerService.Stream is registered on the agent node and nowhere else",
+					p.Path, p.Backend.Service.Name, p.Backend.Service.Port.Number)
+			}
+		case "/":
+			catchAll = i
+		}
+	}
+	if worker < 0 {
+		t.Fatalf("the api host carries no rule for %q, so a cockpit dialling https://api.<domain> is answered "+
+			"`Unimplemented: unknown service` by the bff's catch-all and never registers (epic memql#5218, D10)",
+			frontdoor.WorkerServicePath)
+	}
+	if catchAll < 0 {
+		t.Fatal("the api host carries no `/` catch-all, so this ordering assertion would be vacuous")
+	}
+	if worker > catchAll {
+		t.Errorf("the worker rule is declared at index %d, after the `/` catch-all at %d; it belongs above the catch-all, "+
+			"where the generated overlays put it", worker, catchAll)
+	}
+
+	// The hop, not just the rule. Read the same way for both Services so the
+	// bff's annotation is the control that the reader works.
+	for _, svc := range []string{"bff", "agent"} {
+		if got := serviceAnnotation(t, rendered, svc, "traefik.ingress.kubernetes.io/service.serversscheme"); got != "h2c" {
+			t.Errorf("Service %q carries serversscheme %q, want h2c: the front door routes gRPC to it, and traefik's "+
+				"backend scheme is per-Service, so without the annotation the hop is HTTP/1.1 to a gRPC port", svc, got)
+		}
+	}
+}
+
+// serviceAnnotation reads one annotation off the named Service in a rendered
+// stream, or "" when the Service or the annotation is absent.
+func serviceAnnotation(t *testing.T, rendered, service, key string) string {
+	t.Helper()
+	var doc struct {
+		Kind     string `yaml:"kind"`
+		Metadata struct {
+			Name        string            `yaml:"name"`
+			Annotations map[string]string `yaml:"annotations"`
+		} `yaml:"metadata"`
+	}
+	dec := yaml.NewDecoder(strings.NewReader(rendered))
+	for i := 0; ; i++ {
+		doc.Metadata.Annotations = nil
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decoding document %d of the rendered overlay: %v", i+1, err)
+		}
+		if doc.Kind == "Service" && doc.Metadata.Name == service {
+			return doc.Metadata.Annotations[key]
+		}
+	}
+	t.Fatalf("no Service named %q in the rendered overlay", service)
+	return ""
 }

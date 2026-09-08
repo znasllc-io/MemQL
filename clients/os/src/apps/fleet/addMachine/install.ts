@@ -112,3 +112,36 @@ export function installCommand(input: InstallCommandInput): string {
   const inference = input.inference ? " --inference" : "";
   return `curl -fsSL ${script} | bash -s -- --token ${input.token} --cluster ${cluster}${computeruse}${inference}`;
 }
+
+// uninstallCommand composes the uninstaller's one-liner (design record
+// 2026-09-08-cockpit-install-wizard, D12).
+//
+// The same shape as the install line, for the same reasons: one physical line
+// with no newline and no backslash, the script fetched from the cockpit
+// repository's main branch. It takes no token and no cluster -- removing a
+// worker is a fact about the machine, not about the cluster it served. The
+// registration on the cluster is revoked from Fleet, which is where this line
+// is shown.
+//
+// WITHOUT --purge the state directory, policy.yaml and the logs stay, so a
+// person can read what the worker was doing before it went; the caption beside
+// the line says so and names the flag. `userLocal` mirrors the install's own
+// --user-local: a worker installed under ~/.memql/bin is removed from there.
+export function uninstallCommand(
+  platform: InstallPlatform,
+  opts: { purge?: boolean; userLocal?: boolean } = {},
+): string {
+  const script = `https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-${platform}.sh`;
+  const flags = [opts.purge ? " --purge" : "", opts.userLocal ? " --user-local" : ""].join("");
+  // `bash -s --` even with no flags, so a person appending one edits the same
+  // line the install had rather than learning a second shape.
+  return `curl -fsSL ${script} | bash -s --${flags}`;
+}
+
+/** The second command a local-models machine needs on a fresh install: the
+ *  one-liner runs without a terminal to ask on, so it cannot approve a runtime
+ *  install, and prints this for the person to run next (D13). */
+export const INFERENCE_SETUP_COMMAND = "memql worker setup --inference";
+
+/** The re-check after a macOS permission grant (D5). */
+export const PERMISSIONS_SETUP_COMMAND = "memql worker setup";

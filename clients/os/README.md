@@ -156,11 +156,25 @@ rename, and stays silent on a heartbeat.
 ## Fleet, the first real app (memql#4729)
 
 `src/apps/fleet/` is the promotion of the foundation's read-only exemplar
-into the whole app: **Machines** (rename, operator labels, revoke,
-per-machine detail, add a machine), **Routing** (the policy editor and each
-call's routing record), **Workbenches** (per-plan workspaces by replica),
-and its own **Settings**. Four things about it generalize to every app epic
-after it:
+into the whole app: **Machines** (rename, operator labels, remove,
+per-machine detail, and the guided cockpit install), **Routing** (the policy
+editor and each call's routing record), **Workbenches** (per-plan workspaces
+by replica), and its own **Settings**. Five things about it generalize to
+every app epic after it:
+
+- **A flow the person walks away from lives ABOVE the section.** The guided
+  install (`fleet/addMachine/`, design record
+  `docs/superpowers/specs/2026-09-08-cockpit-install-wizard-design.md`) is
+  a PAGE that replaces the Machines list (rule 11) over the kit `Rail` and
+  `ActionBar`, and its state -- the draft, the minted token, the matched
+  registration -- is held by `FleetApp` through `useAddMachineFlow`, because
+  the section unmounts on every section change and the person is in a
+  terminal for minutes. The token never touches storage; closing the window
+  is the same act as "leave, keep the token", and the page says so. The
+  registration is MATCHED by the mint's identity, never counted: the
+  population grows for every reason but this one. The pure reading
+  (`addMachine/flow.ts`) is tested on fixtures; the page through the fake
+  connection.
 
 - **A live surface must be RETAINED.** A `LiveCollection` opens its
   subscription and runs its seed from `retain()` and from nowhere else;

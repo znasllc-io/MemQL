@@ -44,8 +44,10 @@ reports that it was.
 
 One row per door: what is true of it now, what it costs, and at most one act.
 
-- **Your machines**: "Add a machine" opens Fleet with the inference intent
-  already set, so the installer sets up a runtime and pulls a starting model.
+- **Your machines**: "Add a machine" opens Fleet's guided install with local
+  models already selected: the install line carries `--inference`, the second
+  command is stated beside it, and the Checks stop offers the recommended pull
+  and a round-trip test once the machine reports.
 - **Signed-in apps**: names the apps that are signed in and opens Fleet, Apps,
   where delegation is set.
 - **Anthropic** / **OpenAI**: opens that vendor's federation form below the

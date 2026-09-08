@@ -40,6 +40,7 @@ message WorkerClientMessage {
     ModelPullEnd model_pull_end = 21;
     ModelProbeProgress model_probe_progress = 22;
     ModelProbeEnd model_probe_end = 23;
+    Pong pong = 24;
   }
 }
 
@@ -63,6 +64,7 @@ message WorkerServerMessage {
     ModelPullCancel model_pull_cancel = 21;
     ModelProbeStart model_probe_start = 22;
     ModelProbeCancel model_probe_cancel = 23;
+    Ping ping = 24;
   }
 }
 
@@ -285,6 +287,37 @@ message Heartbeat {
   // and needed for the same reason: a beat that says nothing must leave the
   // stored inventory alone rather than clearing it.
   bool hardware_present = 7;
+}
+
+// Ping is the CLUSTER's half of liveness (epic memql#5218, D11). A heartbeat
+// is the machine's word that it is there; nothing in it proves the return
+// path -- agent to cockpit -- works, or says how fast. So the agent sends one
+// of these on the stream a few seconds after RegisterAck and then once a
+// minute (component/worker.FirstPingDelay / PingInterval), and the answer
+// lands on the registration as rttMs / rttAt on the next heartbeat flush.
+//
+// A cockpit that predates the message ignores it -- its dispatcher switch has
+// no default arm -- and the row simply carries no figure, which every reader
+// takes as "not measured" rather than "slow".
+message Ping {
+  string request_id = 1;
+  // The agent's own clock at send time. Echoed back verbatim on the Pong.
+  google.protobuf.Timestamp sent_at = 2;
+}
+
+// Pong answers one Ping. Only the request_id matters for matching: the agent
+// remembers the one Ping it has outstanding, and a Pong for any other id --
+// late, duplicated, invented -- is dropped.
+message Pong {
+  string request_id = 1;
+  // The Ping's own sent_at, echoed VERBATIM. The agent measures the round
+  // trip against its own clock, so a skewed or lying clock on the machine
+  // cannot invent a figure; this is here so a reader of the wire can pair the
+  // two without a table, not so the machine can say when the Ping was sent.
+  google.protobuf.Timestamp sent_at = 2;
+  // When the machine saw the Ping, on the machine's clock. Informational --
+  // it takes part in no measurement, for the reason sent_at gives.
+  google.protobuf.Timestamp received_at = 3;
 }
 
 // -----------------------------------------------------------------------------

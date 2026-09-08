@@ -225,10 +225,41 @@ spec:
                   number: 8085
           # END generated bff HTTP paths
           #
-          # The h2c catch-all, and the ONE rule below the markers that is not
-          # generated. Everything the bff serves over gRPC arrives here, so it
-          # must stay LAST: it prefixes every absolute path, and an ingress that
-          # matched it first would send the whole HTTP surface to :50051.
+          # THE ONE gRPC RULE THAT IS NOT THE BFF'S (epic memql#5218, D10).
+          # WorkerService.Stream is served by the agent node and by nothing
+          # else, and gRPC puts the fully qualified service name in the
+          # request path -- so with only the `/` catch-all below, a cockpit
+          # dialling the documented https://api.<domain> was answered
+          # `Unimplemented: unknown service znasllc.memql.worker.v1.WorkerService`
+          # by the bff, forever, and the machine never registered. This prefix
+          # is component/frontdoor.WorkerServicePath, spelled once there and
+          # held equal to the generated service descriptor by a test; the
+          # trailing slash is what stops it matching a service whose name
+          # merely begins with this one.
+          #
+          # NO router.priority, and none is needed: traefik ranks by compiled
+          # rule LENGTH (memql#3810, above), so this outranks `/` for exactly
+          # the reason every generated path above does. It sits BELOW the
+          # markers because it is not the bff's and cmd/frontdoorpaths must
+          # not learn it; it sits ABOVE the catch-all because a reader scans
+          # for `/` and stops. The agent Service carries the same h2c
+          # serversscheme annotation the bff's does (kustomization.yaml) --
+          # without it traefik speaks HTTP/1.1 to a gRPC port and the failure
+          # is a protocol error naming nothing. It is the shape of the system,
+          # so the cloud generator (cmd/frontdoorhosts) carries the same rule,
+          # and ../render_frontdoor_test.go refuses this overlay without it.
+          - path: /znasllc.memql.worker.v1.WorkerService/
+            pathType: Prefix
+            backend:
+              service:
+                name: agent
+                port:
+                  number: 50051
+          #
+          # The h2c catch-all. Everything ELSE the bff serves over gRPC arrives
+          # here, so it must stay LAST: it prefixes every absolute path, and an
+          # ingress that matched it first would send the whole HTTP surface to
+          # :50051.
           #
           # The three explicit rules that used to sit here -- /portal,
           # /memql/ws and /healthz -- are gone (memql#3703). They were placed by

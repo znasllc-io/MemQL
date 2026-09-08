@@ -147,18 +147,20 @@ func doorRow(status string) map[string]any {
 func newDoorReconciler(t *testing.T, eng *fakeDoorEngine, prov *stubDoorProvisioner, res Resolver) *DoorReconciler {
 	t.Helper()
 	r := NewDoorReconciler(NewDoorStore(eng), NewDoorAccountReader(eng), DoorConfig{
-		EdgeHost:        doorEdgeHost,
-		ACMEIssuer:      "letsencrypt-prod",
-		Namespace:       "memql",
-		IngressClass:    "nginx",
-		EdgeService:     "edge",
-		EdgePort:        8085,
-		BFFHTTPService:  "bff-http",
-		BFFHTTPPort:     8085,
-		BFFGRPCService:  "bff",
-		BFFGRPCPort:     50051,
-		IdentityService: "identity",
-		IdentityPort:    8085,
+		EdgeHost:         doorEdgeHost,
+		ACMEIssuer:       "letsencrypt-prod",
+		Namespace:        "memql",
+		IngressClass:     "nginx",
+		EdgeService:      "edge",
+		EdgePort:         8085,
+		BFFHTTPService:   "bff-http",
+		BFFHTTPPort:      8085,
+		BFFGRPCService:   "bff",
+		BFFGRPCPort:      50051,
+		AgentGRPCService: "agent",
+		AgentGRPCPort:    50051,
+		IdentityService:  "identity",
+		IdentityPort:     8085,
 	}, prov, nil)
 	r.resolver = res
 	r.now = func() time.Time { return time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC) }
@@ -873,4 +875,70 @@ func TestAReasonThatIsAlreadyRightIsNotRewritten(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The gRPC Ingress carries the worker stream's prefix to the AGENT before the
+// `/` catch-all to the bff (epic memql#5218, D10). WorkerService.Stream is
+// registered on the agent node and nowhere else, so a door routing only the
+// catch-all answers a cockpit dialling a client's api. host `Unimplemented:
+// unknown service` -- the cluster's own api host did exactly that until the
+// same rule was added there, and a door must route what the cluster routes.
+func TestTheApiGrpcIngressRoutesTheWorkerStreamToTheAgent(t *testing.T) {
+	req := DoorBindRequest{AccountID: "a", ReservedName: testDoorReserved, IngressClass: "nginx",
+		BFFHTTPService: "bff-http", BFFHTTPPort: 8085, BFFGRPCService: "bff", BFFGRPCPort: 50051,
+		AgentGRPCService: "agent", AgentGRPCPort: 50051}
+
+	var grpcRules []map[string]any
+	for _, obj := range doorIngressObjects(req, []string{"/healthz"}) {
+		meta, _ := obj["metadata"].(map[string]any)
+		ann, _ := meta["annotations"].(map[string]any)
+		if ann["nginx.ingress.kubernetes.io/backend-protocol"] != "GRPC" {
+			// The worker prefix belongs in the GRPC object only: the same
+			// path in the HTTP one would hand the stream to an HTTP/1.1 hop.
+			spec, _ := obj["spec"].(map[string]any)
+			for _, r := range pathsOf(spec) {
+				if r["path"] == frontdoor.WorkerServicePath {
+					t.Errorf("Ingress %v carries %q without backend-protocol GRPC", meta["name"], frontdoor.WorkerServicePath)
+				}
+			}
+			continue
+		}
+		spec, _ := obj["spec"].(map[string]any)
+		grpcRules = pathsOf(spec)
+	}
+	if len(grpcRules) != 2 {
+		t.Fatalf("the gRPC Ingress carries %d rule(s), want 2: the worker prefix to the agent, then `/` to the bff", len(grpcRules))
+	}
+	for i, want := range []struct {
+		path, service string
+		port          int
+	}{
+		{frontdoor.WorkerServicePath, "agent", 50051},
+		{"/", "bff", 50051},
+	} {
+		got := grpcRules[i]
+		backend, _ := got["backend"].(map[string]any)
+		svc, _ := backend["service"].(map[string]any)
+		port, _ := svc["port"].(map[string]any)
+		if got["path"] != want.path || svc["name"] != want.service || port["number"] != want.port {
+			t.Errorf("rule %d = %v -> %v:%v, want %q -> %s:%d", i, got["path"], svc["name"], port["number"], want.path, want.service, want.port)
+		}
+	}
+}
+
+// pathsOf returns the path entries of an Ingress spec's first rule.
+func pathsOf(spec map[string]any) []map[string]any {
+	rules, _ := spec["rules"].([]any)
+	if len(rules) == 0 {
+		return nil
+	}
+	rule, _ := rules[0].(map[string]any)
+	httpBlock, _ := rule["http"].(map[string]any)
+	paths, _ := httpBlock["paths"].([]any)
+	out := make([]map[string]any, 0, len(paths))
+	for _, p := range paths {
+		m, _ := p.(map[string]any)
+		out = append(out, m)
+	}
+	return out
 }

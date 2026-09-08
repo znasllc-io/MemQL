@@ -45,6 +45,13 @@ type server struct {
 	// answered "which node am I" differently at register and at heartbeat
 	// would leave a row pointing at a replica that never held the stream.
 	nodeId string
+	// pingFirst / pingEvery are FirstPingDelay / PingInterval (epic
+	// memql#5218, D11), held on the server so a test can run the pinger in
+	// milliseconds rather than waiting the real three seconds. Nothing in
+	// production sets them to anything else; TestNewServer_PingsOnTheConstants
+	// holds the defaults to the constants.
+	pingFirst time.Duration
+	pingEvery time.Duration
 }
 
 func newServer(logger *slog.Logger, store Store, registry *Registry, auditor Auditor, clock func() time.Time, nodeId string) *server {
@@ -52,12 +59,14 @@ func newServer(logger *slog.Logger, store Store, registry *Registry, auditor Aud
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &server{
-		logger:   logger,
-		store:    store,
-		registry: registry,
-		auditor:  auditor,
-		clock:    clock,
-		nodeId:   nodeId,
+		logger:    logger,
+		store:     store,
+		registry:  registry,
+		auditor:   auditor,
+		clock:     clock,
+		nodeId:    nodeId,
+		pingFirst: FirstPingDelay,
+		pingEvery: PingInterval,
 	}
 }
 
@@ -105,6 +114,9 @@ func (s *server) Stream(stream memqlv1.WorkerService_StreamServer) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	}
 	defer session.close()
+	// The RegisterAck is on the wire; from here the cluster pings the
+	// machine for the life of the stream (epic memql#5218, D11).
+	session.startPinger()
 
 	for {
 		msg, err := stream.Recv()
@@ -365,6 +377,24 @@ type streamSession struct {
 	// the nine beats that carry no inventory and only reach the row at the
 	// tenth. The flag makes the very next flush carry it.
 	hardwarePending bool
+
+	// pingMu guards the ONE outstanding Ping (epic memql#5218, D11). Two
+	// goroutines meet here -- runPinger writes a fresh id on its own timer,
+	// the stream-recv goroutine reads and clears it on the Pong -- so unlike
+	// lastPersistedAt this cannot ride the recv goroutine's serialisation.
+	// One outstanding rather than a table: a Ping that goes unanswered for a
+	// whole PingInterval is superseded, not remembered, and a Pong for it is
+	// then stale and dropped.
+	pingMu           sync.Mutex
+	outstandingPing  string
+	outstandingPingS time.Time
+	// rttMs / rttAt are the latest measured round trip, the value the next
+	// heartbeat flush persists. Written by handlePong and read by
+	// handleHeartbeat, both on the recv goroutine, so like lastPersistedAt
+	// they need no lock. A zero rttAt is NOT MEASURED and the flush leaves
+	// both out of the write.
+	rttMs int
+	rttAt time.Time
 }
 
 func newStreamSession(
@@ -615,6 +645,8 @@ func (s *streamSession) handle(ctx context.Context, msg *memqlv1.WorkerClientMes
 		s.handleModelProbeProgress(payload.ModelProbeProgress)
 	case *memqlv1.WorkerClientMessage_ModelProbeEnd:
 		s.handleModelProbeEnd(payload.ModelProbeEnd)
+	case *memqlv1.WorkerClientMessage_Pong:
+		s.handlePong(payload.Pong)
 	case *memqlv1.WorkerClientMessage_RotationRequest:
 		s.handleRotationRequest(ctx, payload.RotationRequest)
 	case *memqlv1.WorkerClientMessage_AuditEvent:
@@ -778,7 +810,12 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
-	if err := s.server.store.UpdateLastSeen(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, at, sourceIP, s.server.nodeId, active, hardware); err != nil {
+	// The latest Ping round trip rides this write too (epic memql#5218, D11).
+	// Re-asserted on every flush rather than sent once: it is one field on a
+	// write that already happens, and the row then always carries the latest
+	// figure this replica holds. A zero rttAt is "not measured" and the store
+	// leaves both fields out.
+	if err := s.server.store.UpdateLastSeen(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, at, sourceIP, s.server.nodeId, active, hardware, s.rttMs, s.rttAt); err != nil {
 		if s.server.logger != nil {
 			s.server.logger.Warn("worker: persist heartbeat failed",
 				"registration_id", s.worker.RegistrationId,
@@ -880,6 +917,127 @@ func (s *streamSession) send(msg *memqlv1.WorkerServerMessage) error {
 		return err
 	}
 	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Ping / Pong (epic memql#5218, D11)
+//
+// A heartbeat is the MACHINE's word that it is there. The Ping is the
+// cluster's own evidence that the return path -- this replica to the cockpit
+// -- works, and how fast. The agent sends one FirstPingDelay after RegisterAck
+// and then every PingInterval; the cockpit echoes it as a Pong; the round trip
+// lands on the Worker and, on the next heartbeat flush, on the row as
+// rttMs / rttAt. A cockpit that predates the message never answers, and the
+// row then carries no figure, which every reader takes as "not measured".
+// -----------------------------------------------------------------------------
+
+// startPinger runs the pinger for the life of the session. Bound to s.ctx, so
+// close() ends it with everything else on the stream.
+func (s *streamSession) startPinger() {
+	go s.runPinger()
+}
+
+// runPinger sends the first Ping after FirstPingDelay and then one every
+// PingInterval until the session context ends. It is its own goroutine
+// because the recv loop is the only other one on the stream and it blocks in
+// Recv: a cockpit that goes quiet would otherwise never be pinged, which is
+// the exact case the Ping exists to notice.
+func (s *streamSession) runPinger() {
+	if s == nil || s.server == nil {
+		return
+	}
+	timer := time.NewTimer(s.server.pingFirst)
+	defer timer.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-timer.C:
+		}
+		s.sendPing()
+		timer.Reset(s.server.pingEvery)
+	}
+}
+
+// sendPing records a fresh outstanding Ping and puts it on the stream.
+//
+// The id and the send time are recorded BEFORE the send, under pingMu, so a
+// Pong that comes back faster than this goroutine can return finds the id it
+// is answering. The send time is the agent's own clock and is what the round
+// trip is measured against: the cockpit echoes it, but the echo is never read
+// for the figure, so no clock on the machine can shape the number.
+//
+// A nil stream is tolerated rather than refused: the heartbeat tests build a
+// session with none, because the flush path never touches it, and the pinger
+// must not be the reason that harness cannot start a session.
+func (s *streamSession) sendPing() {
+	if s == nil || s.server == nil {
+		return
+	}
+	now := s.server.clock()
+	id := randomHex(8)
+	s.pingMu.Lock()
+	s.outstandingPing = id
+	s.outstandingPingS = now
+	s.pingMu.Unlock()
+	if s.stream == nil {
+		return
+	}
+	if err := s.send(&memqlv1.WorkerServerMessage{
+		MessageId: id,
+		Payload: &memqlv1.WorkerServerMessage_Ping{
+			Ping: &memqlv1.Ping{
+				RequestId: id,
+				SentAt:    timestamppb.New(now),
+			},
+		},
+	}); err != nil && s.server.logger != nil {
+		// Debug rather than Warn: a stream whose send fails is a stream about
+		// to close, and Stream's recv loop reports that once, by name.
+		s.server.logger.Debug("worker: ping send failed",
+			"registration_id", s.worker.RegistrationId,
+			"error", err,
+		)
+	}
+}
+
+// handlePong records the round trip for the ONE outstanding Ping. A Pong for
+// any other id -- late for a superseded Ping, duplicated, or invented -- is
+// dropped at debug, because a figure the agent did not ask for is not a
+// measurement. The round trip is measured from the recorded send time on this
+// replica's clock, never from anything the machine sent, and clamped at zero:
+// a clock that steps backwards mid-flight is a fact about the clock, not a
+// negative latency.
+func (s *streamSession) handlePong(pong *memqlv1.Pong) {
+	if pong == nil || pong.GetRequestId() == "" {
+		return
+	}
+	s.pingMu.Lock()
+	matched := s.outstandingPing != "" && pong.GetRequestId() == s.outstandingPing
+	sentAt := s.outstandingPingS
+	if matched {
+		s.outstandingPing = ""
+		s.outstandingPingS = time.Time{}
+	}
+	s.pingMu.Unlock()
+	if !matched {
+		if s.server != nil && s.server.logger != nil {
+			s.server.logger.Debug("worker: dropping pong -- not the outstanding ping",
+				"registration_id", s.worker.RegistrationId,
+				"request_id", pong.GetRequestId(),
+			)
+		}
+		return
+	}
+	now := s.server.clock()
+	rtt := now.Sub(sentAt)
+	if rtt < 0 {
+		rtt = 0
+	}
+	rttMs := int(rtt / time.Millisecond)
+	s.worker.RecordRoundTrip(rttMs, now)
+	s.rttMs = rttMs
+	s.rttAt = now
 }
 
 // -----------------------------------------------------------------------------

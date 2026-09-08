@@ -121,8 +121,9 @@ in.
 Any combination is legal, and the order is the recommendation:
 
 - **A machine on your fleet** — a computer you already own serves the model.
-  Nothing leaves it and there is no bill. The act opens Fleet with the Add
-  machine panel ready.
+  Nothing leaves it and there is no bill. The act opens Fleet's guided install with local models already selected, so
+  the person leaves with one install line and comes back when the machine
+  registers and its checks settle.
 - **Anthropic** — Anthropic serves the model, on their hardware and their bill.
   The act opens Settings → AI providers at the Anthropic panel.
 - **OpenAI** — OpenAI serves the model, on their hardware and their bill.

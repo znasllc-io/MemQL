@@ -8760,6 +8760,11 @@ export interface UpdateWorkerLastSeenArgs {
   /** A non-material inventory refresh riding the heartbeat's own write (epic memql#5146). Free disk moves on every report and decides nothing, so it is not worth a second write to this row; an inventory change that moves the `runtime:` labels does not come through here at all, it goes through updateWorkerHardware and does not wait. */
   /** OMITTED, never sent empty. update{} is a read-merge and `??` is blank-coalescing, so an absent key keeps the stored inventory while an empty object would overwrite it with a machine that reports nothing -- turning a cockpit's silence into a statement. */
   hardware?: Record<string, unknown>;
+  /** The latest Ping round trip in milliseconds (epic memql#5218, D11), riding the heartbeat's write for `hardware`'s reason: it is exactly as fresh as the flush it arrives with and decides nothing, so it is not worth a write of its own. */
+  /** OMITTED together with rttAt while nothing has been measured, and for the same `??` reason: an absent key keeps the stored figure, while a sent zero would write "0 ms" over a real one and read as a fast machine rather than as an unmeasured one. */
+  rttMs?: number;
+  /** When rttMs was measured, on the agent's clock. Present exactly when rttMs is; an absent rttAt on the row is the one reading for "not measured". */
+  rttAt?: string;
 }
 
 export function buildUpdateWorkerLastSeen(args: UpdateWorkerLastSeenArgs): string {
@@ -8770,6 +8775,8 @@ export function buildUpdateWorkerLastSeen(args: UpdateWorkerLastSeenArgs): strin
   if (args.connectedNodeId !== undefined) parts.push("connectedNodeId: " + renderMemQLValue(args.connectedNodeId));
   if (args.activeCount !== undefined) parts.push("activeCount: " + renderMemQLValue(args.activeCount));
   if (args.hardware !== undefined) parts.push("hardware: " + renderMemQLValue(args.hardware));
+  if (args.rttMs !== undefined) parts.push("rttMs: " + renderMemQLValue(args.rttMs));
+  if (args.rttAt !== undefined) parts.push("rttAt: " + renderMemQLValue(args.rttAt));
   return "mutation updateWorkerLastSeen(" + parts.join(", ") + ")";
 }
 
