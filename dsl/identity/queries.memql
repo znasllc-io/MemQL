@@ -3,7 +3,7 @@
 // holds every construct of that kind in the domain. The companion
 // files cover the other construct kinds.
 
-use common.traits.{ identityIsApiKey, identityIsBadge, identityIsMagicLink, identityIsNodeToken, identityIsOidc, identityIsPasskey, identityIsRecoveryKey, identityIsWorkerToken, isActiveRecord, isDeletionScheduled, statusIsPending }
+use common.traits.{ identityIsApiKey, identityIsBadge, identityIsMagicLink, identityIsNodeToken, identityIsOidc, identityIsPasskey, identityIsRecoveryKey, identityIsWorkerToken, isActiveRecord, isDeletionScheduled, statusIsActive, statusIsPending }
 use common.specs.{ requiresOwnerOrAdmin, requiresDeveloperOrAbove }
 
 // account -- the operator's customer records
@@ -2686,4 +2686,73 @@ query githubConnectState githubConnectStateByHash {
   }
   filter  stateHash==args.stateHash
   shape   githubConnectStateFull
+}
+
+// ---- Groups (epic memql#5165, section D) ----
+//
+// All five carry @requiresRank("admin"), the Users app's own floor. That is
+// the SURFACE half of the decision; the concepts' `unowned="admin"` tier is
+// the ROW half, and the two are deliberately both present: the tier decides
+// which rows come back, the floor decides who may ask at all.
+//
+// The standing staff (D6) are not rows and none of these returns them. The OS
+// draws its "Managed by" band from the roster it already holds, at developer
+// rank and above -- a query here would have to invent membership rows that do
+// not exist, and a list a person could not act on reads as one they could.
+
+/// Every group in the cluster, for the Users app's Groups section.
+@requiresRank("admin")
+query group groupsAll {
+  args {
+    includeArchived  boolean
+  }
+  filter  statusIsActive || args.includeArchived==true
+  shape   groupFull
+  sort    "name", "asc"
+}
+
+/// One group by id, for its page.
+@requiresRank("admin")
+query group groupById {
+  args {
+    groupId  string!
+  }
+  filter  row.id==args.groupId
+  shape   groupFull
+}
+
+/// The groups tied to one account -- the Accounts ledger's People band.
+@requiresRank("admin")
+query group groupsForAccount {
+  args {
+    accountId  string!
+  }
+  filter  accountId==args.accountId && statusIsActive
+  shape   groupFull
+  sort    "name", "asc"
+}
+
+/// The membership rows of one group. Removed members are history and are excluded unless asked for
+/// -- the row stays, because who left and when is the question the versions exist to answer.
+@requiresRank("admin")
+query groupMembership membersOfGroup {
+  args {
+    groupId         string!
+    includeRemoved  boolean
+  }
+  filter  groupId==args.groupId && (statusIsActive || args.includeRemoved==true)
+  shape   groupMembershipFull
+  sort    "row.createdAt", "desc"
+}
+
+/// The membership rows of one person, for their page in the Users app.
+@requiresRank("admin")
+query groupMembership groupsForUser {
+  args {
+    userId          string!
+    includeRemoved  boolean
+  }
+  filter  userId==args.userId && (statusIsActive || args.includeRemoved==true)
+  shape   groupMembershipFull
+  sort    "row.createdAt", "desc"
 }

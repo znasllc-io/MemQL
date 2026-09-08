@@ -130,3 +130,67 @@ builtin githubConnectBegin {
   /// absolute, protocol-relative or carrying a control character is dropped for the OS root.
   returnPath  string
 }
+
+// ---- Groups (epic memql#5165, section D) ----
+//
+// Six verbs, all executed by integrations/groups and all writing under
+// internal origin: v1:identity:group and v1:identity:groupMembership are
+// UNOWNED rows (D2), so there is no owned tier for a caller-reachable mutation
+// to write through, and every guard below is a Go check against the caller's
+// AccessContext rather than something a mutation body could state.
+//
+// The guards are stated in the design record's table and enforced in
+// integrations/groups/guards.go. Each refusal is a TYPED CODE the OS keys its
+// copy on, which is why they read as identifiers rather than sentences.
+
+@sdk
+@executor("integration.groups.groupCreate")
+@description("Create a custom group, optionally tied to an account. Requires `create` on `group`; a named account must exist and be active. Returns {groupId, name, accountId, kind, status}. The group's KIND is always \"custom\" -- the account-kind group is written by the ensureAccountGroup automation and never by a caller, so a person cannot mint a second one and split an account's membership across two rows.")
+builtin groupCreate {
+  /// Display name, as a person would say it.
+  name         string!
+  /// What the group is for. Optional; group pickers fall back to the name.
+  description  string
+  /// The v1:accounts:account this group grants. Omit for a group that grants nothing and exists to organize (D8).
+  accountId    string
+}
+
+@sdk
+@executor("integration.groups.groupUpdate")
+@description("Rename a group or change its description. Requires `update` on `group`. Refuses `group_not_active` on an archived group -- an archived group grants nothing, and editing one reads as reviving it. Returns {groupId, name, description}.")
+builtin groupUpdate {
+  groupId      string!
+  /// New display name. Omit to leave it.
+  name         string
+  /// New description. Omit to leave it.
+  description  string
+}
+
+@sdk
+@executor("integration.groups.groupArchive")
+@description("Archive a group and remove its memberships. Requires `update` on `group`. Refuses `group_account_active` on an account-kind group whose account is still active (D5) -- that group is the account's, and archiving it alone would leave the account with no way for its people to reach its work while still looking configured. Archive the ACCOUNT instead, and the cascade takes the group with it. Returns {groupId, status, membershipsRemoved}.")
+builtin groupArchive {
+  groupId  string!
+}
+
+@sdk
+@executor("integration.groups.groupMemberAdd")
+@description("Place a person in a group. Requires `update` on `group`, refuses `group_self_add_refused` when the target is the caller (nobody adds themselves -- D7), and refuses `group_member_rank_not_below_caller` unless the target ranks STRICTLY below the caller. Re-adding somebody who was removed writes a new version at the same derived id rather than a second row. Returns {membershipId, groupId, userId, origin, status}.")
+builtin groupMemberAdd {
+  groupId  string!
+  userId   string!
+}
+
+@sdk
+@executor("integration.groups.groupMemberRemove")
+@description("Remove a person from a group. Requires `update` on `group` OR that the target IS the caller -- a person may always take themselves out, which is the one asymmetry with groupMemberAdd and is deliberate (D7). Otherwise the same rank rule applies. Returns {membershipId, groupId, userId, status}.")
+builtin groupMemberRemove {
+  groupId  string!
+  userId   string!
+}
+
+@executor("integration.groups.groupEnsureForAccount")
+@description("Ensure the account-kind group for one account exists, at the derived id acct-<accountShortId> (D5). Called by the ensureAccountGroup automation on account creation and by the seed materializer's boot backfill for every active account -- so it must be idempotent, and it is: a re-run on an account that already has an active group writes nothing. NOT @sdk: this is the engine placing a row, never a person, and a caller-reachable version would let anyone mint the one group an account's whole membership hangs on. Returns {accountId, groupId, created}.")
+builtin groupEnsureForAccount {
+  accountId  string!
+}

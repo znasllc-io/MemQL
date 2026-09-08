@@ -640,7 +640,7 @@ mutate auditEvent createAuditEvent {
     actorEmail       string
     actorRole        string
     actorIdentityId  string
-    targetType       enum("user", "session", "identity", "invitation", "accessRequest", "config", "magicLinkRequest", "authCode", "clusterSettings", "deviceCode", "delegation", "workerPairingCode", "enrolmentToken", "passkeyIdentity", "badgeIdentity", "appSession", "shopifyStore", "releaseCut", "oauthClient", "upstreamIdentity", "rowOwnership", "githubGrant")
+    targetType       enum("user", "session", "identity", "invitation", "accessRequest", "config", "magicLinkRequest", "authCode", "clusterSettings", "deviceCode", "delegation", "workerPairingCode", "enrolmentToken", "passkeyIdentity", "badgeIdentity", "appSession", "shopifyStore", "releaseCut", "oauthClient", "upstreamIdentity", "rowOwnership", "githubGrant", "group", "groupMembership")
     targetId         string
     targetEmail      string
     detail           object
@@ -3258,5 +3258,71 @@ mutate githubConnectState consumeGithubConnectState {
       id: args.stateId
       consumedFromIP: args.consumedFromIP ?? ""
     }
+  }
+}
+
+// ---- Groups (epic memql#5165, section D) ----
+//
+// Both are @serverOnly, and that is the whole access story for these rows.
+// v1:identity:group and v1:identity:groupMembership are UNOWNED (D2): no
+// principal owns them, so there is no owned tier for a caller-reachable
+// mutation to pass through, and a client-reachable writer here would be a
+// primitive for putting yourself into any client's group. Every legitimate
+// write goes through integrations/groups, which checks the caller's capability
+// and rank first and then writes under internal origin.
+//
+// They take the WHOLE row rather than a delta, because a caller-supplied
+// partial update of an append-only row is a read-merge the plug-in has already
+// done: the capability layer reads the current version, applies the change it
+// was asked for, and restates the result. Splitting that across two places
+// would give the two of them different ideas about what an omitted field means.
+
+/// Write one v1:identity:group row. Server-only; see the note above.
+@serverOnly
+mutate group writeGroup {
+  args {
+    groupId      string!
+    name         string!
+    description  string
+    kind         string!
+    accountId    string
+    status       string!
+    archivedAt   string
+  }
+  insert {
+    id:          args.groupId
+    ownerUserId: ""
+    args.name
+    description: args.description ?? ""
+    args.kind
+    accountId:   args.accountId ?? ""
+    args.status
+    archivedAt:  args.archivedAt ?? ""
+  }
+}
+
+/// Write one v1:identity:groupMembership row. Server-only; see the note above.
+@serverOnly
+mutate groupMembership writeGroupMembership {
+  args {
+    membershipId  string!
+    groupId       string!
+    userId        string!
+    origin        string!
+    addedBy       string
+    status        string!
+    removedAt     string
+    removedBy     string
+  }
+  insert {
+    id:          args.membershipId
+    ownerUserId: ""
+    args.groupId
+    args.userId
+    args.origin
+    addedBy:     args.addedBy ?? ""
+    args.status
+    removedAt:   args.removedAt ?? ""
+    removedBy:   args.removedBy ?? ""
   }
 }
