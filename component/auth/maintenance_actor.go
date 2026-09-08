@@ -131,6 +131,21 @@ var maintenanceAutomations = map[string]string{
 		"abandoned work cannot know whose work was abandoned before it looks. Without this principal " +
 		"openModelPulls returns zero rows and no error, and a cluster full of stuck pulls sweeps nothing " +
 		"every two minutes, forever, in silence -- the exact failure this list exists for",
+	"workerModelProbeStaleSweep": "the two-minute sweep for abandoned model probes (epic memql#5146). " +
+		"The pull sweep's sibling, and it needs the principal for the pull sweep's reason: a probe is " +
+		"claimed by ONE agent replica, and when that replica is gone nothing picks the row up and no " +
+		"event is raised, because a process that dies emits none. Its read spans owners BY NATURE, " +
+		"since a sweep for abandoned work cannot know whose work was abandoned before it looks. " +
+		"Without this principal openModelProbes returns zero rows and no error, and every stuck probe " +
+		"stays stuck while the sweep reports nothing to do -- and a probe is worse to strand than a " +
+		"pull, because a suite nobody finished may still be occupying somebody's GPU and this row is " +
+		"the only thing that will ever say so",
+	"routingEvidenceFold": "the nightly fold of decision records into v1:platform:modelEvidence " +
+		"(epic memql#5146, D5). It reads EVERY owner's calls by nature -- the question is how a MODEL " +
+		"behaved across the fleet, not how it behaved for one person -- and v1:router:call carries no " +
+		"owner the default reader actor could match. Without the principal the fold reads zero rows " +
+		"and no error, proposes nothing, and is indistinguishable from a fleet where every model is " +
+		"behaving: the one shape of silence this feature exists to break",
 	"logsRetentionSweep": "the nightly log-store sweep (epic memql#4893), a retention sweep over every " +
 		"node's log lines. What it runs is builtin logsSweep, whose Go executor is floored at CLUSTER OWNER " +
 		"(design L3) -- the same floor an owner running it by hand clears, and the only floor the rows have, " +

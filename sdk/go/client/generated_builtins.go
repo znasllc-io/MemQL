@@ -1018,6 +1018,34 @@ func EditDocumentBuild(args EditDocumentArgs) string {
 	return b.String()
 }
 
+// FleetModelProbe -- Ask one of YOUR OWN fleet machines to measure a model it already has, and return at once with the id of the record to watch. The suite is pinned by this engine and echoed back by the machine, so figures can never be filed under a suite that was not run. Owner-only, and the machine must be yours, unrevoked and connected right now -- the same refusals a pull makes, reused deliberately, because offline is offline whichever act is asking. Progress lands per case on the v1:worker:modelProbe row this returns the id of; the figures land on a v1:platform:modelMeasurement row keyed by machine, model and suite version. Every figure is a measured statistic OR a named reason there is none: a machine nobody has probed and a model that failed every case are different answers, and a page that renders both as zero would lead to opposite actions.
+type FleetModelProbeArgs struct {
+	// v1:worker:registration.id of the machine to measure on. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
+	RegistrationId string
+	// The model id in the runtime's own vocabulary. The machine must already ADVERTISE it -- a probe measures a model that is present, where a pull exists precisely because one is not, so probing an unadvertised model would measure a download.
+	Model string
+}
+
+// FleetModelProbe calls the engine builtin fleetModelProbe.
+func (qc *QueryClient) FleetModelProbe(ctx context.Context, args FleetModelProbeArgs) (*Result, error) {
+	call := FleetModelProbeBuild(args)
+	return qc.executeNamed(ctx, "fleetModelProbe", call)
+}
+
+func FleetModelProbeBuild(args FleetModelProbeArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetModelProbe(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	if b.Len() > 24 {
+		b.WriteString(", ")
+	}
+	b.WriteString("model: ")
+	b.WriteString(quoteMemQL(args.Model))
+	b.WriteString(")")
+	return b.String()
+}
+
 // FleetModelPull -- Ask one of YOUR OWN fleet machines to pull a model, and return at once with the id of the record to watch. The model id is passed to the machine's runtime verbatim, in the runtime's own vocabulary (llama3.1:8b, or a Hugging Face GGUF repository as hf.co/owner/repo:Q4_K_M). Owner-only: the machine must be yours, unrevoked, and connected to the cluster right now, and each of those is refused BEFORE anything is written -- a pull names one machine and has nothing to fall through to, so a refusal you can act on beats a spinner that fails later. Progress, the runtime's own status line, and the final verdict all land on the v1:worker:modelPull row this returns the id of.
 type FleetModelPullArgs struct {
 	// v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
@@ -1059,6 +1087,69 @@ func (qc *QueryClient) FleetModels(ctx context.Context, args FleetModelsArgs) (*
 func FleetModelsBuild(args FleetModelsArgs) string {
 	_ = args
 	return "builtin fleetModels()"
+}
+
+// FleetPullRecommended -- Ask one of YOUR OWN fleet machines to pull every model the catalog recommends for its class, in order, and return at once with the ids of the records to watch. One pull record per model, opened through the same path the per-model act uses. Owner-only, and every refusal -- the machine is not yours, is offline, has not reported its hardware, or is under the floor for local models -- happens BEFORE the first row is written, so a half-run set is not a state this can leave behind: a person watching four bars, two of which will never move, cannot tell a queue from a failure. Profiles the machine cannot pull are REPORTED rather than attempted, each with the sentence saying why, because what the act did not do is half of what a person needs to read.
+type FleetPullRecommendedArgs struct {
+	// v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
+	RegistrationId string
+}
+
+// FleetPullRecommended calls the engine builtin fleetPullRecommended.
+func (qc *QueryClient) FleetPullRecommended(ctx context.Context, args FleetPullRecommendedArgs) (*Result, error) {
+	call := FleetPullRecommendedBuild(args)
+	return qc.executeNamed(ctx, "fleetPullRecommended", call)
+}
+
+func FleetPullRecommendedBuild(args FleetPullRecommendedArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetPullRecommended(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// FleetRecommended -- What the catalog recommends for one of YOUR OWN machines, and why anything is blocked: one entry per level, strongest first, each with the model, its size, and either a pullable flag or the sentence saying what is in the way. The act's answer without the act, so the machine page and fleetPullRecommended read ONE implementation -- a second one in the browser would drift, and the drift presents as a page offering a pull the act then refuses. Also carries the machine's computed class and the usable memory that produced it. A machine whose cockpit has not reported its hardware answers with an EMPTY class and an empty set rather than a list of blocked entries: there is nothing to recommend and nothing to explain, and a page listing every profile as blocked reads as a machine that failed rather than one that has not spoken.
+type FleetRecommendedArgs struct {
+	// v1:worker:registration.id of the machine to recommend for. It must be one of the caller's own.
+	RegistrationId string
+}
+
+// FleetRecommended calls the engine builtin fleetRecommended.
+func (qc *QueryClient) FleetRecommended(ctx context.Context, args FleetRecommendedArgs) (*Result, error) {
+	call := FleetRecommendedBuild(args)
+	return qc.executeNamed(ctx, "fleetRecommended", call)
+}
+
+func FleetRecommendedBuild(args FleetRecommendedArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetRecommended(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// FleetSharingLedger -- What one of YOUR OWN machines has done this week: how many calls ran on it, for how many people, and how those calls split across the four levels. COUNTS AND LEVELS, and nothing else -- somebody who lends their machine to the team is entitled to know it is being used and NOT entitled to read what it was used for, so the narrowing happens in the engine before anything leaves it rather than in a renderer that could later be rewritten. People are counted and never named. A read that FAILS answers `readable: false` rather than zero: telling somebody who lent their machine that nobody used it is a specific claim, and a failed read is not evidence for it.
+type FleetSharingLedgerArgs struct {
+	// v1:worker:registration.id of the machine to report on. It must be one of the caller's own; another user's id answers exactly as a made-up one does.
+	RegistrationId string
+}
+
+// FleetSharingLedger calls the engine builtin fleetSharingLedger.
+func (qc *QueryClient) FleetSharingLedger(ctx context.Context, args FleetSharingLedgerArgs) (*Result, error) {
+	call := FleetSharingLedgerBuild(args)
+	return qc.executeNamed(ctx, "fleetSharingLedger", call)
+}
+
+func FleetSharingLedgerBuild(args FleetSharingLedgerArgs) string {
+	var b strings.Builder
+	b.WriteString("builtin fleetSharingLedger(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	b.WriteString(")")
+	return b.String()
 }
 
 // ForkRun -- Fork one of the caller's runs at a step: a NEW run that serves the shared prefix from the journal and runs live from the fork step on. The source run is untouched. Returns {runId}.

@@ -275,9 +275,11 @@ func (s *EngineStore) WorkersForOwner(ctx context.Context, ownerUserId string) (
 			// merge one line above (epic memql#4676): the cockpit rewrites
 			// `labels` on every reconnect, so an opt-in found there was
 			// granted by the machine rather than by its owner.
-			SharedInference: parseAdvertisedBool(rowStringMap(row, "operatorLabels")[SharedInferenceLabel]),
+			SharingMode:     workerservice.SharingFromRow(row["sharing"]).Mode,
+			InferenceServe:  capabilityInferenceServe(row["capabilityDescriptor"]),
 			Apps:            rowApps(row, "apps"),
 			AppDescriptors:  rowAppDescriptors(row, "appDescriptors"),
+			Hardware:        workerservice.InventoryFromRow(row["hardware"]),
 			Concurrency:     rowUint32Map(row, "concurrency"),
 			ActiveCount:     rowInt(row, "activeCount"),
 			ConnectedNodeId: rowString(row, "connectedNodeId"),
@@ -580,6 +582,26 @@ func intFrom(v any) int {
 	return 0
 }
 
+// capabilityInferenceServe reads the COCKPIT's half of the sharing consent off
+// the stored capability descriptor (epic memql#5146, D6).
+//
+// AN ABSENT DESCRIPTOR, an absent field, or anything that is not exactly
+// `cluster` reads as `owner`. A cockpit that predates the field has said
+// nothing, and silence is not agreement to run other people's work on somebody's
+// laptop -- the one place in this epic where the honest reading of silence and
+// the safe one coincide.
+func capabilityInferenceServe(v any) string {
+	descriptor, ok := v.(map[string]any)
+	if !ok {
+		return workerservice.InferenceServeOwner
+	}
+	serve, _ := descriptor["inferenceServe"].(string)
+	if strings.TrimSpace(serve) != workerservice.InferenceServeCluster {
+		return workerservice.InferenceServeOwner
+	}
+	return workerservice.InferenceServeCluster
+}
+
 func stringsFrom(v any) []string {
 	list, ok := v.([]any)
 	if !ok {
@@ -638,9 +660,11 @@ func (s *EngineStore) SharedInferenceWorkers(ctx context.Context) ([]Candidate, 
 			DisplayName:     rowString(row, "displayName"),
 			Capabilities:    rowStringList(row, "capabilities"),
 			Labels:          MergeLabels(rowStringMap(row, "labels"), operator),
-			SharedInference: parseAdvertisedBool(operator[SharedInferenceLabel]),
+			SharingMode:     workerservice.SharingFromRow(row["sharing"]).Mode,
+			InferenceServe:  capabilityInferenceServe(row["capabilityDescriptor"]),
 			Apps:            rowApps(row, "apps"),
 			AppDescriptors:  rowAppDescriptors(row, "appDescriptors"),
+			Hardware:        workerservice.InventoryFromRow(row["hardware"]),
 			Concurrency:     rowUint32Map(row, "concurrency"),
 			ActiveCount:     rowInt(row, "activeCount"),
 			ConnectedNodeId: rowString(row, "connectedNodeId"),

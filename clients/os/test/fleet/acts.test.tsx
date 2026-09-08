@@ -482,6 +482,36 @@ const CASES: ActsCase[] = [
       { name: `Recent calls on ${MACHINE_LABEL}`, count: 1 },
       { name: "Re-read", count: 1, note: "the call history's own; telemetry is not broadcast" },
       { name: "Revoke this machine", count: 1 },
+
+      // The scanner's four (epic memql#5146), moved here from the
+      // ARRIVING_WITH_5146 list now that they exist -- which is the edit that
+      // list existed to force. It is DELETED rather than emptied: an empty
+      // list would leave a test passing over nothing, which its own header
+      // forbade.
+      //
+      // Two of the four are ZERO, and the zeros are the assertions worth
+      // having.
+      {
+        name: "Probe this model",
+        count: 1,
+        note: "one per advertised model, and this fixture advertises one",
+      },
+      {
+        name: "Share with the cluster",
+        count: 1,
+        note: "the owner's half of the two consents; the machine's half is a file on the machine",
+      },
+      {
+        name: "Stop sharing with the cluster",
+        count: 0,
+        note: "the other half of the same toggle -- this machine is not shared, so it replaces nothing here",
+      },
+      {
+        name: "Pull recommended set",
+        count: 0,
+        note: "absent because this fixture's catalog read returns no recommended entries, not because the act is gone -- an act with nothing to do does not render",
+      },
+
       // The confirmation REPLACES its opener rather than sitting beside it.
       { name: `Revoke ${MACHINE_LABEL}`, count: 0 },
       { name: "Reason (optional)", count: 0 },
@@ -756,23 +786,6 @@ const CASES: ActsCase[] = [
   },
 ];
 
-// =============================================================================
-// ACTS THAT DO NOT EXIST YET
-// =============================================================================
-// Epic memql#5146 adds these to the machine page, under these exact
-// accessible names. They are asserted ABSENT rather than skipped or commented
-// out, so the enumeration stays honest in BOTH directions: it cannot pass
-// vacuously here, and the day they arrive this test is the thing that
-// notices. Flipping each to expected-present is then a deliberate edit in the
-// same change that adds it -- which is the whole point of D5.
-const ARRIVING_WITH_5146: readonly string[] = [
-  "Pull recommended set",
-  "Probe this model",
-  "Share with the cluster",
-  // The other half of the same toggle.
-  "Stop sharing with the cluster",
-];
-
 // -----------------------------------------------------------------------------
 
 beforeEach(() => {
@@ -840,19 +853,5 @@ describe("every act the Fleet offers (D5, memql#5159)", () => {
     // tests. The two here are indistinguishable by anything but a count.
     parent.append(rename, rename.cloneNode(true));
     expect(auditCase(detail).join("\n")).toContain('"Rename" -- expected 1, found 2');
-  });
-});
-
-describe("acts that do not exist yet (epic memql#5146)", () => {
-  it("does not offer them on the machine page, and says so when they arrive", async () => {
-    await openMachineDetail(fakeConnection({ myWorkersWithStatus: [MACHINE] }));
-    const names = new Set(namedActs().map((one) => one.name));
-    const arrived = ARRIVING_WITH_5146.filter((name) => names.has(name));
-    expect(
-      arrived,
-      "epic memql#5146 has landed these acts. Move them out of ARRIVING_WITH_5146 and into the " +
-        "machine-detail case's inventory with the count they should have -- deliberately, which " +
-        "is what this assertion exists to force.",
-    ).toEqual([]);
   });
 });

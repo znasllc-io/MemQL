@@ -885,6 +885,22 @@ func (wd *WorkerDialer) handleServerMessage(entry *dialEntry, msg *nodev1.NodeSe
 			sink.DispatchModelPullProgress(payload.ModelPullForwardProgress)
 		}
 
+	case *nodev1.NodeServerMessage_ModelProbeForwardResponse:
+		wd.sinkMu.RLock()
+		sink := wd.workerForwardSink
+		wd.sinkMu.RUnlock()
+		if sink != nil {
+			sink.DispatchModelProbe(payload.ModelProbeForwardResponse)
+		}
+
+	case *nodev1.NodeServerMessage_ModelProbeForwardProgress:
+		wd.sinkMu.RLock()
+		sink := wd.workerForwardSink
+		wd.sinkMu.RUnlock()
+		if sink != nil {
+			sink.DispatchModelProbeProgress(payload.ModelProbeForwardProgress)
+		}
+
 	case *nodev1.NodeServerMessage_DeployControlForwardResponse:
 		wd.sinkMu.RLock()
 		sink := wd.deployControlSink

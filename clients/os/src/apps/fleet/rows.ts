@@ -3,6 +3,7 @@ import { rowArray, rowNumber, rowObject, rowString, type Row } from "@znasllc-io
 import { absent, figureFrom, figureOf, figureValue, type Figure } from "../../kit/measure";
 import { flatten } from "../../kit/rows";
 import { labelMapFrom, mergeLabels, type LabelMap, type MergedLabel } from "./labels";
+import { hardwareFrom, type MachineHardware } from "./machines/hardware";
 
 // The wire rows the Fleet renders, projected into the shapes its surfaces
 // read.
@@ -90,6 +91,20 @@ export interface MachineRow {
   revokeReason: string;
   /** The local apps this machine reported (memql#4359). */
   apps: MachineApp[];
+  /** What the machine IS, as its cockpit reported it (epic memql#5146, D1).
+   *  `present` false means the cockpit predates the field -- NOT a machine
+   *  with no memory. See machines/hardware.ts. */
+  hardware: MachineHardware;
+  /** The OWNER's half of the sharing consent (D6): "owner" or "cluster". The
+   *  cockpit's half is `inferenceServe` beside it, and a machine serves
+   *  another user only when BOTH say cluster. */
+  sharingMode: string;
+  sharedAt: string;
+  sharedBy: string;
+  /** The COCKPIT's half, from that machine's own policy.yaml. Empty reads as
+   *  "owner": a cockpit that predates the field has said nothing, and silence
+   *  is not agreement to run other people's work on somebody's laptop. */
+  inferenceServe: string;
 }
 
 /** One local app on a machine. */
@@ -202,7 +217,28 @@ export function machineFromRow(raw: Row): MachineRow {
     revokedBy: rowString(row, "revokedBy"),
     revokeReason: rowString(row, "revokeReason"),
     apps: appsFrom(row),
+    hardware: hardwareFrom(row["hardware"]),
+    sharingMode: sharingModeFrom(row["sharing"]),
+    sharedAt: nestedString(objectAt(row["sharing"]), "sharedAt"),
+    sharedBy: nestedString(objectAt(row["sharing"]), "sharedBy"),
+    inferenceServe: nestedString(descriptor, "inferenceServe") === "cluster" ? "cluster" : "owner",
   };
+}
+
+/**
+ * The owner's sharing consent.
+ *
+ * ANYTHING THAT IS NOT EXACTLY `cluster` IS `owner` -- a typo, a value from a
+ * future engine, a half-written row. The failure direction here is a
+ * stranger's prompt running on somebody's machine, so the reading that must
+ * not be generous is the permissive one.
+ */
+function sharingModeFrom(v: unknown): string {
+  return nestedString(objectAt(v), "mode") === "cluster" ? "cluster" : "owner";
+}
+
+function objectAt(v: unknown): Record<string, unknown> | null {
+  return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
 
 /**

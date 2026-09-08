@@ -294,6 +294,33 @@ the last word on anything they deliberately set. `/fleet/machines` renders the
 merge and marks which side each value came from, because a reported value an
 owner has overridden is a fact about their configuration, not about the machine.
 
+### 5.1b The hardware inventory (epic memql#5146)
+
+Beside the two label maps a registration carries a **hardware inventory**: the
+chip, memory, accelerator and its backend, cores, OS version, free disk, and
+the model runtimes found on the machine with their versions. The cockpit sends
+it on `Register` and on `Heartbeat`.
+
+Three properties are worth knowing before you touch this path:
+
+- **Presence is decided by CONTENT, not by a flag.** An inventory whose fields
+  are all empty is absent, and the page says "has not reported" rather than
+  drawing a row of dashes. A cockpit older than this feature sends nothing and
+  is working normally.
+- **A heartbeat does not write a row unless something MATERIAL changed.** Free
+  disk and the report timestamp are excluded from that comparison on purpose:
+  they change on every heartbeat, so including them would write a new version
+  of the registration every 15 seconds forever. A material change is written
+  immediately; everything else rides the throttled `lastSeen` update.
+- **The derived `runtime:` labels merge rather than replace.** Re-deriving them
+  from the inventory drops only the runtimes the engine KNOWS about, so a
+  runtime the cockpit reported under a name this engine has never heard of --
+  `runtime:openai-compatible`, say -- survives the merge instead of being
+  deleted by a newer engine that would not have produced it.
+
+The **class** the fleet page shows is computed from this inventory and stored
+nowhere. See [Local models on the fleet](local-models.md#the-scanner).
+
 ### 5.2 The routing policy
 
 `v1:worker:routingPolicy` -- one active row per user, edited from the Routing

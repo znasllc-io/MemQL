@@ -3689,6 +3689,8 @@ export interface CreateWorkerRegistrationArgs {
   apps?: unknown[];
   /** How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for. */
   appDescriptors?: unknown[];
+  /** What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes, reportedAt}. OMITTED by a cockpit that predates the field, which is not the same as a machine with nothing -- see the concept's field doc. */
+  hardware?: Record<string, unknown>;
   registeredAt: string;
   lastSeenAt?: string;
   lastConnectedFromIP?: string;
@@ -3710,6 +3712,7 @@ export function buildCreateWorkerRegistration(args: CreateWorkerRegistrationArgs
   if (args.buildTag !== undefined) parts.push("buildTag: " + renderMemQLValue(args.buildTag));
   if (args.apps !== undefined) parts.push("apps: " + renderMemQLValue(args.apps));
   if (args.appDescriptors !== undefined) parts.push("appDescriptors: " + renderMemQLValue(args.appDescriptors));
+  if (args.hardware !== undefined) parts.push("hardware: " + renderMemQLValue(args.hardware));
   parts.push("registeredAt: " + renderMemQLValue(args.registeredAt));
   if (args.lastSeenAt !== undefined) parts.push("lastSeenAt: " + renderMemQLValue(args.lastSeenAt));
   if (args.lastConnectedFromIP !== undefined) parts.push("lastConnectedFromIP: " + renderMemQLValue(args.lastConnectedFromIP));
@@ -5395,6 +5398,8 @@ export interface RefreshWorkerRegistrationArgs {
   apps?: unknown[];
   /** How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for. */
   appDescriptors?: unknown[];
+  /** What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes, reportedAt}. OMITTED by a cockpit that predates the field, which is not the same as a machine with nothing -- see the concept's field doc. */
+  hardware?: Record<string, unknown>;
   lastSeenAt: string;
   lastConnectedFromIP?: string;
   connectedNodeId?: string;
@@ -5414,6 +5419,7 @@ export function buildRefreshWorkerRegistration(args: RefreshWorkerRegistrationAr
   if (args.buildTag !== undefined) parts.push("buildTag: " + renderMemQLValue(args.buildTag));
   if (args.apps !== undefined) parts.push("apps: " + renderMemQLValue(args.apps));
   if (args.appDescriptors !== undefined) parts.push("appDescriptors: " + renderMemQLValue(args.appDescriptors));
+  if (args.hardware !== undefined) parts.push("hardware: " + renderMemQLValue(args.hardware));
   parts.push("lastSeenAt: " + renderMemQLValue(args.lastSeenAt));
   if (args.lastConnectedFromIP !== undefined) parts.push("lastConnectedFromIP: " + renderMemQLValue(args.lastConnectedFromIP));
   if (args.connectedNodeId !== undefined) parts.push("connectedNodeId: " + renderMemQLValue(args.connectedNodeId));
@@ -7179,6 +7185,32 @@ QueryClient.prototype.setWorkerOperatorLabels = function (this: QueryClient, arg
   return this.executeNamed("setWorkerOperatorLabels", buildSetWorkerOperatorLabels(args), opts);
 };
 
+/** Set the OWNER's half of a machine's sharing consent. The cockpit's half comes from that machine's own policy.yaml and is not writable here; both must say cluster before the machine serves anybody else. */
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["setWorkerSharing"] in generated_concepts.ts).
+export interface SetWorkerSharingArgs {
+  registrationId: string;
+  /** owner or cluster. Anything else is read as owner by every reader, so the enum is enforced here rather than left to be misread later. */
+  // Enum: owner | cluster
+  mode: string;
+}
+
+export function buildSetWorkerSharing(args: SetWorkerSharingArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  parts.push("mode: " + renderMemQLValue(args.mode));
+  return "mutation setWorkerSharing(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    setWorkerSharing(args: SetWorkerSharingArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.setWorkerSharing = function (this: QueryClient, args: SetWorkerSharingArgs = {} as SetWorkerSharingArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("setWorkerSharing", buildSetWorkerSharing(args), opts);
+};
+
 /** Soft-delete a worker invocation row past retention. */
 // Bound concept: v1:worker:invocation (machine-readable: BoundConcepts["softDeleteWorkerInvocation"] in generated_concepts.ts).
 export interface SoftDeleteWorkerInvocationArgs {
@@ -8743,6 +8775,38 @@ QueryClient.prototype.updateWorkerApps = function (this: QueryClient, args: Upda
   return this.executeNamed("updateWorkerApps", buildUpdateWorkerApps(args), opts);
 };
 
+/** Re-stamp a machine's hardware inventory and the labels derived from it. NOT @serverOnly, for clearWorkerConnectedNode's reason: its caller is component/worker, whose every context descends from a worker's own inbound stream, so the concept's owner tier is the gate -- the store stamps auth.ContextWithUserActor for the registration's owner and the write guard refuses any other actor. */
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["updateWorkerHardware"] in generated_concepts.ts).
+export interface UpdateWorkerHardwareArgs {
+  registrationId: string;
+  /** The full inventory as component/worker/hardware.go renders it. */
+  hardware: Record<string, unknown>;
+  /** The complete label set, operator labels included. Replaces the stored one wholesale, exactly as updateWorkerApps does -- a merge here could not REMOVE the label of a runtime that was just uninstalled. */
+  labels?: Record<string, unknown>;
+  lastSeenAt: string;
+  lastConnectedFromIP?: string;
+}
+
+export function buildUpdateWorkerHardware(args: UpdateWorkerHardwareArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  parts.push("hardware: " + renderMemQLValue(args.hardware));
+  if (args.labels !== undefined) parts.push("labels: " + renderMemQLValue(args.labels));
+  parts.push("lastSeenAt: " + renderMemQLValue(args.lastSeenAt));
+  if (args.lastConnectedFromIP !== undefined) parts.push("lastConnectedFromIP: " + renderMemQLValue(args.lastConnectedFromIP));
+  return "mutation updateWorkerHardware(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    updateWorkerHardware(args: UpdateWorkerHardwareArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.updateWorkerHardware = function (this: QueryClient, args: UpdateWorkerHardwareArgs = {} as UpdateWorkerHardwareArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("updateWorkerHardware", buildUpdateWorkerHardware(args), opts);
+};
+
 /** Bump lastSeenAt + lastConnectedFromIP on a worker registration. */
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["updateWorkerLastSeen"] in generated_concepts.ts).
 export interface UpdateWorkerLastSeenArgs {
@@ -8751,6 +8815,9 @@ export interface UpdateWorkerLastSeenArgs {
   lastConnectedFromIP?: string;
   connectedNodeId?: string;
   activeCount?: number;
+  /** A non-material inventory refresh riding the heartbeat's own write (epic memql#5146). Free disk moves on every report and decides nothing, so it is not worth a second write to this row; an inventory change that moves the `runtime:` labels does not come through here at all, it goes through updateWorkerHardware and does not wait. */
+  /** OMITTED, never sent empty. update{} is a read-merge and `??` is blank-coalescing, so an absent key keeps the stored inventory while an empty object would overwrite it with a machine that reports nothing -- turning a cockpit's silence into a statement. */
+  hardware?: Record<string, unknown>;
 }
 
 export function buildUpdateWorkerLastSeen(args: UpdateWorkerLastSeenArgs): string {
@@ -8760,6 +8827,7 @@ export function buildUpdateWorkerLastSeen(args: UpdateWorkerLastSeenArgs): strin
   if (args.lastConnectedFromIP !== undefined) parts.push("lastConnectedFromIP: " + renderMemQLValue(args.lastConnectedFromIP));
   if (args.connectedNodeId !== undefined) parts.push("connectedNodeId: " + renderMemQLValue(args.connectedNodeId));
   if (args.activeCount !== undefined) parts.push("activeCount: " + renderMemQLValue(args.activeCount));
+  if (args.hardware !== undefined) parts.push("hardware: " + renderMemQLValue(args.hardware));
   return "mutation updateWorkerLastSeen(" + parts.join(", ") + ")";
 }
 

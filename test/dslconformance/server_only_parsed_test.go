@@ -917,6 +917,20 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// and a terminal status a later reader treats as settled.
 		{Path: "worker/mutations.memql", Name: "createModelPull"}:         true,
 		{Path: "worker/mutations.memql", Name: "recordModelPullProgress"}: true,
+
+		// The probe's three writers (epic memql#5146), the pull's three with the
+		// pull's reasoning. `targetNodeId` is the CLAIM -- exactly one replica
+		// acts on the row, the one whose own id it names -- so a caller who
+		// could write it could point somebody else's probe at a replica that
+		// does not hold the machine, where it would sit at `requested` until the
+		// sweep failed it. Caller-scoping does not help: the caller IS the
+		// row's owner, so a self-scoped filter admits exactly this call, and
+		// the hazard is that only the server knows which replica holds the
+		// stream and only the executing replica knows how far the suite has
+		// got.
+		{Path: "worker/mutations.memql", Name: "createModelProbe"}:         true,
+		{Path: "worker/mutations.memql", Name: "recordModelProbeProgress"}: true,
+		{Path: "worker/mutations.memql", Name: "finishModelProbe"}:         true,
 		{Path: "worker/mutations.memql", Name: "finishModelPull"}:         true,
 		// memql#4389. The connector's own writes, and the two halves of
 		// the push channel. What they share is that the caller is a
@@ -1067,6 +1081,26 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// the write to, and a client-reachable writer would let any signed-in
 		// caller claim any node's module is "configured".
 		{Path: "platform/mutations.memql", Name: "recordModuleReadiness"}: true,
+
+		// The probe's figures and the fold's evidence (epic memql#5146).
+		//
+		// recordModelMeasurement is the one where caller-scoping LOOKS like it
+		// would work and does not: the caller IS the machine's owner, so a
+		// self-scoped filter admits exactly this call. Scoping answers "whose
+		// row is it" and the hazard is not whose -- it is that a legitimate
+		// owner could write any figures they like about their own machine and
+		// have the fleet route structured work to it on the strength of them.
+		// Only the server knows what the probe actually reported.
+		//
+		// The other two have nobody to scope to at all: v1:platform:modelEvidence
+		// declares clusterOwner and carries no owner field, because the question
+		// is how a MODEL behaved across the fleet rather than how it behaved for
+		// one person. `declined` on the second is also what stops a week's
+		// evidence re-proposing, so a client that could write it could silence a
+		// demotion nobody declined.
+		{Path: "platform/mutations.memql", Name: "recordModelMeasurement"}: true,
+		{Path: "platform/mutations.memql", Name: "recordModelEvidence"}:    true,
+		{Path: "platform/mutations.memql", Name: "recordEvidenceDecision"}: true,
 	}
 	for k := range want {
 		if !set[k] {

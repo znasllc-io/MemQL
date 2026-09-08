@@ -167,6 +167,8 @@ type NodeClientMessage struct {
 	//	*NodeClientMessage_ModelForwardCancel
 	//	*NodeClientMessage_ModelPullForwardRequest
 	//	*NodeClientMessage_ModelPullForwardCancel
+	//	*NodeClientMessage_ModelProbeForwardRequest
+	//	*NodeClientMessage_ModelProbeForwardCancel
 	Payload       isNodeClientMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -410,6 +412,24 @@ func (x *NodeClientMessage) GetModelPullForwardCancel() *ModelPullForwardCancel 
 	return nil
 }
 
+func (x *NodeClientMessage) GetModelProbeForwardRequest() *ModelProbeForwardRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*NodeClientMessage_ModelProbeForwardRequest); ok {
+			return x.ModelProbeForwardRequest
+		}
+	}
+	return nil
+}
+
+func (x *NodeClientMessage) GetModelProbeForwardCancel() *ModelProbeForwardCancel {
+	if x != nil {
+		if x, ok := x.Payload.(*NodeClientMessage_ModelProbeForwardCancel); ok {
+			return x.ModelProbeForwardCancel
+		}
+	}
+	return nil
+}
+
 type isNodeClientMessage_Payload interface {
 	isNodeClientMessage_Payload()
 }
@@ -494,6 +514,14 @@ type NodeClientMessage_ModelPullForwardCancel struct {
 	ModelPullForwardCancel *ModelPullForwardCancel `protobuf:"bytes,105,opt,name=model_pull_forward_cancel,json=modelPullForwardCancel,proto3,oneof"`
 }
 
+type NodeClientMessage_ModelProbeForwardRequest struct {
+	ModelProbeForwardRequest *ModelProbeForwardRequest `protobuf:"bytes,106,opt,name=model_probe_forward_request,json=modelProbeForwardRequest,proto3,oneof"`
+}
+
+type NodeClientMessage_ModelProbeForwardCancel struct {
+	ModelProbeForwardCancel *ModelProbeForwardCancel `protobuf:"bytes,107,opt,name=model_probe_forward_cancel,json=modelProbeForwardCancel,proto3,oneof"`
+}
+
 func (*NodeClientMessage_NodeHello) isNodeClientMessage_Payload() {}
 
 func (*NodeClientMessage_Heartbeat) isNodeClientMessage_Payload() {}
@@ -534,6 +562,10 @@ func (*NodeClientMessage_ModelPullForwardRequest) isNodeClientMessage_Payload() 
 
 func (*NodeClientMessage_ModelPullForwardCancel) isNodeClientMessage_Payload() {}
 
+func (*NodeClientMessage_ModelProbeForwardRequest) isNodeClientMessage_Payload() {}
+
+func (*NodeClientMessage_ModelProbeForwardCancel) isNodeClientMessage_Payload() {}
+
 type NodeServerMessage struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	MessageId   string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
@@ -560,6 +592,8 @@ type NodeServerMessage struct {
 	//	*NodeServerMessage_ModelForwardDelta
 	//	*NodeServerMessage_ModelPullForwardResponse
 	//	*NodeServerMessage_ModelPullForwardProgress
+	//	*NodeServerMessage_ModelProbeForwardResponse
+	//	*NodeServerMessage_ModelProbeForwardProgress
 	Payload       isNodeServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -794,6 +828,24 @@ func (x *NodeServerMessage) GetModelPullForwardProgress() *ModelPullForwardProgr
 	return nil
 }
 
+func (x *NodeServerMessage) GetModelProbeForwardResponse() *ModelProbeForwardResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*NodeServerMessage_ModelProbeForwardResponse); ok {
+			return x.ModelProbeForwardResponse
+		}
+	}
+	return nil
+}
+
+func (x *NodeServerMessage) GetModelProbeForwardProgress() *ModelProbeForwardProgress {
+	if x != nil {
+		if x, ok := x.Payload.(*NodeServerMessage_ModelProbeForwardProgress); ok {
+			return x.ModelProbeForwardProgress
+		}
+	}
+	return nil
+}
+
 type isNodeServerMessage_Payload interface {
 	isNodeServerMessage_Payload()
 }
@@ -874,6 +926,14 @@ type NodeServerMessage_ModelPullForwardProgress struct {
 	ModelPullForwardProgress *ModelPullForwardProgress `protobuf:"bytes,105,opt,name=model_pull_forward_progress,json=modelPullForwardProgress,proto3,oneof"`
 }
 
+type NodeServerMessage_ModelProbeForwardResponse struct {
+	ModelProbeForwardResponse *ModelProbeForwardResponse `protobuf:"bytes,106,opt,name=model_probe_forward_response,json=modelProbeForwardResponse,proto3,oneof"`
+}
+
+type NodeServerMessage_ModelProbeForwardProgress struct {
+	ModelProbeForwardProgress *ModelProbeForwardProgress `protobuf:"bytes,107,opt,name=model_probe_forward_progress,json=modelProbeForwardProgress,proto3,oneof"`
+}
+
 func (*NodeServerMessage_NodeWelcome) isNodeServerMessage_Payload() {}
 
 func (*NodeServerMessage_Heartbeat) isNodeServerMessage_Payload() {}
@@ -911,6 +971,10 @@ func (*NodeServerMessage_ModelForwardDelta) isNodeServerMessage_Payload() {}
 func (*NodeServerMessage_ModelPullForwardResponse) isNodeServerMessage_Payload() {}
 
 func (*NodeServerMessage_ModelPullForwardProgress) isNodeServerMessage_Payload() {}
+
+func (*NodeServerMessage_ModelProbeForwardResponse) isNodeServerMessage_Payload() {}
+
+func (*NodeServerMessage_ModelProbeForwardProgress) isNodeServerMessage_Payload() {}
 
 // NodeHello is sent by a connecting node to identify itself.
 type NodeHello struct {
@@ -3647,12 +3711,368 @@ func (x *ModelPullForwardCancel) GetReason() string {
 	return ""
 }
 
+// ModelProbeForwardRequest carries a model probe to the replica holding the
+// machine's WorkerService stream (epic memql#5146, design D3).
+//
+// The pull's hop, and the same authority rule: the receiver re-checks ownership
+// against the VERIFIED `authority` and never against `owner_user_id`, which is
+// a hint for the fleet read.
+//
+// WHAT IT PROTECTS SITS BETWEEN THE OTHER TWO. A probe does not write gigabytes
+// the way a pull does, but it is not read-shaped either: it occupies somebody's
+// GPU for minutes, which is a real cost on hardware the cluster does not own.
+// So the ownership re-check is the same gate, and there is likewise no
+// `refused_before_start` re-pick -- a probe measures ONE machine because a
+// measurement of a different machine answers a question nobody asked.
+type ModelProbeForwardRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RequestId      string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RegistrationId string                 `protobuf:"bytes,2,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	// A HINT for the fleet read only. The owner that DECIDES is the subject of
+	// `authority`.
+	OwnerUserId string `protobuf:"bytes,3,opt,name=owner_user_id,json=ownerUserId,proto3" json:"owner_user_id,omitempty"`
+	Model       string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	// The suite version, carried so the receiving replica cannot substitute its
+	// own and file the figures under a name that means something else.
+	SuiteVersion  string              `protobuf:"bytes,5,opt,name=suite_version,json=suiteVersion,proto3" json:"suite_version,omitempty"`
+	TimeoutSec    int32               `protobuf:"varint,6,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"`
+	Authority     *ForwardedAuthority `protobuf:"bytes,7,opt,name=authority,proto3" json:"authority,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModelProbeForwardRequest) Reset() {
+	*x = ModelProbeForwardRequest{}
+	mi := &file_node_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelProbeForwardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelProbeForwardRequest) ProtoMessage() {}
+
+func (x *ModelProbeForwardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_node_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelProbeForwardRequest.ProtoReflect.Descriptor instead.
+func (*ModelProbeForwardRequest) Descriptor() ([]byte, []int) {
+	return file_node_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ModelProbeForwardRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardRequest) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardRequest) GetOwnerUserId() string {
+	if x != nil {
+		return x.OwnerUserId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardRequest) GetSuiteVersion() string {
+	if x != nil {
+		return x.SuiteVersion
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardRequest) GetTimeoutSec() int32 {
+	if x != nil {
+		return x.TimeoutSec
+	}
+	return 0
+}
+
+func (x *ModelProbeForwardRequest) GetAuthority() *ForwardedAuthority {
+	if x != nil {
+		return x.Authority
+	}
+	return nil
+}
+
+// ModelProbeForwardResponse is the terminal answer, figures included.
+//
+// The figures ride as JSON rather than as a repeated message, and that is
+// deliberate: the shape is component/proving/figure's discriminated union, which
+// protobuf cannot express as one-or-the-other. Encoding it as a message with
+// both halves present would put a `measured` bool beside a populated median on
+// the wire and invite exactly the reader that ignores the bool.
+type ModelProbeForwardResponse struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	RequestId    string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Ok           bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`
+	Model        string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	ErrorCode    string                 `protobuf:"bytes,4,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage string                 `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	SuiteVersion string                 `protobuf:"bytes,6,opt,name=suite_version,json=suiteVersion,proto3" json:"suite_version,omitempty"`
+	// The four figures, as the JSON object v1:platform:modelMeasurement stores.
+	FiguresJson   string `protobuf:"bytes,7,opt,name=figures_json,json=figuresJson,proto3" json:"figures_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModelProbeForwardResponse) Reset() {
+	*x = ModelProbeForwardResponse{}
+	mi := &file_node_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelProbeForwardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelProbeForwardResponse) ProtoMessage() {}
+
+func (x *ModelProbeForwardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_node_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelProbeForwardResponse.ProtoReflect.Descriptor instead.
+func (*ModelProbeForwardResponse) Descriptor() ([]byte, []int) {
+	return file_node_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ModelProbeForwardResponse) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *ModelProbeForwardResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardResponse) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardResponse) GetSuiteVersion() string {
+	if x != nil {
+		return x.SuiteVersion
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardResponse) GetFiguresJson() string {
+	if x != nil {
+		return x.FiguresJson
+	}
+	return ""
+}
+
+// ModelProbeForwardProgress relays one ModelProbeProgress across the hop,
+// untouched, for ModelPullForwardProgress's reason.
+type ModelProbeForwardProgress struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RequestId      string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Model          string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	CaseId         string                 `protobuf:"bytes,3,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	CompletedCases uint32                 `protobuf:"varint,4,opt,name=completed_cases,json=completedCases,proto3" json:"completed_cases,omitempty"`
+	TotalCases     uint32                 `protobuf:"varint,5,opt,name=total_cases,json=totalCases,proto3" json:"total_cases,omitempty"`
+	CaseOk         bool                   `protobuf:"varint,6,opt,name=case_ok,json=caseOk,proto3" json:"case_ok,omitempty"`
+	CaseError      string                 `protobuf:"bytes,7,opt,name=case_error,json=caseError,proto3" json:"case_error,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ModelProbeForwardProgress) Reset() {
+	*x = ModelProbeForwardProgress{}
+	mi := &file_node_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelProbeForwardProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelProbeForwardProgress) ProtoMessage() {}
+
+func (x *ModelProbeForwardProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_node_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelProbeForwardProgress.ProtoReflect.Descriptor instead.
+func (*ModelProbeForwardProgress) Descriptor() ([]byte, []int) {
+	return file_node_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ModelProbeForwardProgress) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardProgress) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardProgress) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardProgress) GetCompletedCases() uint32 {
+	if x != nil {
+		return x.CompletedCases
+	}
+	return 0
+}
+
+func (x *ModelProbeForwardProgress) GetTotalCases() uint32 {
+	if x != nil {
+		return x.TotalCases
+	}
+	return 0
+}
+
+func (x *ModelProbeForwardProgress) GetCaseOk() bool {
+	if x != nil {
+		return x.CaseOk
+	}
+	return false
+}
+
+func (x *ModelProbeForwardProgress) GetCaseError() string {
+	if x != nil {
+		return x.CaseError
+	}
+	return ""
+}
+
+// ModelProbeForwardCancel stops a forwarded probe.
+type ModelProbeForwardCancel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModelProbeForwardCancel) Reset() {
+	*x = ModelProbeForwardCancel{}
+	mi := &file_node_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelProbeForwardCancel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelProbeForwardCancel) ProtoMessage() {}
+
+func (x *ModelProbeForwardCancel) ProtoReflect() protoreflect.Message {
+	mi := &file_node_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelProbeForwardCancel.ProtoReflect.Descriptor instead.
+func (*ModelProbeForwardCancel) Descriptor() ([]byte, []int) {
+	return file_node_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ModelProbeForwardCancel) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ModelProbeForwardCancel) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_node_proto protoreflect.FileDescriptor
 
 const file_node_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"node.proto\x12\x15znasllc.memql.node.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x93\x10\n" +
+	"node.proto\x12\x15znasllc.memql.node.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf4\x11\n" +
 	"\x11NodeClientMessage\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12!\n" +
@@ -3680,11 +4100,13 @@ const file_node_proto_rawDesc = "" +
 	"\x15model_forward_request\x18f \x01(\v2*.znasllc.memql.node.v1.ModelForwardRequestH\x00R\x13modelForwardRequest\x12]\n" +
 	"\x14model_forward_cancel\x18g \x01(\v2).znasllc.memql.node.v1.ModelForwardCancelH\x00R\x12modelForwardCancel\x12m\n" +
 	"\x1amodel_pull_forward_request\x18h \x01(\v2..znasllc.memql.node.v1.ModelPullForwardRequestH\x00R\x17modelPullForwardRequest\x12j\n" +
-	"\x19model_pull_forward_cancel\x18i \x01(\v2-.znasllc.memql.node.v1.ModelPullForwardCancelH\x00R\x16modelPullForwardCancel\x1a;\n" +
+	"\x19model_pull_forward_cancel\x18i \x01(\v2-.znasllc.memql.node.v1.ModelPullForwardCancelH\x00R\x16modelPullForwardCancel\x12p\n" +
+	"\x1bmodel_probe_forward_request\x18j \x01(\v2/.znasllc.memql.node.v1.ModelProbeForwardRequestH\x00R\x18modelProbeForwardRequest\x12m\n" +
+	"\x1amodel_probe_forward_cancel\x18k \x01(\v2..znasllc.memql.node.v1.ModelProbeForwardCancelH\x00R\x17modelProbeForwardCancel\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
-	"\apayloadJ\x04\b<\x10=R\rquery_forward\"\xba\x0f\n" +
+	"\apayloadJ\x04\b<\x10=R\rquery_forward\"\xa4\x11\n" +
 	"\x11NodeServerMessage\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12!\n" +
@@ -3710,7 +4132,9 @@ const file_node_proto_rawDesc = "" +
 	"\x16model_forward_response\x18f \x01(\v2+.znasllc.memql.node.v1.ModelForwardResponseH\x00R\x14modelForwardResponse\x12Z\n" +
 	"\x13model_forward_delta\x18g \x01(\v2(.znasllc.memql.node.v1.ModelForwardDeltaH\x00R\x11modelForwardDelta\x12p\n" +
 	"\x1bmodel_pull_forward_response\x18h \x01(\v2/.znasllc.memql.node.v1.ModelPullForwardResponseH\x00R\x18modelPullForwardResponse\x12p\n" +
-	"\x1bmodel_pull_forward_progress\x18i \x01(\v2/.znasllc.memql.node.v1.ModelPullForwardProgressH\x00R\x18modelPullForwardProgress\x1a;\n" +
+	"\x1bmodel_pull_forward_progress\x18i \x01(\v2/.znasllc.memql.node.v1.ModelPullForwardProgressH\x00R\x18modelPullForwardProgress\x12s\n" +
+	"\x1cmodel_probe_forward_response\x18j \x01(\v20.znasllc.memql.node.v1.ModelProbeForwardResponseH\x00R\x19modelProbeForwardResponse\x12s\n" +
+	"\x1cmodel_probe_forward_progress\x18k \x01(\v20.znasllc.memql.node.v1.ModelProbeForwardProgressH\x00R\x19modelProbeForwardProgress\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
@@ -3962,6 +4386,41 @@ const file_node_proto_rawDesc = "" +
 	"\x16ModelPullForwardCancel\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xab\x02\n" +
+	"\x18ModelProbeForwardRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
+	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12\"\n" +
+	"\rowner_user_id\x18\x03 \x01(\tR\vownerUserId\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12#\n" +
+	"\rsuite_version\x18\x05 \x01(\tR\fsuiteVersion\x12\x1f\n" +
+	"\vtimeout_sec\x18\x06 \x01(\x05R\n" +
+	"timeoutSec\x12G\n" +
+	"\tauthority\x18\a \x01(\v2).znasllc.memql.node.v1.ForwardedAuthorityR\tauthority\"\xec\x01\n" +
+	"\x19ModelProbeForwardResponse\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
+	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x04 \x01(\tR\terrorCode\x12#\n" +
+	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x12#\n" +
+	"\rsuite_version\x18\x06 \x01(\tR\fsuiteVersion\x12!\n" +
+	"\ffigures_json\x18\a \x01(\tR\vfiguresJson\"\xeb\x01\n" +
+	"\x19ModelProbeForwardProgress\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12\x17\n" +
+	"\acase_id\x18\x03 \x01(\tR\x06caseId\x12'\n" +
+	"\x0fcompleted_cases\x18\x04 \x01(\rR\x0ecompletedCases\x12\x1f\n" +
+	"\vtotal_cases\x18\x05 \x01(\rR\n" +
+	"totalCases\x12\x17\n" +
+	"\acase_ok\x18\x06 \x01(\bR\x06caseOk\x12\x1d\n" +
+	"\n" +
+	"case_error\x18\a \x01(\tR\tcaseError\"P\n" +
+	"\x17ModelProbeForwardCancel\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason*\xca\x01\n" +
 	"\x10NodeHealthStatus\x12\x1b\n" +
 	"\x17NODE_HEALTH_UNSPECIFIED\x10\x00\x12\x1a\n" +
@@ -3991,7 +4450,7 @@ func file_node_proto_rawDescGZIP() []byte {
 }
 
 var file_node_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_node_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_node_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_node_proto_goTypes = []any{
 	(NodeHealthStatus)(0),                // 0: znasllc.memql.node.v1.NodeHealthStatus
 	(ForwardedPrincipalKind)(0),          // 1: znasllc.memql.node.v1.ForwardedPrincipalKind
@@ -4030,19 +4489,23 @@ var file_node_proto_goTypes = []any{
 	(*ModelPullForwardResponse)(nil),     // 34: znasllc.memql.node.v1.ModelPullForwardResponse
 	(*ModelPullForwardProgress)(nil),     // 35: znasllc.memql.node.v1.ModelPullForwardProgress
 	(*ModelPullForwardCancel)(nil),       // 36: znasllc.memql.node.v1.ModelPullForwardCancel
-	nil,                                  // 37: znasllc.memql.node.v1.NodeClientMessage.MetadataEntry
-	nil,                                  // 38: znasllc.memql.node.v1.NodeServerMessage.MetadataEntry
-	nil,                                  // 39: znasllc.memql.node.v1.NodeHello.LabelsEntry
-	nil,                                  // 40: znasllc.memql.node.v1.NodeHeartbeat.MetricsEntry
-	nil,                                  // 41: znasllc.memql.node.v1.PeerInfo.LabelsEntry
-	nil,                                  // 42: znasllc.memql.node.v1.SpawnRequest.LabelsEntry
-	nil,                                  // 43: znasllc.memql.node.v1.SpawnRequest.EnvEntry
-	nil,                                  // 44: znasllc.memql.node.v1.AiForwardRequest.AuthEntry
-	(*timestamppb.Timestamp)(nil),        // 45: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),              // 46: google.protobuf.Struct
+	(*ModelProbeForwardRequest)(nil),     // 37: znasllc.memql.node.v1.ModelProbeForwardRequest
+	(*ModelProbeForwardResponse)(nil),    // 38: znasllc.memql.node.v1.ModelProbeForwardResponse
+	(*ModelProbeForwardProgress)(nil),    // 39: znasllc.memql.node.v1.ModelProbeForwardProgress
+	(*ModelProbeForwardCancel)(nil),      // 40: znasllc.memql.node.v1.ModelProbeForwardCancel
+	nil,                                  // 41: znasllc.memql.node.v1.NodeClientMessage.MetadataEntry
+	nil,                                  // 42: znasllc.memql.node.v1.NodeServerMessage.MetadataEntry
+	nil,                                  // 43: znasllc.memql.node.v1.NodeHello.LabelsEntry
+	nil,                                  // 44: znasllc.memql.node.v1.NodeHeartbeat.MetricsEntry
+	nil,                                  // 45: znasllc.memql.node.v1.PeerInfo.LabelsEntry
+	nil,                                  // 46: znasllc.memql.node.v1.SpawnRequest.LabelsEntry
+	nil,                                  // 47: znasllc.memql.node.v1.SpawnRequest.EnvEntry
+	nil,                                  // 48: znasllc.memql.node.v1.AiForwardRequest.AuthEntry
+	(*timestamppb.Timestamp)(nil),        // 49: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),              // 50: google.protobuf.Struct
 }
 var file_node_proto_depIdxs = []int32{
-	37, // 0: znasllc.memql.node.v1.NodeClientMessage.metadata:type_name -> znasllc.memql.node.v1.NodeClientMessage.MetadataEntry
+	41, // 0: znasllc.memql.node.v1.NodeClientMessage.metadata:type_name -> znasllc.memql.node.v1.NodeClientMessage.MetadataEntry
 	4,  // 1: znasllc.memql.node.v1.NodeClientMessage.node_hello:type_name -> znasllc.memql.node.v1.NodeHello
 	6,  // 2: znasllc.memql.node.v1.NodeClientMessage.heartbeat:type_name -> znasllc.memql.node.v1.NodeHeartbeat
 	8,  // 3: znasllc.memql.node.v1.NodeClientMessage.peer_intro:type_name -> znasllc.memql.node.v1.PeerIntroduction
@@ -4063,53 +4526,58 @@ var file_node_proto_depIdxs = []int32{
 	32, // 18: znasllc.memql.node.v1.NodeClientMessage.model_forward_cancel:type_name -> znasllc.memql.node.v1.ModelForwardCancel
 	33, // 19: znasllc.memql.node.v1.NodeClientMessage.model_pull_forward_request:type_name -> znasllc.memql.node.v1.ModelPullForwardRequest
 	36, // 20: znasllc.memql.node.v1.NodeClientMessage.model_pull_forward_cancel:type_name -> znasllc.memql.node.v1.ModelPullForwardCancel
-	38, // 21: znasllc.memql.node.v1.NodeServerMessage.metadata:type_name -> znasllc.memql.node.v1.NodeServerMessage.MetadataEntry
-	5,  // 22: znasllc.memql.node.v1.NodeServerMessage.node_welcome:type_name -> znasllc.memql.node.v1.NodeWelcome
-	6,  // 23: znasllc.memql.node.v1.NodeServerMessage.heartbeat:type_name -> znasllc.memql.node.v1.NodeHeartbeat
-	8,  // 24: znasllc.memql.node.v1.NodeServerMessage.peer_intro:type_name -> znasllc.memql.node.v1.PeerIntroduction
-	9,  // 25: znasllc.memql.node.v1.NodeServerMessage.spawn_request:type_name -> znasllc.memql.node.v1.SpawnRequest
-	10, // 26: znasllc.memql.node.v1.NodeServerMessage.spawn_result:type_name -> znasllc.memql.node.v1.SpawnResult
-	11, // 27: znasllc.memql.node.v1.NodeServerMessage.event_forward:type_name -> znasllc.memql.node.v1.EventForward
-	12, // 28: znasllc.memql.node.v1.NodeServerMessage.event_ack:type_name -> znasllc.memql.node.v1.EventAck
-	13, // 29: znasllc.memql.node.v1.NodeServerMessage.capability_query:type_name -> znasllc.memql.node.v1.CapabilityQuery
-	14, // 30: znasllc.memql.node.v1.NodeServerMessage.capability_response:type_name -> znasllc.memql.node.v1.CapabilityResponse
-	24, // 31: znasllc.memql.node.v1.NodeServerMessage.node_shutdown:type_name -> znasllc.memql.node.v1.NodeShutdown
-	17, // 32: znasllc.memql.node.v1.NodeServerMessage.ai_forward_response:type_name -> znasllc.memql.node.v1.AiForwardResponse
-	20, // 33: znasllc.memql.node.v1.NodeServerMessage.workbench_forward_response:type_name -> znasllc.memql.node.v1.WorkbenchForwardResponse
-	23, // 34: znasllc.memql.node.v1.NodeServerMessage.deploy_control_forward_response:type_name -> znasllc.memql.node.v1.DeployControlForwardResponse
-	26, // 35: znasllc.memql.node.v1.NodeServerMessage.worker_forward_response:type_name -> znasllc.memql.node.v1.WorkerForwardResponse
-	27, // 36: znasllc.memql.node.v1.NodeServerMessage.worker_forward_stream:type_name -> znasllc.memql.node.v1.WorkerForwardStream
-	30, // 37: znasllc.memql.node.v1.NodeServerMessage.model_forward_response:type_name -> znasllc.memql.node.v1.ModelForwardResponse
-	31, // 38: znasllc.memql.node.v1.NodeServerMessage.model_forward_delta:type_name -> znasllc.memql.node.v1.ModelForwardDelta
-	34, // 39: znasllc.memql.node.v1.NodeServerMessage.model_pull_forward_response:type_name -> znasllc.memql.node.v1.ModelPullForwardResponse
-	35, // 40: znasllc.memql.node.v1.NodeServerMessage.model_pull_forward_progress:type_name -> znasllc.memql.node.v1.ModelPullForwardProgress
-	39, // 41: znasllc.memql.node.v1.NodeHello.labels:type_name -> znasllc.memql.node.v1.NodeHello.LabelsEntry
-	7,  // 42: znasllc.memql.node.v1.NodeWelcome.peers:type_name -> znasllc.memql.node.v1.PeerInfo
-	45, // 43: znasllc.memql.node.v1.NodeHeartbeat.ts:type_name -> google.protobuf.Timestamp
-	0,  // 44: znasllc.memql.node.v1.NodeHeartbeat.health:type_name -> znasllc.memql.node.v1.NodeHealthStatus
-	40, // 45: znasllc.memql.node.v1.NodeHeartbeat.metrics:type_name -> znasllc.memql.node.v1.NodeHeartbeat.MetricsEntry
-	0,  // 46: znasllc.memql.node.v1.PeerInfo.health:type_name -> znasllc.memql.node.v1.NodeHealthStatus
-	41, // 47: znasllc.memql.node.v1.PeerInfo.labels:type_name -> znasllc.memql.node.v1.PeerInfo.LabelsEntry
-	7,  // 48: znasllc.memql.node.v1.PeerIntroduction.peers:type_name -> znasllc.memql.node.v1.PeerInfo
-	42, // 49: znasllc.memql.node.v1.SpawnRequest.labels:type_name -> znasllc.memql.node.v1.SpawnRequest.LabelsEntry
-	43, // 50: znasllc.memql.node.v1.SpawnRequest.env:type_name -> znasllc.memql.node.v1.SpawnRequest.EnvEntry
-	45, // 51: znasllc.memql.node.v1.EventForward.ts:type_name -> google.protobuf.Timestamp
-	46, // 52: znasllc.memql.node.v1.EventForward.payload:type_name -> google.protobuf.Struct
-	44, // 53: znasllc.memql.node.v1.AiForwardRequest.auth:type_name -> znasllc.memql.node.v1.AiForwardRequest.AuthEntry
-	16, // 54: znasllc.memql.node.v1.AiForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
-	1,  // 55: znasllc.memql.node.v1.ForwardedAuthority.principal_kind:type_name -> znasllc.memql.node.v1.ForwardedPrincipalKind
-	16, // 56: znasllc.memql.node.v1.WorkbenchForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
-	16, // 57: znasllc.memql.node.v1.DeployControlForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
-	16, // 58: znasllc.memql.node.v1.WorkerForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
-	16, // 59: znasllc.memql.node.v1.ModelForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
-	16, // 60: znasllc.memql.node.v1.ModelPullForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
-	2,  // 61: znasllc.memql.node.v1.NodeService.Stream:input_type -> znasllc.memql.node.v1.NodeClientMessage
-	3,  // 62: znasllc.memql.node.v1.NodeService.Stream:output_type -> znasllc.memql.node.v1.NodeServerMessage
-	62, // [62:63] is the sub-list for method output_type
-	61, // [61:62] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	37, // 21: znasllc.memql.node.v1.NodeClientMessage.model_probe_forward_request:type_name -> znasllc.memql.node.v1.ModelProbeForwardRequest
+	40, // 22: znasllc.memql.node.v1.NodeClientMessage.model_probe_forward_cancel:type_name -> znasllc.memql.node.v1.ModelProbeForwardCancel
+	42, // 23: znasllc.memql.node.v1.NodeServerMessage.metadata:type_name -> znasllc.memql.node.v1.NodeServerMessage.MetadataEntry
+	5,  // 24: znasllc.memql.node.v1.NodeServerMessage.node_welcome:type_name -> znasllc.memql.node.v1.NodeWelcome
+	6,  // 25: znasllc.memql.node.v1.NodeServerMessage.heartbeat:type_name -> znasllc.memql.node.v1.NodeHeartbeat
+	8,  // 26: znasllc.memql.node.v1.NodeServerMessage.peer_intro:type_name -> znasllc.memql.node.v1.PeerIntroduction
+	9,  // 27: znasllc.memql.node.v1.NodeServerMessage.spawn_request:type_name -> znasllc.memql.node.v1.SpawnRequest
+	10, // 28: znasllc.memql.node.v1.NodeServerMessage.spawn_result:type_name -> znasllc.memql.node.v1.SpawnResult
+	11, // 29: znasllc.memql.node.v1.NodeServerMessage.event_forward:type_name -> znasllc.memql.node.v1.EventForward
+	12, // 30: znasllc.memql.node.v1.NodeServerMessage.event_ack:type_name -> znasllc.memql.node.v1.EventAck
+	13, // 31: znasllc.memql.node.v1.NodeServerMessage.capability_query:type_name -> znasllc.memql.node.v1.CapabilityQuery
+	14, // 32: znasllc.memql.node.v1.NodeServerMessage.capability_response:type_name -> znasllc.memql.node.v1.CapabilityResponse
+	24, // 33: znasllc.memql.node.v1.NodeServerMessage.node_shutdown:type_name -> znasllc.memql.node.v1.NodeShutdown
+	17, // 34: znasllc.memql.node.v1.NodeServerMessage.ai_forward_response:type_name -> znasllc.memql.node.v1.AiForwardResponse
+	20, // 35: znasllc.memql.node.v1.NodeServerMessage.workbench_forward_response:type_name -> znasllc.memql.node.v1.WorkbenchForwardResponse
+	23, // 36: znasllc.memql.node.v1.NodeServerMessage.deploy_control_forward_response:type_name -> znasllc.memql.node.v1.DeployControlForwardResponse
+	26, // 37: znasllc.memql.node.v1.NodeServerMessage.worker_forward_response:type_name -> znasllc.memql.node.v1.WorkerForwardResponse
+	27, // 38: znasllc.memql.node.v1.NodeServerMessage.worker_forward_stream:type_name -> znasllc.memql.node.v1.WorkerForwardStream
+	30, // 39: znasllc.memql.node.v1.NodeServerMessage.model_forward_response:type_name -> znasllc.memql.node.v1.ModelForwardResponse
+	31, // 40: znasllc.memql.node.v1.NodeServerMessage.model_forward_delta:type_name -> znasllc.memql.node.v1.ModelForwardDelta
+	34, // 41: znasllc.memql.node.v1.NodeServerMessage.model_pull_forward_response:type_name -> znasllc.memql.node.v1.ModelPullForwardResponse
+	35, // 42: znasllc.memql.node.v1.NodeServerMessage.model_pull_forward_progress:type_name -> znasllc.memql.node.v1.ModelPullForwardProgress
+	38, // 43: znasllc.memql.node.v1.NodeServerMessage.model_probe_forward_response:type_name -> znasllc.memql.node.v1.ModelProbeForwardResponse
+	39, // 44: znasllc.memql.node.v1.NodeServerMessage.model_probe_forward_progress:type_name -> znasllc.memql.node.v1.ModelProbeForwardProgress
+	43, // 45: znasllc.memql.node.v1.NodeHello.labels:type_name -> znasllc.memql.node.v1.NodeHello.LabelsEntry
+	7,  // 46: znasllc.memql.node.v1.NodeWelcome.peers:type_name -> znasllc.memql.node.v1.PeerInfo
+	49, // 47: znasllc.memql.node.v1.NodeHeartbeat.ts:type_name -> google.protobuf.Timestamp
+	0,  // 48: znasllc.memql.node.v1.NodeHeartbeat.health:type_name -> znasllc.memql.node.v1.NodeHealthStatus
+	44, // 49: znasllc.memql.node.v1.NodeHeartbeat.metrics:type_name -> znasllc.memql.node.v1.NodeHeartbeat.MetricsEntry
+	0,  // 50: znasllc.memql.node.v1.PeerInfo.health:type_name -> znasllc.memql.node.v1.NodeHealthStatus
+	45, // 51: znasllc.memql.node.v1.PeerInfo.labels:type_name -> znasllc.memql.node.v1.PeerInfo.LabelsEntry
+	7,  // 52: znasllc.memql.node.v1.PeerIntroduction.peers:type_name -> znasllc.memql.node.v1.PeerInfo
+	46, // 53: znasllc.memql.node.v1.SpawnRequest.labels:type_name -> znasllc.memql.node.v1.SpawnRequest.LabelsEntry
+	47, // 54: znasllc.memql.node.v1.SpawnRequest.env:type_name -> znasllc.memql.node.v1.SpawnRequest.EnvEntry
+	49, // 55: znasllc.memql.node.v1.EventForward.ts:type_name -> google.protobuf.Timestamp
+	50, // 56: znasllc.memql.node.v1.EventForward.payload:type_name -> google.protobuf.Struct
+	48, // 57: znasllc.memql.node.v1.AiForwardRequest.auth:type_name -> znasllc.memql.node.v1.AiForwardRequest.AuthEntry
+	16, // 58: znasllc.memql.node.v1.AiForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	1,  // 59: znasllc.memql.node.v1.ForwardedAuthority.principal_kind:type_name -> znasllc.memql.node.v1.ForwardedPrincipalKind
+	16, // 60: znasllc.memql.node.v1.WorkbenchForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	16, // 61: znasllc.memql.node.v1.DeployControlForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	16, // 62: znasllc.memql.node.v1.WorkerForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	16, // 63: znasllc.memql.node.v1.ModelForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	16, // 64: znasllc.memql.node.v1.ModelPullForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	16, // 65: znasllc.memql.node.v1.ModelProbeForwardRequest.authority:type_name -> znasllc.memql.node.v1.ForwardedAuthority
+	2,  // 66: znasllc.memql.node.v1.NodeService.Stream:input_type -> znasllc.memql.node.v1.NodeClientMessage
+	3,  // 67: znasllc.memql.node.v1.NodeService.Stream:output_type -> znasllc.memql.node.v1.NodeServerMessage
+	67, // [67:68] is the sub-list for method output_type
+	66, // [66:67] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_node_proto_init() }
@@ -4138,6 +4606,8 @@ func file_node_proto_init() {
 		(*NodeClientMessage_ModelForwardCancel)(nil),
 		(*NodeClientMessage_ModelPullForwardRequest)(nil),
 		(*NodeClientMessage_ModelPullForwardCancel)(nil),
+		(*NodeClientMessage_ModelProbeForwardRequest)(nil),
+		(*NodeClientMessage_ModelProbeForwardCancel)(nil),
 	}
 	file_node_proto_msgTypes[1].OneofWrappers = []any{
 		(*NodeServerMessage_NodeWelcome)(nil),
@@ -4159,6 +4629,8 @@ func file_node_proto_init() {
 		(*NodeServerMessage_ModelForwardDelta)(nil),
 		(*NodeServerMessage_ModelPullForwardResponse)(nil),
 		(*NodeServerMessage_ModelPullForwardProgress)(nil),
+		(*NodeServerMessage_ModelProbeForwardResponse)(nil),
+		(*NodeServerMessage_ModelProbeForwardProgress)(nil),
 	}
 	file_node_proto_msgTypes[25].OneofWrappers = []any{
 		(*WorkerForwardStream_StdoutChunk)(nil),
@@ -4171,7 +4643,7 @@ func file_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_node_proto_rawDesc), len(file_node_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   43,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

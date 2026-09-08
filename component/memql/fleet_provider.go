@@ -192,6 +192,16 @@ type FleetModel struct {
 	AudioIn  bool
 	AudioOut bool
 	ImageGen bool
+	// Measured is what a probe found this model actually DOES on the machines
+	// behind it (epic memql#5146, D4). Its zero value is "nobody has probed
+	// this", which is a different answer from a measured zero and sorts
+	// differently -- see fleet_measured.go, where both accessors return
+	// `(value, ok)` and every caller reads the ok first.
+	//
+	// It RANKS and it gates nothing this release: eligibility stays with the
+	// advertised flags above, so a model that failed the structured probe is
+	// still eligible for a structured call and is reported as failing.
+	Measured Measured
 	Machines []FleetMachine
 }
 
@@ -441,6 +451,25 @@ func orderModels(models []FleetModel, preference []string) []FleetModel {
 
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
+		// MEASURED CAPABILITY IS THE FIRST KEY (epic memql#5146, D4), above the
+		// caller's own preference list. A preference names models a person
+		// chose; this says which of them actually validates against this
+		// cluster's schemas on the hardware that would serve the call, which is
+		// the question the preference was a proxy for.
+		//
+		// THE BOOL IS READ BEFORE THE NUMBER, so a measured model outranks an
+		// unmeasured one before any value is compared. A measured ZERO still
+		// outranks unmeasured: it is a model somebody looked at, and rewarding
+		// never being measured is the one direction this ordering must not take.
+		if av, aok := ValidityOf(a); true {
+			bv, bok := ValidityOf(b)
+			if aok != bok {
+				return aok
+			}
+			if aok && av != bv {
+				return av > bv
+			}
+		}
 		if ra, rb := prefRank(a), prefRank(b); ra != rb {
 			return ra < rb
 		}
@@ -750,6 +779,22 @@ type fleetProvider struct {
 // LastCall reports the machine and usage of this provider's most recent call.
 // The provider interfaces return a bare string, so the accounting has to be
 // read back rather than returned; memql#4681 stamps the ledger from it.
+// ExecutionSurface reports where the last call ran, for the router's decision
+// row (epic memql#5146).
+//
+// It satisfies a structural interface declared in component/router, which is
+// its own module and cannot name a method of this one -- see that file for
+// why the seam has this shape. The empty string is a real answer: it is what
+// this provider says before it has served anything.
+func (p *fleetProvider) ExecutionSurface() string {
+	if p == nil {
+		return ""
+	}
+	p.lastMu.Lock()
+	defer p.lastMu.Unlock()
+	return p.lastSurface
+}
+
 func (p *fleetProvider) LastCall() (surface string, usage FleetUsage) {
 	if p == nil {
 		return "", FleetUsage{}

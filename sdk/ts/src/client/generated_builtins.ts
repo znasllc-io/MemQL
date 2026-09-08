@@ -772,6 +772,31 @@ QueryClient.prototype.editDocument = function (this: QueryClient, args: EditDocu
   return this.executeNamed("editDocument", buildEditDocument(args), opts);
 };
 
+/** Ask one of YOUR OWN fleet machines to measure a model it already has, and return at once with the id of the record to watch. The suite is pinned by this engine and echoed back by the machine, so figures can never be filed under a suite that was not run. Owner-only, and the machine must be yours, unrevoked and connected right now -- the same refusals a pull makes, reused deliberately, because offline is offline whichever act is asking. Progress lands per case on the v1:worker:modelProbe row this returns the id of; the figures land on a v1:platform:modelMeasurement row keyed by machine, model and suite version. Every figure is a measured statistic OR a named reason there is none: a machine nobody has probed and a model that failed every case are different answers, and a page that renders both as zero would lead to opposite actions. */
+export interface FleetModelProbeArgs {
+  /** v1:worker:registration.id of the machine to measure on. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
+  registrationId: string;
+  /** The model id in the runtime's own vocabulary. The machine must already ADVERTISE it -- a probe measures a model that is present, where a pull exists precisely because one is not, so probing an unadvertised model would measure a download. */
+  model: string;
+}
+
+export function buildFleetModelProbe(args: FleetModelProbeArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  parts.push("model: " + renderMemQLValue(args.model));
+  return "builtin fleetModelProbe(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetModelProbe(args: FleetModelProbeArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetModelProbe = function (this: QueryClient, args: FleetModelProbeArgs = {} as FleetModelProbeArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetModelProbe", buildFleetModelProbe(args), opts);
+};
+
 /** Ask one of YOUR OWN fleet machines to pull a model, and return at once with the id of the record to watch. The model id is passed to the machine's runtime verbatim, in the runtime's own vocabulary (llama3.1:8b, or a Hugging Face GGUF repository as hf.co/owner/repo:Q4_K_M). Owner-only: the machine must be yours, unrevoked, and connected to the cluster right now, and each of those is refused BEFORE anything is written -- a pull names one machine and has nothing to fall through to, so a refusal you can act on beats a spinner that fails later. Progress, the runtime's own status line, and the final verdict all land on the v1:worker:modelPull row this returns the id of. */
 export interface FleetModelPullArgs {
   /** v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
@@ -814,6 +839,72 @@ declare module "./query.js" {
 
 QueryClient.prototype.fleetModels = function (this: QueryClient, args: FleetModelsArgs = {} as FleetModelsArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("fleetModels", buildFleetModels(args), opts);
+};
+
+/** Ask one of YOUR OWN fleet machines to pull every model the catalog recommends for its class, in order, and return at once with the ids of the records to watch. One pull record per model, opened through the same path the per-model act uses. Owner-only, and every refusal -- the machine is not yours, is offline, has not reported its hardware, or is under the floor for local models -- happens BEFORE the first row is written, so a half-run set is not a state this can leave behind: a person watching four bars, two of which will never move, cannot tell a queue from a failure. Profiles the machine cannot pull are REPORTED rather than attempted, each with the sentence saying why, because what the act did not do is half of what a person needs to read. */
+export interface FleetPullRecommendedArgs {
+  /** v1:worker:registration.id of the machine to pull to. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
+  registrationId: string;
+}
+
+export function buildFleetPullRecommended(args: FleetPullRecommendedArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  return "builtin fleetPullRecommended(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetPullRecommended(args: FleetPullRecommendedArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetPullRecommended = function (this: QueryClient, args: FleetPullRecommendedArgs = {} as FleetPullRecommendedArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetPullRecommended", buildFleetPullRecommended(args), opts);
+};
+
+/** What the catalog recommends for one of YOUR OWN machines, and why anything is blocked: one entry per level, strongest first, each with the model, its size, and either a pullable flag or the sentence saying what is in the way. The act's answer without the act, so the machine page and fleetPullRecommended read ONE implementation -- a second one in the browser would drift, and the drift presents as a page offering a pull the act then refuses. Also carries the machine's computed class and the usable memory that produced it. A machine whose cockpit has not reported its hardware answers with an EMPTY class and an empty set rather than a list of blocked entries: there is nothing to recommend and nothing to explain, and a page listing every profile as blocked reads as a machine that failed rather than one that has not spoken. */
+export interface FleetRecommendedArgs {
+  /** v1:worker:registration.id of the machine to recommend for. It must be one of the caller's own. */
+  registrationId: string;
+}
+
+export function buildFleetRecommended(args: FleetRecommendedArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  return "builtin fleetRecommended(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetRecommended(args: FleetRecommendedArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetRecommended = function (this: QueryClient, args: FleetRecommendedArgs = {} as FleetRecommendedArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetRecommended", buildFleetRecommended(args), opts);
+};
+
+/** What one of YOUR OWN machines has done this week: how many calls ran on it, for how many people, and how those calls split across the four levels. COUNTS AND LEVELS, and nothing else -- somebody who lends their machine to the team is entitled to know it is being used and NOT entitled to read what it was used for, so the narrowing happens in the engine before anything leaves it rather than in a renderer that could later be rewritten. People are counted and never named. A read that FAILS answers `readable: false` rather than zero: telling somebody who lent their machine that nobody used it is a specific claim, and a failed read is not evidence for it. */
+export interface FleetSharingLedgerArgs {
+  /** v1:worker:registration.id of the machine to report on. It must be one of the caller's own; another user's id answers exactly as a made-up one does. */
+  registrationId: string;
+}
+
+export function buildFleetSharingLedger(args: FleetSharingLedgerArgs): string {
+  const parts: string[] = [];
+  parts.push("registrationId: " + renderMemQLValue(args.registrationId));
+  return "builtin fleetSharingLedger(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    fleetSharingLedger(args: FleetSharingLedgerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.fleetSharingLedger = function (this: QueryClient, args: FleetSharingLedgerArgs = {} as FleetSharingLedgerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("fleetSharingLedger", buildFleetSharingLedger(args), opts);
 };
 
 /** Fork one of the caller's runs at a step: a NEW run that serves the shared prefix from the journal and runs live from the fork step on. The source run is untouched. Returns {runId}. */

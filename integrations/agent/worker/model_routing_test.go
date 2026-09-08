@@ -259,13 +259,21 @@ func TestABlankActingUserIsRefusedRatherThanWidened(t *testing.T) {
 	}
 }
 
-// --- the shared-inference opt-in --------------------------------------------
+// --- the two sharing consents -----------------------------------------------
 
-// System calls reach only machines whose OWNER opted in. The opt-in is on
-// operatorLabels, which is the map a reconnect does not overwrite.
+// System calls reach only machines where BOTH consents say cluster (epic
+// memql#5146, D6): the owner's, on registration.sharing.mode, and the
+// cockpit's, from that machine's own policy.yaml.
+//
+// It replaced a single `sharedInference` operator label, and the replacement is
+// not a spelling change. One flag let either party speak for the other, and it
+// lived in a map whose sibling is rewritten from the Register message on every
+// reconnect -- so the prohibition against reading the MERGE had to be
+// maintained by hand at every reader.
 func TestSystemCallsReachOnlyOptedInMachines(t *testing.T) {
 	optedIn := modelMachine("shared", map[string]ModelAttributes{smallModel: {}})
-	optedIn.SharedInference = true
+	optedIn.SharingMode = workerservice.SharingModeCluster
+	optedIn.InferenceServe = workerservice.InferenceServeCluster
 	optedIn.OwnerUserId = "alice"
 	private := modelMachine("private", map[string]ModelAttributes{smallModel: {}})
 	private.OwnerUserId = "bob"
@@ -278,22 +286,73 @@ func TestSystemCallsReachOnlyOptedInMachines(t *testing.T) {
 	if got := ids(plan.Candidates); len(got) != 1 || got[0] != "shared" {
 		t.Fatalf("candidates = %v, want only the opted-in machine", got)
 	}
-	if why := plan.Rejected["private"]; !strings.Contains(why, "opted") {
-		t.Fatalf("rejection must say the owner never opted in, got %q -- an operator wondering "+
-			"why their fleet is idle for system work should read the answer", why)
+	// The rejection NAMES BOTH missing halves, because this machine has given
+	// neither. An operator wondering why their fleet is idle for system work
+	// should read the answer, and the answer here is two repairs rather than
+	// one.
+	why := plan.Rejected["private"]
+	if !strings.Contains(why, "owner has not shared") || !strings.Contains(why, "policy.yaml") {
+		t.Fatalf("rejection must name both missing consents, got %q", why)
 	}
 }
 
-// The opt-in must come from operatorLabels, never from the cockpit's `labels`.
-// A machine that reports the label itself has NOT been opted in by its owner,
-// and the store is what resolves that -- so a Candidate carrying the label in
-// its merged map but not the flag stays out.
+// EITHER HALF ALONE IS NOT CONSENT, and the refusal names the half that is
+// missing rather than saying "not shared".
+//
+// The two repairs are in different places and are performed by different
+// people: the owner's is an act on the Fleet page, the cockpit's is a line in a
+// file on that machine's own disk. One sentence for both sends half the
+// operators to the wrong machine, and the laptop's owner goes looking on a web
+// page for a setting that is not there.
+func TestEitherConsentAloneIsNotEnoughAndTheRefusalSaysWhich(t *testing.T) {
+	ownerOnly := modelMachine("owner-only", map[string]ModelAttributes{smallModel: {}})
+	ownerOnly.SharingMode = workerservice.SharingModeCluster
+	ownerOnly.InferenceServe = workerservice.InferenceServeOwner
+	ownerOnly.OwnerUserId = "alice"
+
+	cockpitOnly := modelMachine("cockpit-only", map[string]ModelAttributes{smallModel: {}})
+	cockpitOnly.SharingMode = workerservice.SharingModeOwner
+	cockpitOnly.InferenceServe = workerservice.InferenceServeCluster
+	cockpitOnly.OwnerUserId = "bob"
+
+	store := &sharedFleet{fakeFleet: &fakeFleet{}, all: []Candidate{ownerOnly, cockpitOnly}}
+	plan, err := modelRouter(t, store).PlanSharedModel(context.Background(), smallModel, ModelNeeds{})
+	if err != nil {
+		t.Fatalf("PlanSharedModel: %v", err)
+	}
+	if len(plan.Candidates) != 0 {
+		t.Fatalf("neither machine has both consents; candidates = %v", ids(plan.Candidates))
+	}
+	if why := plan.Rejected["owner-only"]; !strings.Contains(why, "policy.yaml") {
+		t.Fatalf("the machine whose COCKPIT is unwilling must be sent to policy.yaml, got %q", why)
+	}
+	if why := plan.Rejected["owner-only"]; strings.Contains(why, "Fleet") {
+		t.Fatalf("that owner has already shared it; do not send them to the Fleet page, got %q", why)
+	}
+	if why := plan.Rejected["cockpit-only"]; !strings.Contains(why, "Fleet") {
+		t.Fatalf("the machine whose OWNER has not shared it must be sent to the Fleet page, got %q", why)
+	}
+	if why := plan.Rejected["cockpit-only"]; strings.Contains(why, "policy.yaml") {
+		t.Fatalf("that cockpit is already willing; do not send them to a file, got %q", why)
+	}
+}
+
+// A MACHINE CANNOT OPT ITSELF IN, and since epic memql#5146 there is no longer
+// a place for it to try: the owner's consent is a structured field only the
+// owner writes, so a machine reporting a label of the old name is claiming
+// nothing at all.
 func TestAMachineCannotOptItselfIn(t *testing.T) {
 	selfClaimed := modelMachine("self-claimed", map[string]ModelAttributes{smallModel: {}})
-	// The cockpit reported it. The owner did not set it, so the flag the
-	// store projects from operatorLabels alone stays false.
-	selfClaimed.Labels[SharedInferenceLabel] = "true"
-	selfClaimed.SharedInference = false
+	// A machine that reports a `sharedInference` label of its own is claiming a
+	// consent nobody gave it. Since epic memql#5146 the consent is not a label
+	// at all -- it is registration.sharing.mode, which only the owner writes,
+	// and capabilityDescriptor.inferenceServe, which is the machine's own
+	// policy. So the self-claim is not merely ignored: there is no longer a
+	// place for a machine to make it, which is why the label is retired rather
+	// than filtered.
+	selfClaimed.Labels["sharedInference"] = "true"
+	selfClaimed.SharingMode = workerservice.SharingModeOwner
+	selfClaimed.InferenceServe = workerservice.InferenceServeCluster
 
 	store := &sharedFleet{fakeFleet: &fakeFleet{}, all: []Candidate{selfClaimed}}
 	plan, err := modelRouter(t, store).PlanSharedModel(context.Background(), smallModel, ModelNeeds{})
@@ -321,9 +380,11 @@ func TestSystemCallsRefuseWhenTheStoreCannotReadTheCluster(t *testing.T) {
 // preference across the boundary the rest of this file holds.
 func TestSystemCallsDoNotInheritAUsersRoutingPolicy(t *testing.T) {
 	first := modelMachine("first", map[string]ModelAttributes{smallModel: {}})
-	first.SharedInference = true
+	first.SharingMode = workerservice.SharingModeCluster
+	first.InferenceServe = workerservice.InferenceServeCluster
 	second := modelMachine("second", map[string]ModelAttributes{smallModel: {}})
-	second.SharedInference = true
+	second.SharingMode = workerservice.SharingModeCluster
+	second.InferenceServe = workerservice.InferenceServeCluster
 
 	store := &sharedFleet{
 		fakeFleet: &fakeFleet{policy: &Policy{Strategy: StrategyLabelMatch, RequireLabels: map[string]string{"nope": "1"}}},

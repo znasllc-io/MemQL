@@ -165,6 +165,10 @@ func (s *server) admitRegistration(
 		SourceIP:             sourceIP,
 	}
 	w.SetApps(registration.Apps)
+	// From the ROW rather than from the Register message, so the registry entry
+	// and the row are the same object by construction. Idempotent against the
+	// label merge upsertRegistration already did.
+	w.SetHardware(InventoryFromRow(registration.Hardware))
 
 	streamCtx, cancel := context.WithCancel(stream.Context())
 	session := newStreamSession(s, stream, w, streamCtx, cancel)
@@ -172,6 +176,7 @@ func (s *server) admitRegistration(
 	w.SetAppSessionFunc(session.openAppSession)
 	w.SetModelCallFunc(session.openModelCall)
 	w.SetModelPullFunc(session.openModelPull)
+	w.SetModelProbeFunc(session.openModelProbe)
 	s.registry.Add(w)
 
 	if err := stream.Send(&memqlv1.WorkerServerMessage{
@@ -245,6 +250,10 @@ func (s *server) upsertRegistration(
 
 	apps := AppsFromProto(register.GetApps())
 	descriptors := AppDescriptorsFromProto(register.GetAppDescriptors())
+	// The inventory was validated in validateRegister, which refuses the
+	// registration on a malformed one; by here it can only be well-formed or
+	// absent, and absent is the ordinary case for a cockpit that predates it.
+	hardware, _ := InventoryFromProto(register.GetHardware())
 	registration := RegistrationRow{
 		IdentityId:           identity.IdentityId,
 		OwnerUserId:          identity.OwnerUserId,
@@ -256,9 +265,14 @@ func (s *server) upsertRegistration(
 		// decision made against the ROW agrees with one made against the
 		// live registry entry -- which is what lets a planner node, with
 		// no registry at all, answer the same question.
-		Labels:              mergeAppLabels(copyStringMap(register.GetLabels()), apps),
+		// The `runtime:` labels ride the same reasoning one layer down: they are
+		// derived from the inventory rather than reported, they live on the ROW
+		// as well as in the registry, and a machine that reported no inventory
+		// keeps whatever the cockpit sent under that prefix untouched.
+		Labels:              mergeRuntimeLabels(mergeAppLabels(copyStringMap(register.GetLabels()), apps), hardware),
 		Apps:                apps,
 		AppDescriptors:      descriptors,
+		Hardware:            hardware.Row(),
 		Concurrency:         register.GetConcurrency(),
 		Platform:            platformInfoToMap(register.GetPlatform()),
 		Permissions:         permissionStatusToMap(register.GetPermissions()),
@@ -329,9 +343,13 @@ type streamSession struct {
 	// id spaces are separate and a pull is not a call: conflating them
 	// would let a cancel for one reach the other.
 	modelPulls map[string]*ModelPullHandle
-	sendMu     sync.Mutex
-	sendErr    error
-	closeOnce  sync.Once
+	// modelProbes is the probe table, separate from modelPulls for the reason
+	// modelPulls is separate from modelCalls: the id spaces are separate, and a
+	// cancel for one must not reach the other.
+	modelProbes map[string]*ModelProbeHandle
+	sendMu      sync.Mutex
+	sendErr     error
+	closeOnce   sync.Once
 
 	// lastPersistedAt is the heartbeat timestamp of the most recent
 	// successful lastSeenAt DB flush (memql#1340). Zero until the
@@ -339,6 +357,14 @@ type streamSession struct {
 	// handleHeartbeat, which runs on the single stream-recv
 	// goroutine, so it needs no lock.
 	lastPersistedAt time.Time
+	// hardwarePending is a non-material inventory refresh that has reached the
+	// registry and not yet the row (epic memql#5146). It is a FLAG ON THE
+	// SESSION rather than a local in the beat handler, and that is the whole
+	// point of it: the cockpit reports hardware on every tenth beat, so a
+	// change arriving inside the throttle window would otherwise be dropped by
+	// the nine beats that carry no inventory and only reach the row at the
+	// tenth. The flag makes the very next flush carry it.
+	hardwarePending bool
 }
 
 func newStreamSession(
@@ -349,16 +375,17 @@ func newStreamSession(
 	cancel context.CancelFunc,
 ) *streamSession {
 	return &streamSession{
-		server:     srv,
-		stream:     stream,
-		worker:     w,
-		ctx:        ctx,
-		cancel:     cancel,
-		pending:    make(map[string]chan *memqlv1.ToolResult),
-		chunkSinks: make(map[string]func(*memqlv1.ToolStream)),
-		sessions:   make(map[string]*AppSessionHandle),
-		modelCalls: make(map[string]*ModelCallHandle),
-		modelPulls: make(map[string]*ModelPullHandle),
+		server:      srv,
+		stream:      stream,
+		worker:      w,
+		ctx:         ctx,
+		cancel:      cancel,
+		pending:     make(map[string]chan *memqlv1.ToolResult),
+		chunkSinks:  make(map[string]func(*memqlv1.ToolStream)),
+		sessions:    make(map[string]*AppSessionHandle),
+		modelCalls:  make(map[string]*ModelCallHandle),
+		modelPulls:  make(map[string]*ModelPullHandle),
+		modelProbes: make(map[string]*ModelProbeHandle),
 	}
 }
 
@@ -401,7 +428,18 @@ func (s *streamSession) close() {
 			livePulls = append(livePulls, h)
 		}
 		s.modelPulls = nil
+		// And probes, where the caller is a goroutine ranging over the progress
+		// channel: a handle left unfinished on a disconnect leaves it ranging
+		// forever, and the runner that owns it never releases the probe id.
+		liveProbes := make([]*ModelProbeHandle, 0, len(s.modelProbes))
+		for _, h := range s.modelProbes {
+			liveProbes = append(liveProbes, h)
+		}
+		s.modelProbes = nil
 		s.mu.Unlock()
+		for _, h := range liveProbes {
+			h.Finish(ModelProbeOutcome{Error: "worker_disconnected"}, ErrWorkerDisconnected)
+		}
 		for _, h := range liveSessions {
 			h.finish(AppSessionOutcome{Error: "worker_disconnected"}, ErrWorkerDisconnected)
 		}
@@ -573,6 +611,10 @@ func (s *streamSession) handle(ctx context.Context, msg *memqlv1.WorkerClientMes
 		s.handleModelPullProgress(payload.ModelPullProgress)
 	case *memqlv1.WorkerClientMessage_ModelPullEnd:
 		s.handleModelPullEnd(payload.ModelPullEnd)
+	case *memqlv1.WorkerClientMessage_ModelProbeProgress:
+		s.handleModelProbeProgress(payload.ModelProbeProgress)
+	case *memqlv1.WorkerClientMessage_ModelProbeEnd:
+		s.handleModelProbeEnd(payload.ModelProbeEnd)
 	case *memqlv1.WorkerClientMessage_RotationRequest:
 		s.handleRotationRequest(ctx, payload.RotationRequest)
 	case *memqlv1.WorkerClientMessage_AuditEvent:
@@ -611,6 +653,45 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 		}
 	}
 
+	// The hardware inventory, on the same terms and with one extra distinction
+	// (epic memql#5146, D1). hardware_present is apps_present's twin: a beat
+	// that says nothing leaves the stored inventory alone rather than clearing
+	// it.
+	//
+	// A MALFORMED inventory on a beat is DROPPED, where the same thing on
+	// Register refuses the registration. The asymmetry is deliberate: refusing
+	// here would drop a live stream and take the machine offline over a field
+	// that decides a recommendation, and the previous good inventory is still
+	// on the row. It is logged so the cockpit bug is findable.
+	//
+	// The change is split in two because the two halves have different costs.
+	// A MATERIAL change -- the chip, the memory, the accelerator, the runtime
+	// set -- moves the `runtime:` labels and must land on the row now, even
+	// inside the throttle window, or the row disagrees with the registry and a
+	// planner node reads the stale one. Anything else is free disk moving,
+	// which happens on every report and decides nothing, so it rides the
+	// throttled write below.
+	hardwareMaterial := false
+	if hb.GetHardwarePresent() {
+		reported, err := InventoryFromProto(hb.GetHardware())
+		switch {
+		case err != nil:
+			if s.server != nil && s.server.logger != nil {
+				s.server.logger.Warn("worker: heartbeat carried a malformed hardware inventory; keeping the stored one",
+					"registration_id", s.worker.RegistrationId,
+					"error", err,
+				)
+			}
+		default:
+			current := s.worker.Hardware()
+			if !InventoriesEqual(current, reported) {
+				hardwareMaterial = MaterialChange(current, reported)
+				s.worker.SetHardware(reported)
+				s.hardwarePending = true
+			}
+		}
+	}
+
 	// Persist lastSeenAt at most once per HeartbeatBatchInterval
 	// (memql#1340). The FIRST heartbeat of a stream always persists
 	// (lastPersistedAt zero value), so a (re)connected worker's row is
@@ -636,6 +717,28 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 	// derived app: labels live on the registration row as well as in
 	// the registry, and a row that disagrees with the live entry is
 	// exactly the split a reader cannot detect.
+	// A material inventory change lands NOW, for the reason the app inventory
+	// does one branch below: both move routing labels that live on the row as
+	// well as in the registry, and a planner node holds no registry at all.
+	// This runs before the apps branch so that a beat carrying both writes the
+	// inventory rather than returning early on the apps write; the two write
+	// different fields through different mutations and neither subsumes the
+	// other.
+	if hardwareMaterial {
+		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+		defer cancel()
+		if err := s.server.store.UpdateHardware(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, s.worker.Hardware().Row(), s.worker.LabelsSnapshot(), at, sourceIP); err != nil {
+			if s.server.logger != nil {
+				s.server.logger.Warn("worker: persist hardware inventory failed",
+					"registration_id", s.worker.RegistrationId,
+					"error", err,
+				)
+			}
+			return
+		}
+		s.lastPersistedAt = at
+		s.hardwarePending = false
+	}
 	if appsChanged {
 		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 		defer cancel()
@@ -665,9 +768,17 @@ func (s *streamSession) handleHeartbeat(hb *memqlv1.Heartbeat, sourceIP string) 
 	if active == 0 {
 		active = s.worker.ActiveCount()
 	}
+	// A non-material inventory refresh rides this write rather than buying one
+	// of its own. It is exactly as fresh as the beat that carried it, and free
+	// disk moving on every report is not worth a second write to the same row.
+	// NIL when nothing changed, which the store reads as "leave it alone".
+	var hardware map[string]any
+	if s.hardwarePending {
+		hardware = s.worker.Hardware().Row()
+	}
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
-	if err := s.server.store.UpdateLastSeen(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, at, sourceIP, s.server.nodeId, active); err != nil {
+	if err := s.server.store.UpdateLastSeen(ctx, s.worker.RegistrationId, s.worker.OwnerUserId, at, sourceIP, s.server.nodeId, active, hardware); err != nil {
 		if s.server.logger != nil {
 			s.server.logger.Warn("worker: persist heartbeat failed",
 				"registration_id", s.worker.RegistrationId,
@@ -799,6 +910,16 @@ func validateRegister(r *memqlv1.Register) (*CapabilityDescriptor, error) {
 	}
 	descriptor, err := ParseCapabilityDescriptor(r.GetCapabilityDescriptorJson())
 	if err != nil {
+		return nil, fmt.Errorf("register: %w", err)
+	}
+	// A MALFORMED INVENTORY REFUSES THE REGISTRATION rather than being dropped
+	// (epic memql#5146, D1). The inventory decides the machine's class, which
+	// decides what the machine is told to pull, so one silently discarded
+	// leaves a machine unclassifiable forever with nothing anywhere to read --
+	// and an unclassifiable machine looks exactly like one whose cockpit
+	// predates the field, which is a state nobody investigates. An ABSENT
+	// inventory is not malformed and registers exactly as before.
+	if _, err := InventoryFromProto(r.GetHardware()); err != nil {
 		return nil, fmt.Errorf("register: %w", err)
 	}
 	return descriptor, nil
@@ -1356,6 +1477,127 @@ func (s *streamSession) openModelPull(ctx context.Context, req ModelPullRequest)
 	}()
 
 	return handle, nil
+}
+
+// openModelProbe is the per-stream hook behind Worker.StartModelProbe.
+//
+// It registers the probe BEFORE sending Start, the ordering openModelPull,
+// openModelCall and openAppSession all keep: a machine that answers instantly
+// must not be able to deliver an observation for a probe this side has not yet
+// recorded.
+func (s *streamSession) openModelProbe(ctx context.Context, req ModelProbeRequest) (*ModelProbeHandle, error) {
+	if req.RequestId == "" {
+		return nil, fmt.Errorf("worker: model probe requires a request id")
+	}
+	clock := time.Now
+	if s.server != nil && s.server.clock != nil {
+		clock = s.server.clock
+	}
+	detach := func() {
+		s.mu.Lock()
+		if s.modelProbes != nil {
+			delete(s.modelProbes, req.RequestId)
+		}
+		s.mu.Unlock()
+	}
+	handle := NewModelProbeHandle(req.RequestId, req.Model, req.Limits, s.sendModelProbeCancel, detach, clock)
+
+	s.mu.Lock()
+	if s.modelProbes == nil {
+		s.mu.Unlock()
+		return nil, ErrWorkerDisconnected
+	}
+	if _, exists := s.modelProbes[req.RequestId]; exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("worker: model probe %s already open", req.RequestId)
+	}
+	s.modelProbes[req.RequestId] = handle
+	s.mu.Unlock()
+
+	start := &memqlv1.ModelProbeStart{
+		RequestId:      req.RequestId,
+		RegistrationId: s.worker.RegistrationId,
+		Model:          req.Model,
+		SuiteVersion:   req.SuiteVersion,
+	}
+	if err := s.send(&memqlv1.WorkerServerMessage{
+		Payload: &memqlv1.WorkerServerMessage_ModelProbeStart{ModelProbeStart: start},
+	}); err != nil {
+		handle.Finish(ModelProbeOutcome{Error: "start_send_failed"}, err)
+		return nil, fmt.Errorf("worker: send model probe start: %w", err)
+	}
+
+	// A caller context that dies before the probe ends stops the suite on the
+	// machine. It is somebody's GPU.
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = handle.Cancel("caller_context_done")
+		case <-handle.done:
+		case <-s.ctx.Done():
+		}
+	}()
+
+	return handle, nil
+}
+
+func (s *streamSession) sendModelProbeCancel(cancel *memqlv1.ModelProbeCancel) error {
+	if cancel == nil {
+		return nil
+	}
+	return s.send(&memqlv1.WorkerServerMessage{
+		Payload: &memqlv1.WorkerServerMessage_ModelProbeCancel{ModelProbeCancel: cancel},
+	})
+}
+
+func (s *streamSession) lookupModelProbe(requestId string) *ModelProbeHandle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.modelProbes == nil {
+		return nil
+	}
+	return s.modelProbes[requestId]
+}
+
+func (s *streamSession) handleModelProbeProgress(p *memqlv1.ModelProbeProgress) {
+	if p == nil || p.GetRequestId() == "" {
+		return
+	}
+	handle := s.lookupModelProbe(p.GetRequestId())
+	if handle == nil {
+		return
+	}
+	handle.DeliverProgress(ModelProbeProgress{
+		CaseId:    p.GetCaseId(),
+		Completed: p.GetCompletedCases(),
+		Total:     p.GetTotalCases(),
+		Ok:        p.GetCaseOk(),
+		Error:     p.GetCaseError(),
+	})
+}
+
+func (s *streamSession) handleModelProbeEnd(end *memqlv1.ModelProbeEnd) {
+	if end == nil || end.GetRequestId() == "" {
+		return
+	}
+	handle := s.lookupModelProbe(end.GetRequestId())
+	if handle == nil {
+		return
+	}
+	// A FAILED PROBE IS NOT A TRANSPORT ERROR, the rule handleModelPullEnd
+	// states one function along: `ok=false` with text is an ANSWER, and Wait
+	// returns it with a nil error so the caller records the machine's own
+	// words. Returning an error here would make "the runtime crashed on case
+	// three" indistinguishable from the machine falling off the network -- the
+	// one thing the two ends of this protocol exist to separate, and here the
+	// difference decides whether a figure is `failed` or `unmeasured`.
+	handle.Finish(ModelProbeOutcome{
+		Model:        end.GetModel(),
+		Ok:           end.GetOk(),
+		Error:        end.GetError(),
+		SuiteVersion: end.GetSuiteVersion(),
+		Figures:      FiguresFromProto(end),
+	}, nil)
 }
 
 func (s *streamSession) sendModelPullCancel(cancel *memqlv1.ModelPullCancel) error {

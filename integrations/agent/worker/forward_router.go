@@ -79,6 +79,12 @@ type ForwardRouter struct {
 	// cross-delivery -- here, of a download's progress into a generation.
 	modelPullMu       sync.Mutex
 	modelPullInflight map[string]*modelPullForwardCall
+	// The probe's table is SEPARATE from the pull's, for the reason the pull's
+	// is separate from the call's: the id spaces are separate, and one map
+	// would let a probe's answer be delivered to a pull that happened to share
+	// a request id.
+	modelProbeMu       sync.Mutex
+	modelProbeInflight map[string]*modelProbeForwardCall
 }
 
 // peerManagerSender is the production PeerSender: look the replica up by node
@@ -125,12 +131,13 @@ func newForwardRouter(sender PeerSender, self func() (string, string), logger *s
 		self = func() (string, string) { return "", "" }
 	}
 	return &ForwardRouter{
-		sender:            sender,
-		self:              self,
-		logger:            logger,
-		inflight:          make(map[string]*forwardCall),
-		modelInflight:     make(map[string]*modelForwardCall),
-		modelPullInflight: make(map[string]*modelPullForwardCall),
+		sender:             sender,
+		self:               self,
+		logger:             logger,
+		inflight:           make(map[string]*forwardCall),
+		modelInflight:      make(map[string]*modelForwardCall),
+		modelPullInflight:  make(map[string]*modelPullForwardCall),
+		modelProbeInflight: make(map[string]*modelProbeForwardCall),
 	}
 }
 

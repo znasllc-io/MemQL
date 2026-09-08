@@ -118,6 +118,11 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 			"imageGen":         m.ImageGen,
 			"params":           m.Params,
 			"quant":            m.Quant,
+			// The measured figures, in the discriminated shape the measurement
+			// row stores (epic memql#5146). ABSENT AS A REASON, never as a
+			// zero: a surface reading `measured: false` renders the sentence,
+			// and there is no median beside the flag to be read by mistake.
+			"measured": measuredRow(m.Measured),
 			"online":           m.Online(),
 			"machineCount":     len(m.Machines),
 			"onlineCount":      online,
@@ -340,6 +345,44 @@ func (e *MemQLEngine) fleetCatalogForCaller(ctx context.Context) ([]FleetModel, 
 		out = append(out, *m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ModelId < out[j].ModelId })
+
+	// The measured figures ride the SAME read as the catalog (epic memql#5146,
+	// D4), rather than being fetched by whoever orders. Two readers of one fact
+	// would let the page and the router disagree about which model is
+	// strongest -- and the disagreement would be invisible, because both
+	// answers are plausible.
+	//
+	// A FAILED MEASUREMENT READ IS NOT A FAILED CATALOG READ. Measurements rank
+	// and gate nothing, so a catalog with no figures is the ordinary state of a
+	// fleet nobody has probed; refusing the whole read because the ranking
+	// input is missing would take local inference down over a page decoration.
+	measurements, err := e.measurementsForCaller(ctx)
+	if err != nil {
+		return out, nil
+	}
+	return AttachMeasurements(out, measurements), nil
+}
+
+// measurementsForCaller reads every measurement the caller may see.
+//
+// It goes through the AUTHORIZED query rather than selecting rows here, so the
+// concept's own tier decides what comes back: a plain user sees their own
+// machines' figures, a cluster owner sees the fleet's, and this function does
+// not have to be trusted to narrow anything.
+func (e *MemQLEngine) measurementsForCaller(ctx context.Context) ([]Measurement, error) {
+	res, err := e.Execute(ctx, "measurementsForCaller()")
+	if err != nil {
+		return nil, err
+	}
+	rows := modelPullRows(res.OutputPayload())
+	out := make([]Measurement, 0, len(rows))
+	for _, row := range rows {
+		m := MeasurementFromRow(row)
+		if m.ModelId == "" || m.MachineId == "" {
+			continue
+		}
+		out = append(out, m)
+	}
 	return out, nil
 }
 

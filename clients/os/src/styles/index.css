@@ -2766,6 +2766,251 @@ button:not(:disabled):active {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------------------------------------------------------------------------
+ * The scanner's three groups (epic memql#5146)
+ * ---------------------------------------------------------------------------
+ * ONE IDEA RUNS THROUGH ALL THREE: absence is as legible as presence, and the
+ * three KINDS of absence on this page must not look alike.
+ *
+ *   the machine has not SPOKEN   nothing is wrong -- a caption, in the flow
+ *   the machine said NO          something is wrong -- muted ink, a reason
+ *   nobody has MEASURED          an em dash carrying its reason on hover
+ *
+ * A generic treatment renders all three as a blank cell or a zero, and the
+ * three lead to opposite actions: do nothing, fix something, press a button.
+ * So none of them is ever blank, and none of them is ever a zero.
+ *
+ * There is exactly one accented thing across the three groups -- the machine
+ * CLASS -- because it is the one value a person reads first and acts on. Every
+ * other reading here is a fact at rest, in the same muted ink the models list
+ * beside it already uses. */
+
+/* The class line: the one DERIVED value on a group of reported facts, which is
+ * why it sits above the Facts list rather than inside it. A conclusion set in
+ * the same type as a report reads as a report. */
+.os-fleet-hardware {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.os-fleet-class {
+  margin: 0;
+  font-size: var(--os-text-base);
+  font-weight: 600;
+  color: var(--os-ink);
+  padding-left: 9px;
+  border-left: 2px solid var(--os-accent);
+}
+/* UNDER THE FLOOR is a fact rather than an error: the machine is fine, it is
+ * simply not going to run a model. The rule loses its accent and keeps its
+ * weight, so it still reads as the line to read first. */
+.os-fleet-class[data-unsupported] {
+  color: var(--os-muted);
+  border-left-color: var(--os-line);
+}
+/* A runtime's version rides INSIDE its chip rather than beside it, so
+ * "Ollama 0.5.4" is one thing at every width. Two chips would read as two
+ * runtimes. */
+.os-fleet-runtime-version {
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* The recommended set. It sits ABOVE the models this machine already has,
+ * because it answers the question somebody arriving at an empty machine has,
+ * and below the runtime line, because whether there is a runtime at all
+ * decides whether any of it is reachable. */
+.os-fleet-recommended {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px dashed var(--os-line);
+  border-radius: var(--os-radius-xs);
+}
+.os-fleet-recommended-lead {
+  margin: 0;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+.os-fleet-recommendedlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+/* The level LEADS the row, because the question a person is asking is "what
+ * will serve my fast calls" rather than "what models are there" -- and it is
+ * the ONLY column, because a model id is an unbreakable 38-character string
+ * and an `auto` column sized to the longest left the shorter rows' sizes at a
+ * different x from the longest one's. Three readings that should scan as a
+ * column read as three unrelated lines. `.os-fleet-machinemodel` above records
+ * the same lesson from the same browser. */
+.os-fleet-recommendedrow {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 9px;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+.os-fleet-recommended-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.os-fleet-recommended-readings {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.os-fleet-recommended-level {
+  font-weight: 600;
+  color: var(--os-ink);
+}
+.os-fleet-recommended-size {
+  font-variant-numeric: tabular-nums;
+}
+/* A BLOCKED ENTRY STAYS ON SCREEN and says why. Dropping it answers "why can
+ * my machine not do voice" with silence, which is indistinguishable from a
+ * catalog that never had one. It is dimmed rather than coloured: the model is
+ * not an error, it is simply out of reach today. */
+.os-fleet-recommendedrow[data-blocked] .os-fleet-machinemodel-id,
+.os-fleet-recommendedrow[data-blocked] .os-fleet-recommended-level {
+  color: var(--os-muted);
+}
+.os-fleet-recommended-blocked {
+  color: var(--os-muted);
+}
+.os-fleet-recommended-note {
+  color: var(--os-muted);
+  opacity: 0.85;
+}
+/* align-items: flex-start, and it is a defect fix rather than a preference.
+ * A column flex stretches its children, so the act rendered as a full-width
+ * accented BAR across the panel -- which reads as a banner rather than as a
+ * button, and made the one primary action on this group the loudest thing on
+ * the page. The screenshot found it; jsdom cannot. */
+.os-fleet-recommended-act {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+/* The measured line: a third reading under a model, in the same key as the two
+ * above it. The figures are tabular so a column of them lines up, and the
+ * absent ones draw the em dash `.os-figure-absent` already defines -- the one
+ * place on this page where a missing value is deliberately VISIBLE rather than
+ * quiet, because somebody scanning for the model nobody has probed has to be
+ * able to find the gap. */
+.os-fleet-measured {
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.os-fleet-measured[data-unmeasured] {
+  font-variant-numeric: normal;
+  opacity: 0.75;
+}
+.os-fleet-measured-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.os-fleet-measured-label {
+  opacity: 0.75;
+}
+.os-fleet-measured-when {
+  opacity: 0.6;
+}
+/* A probe that ran PARTLY leaves figures AND a sentence. It is a real state
+ * rather than a contradiction, so it gets its own line rather than replacing
+ * the numbers that did come back. */
+.os-fleet-measured-partial {
+  flex-basis: 100%;
+  color: var(--os-muted);
+}
+.os-fleet-machinemodel-act {
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
+/* Sharing. The two consents are a LIST because they are two of a kind and both
+ * are always present: rendering only the missing one would leave a fully
+ * shared machine showing nothing, and somebody who had just shared theirs with
+ * no confirmation that anything happened. */
+.os-fleet-sharing {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.os-fleet-sharing-state {
+  margin: 0;
+  font-size: var(--os-text-base);
+  color: var(--os-muted);
+}
+.os-fleet-sharing-state[data-serving] {
+  color: var(--os-ink);
+  font-weight: 600;
+}
+.os-fleet-consents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.os-fleet-consent {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--os-text-xs);
+  color: var(--os-muted);
+}
+/* The mark is a SHAPE and not a colour alone: the two states have to be
+ * distinguishable without hue, and a filled square beside a hollow one is
+ * legible to anybody. */
+.os-fleet-consent-mark {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--os-line);
+  border-radius: 1px;
+}
+.os-fleet-consent[data-given] {
+  color: var(--os-ink);
+}
+.os-fleet-consent[data-given] .os-fleet-consent-mark {
+  background: var(--os-accent);
+  border-color: var(--os-accent);
+}
+.os-fleet-sharing-act {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+/* At a narrow window the recommendation's four columns become two lines rather
+ * than four cramped ones: the level and the model belong together, and the
+ * size and the reason do. */
+@media (max-width: 640px) {
+  /* At a narrow window the level moves ABOVE its model rather than beside it,
+   * so a long id keeps the full width instead of a third of it. */
+  .os-fleet-recommendedrow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+}
+
 /* A pull in flight is the one thing on this card that MOVES, so it is the one
  * thing given an accent edge. Everything else here is a fact at rest. */
 .os-fleet-pull {

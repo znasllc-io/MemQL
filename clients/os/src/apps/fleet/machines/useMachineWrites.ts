@@ -40,6 +40,11 @@ export interface MachineWrites {
   rename: (registrationId: string, displayName: string) => Promise<boolean>;
   setOperatorLabels: (registrationId: string, labels: LabelMap) => Promise<boolean>;
   revoke: (registrationId: string, reason: string) => Promise<boolean>;
+  /** The OWNER's half of the sharing consent (epic memql#5146, D6). The
+   *  cockpit's half comes from that machine's own policy.yaml and is not
+   *  writable from here -- deliberately: it is a decision about where the
+   *  machine is, and only the machine can make it. */
+  setSharing: (registrationId: string, mode: "owner" | "cluster") => Promise<boolean>;
 }
 
 function describe(err: unknown): string {
@@ -115,5 +120,14 @@ export function useMachineWrites(): MachineWrites {
     [access, connection, run],
   );
 
-  return { busyId, actionError, rename, setOperatorLabels, revoke };
+  // `sharedAt` and `sharedBy` are stamped by the mutation from the clock and
+  // the actor, never sent from here: the record of WHO shared a machine must
+  // not be writable by whoever is holding the keyboard.
+  const setSharing = useCallback(
+    (registrationId: string, mode: "owner" | "cluster") =>
+      run(registrationId, () => connection!.query.setWorkerSharing({ registrationId, mode })),
+    [connection, run],
+  );
+
+  return { busyId, actionError, rename, setOperatorLabels, revoke, setSharing };
 }

@@ -38,6 +38,8 @@ message WorkerClientMessage {
     ModelCallEnd model_call_end = 19;
     ModelPullProgress model_pull_progress = 20;
     ModelPullEnd model_pull_end = 21;
+    ModelProbeProgress model_probe_progress = 22;
+    ModelProbeEnd model_probe_end = 23;
   }
 }
 
@@ -59,6 +61,8 @@ message WorkerServerMessage {
     ModelCallCancel model_call_cancel = 19;
     ModelPullStart model_pull_start = 20;
     ModelPullCancel model_pull_cancel = 21;
+    ModelProbeStart model_probe_start = 22;
+    ModelProbeCancel model_probe_cancel = 23;
   }
 }
 
@@ -108,6 +112,11 @@ message Register {
   // harness mid-connection advertises it on its next reconnect -- the
   // same rollout cost the model labels already carry.
   repeated AppDescriptor app_descriptors = 11;
+  // What the machine IS (epic memql#5146, D1). A cockpit that omits it
+  // registers exactly as before and every reader takes the absence as "this
+  // build predates the field" -- see HardwareInventory for why that is not the
+  // same as a machine with nothing.
+  HardwareInventory hardware = 12;
 }
 
 // AppDescriptor is how one app on this machine is DRIVEN.
@@ -167,6 +176,75 @@ message PermissionStatus {
   string detail = 4;
 }
 
+// HardwareInventory is what the machine IS, as its cockpit reports it
+// (epic memql#5146, design D1).
+//
+// PRESENCE FACTS ONLY -- no serial numbers, no user names, no paths. The
+// cluster needs to know what a machine can run, and every field here answers
+// that question; nothing here identifies a person.
+//
+// THE ENGINE STORES THIS AND DERIVES THE REST. A machine's class and its
+// recommended model set are pure functions of these numbers
+// (component/memql/fleet_class.go, fleet_recommend.go) and are stored NOWHERE:
+// a derived copy would be a second answer that ages while the inventory it came
+// from does not.
+//
+// ABSENT MEANS "THIS COCKPIT PREDATES THE FIELD", NEVER "A MACHINE WITH NO
+// MEMORY". Every reader takes it that way, which is why the class of a machine
+// with no inventory is the EMPTY STRING rather than `unsupported`. The second
+// one is an accusation, and on the day this field shipped it would have been
+// levelled at every machine in every fleet.
+//
+// WHY NOT DERIVE THE CLASS FROM THE MODELS A MACHINE ADVERTISES: a machine with
+// no model yet is exactly the machine the scanner is for.
+message HardwareInventory {
+  // The marketing name the OS reports: "Apple M4 Max", "AMD Ryzen 9 7950X".
+  // Operator-facing; nothing selects on it, because the string is the vendor's
+  // and has changed shape before.
+  string chip = 1;
+  // Unified memory on Apple Silicon, system memory elsewhere.
+  uint64 memory_bytes = 2;
+  GpuInfo gpu = 3;
+  uint32 cpu_cores = 4;
+  string os_version = 5;
+  uint64 disk_free_bytes = 6;
+  repeated RuntimeInfo runtimes = 7;
+  google.protobuf.Timestamp reported_at = 8;
+}
+
+// GpuInfo describes the accelerator the machine can actually reach.
+//
+// `backend` is what the machine can RUN, not what is installed. A discrete card
+// whose driver does not work reports `none`, because a backend no runtime can
+// use is not a capability this cluster may count -- and the two states have
+// different repairs, so collapsing them sends an operator to the wrong place.
+message GpuInfo {
+  string name = 1;
+  // Dedicated VRAM. ZERO on a unified-memory machine, where memory_bytes is the
+  // pool -- NOT a card with no memory. `backend` is what tells those apart, and
+  // reading a zero here as "no accelerator" would class every Apple Silicon
+  // machine as unsupported.
+  uint64 vram_bytes = 2;
+  // metal | cuda | rocm | none. A value outside the four REFUSES the
+  // registration rather than being dropped: an inventory is a fact the cluster
+  // acts on, and one silently discarded leaves a machine classed as unsupported
+  // forever with nothing to read.
+  string backend = 3;
+}
+
+// RuntimeInfo is one model runtime the machine has, with its version.
+//
+// The set the engine understands is closed -- ollama, mlx, whispercpp, kokoro,
+// mflux, docker -- and a name outside it is STORED and never acted on. That is
+// the rule AppInfo already follows, for the same reason: a newer cockpit must
+// be able to report more than this engine can drive without a coordinated
+// release, and a machine that really has a runtime should say so even where
+// nothing here can use it yet.
+message RuntimeInfo {
+  string name = 1;
+  string version = 2;
+}
+
 message RegisterAck {
   string registration_id = 1;
   google.protobuf.Timestamp registered_at = 2;
@@ -197,6 +275,16 @@ message Heartbeat {
   // from "I am not reporting apps at all", which proto3 repeated
   // fields cannot express on their own.
   bool apps_present = 5;
+  // hardware re-reports what the machine IS (epic memql#5146, D1). The cockpit
+  // sends it on every TENTH beat rather than every one, so an installed runtime
+  // or a freed disk shows within minutes instead of at the next reconnect, at
+  // one-tenth the traffic.
+  HardwareInventory hardware = 6;
+  // hardware_present distinguishes "I am reporting an inventory" from "I am not
+  // reporting one" -- the same distinction apps_present draws one field above,
+  // and needed for the same reason: a beat that says nothing must leave the
+  // stored inventory alone rather than clearing it.
+  bool hardware_present = 7;
 }
 
 // -----------------------------------------------------------------------------
@@ -887,6 +975,120 @@ message ModelPullEnd {
 // already have finished the layer it was on, and a partially fetched blob is
 // resumed rather than discarded by the next pull of the same model.
 message ModelPullCancel {
+  string request_id = 1;
+  string reason = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Model probe (epic memql#5146, design D3)
+// -----------------------------------------------------------------------------
+//
+// A pull says a model is on the disk. A probe says what it DOES there.
+//
+// THE PULL'S SHAPE, FOR THE PULL'S REASONS. A probe runs a suite of generations
+// against the local runtime and takes minutes, which is past workerHost.exec's
+// 600s cap and past its buffer. So: start, progress, end, correlated by request
+// id, with a targetNodeId claim and a stale sweep, exactly as ModelPull.
+//
+// WHAT IT MEASURES IS THIS CLUSTER'S OWN QUESTION, and that is the whole
+// argument for having one. A model's parameter count says nothing about whether
+// its structured output validates against the schemas this cluster actually
+// sends, and a 4-bit quantization of one model is not the 8-bit of another.
+// Whether a model can serve a level is asserted today by a label the cockpit
+// wrote from `ollama show`, and never checked. The suite checks it against five
+// schemas drawn from the platform's own prompts.
+//
+// AND IT GATES NOTHING THIS RELEASE (D4). Eligibility stays with the advertised
+// flags; measurement only ORDERS. A probe that refuses a working model on a bad
+// run is worse than no probe -- and the class arithmetic in this same epic is
+// the concrete evidence for that caution, having been wrong in one direction on
+// the two most common GPUs until a real card reported a real number.
+
+// ModelProbeStart asks the machine to measure a model it already has.
+message ModelProbeStart {
+  string request_id = 1;
+  // Carried even though the stream identifies the machine, for ModelPullStart's
+  // reason: the same machine may hold more than one registration over its life,
+  // and a cockpit logging the envelope should log which.
+  string registration_id = 2;
+  // The model id in the runtime's own vocabulary, passed through verbatim.
+  string model = 3;
+  // The suite this measurement is to be scored under. A cockpit that does not
+  // know this version ENDS with ok=false and `unknown_suite_version` rather than
+  // running its own: two figures scored by different suites are not comparable,
+  // so reporting numbers under a name that means something else is worse than
+  // reporting none.
+  string suite_version = 4;
+}
+
+// ModelProbeProgress is one case finished.
+//
+// A probe's progress is COUNTABLE where a pull's is not -- the suite has a known
+// number of cases -- so this reports the whole rather than only the current
+// step, and a surface can draw a real fraction instead of a spinner.
+message ModelProbeProgress {
+  string request_id = 1;
+  string model = 2;
+  string case_id = 3;
+  uint32 completed_cases = 4;
+  uint32 total_cases = 5;
+  bool case_ok = 6;
+  // The runtime's own failure text for this case. Empty when case_ok.
+  string case_error = 7;
+}
+
+// ModelProbeEnd is the terminal answer, carrying the figures.
+//
+// A FIGURE IS A STAT OR A REASON, NEVER BOTH AND NEVER NEITHER. That is
+// component/proving/figure's discipline carried onto the wire: a probe whose
+// runtime crashed reports an ABSENT figure naming the crash, and nothing is
+// ranked on it. Reporting 0 tok/s for a probe that never ran is a lie that
+// reads on the page exactly like a slow machine, and the two lead to opposite
+// actions.
+//
+// `ok` false with figures present is a REAL STATE and not a contradiction: some
+// cases ran and some did not, and each figure says for itself which it was.
+message ModelProbeEnd {
+  string request_id = 1;
+  string model = 2;
+  bool ok = 3;
+  string error = 4;
+  // Echoed back so a measurement can never be filed under a suite the machine
+  // did not actually run.
+  string suite_version = 5;
+  ProbeFigure structured_validity = 6;
+  ProbeFigure tool_call_correctness = 7;
+  ProbeFigure throughput_tps = 8;
+  ProbeFigure ttft_ms = 9;
+}
+
+// ProbeFigure is one measured number, or the reason there is not one.
+//
+// `n` and the spread live on the MEASURED side only. A median with no count
+// behind it is a number a reader cannot weigh, and there is deliberately no
+// mean and no single-number form: medians and spread, never a best case.
+message ProbeFigure {
+  bool measured = 1;
+  double median = 2;
+  // The interquartile bounds. Equal to the median for a sample of one, which is
+  // honest -- one observation has no spread -- rather than absent.
+  double spread_low = 3;
+  double spread_high = 4;
+  uint32 n = 5;
+  // unmeasured | refused | failed. EMPTY when measured is true, and required
+  // when it is false: an absence with no reason is the thing this message
+  // exists to make impossible.
+  //
+  // `refused` is not a failure. A 32K case put to an 8K model is a question the
+  // model never claimed to answer, and counting it as a failure would drag a
+  // validity score down for a limit the model had already declared.
+  string absent_reason = 6;
+  // The machine's own sentence for the absence. Never invented by the engine.
+  string absent_detail = 7;
+}
+
+// ModelProbeCancel stops a probe in flight.
+message ModelProbeCancel {
   string request_id = 1;
   string reason = 2;
 }

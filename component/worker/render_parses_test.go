@@ -143,6 +143,25 @@ func writeDrivers() []driver {
 		EndedAt:             at.Add(time.Minute),
 	}
 
+	awkwardHardware := func(at time.Time) map[string]any {
+		// Built through the real renderer rather than by hand, so the shape
+		// under test is the one the wire produces. The awkward text goes in a
+		// NESTED string -- the gpu name -- because that is the position a
+		// quoting bug survives longest: the top-level fields are exercised by
+		// every other driver here.
+		inv := Inventory{
+			Chip:          awkwardText,
+			MemoryBytes:   64 << 30,
+			Gpu:           Gpu{Name: awkwardText, VramBytes: 0, Backend: GpuBackendMetal},
+			CpuCores:      16,
+			OsVersion:     "15.3",
+			DiskFreeBytes: 900 << 30,
+			Runtimes:      []Runtime{{Name: RuntimeOllama, Version: awkwardText}},
+			ReportedAt:    at,
+		}
+		return inv.Row()
+	}
+
 	return []driver{
 		{"CreateRegistration", func(ctx context.Context, s *EngineStore) error {
 			return s.CreateRegistration(ctx, reg)
@@ -151,7 +170,18 @@ func writeDrivers() []driver {
 			return s.RefreshRegistration(ctx, reg)
 		}},
 		{"UpdateLastSeen", func(ctx context.Context, s *EngineStore) error {
-			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2)
+			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, nil)
+		}},
+		{"UpdateLastSeenWithHardware", func(ctx context.Context, s *EngineStore) error {
+			// The nested-object case. A hardware row carries an object inside an
+			// object and a list of objects, which is where a renderer that omits
+			// separators produces MemQL that lexes as one long identifier and
+			// fails at a place naming nothing in this file.
+			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, awkwardHardware(at))
+		}},
+		{"UpdateHardware", func(ctx context.Context, s *EngineStore) error {
+			return s.UpdateHardware(ctx, reg.ID, testOwner, awkwardHardware(at),
+				map[string]string{"runtime:ollama": "0.5.4", "note": awkwardText}, at, "203.0.113.7")
 		}},
 		{"ClearConnectedNode", func(ctx context.Context, s *EngineStore) error {
 			return s.ClearConnectedNode(ctx, reg.ID, testOwner)

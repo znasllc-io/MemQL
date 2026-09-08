@@ -114,6 +114,11 @@ mutate registration createWorkerRegistration {
     /// registration, so a newer cockpit never makes the engine attempt a
     /// protocol it has no client for.
     appDescriptors       array
+    /// What the machine IS, as its cockpit reported it (epic memql#5146, D1):
+    /// {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes,
+    /// reportedAt}. OMITTED by a cockpit that predates the field, which is not
+    /// the same as a machine with nothing -- see the concept's field doc.
+    hardware             object
     registeredAt         string!
     lastSeenAt           string
     lastConnectedFromIP  string
@@ -134,6 +139,7 @@ mutate registration createWorkerRegistration {
     buildTag: args.buildTag ?? ""
     apps: args.apps ?? []
     appDescriptors: args.appDescriptors ?? []
+    args.hardware
     args.registeredAt
     lastSeenAt: args.lastSeenAt ?? args.registeredAt
     lastConnectedFromIP: args.lastConnectedFromIP ?? ""
@@ -191,6 +197,11 @@ mutate registration refreshWorkerRegistration {
     /// registration, so a newer cockpit never makes the engine attempt a
     /// protocol it has no client for.
     appDescriptors       array
+    /// What the machine IS, as its cockpit reported it (epic memql#5146, D1):
+    /// {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes,
+    /// reportedAt}. OMITTED by a cockpit that predates the field, which is not
+    /// the same as a machine with nothing -- see the concept's field doc.
+    hardware             object
     lastSeenAt           string!
     lastConnectedFromIP  string
     connectedNodeId      string
@@ -208,9 +219,24 @@ mutate registration refreshWorkerRegistration {
     buildTag: args.buildTag ?? ""
     apps: args.apps ?? []
     appDescriptors: args.appDescriptors ?? []
+    // `hardware` IS named, unlike the two below, and the distinction is which
+    // side of the machine/owner line the field sits on. The inventory is the
+    // MACHINE's and is re-reported on every Register exactly as `labels` and
+    // `platformInfo` are, so re-stamping it is right; leaving it out would
+    // freeze a machine's hardware at whatever it was the day the field shipped.
+    // The store omits the ARGUMENT when a downgraded cockpit stops reporting,
+    // and the read-merge then keeps the last known inventory rather than
+    // blanking it -- quiet is not removal.
+    args.hardware
     args.lastSeenAt
     lastConnectedFromIP: args.lastConnectedFromIP ?? ""
     connectedNodeId: args.connectedNodeId ?? ""
+    // `sharing` IS NOT WRITTEN HERE EITHER, and it is on the operatorLabels
+    // side of the line rather than the `hardware` side. It is the OWNER's
+    // consent, set by an act on the Fleet page, so a reconnect re-stamping it
+    // would revoke -- or grant -- a sharing decision every time a laptop woke
+    // up. setWorkerSharing is its only writer (epic memql#5146, D6).
+    //
     // operatorLabels IS NOT WRITTEN HERE, and that is the whole of design D3.
     // `labels` above is overwritten from the Register message on every
     // reconnect; an operator tag living in that map would be erased by the
@@ -373,13 +399,66 @@ mutate registration updateWorkerLastSeen {
     lastConnectedFromIP  string
     connectedNodeId      string
     activeCount          int
+    /// A non-material inventory refresh riding the heartbeat's own write
+    /// (epic memql#5146). Free disk moves on every report and decides
+    /// nothing, so it is not worth a second write to this row; an inventory
+    /// change that moves the `runtime:` labels does not come through here at
+    /// all, it goes through updateWorkerHardware and does not wait.
+    ///
+    /// OMITTED, never sent empty. update{} is a read-merge and `??` is
+    /// blank-coalescing, so an absent key keeps the stored inventory while an
+    /// empty object would overwrite it with a machine that reports nothing --
+    /// turning a cockpit's silence into a statement.
+    hardware             object
+  }
+  update {
+    accept { lastSeenAt, hardware }
+    stamp {
+      id: args.registrationId
+      lastConnectedFromIP: args.lastConnectedFromIP ?? ""
+      connectedNodeId: args.connectedNodeId ?? ""
+      activeCount: args.activeCount ?? 0
+    }
+  }
+}
+
+// ---- updateWorkerHardware ----
+//
+// The inventory half of the heartbeat, out of band from the throttled
+// lastSeenAt flush for exactly the reason updateWorkerApps is: the
+// `runtime:<name>` labels are DERIVED from this inventory and live on the row
+// as well as in the live registry, so an inventory change that moves them has
+// to land even inside the throttle window. A row whose labels disagree with
+// the registry is a split no reader can detect, and a planner node -- which
+// holds no registry at all -- reads nothing but the row.
+//
+// It writes only when there is something to write: a machine that reported no
+// inventory has said nothing, and blanking the stored one would turn that
+// silence into a statement.
+
+/// Re-stamp a machine's hardware inventory and the labels derived from it.
+/// NOT @serverOnly, for clearWorkerConnectedNode's reason: its caller is component/worker, whose
+/// every context descends from a worker's own inbound stream, so the concept's owner tier is the
+/// gate -- the store stamps auth.ContextWithUserActor for the registration's owner and the write
+/// guard refuses any other actor.
+mutate registration updateWorkerHardware {
+  args {
+    registrationId       string!
+    /// The full inventory as component/worker/hardware.go renders it.
+    hardware             object!
+    /// The complete label set, operator labels included. Replaces the stored
+    /// one wholesale, exactly as updateWorkerApps does -- a merge here could
+    /// not REMOVE the label of a runtime that was just uninstalled.
+    labels               object
+    lastSeenAt           string!
+    lastConnectedFromIP  string
   }
   update {
     id: args.registrationId
+    args.hardware
+    labels: args.labels ?? {}
     args.lastSeenAt
     lastConnectedFromIP: args.lastConnectedFromIP ?? ""
-    connectedNodeId: args.connectedNodeId ?? ""
-    activeCount: args.activeCount ?? 0
   }
 }
 
@@ -980,6 +1059,145 @@ mutate modelPull finishModelPull {
       statusLine: args.statusLine ?? ""
       errorMessage: args.errorMessage ?? ""
       updatedAt: args.endedAt
+    }
+  }
+}
+
+// ---- The probe's row (epic memql#5146, D3) ----
+//
+// createModelProbe / recordModelProbeProgress / finishModelProbe are the pull's
+// three writers with the pull's reasoning, and one difference: progress is
+// written PER CASE rather than on a throttle. A suite emits ten observations in
+// total where a pull emits several a second, so there is no write storm to
+// throttle away, and every case is worth a row version because "which case is
+// slow" is the question a person watching actually has.
+
+/// Open the record for one probe. @serverOnly: `targetNodeId` is the CLAIM -- exactly one replica
+/// acts on this row, the one whose own id it names -- so a caller who could write it could point
+/// somebody else's probe at a replica that does not hold the machine, and it would sit at
+/// `requested` until the sweep failed it.
+///
+/// actor.userId scoping is not the fix, and it is the same subtlety createAppSession records: the
+/// caller IS the owner here, so a self-scoped filter would admit exactly this call. Scoping answers
+/// whose row it is, and the hazard is that a legitimate owner could name a replica the server never
+/// chose. Only the server knows which replica holds the stream.
+@actor
+@serverOnly
+mutate modelProbe createModelProbe {
+  args {
+    probeId       string!
+    workerId      string!
+    model         string!
+    suiteVersion  string!
+    targetNodeId  string
+    requestedAt   string!
+  }
+  insert {
+    accept { workerId, model, suiteVersion, requestedAt }
+    stamp {
+      id: args.probeId
+      ownerUserId: actor.userId
+      status: "requested"
+      completedCases: 0
+      totalCases: 0
+      currentCase: ""
+      measurementId: ""
+      errorMessage: ""
+      targetNodeId: args.targetNodeId ?? ""
+      updatedAt: args.requestedAt
+      endedAt: ""
+    }
+  }
+}
+
+/// Record one finished case. @serverOnly for createModelProbe's reason: it is written by the replica
+/// running the suite, under the owner's borrowed authority, and a client-reachable writer could move
+/// a counter for a probe it is not running -- which is a progress bar that lies.
+///
+/// actor.userId scoping is not the fix, the same subtlety createModelProbe records: the caller is
+/// the row's owner, so a self-scoped filter admits exactly this call. Scoping answers whose row it
+/// is, and the hazard is that only the replica actually executing the suite knows how far it has
+/// got.
+@actor
+@serverOnly
+mutate modelProbe recordModelProbeProgress {
+  args {
+    probeId         string!
+    completedCases  int!
+    totalCases      int!
+    currentCase     string
+    updatedAt       string!
+  }
+  update {
+    accept { completedCases, totalCases, updatedAt }
+    stamp {
+      id: args.probeId
+      currentCase: args.currentCase ?? ""
+      status: "running"
+    }
+  }
+}
+
+/// Close a probe. @serverOnly for the same reason, plus one of its own: `measurementId` points at the
+/// figures, and a caller who could set it could point a probe at somebody else's measurement.
+///
+/// actor.userId scoping is not the fix for createModelProbe's reason -- the caller owns the row, so
+/// self-scoping admits the call -- and here the consequence is sharper: the owner of a probe could
+/// declare it succeeded while the suite was still running, and the figures the page then shows would
+/// be whatever measurement id they named.
+@actor
+@serverOnly
+mutate modelProbe finishModelProbe {
+  args {
+    probeId        string!
+    status         string!
+    measurementId  string
+    errorMessage   string
+    endedAt        string!
+  }
+  update {
+    accept { status, endedAt }
+    stamp {
+      id: args.probeId
+      measurementId: args.measurementId ?? ""
+      errorMessage: args.errorMessage ?? ""
+      updatedAt: args.endedAt
+    }
+  }
+}
+
+// ---- setWorkerSharing (epic memql#5146, D6) ----
+//
+// The OWNER's half of the two consents that let a machine serve the cluster.
+// The cockpit's half is capabilityDescriptor.inferenceServe, which arrives on
+// Register and is not writable from here -- deliberately: it is a decision
+// about where the machine IS, and only the machine can make it.
+//
+// NOT @serverOnly. It writes no credential, names no replica and decides
+// nothing the tier has not already decided: the concept declares
+// @rowAuthz(owner="ownerUserId", clusterOwner), so the write guard already
+// refuses any actor but the owner, and the owner offering their own machine is
+// exactly the act this exists for. `sharedBy` and `sharedAt` are stamped from
+// the actor and the clock rather than accepted, so the record of WHO shared it
+// cannot be written by whoever is holding the keyboard.
+
+/// Set the OWNER's half of a machine's sharing consent. The cockpit's half comes from that
+/// machine's own policy.yaml and is not writable here; both must say cluster before the machine
+/// serves anybody else.
+@actor
+mutate registration setWorkerSharing {
+  args {
+    registrationId  string!
+    /// owner or cluster. Anything else is read as owner by every reader, so the
+    /// enum is enforced here rather than left to be misread later.
+    mode            enum("owner", "cluster")!
+  }
+  update {
+    id: args.registrationId
+    sharing: {
+      mode: args.mode,
+      sharedAt: now,
+      sharedBy: actor.userId
     }
   }
 }

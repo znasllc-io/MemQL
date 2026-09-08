@@ -45,6 +45,97 @@ it is simply asleep. The Providers page distinguishes the last one — an offlin
 machine is **listed and marked offline**, not hidden, precisely so this
 question has a visible answer.
 
+Since epic [memql#5146](https://github.com/znasllc-io/memql/issues/5146) the
+machine's own page in Fleet answers this directly rather than by elimination:
+it reports what the machine said about itself, what class the cluster
+concluded from that, and — when the answer is no — which of the three
+absences it is. See [The scanner](#the-scanner) below.
+
+---
+
+## The scanner
+
+Everything above is a floor somebody has to check by hand. The scanner is the
+cluster asking the machine, and then saying what it heard.
+
+A cockpit reports a **hardware inventory** on register and on heartbeat: chip,
+memory, accelerator and its backend, cores, OS version, free disk, and the
+model runtimes it found with their versions. From that the cluster computes
+one thing the machine did not report — the **machine class** — and the page
+keeps the two apart, because everything else on it is something the machine
+SAID and the class is something the cluster CONCLUDED:
+
+> **A 32 GB machine, with 48.0 GiB usable.**
+>
+> | | |
+> |---|---|
+> | Chip | Apple M4 Max |
+> | Memory | 64.0 GiB |
+> | Accelerator | Apple M4 Max, sharing 64.0 GiB of unified memory |
+
+The working is shown with the verdict on purpose. A class with no figure
+behind it is an opinion.
+
+### Three absences, three sentences
+
+A blank cell would collapse these into one, and they lead to three different
+actions — do nothing, buy hardware, fix a driver:
+
+| What is true | What the page says |
+|---|---|
+| The cockpit predates the field | "This machine's cockpit has not reported what hardware it has. An older cockpit does not send it, and the machine is working normally -- updating the cockpit is what fills this in." |
+| The machine reported and the answer is no | "Under the floor for local models, with 6.0 GiB usable.", then "Local models need Apple Silicon with 16 GB, or a discrete GPU with 8 GB." — the floor in the words the wizard uses, with the facts left on screen so the figure it was judged on stays visible |
+| There is no usable accelerator | "No accelerator the runtimes can reach. Models run on the processor, which works and is slow." |
+
+The third is deliberately **not** "no GPU". The machine may have a card whose
+driver does not work, and that repair lives on the machine.
+
+### The recommended set
+
+Given the class, the page says what the catalog recommends — one model per
+level — and offers to pull the set as **one act**:
+
+> For a 32 GB machine, the catalog recommends:
+>
+> | | |
+> |---|---|
+> | Fast | `qwen3.5:9b` · 5.0 GiB · the balanced pick for everyday turns |
+> | Strong | `gpt-oss:20b` · 11.3 GiB · for planning and long context |
+> | Reasoning | `hf.co/kokoro/voice:Q4_K_M` · 858 MiB · **Needs the MFLUX runtime, which this machine has not reported.** |
+
+**A blocked entry is shown, not filtered.** Hiding it would answer "there is
+nothing for reasoning on this machine", which is false — the answer is "there
+is, and here is what is in the way". Blocked entries are ordered by how
+fixable they are: pull it, install a runtime, the class, the platform.
+
+Installing a runtime is the cockpit's job and is said so plainly: *the cluster
+never puts software on somebody's machine.*
+
+### Measured capability
+
+A machine can tell you it has a model. It cannot tell you the model is any
+good on that hardware. **Probe this model** runs a pinned suite — structured
+output, tool calling, and throughput at two context sizes — and records what
+it measured:
+
+> `qwen3.5:9b` — 9B · Q4_K_M · 125k context · structured output · tool calling
+> · Valid 80% · Tools 67% · Speed 42 tok/s · suite 1
+
+Four things about these figures are load-bearing:
+
+- **"Not measured" is a value, not a zero.** A model nobody has probed says
+  "Not measured on this machine yet." A figure and its absence are different
+  answers, all the way to the pixel.
+- **The suite version is on every reading.** A number measured by a different
+  suite is not comparable to one measured by this suite, and the reading says
+  which it was rather than leaving that to be assumed.
+- **Measurement ranks; it does not gate.** A model that scored badly is still
+  offered — it is ordered below one that scored well. A gate would make a bad
+  afternoon on somebody's laptop permanent.
+- **The probe runs on the machine that holds the stream.** The row names the
+  replica that claimed it, exactly one replica acts on it, and a stale sweep
+  closes a probe whose machine went away mid-suite.
+
 ---
 
 ## The model floor
@@ -350,12 +441,22 @@ the strategies it already has. Two properties are security-load-bearing:
   caller-scoped, so another user's machine is never in the result to begin
   with.
 - **System work** — automations and cluster maintenance, with no acting user
-  — reaches only machines whose **owner opted in**, by setting
-  `sharedInference=true` in the machine's **operator labels** on
-  Fleet → Machines. It must be the operator half: the labels a cockpit
-  reports are overwritten on every reconnect, so an opt-in stored there would
-  be granted by the machine rather than by its owner, and revoked roughly
-  whenever the lid closed.
+  — reaches only machines that are **shared with the cluster**, which takes
+  **two** consents: the owner's, on the machine's page in Fleet, and the
+  machine's own, as `inference.serve: cluster` in its `policy.yaml`. Neither
+  is sufficient. [Sharing a machine with the cluster](shared-machines.md) is
+  the whole story, including what the lender is told afterwards.
+
+  > This replaced the `sharedInference=true` **operator label**, pre-release
+  > and with no shim. A machine that reports `sharedInference` in its own
+  > labels is not selected, and a test asserts it. The label could say only
+  > one thing, and it could not say *which* consent was missing — so a
+  > machine that had been lent and then carried onto a train looked identical
+  > to one whose owner had never offered it.
+
+- **A caller's own machines come first**, as a stable partition rather than a
+  tie-break, so a fleet that starts sharing does not silently reroute work
+  that was already working.
 
 `leastLoaded` rations by the concurrency ceiling a machine declared **for that
 model**, so a machine advertising one slot for a 70B and eight for a 1B is
@@ -397,6 +498,8 @@ function that throws.
 ## Related
 
 - [Workers runbook](workers-runbook.md) — pairing a machine, tokens, scope
+- [Sharing a machine with the cluster](shared-machines.md) — the two consents,
+  and what the lender is told afterwards
 - [Local apps as execution surfaces](local-apps.md) — the sibling delegation surface
 - [LLM cost control](../ai/llm-cost-control.md) — the guard layers
 - [Anthropic federation](auth/anthropic-federation.md) — door 2

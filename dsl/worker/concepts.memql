@@ -5,6 +5,7 @@
 
 use agents.concepts.{ agent }
 use identity.concepts.{ identity, user }
+use platform.concepts.{ modelMeasurement }
 use work.concepts.{ run, step }
 
 /// Per-call telemetry for worker tool invocations. Written once on call completion (success /
@@ -94,6 +95,8 @@ concept registration {
   activeCount    int  @description("Calls in flight on this machine, as the worker reported on its most recent heartbeat (summed across capabilities). leastLoaded orders on activeCount against the per-capability concurrency cap. Best-effort and up to one heartbeat stale -- a routing input, never a correctness one; the machine's own Acquire is the real valve.")
   concurrency    object!  @description("Per-capability max-parallel limits, e.g. {HEADLESS: 8, COMPUTERUSE: 1}. Scheduler enforces; calls beyond cap queue (FIFO) up to the calling tool's timeout.")
   platformInfo   object  @description("os, arch, hostname snapshot at register time.")
+  sharing        object  @description("The OWNER's half of the consent that lets this machine serve the cluster (epic memql#5146, D6): {mode: 'owner' | 'cluster', sharedAt, sharedBy}. `owner` -- the default and the absent case -- means the machine serves its owner's calls and nobody else's; `cluster` means the owner has offered it to everyone. IT IS ONE HALF OF TWO: the COCKPIT's half is capabilityDescriptor.inferenceServe, read from that machine's own policy.yaml, and a machine serves another user only when BOTH say cluster. That is the `allowed` and `signedIn` shape the local-app door already uses, for the same reason -- a person may own a machine they are not entitled to volunteer, and a machine may sit somewhere its policy forbids serving strangers. THE TWO CONSENTS ARE RENDERED SEPARATELY and never as one derived flag, because the REPAIRS are in different places: the owner's is one act on the Fleet page, the cockpit's is a line in that machine's policy.yaml, and a single 'not shared' sentence sends half the operators to the wrong machine. Revoking takes effect on the NEXT resolution -- a call already in flight completes, because stopping a generation mid-token would lose work somebody is waiting for and change nothing about the prompt already sent.")
+  hardware       object  @description("What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu:{name, vramBytes, backend}, cpuCores, osVersion, diskFreeBytes, runtimes:[{name, version}], reportedAt}. PRESENCE FACTS ONLY -- no serial numbers, no user names, no paths. Sent on Register and refreshed on every tenth heartbeat, so an installed runtime shows within minutes rather than at the next reconnect. ABSENT MEANS THIS COCKPIT PREDATES THE FIELD, never a machine with no memory: machineClass reads an absent inventory as the EMPTY STRING rather than `unsupported`, because the second one is an accusation and on the day this shipped it would have been levelled at every machine in every fleet. The MACHINE CLASS and the RECOMMENDED SET are computed from this (component/memql/fleet_class.go, fleet_recommend.go) and stored NOWHERE -- a stored copy of a derived value is a second answer that ages while the inventory it came from does not. `gpu.vramBytes` is ZERO on a unified-memory machine, where memoryBytes is the pool; `gpu.backend` is what tells that apart from a card with no memory, and it reports what the machine can RUN rather than what is installed, so a discrete card whose driver does not work says `none`. `runtimes` is stored VERBATIM including names this engine does not drive, the rule `apps` already follows -- only the closed six (ollama, mlx, whispercpp, kokoro, mflux, docker) derive a `runtime:<name>` routing label.")
   permissions    object  @description("TCC / X11 status snapshot at register time: {accessibility, screen_recording, x11_display, detail}. Surfaced in /me/workers; the worker re-registers on reconnect so this stays accurate.")
   apps           []object  @description("Local apps the cockpit detected on this machine (memql#4359). Each entry is {id, version, signedIn, subscription, allowed}: `allowed` is the machine's own policy.yaml apps.allow verdict, `signedIn` is the app's auth state as the cockpit can observe it, and `subscription` is unknown|none|present as the app REPORTS it -- never inferred. Stored verbatim including ids this engine cannot drive; only an entry that is both allowed and signedIn, with an id in the engine's closed runnable set, derives an `app:<id>` routing label into `labels`.")
   appDescriptors []object  @description("How the cockpit DRIVES each app it reported (epic memql#5096, design D8). Each entry is {id, harness, structuredResult, followUps}, where harness is one of claude-headless | codex-app-server | codex-mcp. Reported on REGISTER only -- Register is accepted once per stream, so unlike `apps` this cannot change mid-connection and a cockpit that gains a harness advertises it on reconnect. Unlike `apps` it is NOT stored verbatim: an entry whose app id or harness word this engine does not know is dropped, because a protocol name with no client behind it is not a fact the engine can act on. An app with no entry is not the same as an app whose harness does neither -- every reader takes the absent case as 'this cockpit predates the field', never as a declared no.")
@@ -248,4 +251,46 @@ concept modelPull {
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="parent", field="workerId", target=registration, direction="outgoing")
+}
+
+/// One probe in flight, and the record of how it went (epic memql#5146, D3).
+///
+/// v1:worker:modelPull's SIBLING, deliberately, down to the claim field and the stale sweep. A probe
+/// runs a suite of generations and takes minutes, which is the same shape of problem a download is:
+/// a person presses a button, something long happens on hardware the cluster does not own, and the
+/// only honest way to watch it is a row that moves.
+///
+/// IT IS NOT THE MEASUREMENT. The figures land on v1:platform:modelMeasurement, and the split is
+/// what keeps a measurement clean: this row carries a status, a case counter and a failure sentence
+/// -- the mechanics of one attempt -- where a measurement carries only what was measured, keyed by
+/// the suite that measured it. A probe that crashed leaves a failed row here and no measurement at
+/// all, which is exactly right: nothing was measured.
+///
+/// A ROW LEFT AT `requested` OR `running` is one whose replica died holding it, and
+/// workerModelProbeStaleSweep marks those failed. A spinner that never resolves is the one outcome
+/// this surface must not produce, and a probe is more exposed to it than a pull: it holds somebody's
+/// GPU, so a request nobody picked up costs them nothing but a request nobody FINISHED might.
+///
+/// TIER: the composite owner, clusterOwner, matching the pull and the registration it names.
+@rowAuthz(owner="ownerUserId", clusterOwner)
+@displayCard(primary="model", secondary="workerId", tertiary="requestedAt", status="status")
+concept modelProbe {
+  ownerUserId    string!  @serverSet  @description("v1:identity:user.id who asked. THE ROW-AUTHZ OWNER FIELD -- stamped from the caller's actor by fleetModelProbe, never from an argument. A probe spends minutes of this person's own machine, so the owner of the row and the owner of the hardware are the same by construction.")
+  workerId       string!  @description("v1:worker:registration.id of the machine being measured. A probe names ONE machine because a measurement OF A DIFFERENT MACHINE answers a question nobody asked -- the whole content of a figure is which hardware produced it.")
+  model          string!  @description("The model id in the runtime's own vocabulary, carried VERBATIM for the reason the pull carries it so: the router selects on this exact string.")
+  suiteVersion   string!  @description("The suite this run is scored under. Echoed back by the machine on the End, so a measurement can never be filed under a suite the machine did not actually run.")
+  status         enum("requested", "running", "succeeded", "failed", "cancelled")!  @default("requested")  @description("Lifecycle. requested = the row exists and the replica holding the machine has not picked it up; running = the suite is executing; succeeded = every case reached a verdict and the figures are written; failed = the runtime or the transport said no; cancelled = somebody stopped it. succeeded does NOT mean the model scored well -- a model that failed every structured case succeeded at being measured, and the figures say the rest.")
+  completedCases int  @description("Cases finished so far. UNLIKE A PULL'S COUNTERS these do not go backwards: the suite has a known length and runs its cases in order, so a surface may draw a real fraction rather than a status line.")
+  totalCases     int  @description("Cases in the suite. Reported by the machine rather than assumed here, so a cockpit running a suite version this engine pinned cannot disagree with the page about how far along it is.")
+  currentCase    string  @description("The id of the case that just finished, e.g. structured.triage. It is what tells a person WHICH part of the measurement is slow, which a percentage cannot.")
+  measurementId  string  @description("v1:platform:modelMeasurement.id this probe produced, once it produced one. Empty while live and empty forever on a failure -- a probe that crashed measured nothing, and pointing at a measurement row that does not exist would be worse than pointing at none.")
+  errorMessage   string  @description("Populated when status reaches failed. The runtime's own words where it spoke: a probe can fail inside a healthy stream (the model runner exits, a case times out), so the sentence arrives here rather than as a dropped connection.")
+  targetNodeId   string  @description("MEMQL_NODE_ID of the agent replica that held the machine's stream when the probe was requested. The claim is deterministic and needs no lock, exactly as the pull's is: one replica acts on this row, the one whose own id this names, and a machine that has reconnected to a sibling is reached by that replica forwarding over ModelProbeForward rather than by the request being dropped.")
+  requestedAt    datetime!  @description("When the act was accepted and this row written.")
+  updatedAt      datetime  @description("When progress was last recorded. Written per CASE rather than on a throttle -- a suite emits ten observations in total, where a pull emits several a second, so there is no write storm to throttle away and every case is worth a row version.")
+  endedAt        datetime  @description("When the probe reached a terminal status. Empty while live.")
+
+  @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
+  @relationship(type="parent", field="workerId", target=registration, direction="outgoing")
+  @relationship(type="references", as="measuredAs", field="measurementId", target=modelMeasurement, direction="outgoing")
 }
