@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/uptrace/bun"
 )
 
 // account_front_door_policy_db_test.go -- epic memql#5168, design D7/H.
@@ -160,5 +162,52 @@ func TestEveryDerivedHostIsChecked(t *testing.T) {
 				t.Errorf("refusal does not name the %s host: %v", label, err)
 			}
 		})
+	}
+}
+
+// A DISCONNECTED DATABASE REFUSES; AN ENGINE THAT NEVER HAD ONE ADMITS.
+//
+// This pins the distinction that the first version of the guard got wrong. It
+// asked `e.database() == nil` and admitted, reasoning that a store-less engine
+// holds no rows to collide with. True of an engine constructed without a
+// store; false of a live one -- `database()` prefers `dbGetter`, whose stated
+// purpose is handling RECONNECTION, and both concrete getters return nil at
+// runtime (`app.BunDB` is "nil until the database phase has run",
+// `Database.BunDB` is nil "if the database is not connected").
+//
+// So the guard failed OPEN during boot and during any disconnection, in
+// exactly the windows where the deployables and custom domains DO exist and
+// are merely unreadable. Admitting there is not "nothing to collide with", it
+// is "I cannot see what I would collide with" -- and a collision let in during
+// a database blip leaves two live claims on one hostname with nothing in any
+// log saying why.
+//
+// Caught in review by memql#5165's author. This test fails under the old shape
+// and passes under the split, which is the whole property.
+func TestADisconnectedDatabaseRefusesRatherThanAdmitting(t *testing.T) {
+	payload := map[string]any{"memqlDomain": "memql." + uniqueSuffix("disconnected") + ".example"}
+
+	// NEVER CONFIGURED: no handle and no getter. There are no rows anywhere,
+	// so there is nothing to collide with and admitting is correct.
+	never := &MemQLEngine{}
+	if err := never.validateAccountFrontDoorHosts(context.Background(), payload); err != nil {
+		t.Errorf("an engine that was never given a store refused a legal name: %v\n\n"+
+			"This is the shape every unit test in this package uses, including "+
+			"memql#5165's own TestAccountDomainPolicyRunsBothRules.", err)
+	}
+
+	// CONFIGURED BUT UNAVAILABLE: a getter that hands back nil, which is what
+	// a booting or disconnected cluster looks like.
+	disconnected := &MemQLEngine{dbGetter: func() *bun.DB { return nil }}
+	err := disconnected.validateAccountFrontDoorHosts(context.Background(), payload)
+	if err == nil {
+		t.Fatal("a configured-but-unavailable database ADMITTED a reserved name.\n\n" +
+			"During boot and during any disconnection the deployables and custom domains " +
+			"exist and are simply unreadable, so this is not 'nothing to collide with' -- " +
+			"it is 'I cannot see what I would collide with', and a collision admitted here " +
+			"leaves two live claims on one hostname.")
+	}
+	if !strings.Contains(err.Error(), "cannot verify") {
+		t.Errorf("the refusal does not say it could not CHECK, so it reads as a collision that was found: %v", err)
 	}
 }

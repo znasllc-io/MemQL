@@ -69,25 +69,33 @@ func (e *MemQLEngine) validateAccountFrontDoorHosts(ctx context.Context, payload
 		return nil
 	}
 
-	// AN ENGINE WITH NO STORE IS NOT AN UNREACHABLE STORE, and collapsing the
-	// two would be wrong in the fail-closed direction rather than merely
-	// inconvenient.
+	// AN ENGINE THAT WAS NEVER GIVEN A STORE IS NOT A STORE THAT IS DOWN, and
+	// the difference is NOT the nil-ness of the handle.
 	//
-	// `e.database() == nil` means this engine holds no rows at all -- an
-	// in-memory engine, which is what the unit tests beside this file and
-	// several boot paths use. There is no live deployable and no live custom
-	// domain for a name to collide WITH, so admitting is the correct answer,
-	// not a lenient one. What must refuse is a read that FAILED: a database
-	// that is there and did not answer is exactly the case where "there is
-	// nothing to find" and "we could not look" diverge, and that one is
-	// handled below.
+	// The first version of this asked `e.database() == nil` and admitted. That
+	// reasoning -- "a store-less engine holds no live deployable and no live
+	// custom domain, so there is nothing to collide with" -- is true of an
+	// engine CONSTRUCTED without a store, which was the case in front of me,
+	// and false of a live one. `database()` prefers `dbGetter`, whose whole
+	// stated purpose is handling RECONNECTION, and both concrete getters
+	// return nil at runtime: `app.BunDB` is "nil until the database phase has
+	// run", and `Database.BunDB` is nil "if the database is not connected".
 	//
-	// The two sibling guards in this package do not draw the line here -- they
-	// error on a nil database too -- and the practical consequence surfaced
-	// immediately: adding this call made memql#5165's own unit test refuse a
-	// fully legal account row. Their behaviour is not mine to change; this one
-	// says what it means.
-	if e.database() == nil {
+	// So the admit branch fired in two windows on a real cluster -- during
+	// boot, and during any disconnection -- and in both the deployables and
+	// custom domains DO exist and are merely unreadable. That is not "nothing
+	// to collide with"; it is "I cannot see what I would collide with", which
+	// is precisely the case this guard's own rule says must refuse. A
+	// collision admitted during a database blip leaves two live claims on one
+	// hostname with nothing in any log saying why.
+	//
+	// The distinction is available by reading the two fields rather than the
+	// result. Caught in review by the author of memql#5165, whose own unit
+	// test was the thing that surfaced it.
+	e.dbMu.RLock()
+	neverConfigured := e.dbGetter == nil && e.db == nil
+	e.dbMu.RUnlock()
+	if neverConfigured {
 		return nil
 	}
 
