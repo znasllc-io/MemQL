@@ -116,6 +116,13 @@ func (s *EngineStore) CreateRegistration(ctx context.Context, row RegistrationRo
 		"lastConnectedFromIP":  row.LastConnectedFromIP,
 		"connectedNodeId":      row.ConnectedNodeId,
 	}
+	// Omitted when absent rather than sent as a null. A cockpit that predates
+	// the field has said nothing, and a `hardware: null` on the row is a value
+	// a reader has to know to treat as silence -- where a missing key already
+	// reads that way to everything.
+	if len(row.Hardware) > 0 {
+		args["hardware"] = row.Hardware
+	}
 	query, err := langparser.RenderCall("createWorkerRegistration", args)
 	if err != nil {
 		return fmt.Errorf("worker.store: render create: %w", err)
@@ -169,6 +176,19 @@ func (s *EngineStore) RefreshRegistration(ctx context.Context, row RegistrationR
 		"lastConnectedFromIP":  row.LastConnectedFromIP,
 		"connectedNodeId":      row.ConnectedNodeId,
 	}
+	// `hardware` IS named here, unlike operatorLabels and displayName above,
+	// and the distinction is which side of the machine/owner line the field
+	// sits on. The inventory is the MACHINE's -- it is re-reported on every
+	// Register, exactly as `labels` and `platformInfo` are -- so re-stamping it
+	// is right and leaving it out would freeze a machine's hardware at whatever
+	// it was the day the field shipped.
+	//
+	// Omitted when ABSENT rather than sent empty: a downgraded cockpit that
+	// stops reporting has gone quiet, and update{} being a read-merge is what
+	// keeps the last known inventory on the row instead of blanking it.
+	if len(row.Hardware) > 0 {
+		args["hardware"] = row.Hardware
+	}
 	query, err := langparser.RenderCall("refreshWorkerRegistration", args)
 	if err != nil {
 		return fmt.Errorf("worker.store: render refresh: %w", err)
@@ -185,7 +205,14 @@ func (s *EngineStore) RefreshRegistration(ctx context.Context, row RegistrationR
 // re-asserted on every flush rather than written once at register, because
 // both can change without a reconnect -- a rebalanced replica, a call
 // finishing.
-func (s *EngineStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int) error {
+//
+// `hardware` rides along and NIL MEANS LEAVE IT ALONE (epic memql#5146). A
+// non-material inventory refresh -- free disk moved and nothing else -- is
+// exactly as fresh as the heartbeat it arrived on, so it belongs in the
+// heartbeat's write rather than in a second one to the same row. An inventory
+// change that alters what the machine can RUN does not wait for this window;
+// UpdateHardware is that path.
+func (s *EngineStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any) error {
 	if s == nil || s.Engine == nil {
 		return nil
 	}
@@ -199,6 +226,13 @@ func (s *EngineStore) UpdateLastSeen(ctx context.Context, registrationId, ownerU
 		"lastConnectedFromIP": sourceIP,
 		"connectedNodeId":     connectedNodeId,
 		"activeCount":         activeCount,
+	}
+	// Omitted rather than sent empty. The mutation body coalesces with `??`,
+	// which is blank-coalescing, so an ABSENT key keeps the stored inventory
+	// while an empty object would overwrite it with a machine that reports
+	// nothing -- turning silence into a statement.
+	if len(hardware) > 0 {
+		args["hardware"] = hardware
 	}
 	query, err := langparser.RenderCall("updateWorkerLastSeen", args)
 	if err != nil {
@@ -656,6 +690,49 @@ func (s *EngineStore) UpdateApps(ctx context.Context, registrationId, ownerUserI
 	}
 	if _, err := s.Engine.Execute(writeCtx, query); err != nil {
 		return fmt.Errorf("worker.store: update apps: %w", err)
+	}
+	return nil
+}
+
+// UpdateHardware re-stamps the reported inventory and the labels derived from
+// it (epic memql#5146, D1). Separate from UpdateLastSeen for exactly the reason
+// UpdateApps is separate, one function above: the `runtime:<name>` labels are
+// derived from this inventory and live on the ROW as well as in the live
+// registry, so an inventory change that moves them must land even inside the
+// heartbeat's throttle window. A row whose labels disagree with the registry is
+// a split no reader can detect, and a planner node -- which holds no registry
+// at all -- reads nothing but the row.
+//
+// The cheap half of the same question is deliberately NOT here: free disk moves
+// on every beat and decides nothing, so it rides UpdateLastSeen's write rather
+// than buying one of its own.
+func (s *EngineStore) UpdateHardware(ctx context.Context, registrationId, ownerUserId string, hardware map[string]any, labels map[string]string, at time.Time, sourceIP string) error {
+	if s == nil || s.Engine == nil {
+		return nil
+	}
+	if len(hardware) == 0 {
+		// A machine that reported no inventory has said nothing, and blanking
+		// the stored one would turn that silence into a statement -- the
+		// distinction the whole field rests on.
+		return nil
+	}
+	writeCtx, err := ownerActor(ctx, ownerUserId)
+	if err != nil {
+		return err
+	}
+	args := map[string]any{
+		"registrationId":      registrationId,
+		"hardware":            hardware,
+		"labels":              labels,
+		"lastSeenAt":          at.UTC().Format(time.RFC3339Nano),
+		"lastConnectedFromIP": sourceIP,
+	}
+	query, err := langparser.RenderCall("updateWorkerHardware", args)
+	if err != nil {
+		return fmt.Errorf("worker.store: render hardware: %w", err)
+	}
+	if _, err := s.Engine.Execute(writeCtx, query); err != nil {
+		return fmt.Errorf("worker.store: update hardware: %w", err)
 	}
 	return nil
 }

@@ -120,7 +120,26 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // claimed by exactly one replica, so nothing raises an event when the process
 // holding it dies, and without a sweep the OS shows a progress bar that will
 // never move again.
-const shippedAutomationCount = 51
+//
+// 51 -> 53 with the scanner's two (epic memql#5146). workerModelProbeStaleSweep
+// is workerModelPullStaleSweep's twin, for the same reason in the same words: a
+// probe is claimed by exactly one replica, so nothing raises an event when the
+// process holding it dies, and the OS shows a suite that will never finish.
+// routingEvidenceFold is the nightly read of a week of router decisions that
+// PROPOSES a demotion and applies none.
+//
+// The pair is the argument for keeping this a COUNT rather than a list: both
+// arrived in one epic, and a list would have been updated by taking the diff,
+// which is the operation that cannot notice a third automation silently
+// dropped in the same change.
+//
+// 53 -> 56 in epic memql#5165 (groups and grants): ensureAccountGroup and
+// archiveAccountGroup give an account its group and take it away with the
+// account, and reconcileAccountDomains walks each client's own domain toward
+// proof of ownership. Three added, none removed -- and the count is what
+// SAYS none was removed, which is exactly the check a diff of a list could
+// not have made.
+const shippedAutomationCount = 56
 
 // TestStrictAutomationBoot_MalformedAutomationRefusesBoot is the core
 // acceptance test: a malformed automation injected as a throwaway domain (the

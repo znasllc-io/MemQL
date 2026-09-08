@@ -114,3 +114,43 @@ func emailDomain(email string) string {
 	}
 	return strings.TrimSpace(email[at+1:])
 }
+
+// PlaceInvitedMember writes one membership from an accepted invitation.
+//
+// NO CALLER GUARD, and the reason is that the guard already ran: every group
+// on an invitation was validated at ISSUE against an active group and against
+// the rank rule, by a caller who held `update` on group. The person arriving
+// here has no authority of their own yet -- they are being provisioned -- so
+// checking theirs would refuse every legitimate placement.
+//
+// `issuedBy` is the INVITER, recorded as who put them there. That is the
+// honest answer: an admin decided this, at issue, and the arrival merely
+// executed it.
+func (i *Integration) PlaceInvitedMember(ctx context.Context, groupID, userID, issuedBy string) error {
+	if i == nil || i.store == nil {
+		return nil
+	}
+	groupID = memql.BareShortId(strings.TrimSpace(groupID))
+	userID = memql.BareShortId(strings.TrimSpace(userID))
+	if groupID == "" || userID == "" {
+		return nil
+	}
+	// The group is RE-READ rather than trusted from the invitation: it may
+	// have been archived between issue and acceptance, and a membership in
+	// an archived group grants nothing while reading as success.
+	group, err := i.store.GroupByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if group == nil || group.Status != StatusActive {
+		return refusal(CodeGroupNotActive,
+			groupID+" is not an active group, so the invitation's placement was not made")
+	}
+	return i.store.WriteMembership(ctx, Membership{
+		ID:      MembershipID(groupID, userID),
+		GroupID: groupID,
+		UserID:  userID,
+		Origin:  OriginInvitation,
+		Status:  StatusActive,
+	}, memql.BareShortId(strings.TrimSpace(issuedBy)), "")
+}

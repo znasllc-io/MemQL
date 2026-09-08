@@ -291,7 +291,10 @@ mutate observation createWorkObservation {
 mutate approval createWorkApproval {
   args {
     approvalId    string!
-    runId         string!
+    /// Empty ONLY for kind routingReview, which a sweep raises rather than a
+    /// run. component/work.ValidateApprovalKind is where that is enforced, so
+    /// the refusal can name the kind.
+    runId         string
     stepKey       string
     kind          string!
     subject       object

@@ -235,6 +235,11 @@ func (w *Worker) recordLoneDelivery(ctx context.Context, campaign Campaign, reci
 	d.RecipientID = recipient.ID
 	d.Email = recipient.Email
 	d.EmailRuleID = emailRuleID
+	// The client tie, copied from the campaign (epic memql#5165, section J).
+	// Set HERE rather than at the four call sites above, because this is the
+	// one place every lone delivery passes through -- and a stamp spread
+	// across four literals is one a fifth call site forgets.
+	d.AccountID = campaign.AccountID
 	if err := w.store.RecordDelivery(ctx, d); err != nil {
 		w.logger.Warn("campaigns.sendToRecipient: could not record the delivery outcome",
 			"recipient", recipient.ID, "rule", emailRuleID, "status", d.Status, "error", err)

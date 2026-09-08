@@ -91,6 +91,13 @@ type WorkerForwardHandler interface {
 	// does not degrade to another machine, it simply refuses.
 	HandleForwardedModelPull(ctx context.Context, req *nodev1.ModelPullForwardRequest, send func(*nodev1.NodeServerMessage) error)
 	CancelForwardedModelPull(ctx context.Context, requestId string)
+	// HandleForwardedModelProbe is the same hop for a model probe (epic
+	// memql#5146). It joins here for the reason the pull did, and the cost of
+	// an unwired hop is the same shape: a probe names ONE machine, because a
+	// measurement of a different machine answers a question nobody asked, so an
+	// unwired hop does not degrade -- it refuses.
+	HandleForwardedModelProbe(ctx context.Context, req *nodev1.ModelProbeForwardRequest, send func(*nodev1.NodeServerMessage) error)
+	CancelForwardedModelProbe(ctx context.Context, requestId string)
 }
 
 // WorkerForwardResponseSink is the originating replica's receiver for replies
@@ -105,6 +112,9 @@ type WorkerForwardResponseSink interface {
 	// The model-pull half (epic memql#5103).
 	DispatchModelPull(resp *nodev1.ModelPullForwardResponse)
 	DispatchModelPullProgress(p *nodev1.ModelPullForwardProgress)
+	// The model-probe half (epic memql#5146).
+	DispatchModelProbe(resp *nodev1.ModelProbeForwardResponse)
+	DispatchModelProbeProgress(p *nodev1.ModelProbeForwardProgress)
 }
 
 // DeployControlForwardHandler is the identity-node-side entry point for a
@@ -430,6 +440,10 @@ func (s *nodeService) handleMessage(peerId string, msg *nodev1.NodeClientMessage
 
 	case *nodev1.NodeClientMessage_ModelPullForwardCancel:
 		s.handleModelPullForwardCancel(peerId, payload.ModelPullForwardCancel)
+	case *nodev1.NodeClientMessage_ModelProbeForwardRequest:
+		s.handleModelProbeForwardRequest(peerId, payload.ModelProbeForwardRequest, stream)
+	case *nodev1.NodeClientMessage_ModelProbeForwardCancel:
+		s.handleModelProbeForwardCancel(peerId, payload.ModelProbeForwardCancel)
 
 	default:
 		s.logger.Debug("unhandled message type from peer",
@@ -779,6 +793,46 @@ func (s *nodeService) handleModelPullForwardCancel(peerId string, cancel *nodev1
 	}
 	s.logger.Debug("model pull forward cancel", "peer_id", peerId, "request_id", cancel.GetRequestId())
 	s.workerForwardHandler.CancelForwardedModelPull(context.Background(), cancel.GetRequestId())
+}
+
+// handleModelProbeForwardRequest dispatches an inbound model probe to this
+// replica's local handler (epic memql#5146).
+func (s *nodeService) handleModelProbeForwardRequest(peerId string, req *nodev1.ModelProbeForwardRequest, stream nodev1.NodeService_StreamServer) {
+	if s.workerForwardHandler == nil {
+		s.logger.Warn("model probe forward request received but no handler configured",
+			"peer_id", peerId, "request_id", req.GetRequestId(),
+		)
+		_ = stream.Send(&nodev1.NodeServerMessage{
+			MessageId:   id.NewShortId(),
+			CorrelateTo: req.GetRequestId(),
+			Payload: &nodev1.NodeServerMessage_ModelProbeForwardResponse{
+				ModelProbeForwardResponse: &nodev1.ModelProbeForwardResponse{
+					RequestId:    req.GetRequestId(),
+					Model:        req.GetModel(),
+					ErrorCode:    "not_configured",
+					ErrorMessage: "no worker forward handler on this node",
+				},
+			},
+		})
+		return
+	}
+	// ON ITS OWN GOROUTINE, for handleModelPullForwardRequest's reason and with
+	// the same two consequences. The handler does not return until the suite
+	// ends -- up to DefaultModelProbeTimeout -- and this function runs on the
+	// peer stream's RECEIVE loop, so calling it inline would stop this node
+	// reading heartbeats and every other forward from that peer for the
+	// duration. It would also make the cancel unreachable, since
+	// ModelProbeForwardCancel arrives on the SAME stream.
+	go s.workerForwardHandler.HandleForwardedModelProbe(context.WithoutCancel(stream.Context()), req, stream.Send)
+}
+
+// handleModelProbeForwardCancel stops an in-flight forwarded probe.
+func (s *nodeService) handleModelProbeForwardCancel(peerId string, cancel *nodev1.ModelProbeForwardCancel) {
+	if s.workerForwardHandler == nil {
+		return
+	}
+	s.logger.Debug("model probe forward cancel", "peer_id", peerId, "request_id", cancel.GetRequestId())
+	s.workerForwardHandler.CancelForwardedModelProbe(context.Background(), cancel.GetRequestId())
 }
 
 // SetWorkerForwardHandler installs the agent-side handler for inbound worker

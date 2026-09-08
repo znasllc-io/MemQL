@@ -43,16 +43,6 @@ import (
 	workerservice "github.com/znasllc-io/memql/component/worker"
 )
 
-// SharedInferenceLabel is the operator label by which an owner offers their
-// machine for the cluster's own system work.
-//
-// IT MUST BE SET ON operatorLabels. Nothing enforces that at the wire -- the
-// cockpit could report a label of this name -- so the enforcement is that
-// Candidate.SharedInference is projected from `operatorLabels` alone, at the
-// one place a registration row becomes a Candidate, and no code downstream
-// reads the merged map for it.
-const SharedInferenceLabel = "sharedInference"
-
 // maxQuantLen bounds the quantization string a machine may report. It is
 // operator-facing text from another process and nothing parses it, so the only
 // job here is to stop a malformed cockpit from growing the registration row.
@@ -465,8 +455,12 @@ func (r *Router) PlanSharedModel(
 	rejected := map[string]string{}
 	for _, c := range all {
 		switch {
-		case !c.SharedInference:
-			rejected[c.RegistrationId] = "owner has not opted this machine in to shared inference"
+		case !c.ServesCluster():
+			// NAMED, not "not shared". The owner's repair is an act on the
+			// Fleet page and the cockpit's is a line in a file on that
+			// machine's own disk; one sentence for both sends half the
+			// operators to the wrong machine.
+			rejected[c.RegistrationId] = c.SharingRefusal()
 		case !workerservice.IsOnline(c.LastSeenAt, c.RevokedAt, now):
 			if !c.RevokedAt.IsZero() {
 				rejected[c.RegistrationId] = "revoked"

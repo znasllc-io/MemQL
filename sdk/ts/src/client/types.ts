@@ -26,22 +26,6 @@ import type {
 // name. Consumers must treat it as "unknown", never as "least privileged".
 export type Role = "" | "owner" | "admin" | "developer" | "writer" | "reader";
 
-/**
- * One group the caller is in, as MyAccess reports it (epic memql#5165).
- *
- * It carries the ACCOUNT's name as well as the group's, because the surfaces
- * that read it are naming a client -- and a client whose name needs a second,
- * gated read to resolve is one a member could not see the name of.
- */
-export interface AccessGroup {
-  id: string;
-  name: string;
-  /** `account` for the group the cluster makes per client, `custom` otherwise. */
-  kind: string;
-  accountId: string;
-  accountName: string;
-}
-
 export interface AccessSummary {
   requestId: string;
   userId: string;
@@ -56,12 +40,6 @@ export interface AccessSummary {
   // for a credential with no session behind it (a PAT, an operator key, a
   // service account), which is not an error; there is simply no row to name.
   sessionId: string;
-  /**
-   * The groups this caller is in. EMPTY means "not reported" as well as "none"
-   * -- see accessSummaryFromWire -- so a reader must not conclude from an
-   * empty list that somebody belongs to nobody.
-   */
-  groups: AccessGroup[];
   // displayName is the person's name off their v1:identity:user row
   // (memql#4317), resolved server-side by the same read that produces
   // primaryEmail.
@@ -76,6 +54,33 @@ export interface AccessSummary {
   // insert, a PAT with no provisioned user). Render the email instead; a
   // caller holds that already.
   displayName: string;
+  // groups are the client groups this caller belongs to (epic memql#5165) --
+  // membership ROWS, so a person placed in none has an empty list.
+  groups: AccessGroup[];
+  // accountIds is the resolved scope: which accounts' rows this caller may
+  // reach.
+  //
+  // READ everyAccount FIRST. It is the staff rule -- developer rank and above
+  // are standing members of every account-kind group, applied by the engine
+  // rather than written as rows -- and when it is set this list is EMPTY and
+  // empty means ALL. A client that reads the list alone shows a developer as
+  // belonging to nothing, which is the opposite of the truth.
+  accountIds: string[];
+  everyAccount: boolean;
+}
+
+// AccessGroup is one group the caller belongs to.
+export interface AccessGroup {
+  id: string;
+  name: string;
+  // kind is "account" for the group an account gets by default, "custom" for
+  // any other. They render differently: the account group IS the client
+  // relationship, a custom group is an arrangement somebody made.
+  kind: string;
+  accountId: string;
+  // accountName is resolved server-side so a list renders without a round
+  // trip per group.
+  accountName: string;
 }
 
 // DisplayCard carries the per-concept rendering hints declared via
@@ -561,20 +566,18 @@ export function accessSummaryFromWire(p: MyAccessResultPayload | undefined): Acc
     clusterRole: roleFromWire(p.clusterRole),
     sessionId: p.sessionId ?? "",
     displayName: p.displayName ?? "",
-    // The groups this caller is in (epic memql#5165, section H). ABSENT is not
-    // "no groups": a cluster whose engine predates the field sends nothing, and
-    // a consumer that read absence as emptiness would tell a member of Acme
-    // they belong to nobody. Every reader here treats the empty list as "not
-    // reported" and falls back to what it can read for itself.
-    groups: Array.isArray(p.groups)
-      ? p.groups.map((g) => ({
-          id: g.id ?? "",
-          name: g.name ?? "",
-          kind: g.kind ?? "",
-          accountId: g.accountId ?? "",
-          accountName: g.accountName ?? "",
-        }))
-      : [],
+    groups: (p.groups ?? []).map((g) => ({
+      id: g.id ?? "",
+      name: g.name ?? "",
+      kind: g.kind ?? "",
+      accountId: g.accountId ?? "",
+      accountName: g.accountName ?? "",
+    })),
+    accountIds: (p.accountIds ?? []).filter((a): a is string => typeof a === "string"),
+    // Normalised to a real boolean: protojson omits a false bool, so the wire
+    // field is absent for every non-staff caller and a consumer reading it
+    // raw would see undefined rather than false.
+    everyAccount: p.everyAccount === true,
   };
 }
 

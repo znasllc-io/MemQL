@@ -303,3 +303,43 @@ shape embedderBinding embedderBindingFull {
   previousRef
   row.createdAt
 }
+
+// ---- Measurement and evidence (epic memql#5146) ----
+
+/// Full projection of one probe's measurement. Backs the machine page's per-model figures and the
+/// measured ordering the router reads.
+@row
+shape modelMeasurement modelMeasurementFull {
+  row.id
+  ownerUserId
+  machineId
+  modelId
+  suiteVersion
+  measuredAt
+  structuredValidity
+  toolCallCorrectness
+  throughputTps
+  ttftMs
+  probeError
+  row.createdAt
+}
+
+/// Full projection of one model's folded week. Backs the routing evidence view and the proposal a
+/// routingReview approval refers to.
+@row
+shape modelEvidence modelEvidenceFull {
+  row.id
+  modelId
+  level
+  week
+  calls
+  structuredFailures
+  repairs
+  retries
+  parks
+  proposal
+  approvalId
+  ruleHash
+  foldedAt
+  row.createdAt
+}

@@ -31,6 +31,7 @@ import (
 	"github.com/znasllc-io/memql/component/events"
 	"github.com/znasllc-io/memql/component/identity"
 	"github.com/znasllc-io/memql/component/memql"
+	routerlib "github.com/znasllc-io/memql/component/router"
 	"github.com/znasllc-io/memql/component/routingrules"
 	integrationsrouter "github.com/znasllc-io/memql/integrations/router"
 )
@@ -138,6 +139,30 @@ func (a *App) wireAuthoredRuntime() {
 	// the silent one.
 	if ri := integrationsrouter.Materialized(); ri != nil {
 		ri.SetRuleActivator(routingRuleActivatorAdapter{})
+		// The SAME handoff for the same reason, for the evidence fold's
+		// renderer (epic memql#5146, D5). The fold hashes the source it
+		// renders and a person approves that hash, so the tree must have
+		// exactly ONE renderer of this grammar: a second would drift, and the
+		// drift is silent because the approval would then carry to text
+		// nobody read.
+		//
+		// The two Form types are field-identical by construction --
+		// component/router mirrors component/routingrules.Form because the
+		// leaf module cannot import the root one -- and
+		// TestEvidenceFormMirrorsTheRoutingRulesForm fails the build if they
+		// diverge. This adapter is the one place the mirror is crossed.
+		ri.SetRuleRenderer(func(f routerlib.Form) (string, error) {
+			return routingrules.GenerateRule(routingrules.Form{
+				Name:          f.Name,
+				Description:   f.Description,
+				When:          f.When,
+				Policy:        f.Policy,
+				Level:         f.Level,
+				Precedence:    f.Precedence,
+				OnUnavailable: f.OnUnavailable,
+				Excludes:      f.Excludes,
+			})
+		})
 		a.Logger.Info("routing-rule authoring wired: an owner or developer can add a rule at runtime and it survives a restart",
 			"component", "router")
 	}

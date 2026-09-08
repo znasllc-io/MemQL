@@ -52,11 +52,11 @@ type AccountGroupBackfillReport struct {
 
 // reconcileAccountGroups gives every active account its group.
 //
-// staged-data: MUST-NOT-GATE -- a RECONCILER, and the argument is
-// reconcileSkillCatalog's exactly. The read is the "does this already exist"
-// half of an idempotency check, so hiding a staged account makes the sweep
-// skip an account that has no group rather than disclose anything. The read is
-// not a disclosure surface; it is what decides the write.
+// Every read below goes through the ENGINE rather than a hand-rolled select, so
+// the staged-data question is answered by the engine's own injection and there
+// is no direct read site here to adjudicate. (A verdict comment with no read to
+// rule on pre-authorizes whatever lands in the file next, which is why one is
+// deliberately absent rather than copied from a sibling.)
 func (m *SeedMaterializer) reconcileAccountGroups(ctx context.Context) (AccountGroupBackfillReport, error) {
 	var report AccountGroupBackfillReport
 	if m == nil || m.engine == nil {

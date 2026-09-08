@@ -4247,6 +4247,74 @@ QueryClient.prototype.magicLinkRequestByTokenHash = function (this: QueryClient,
   return this.executeNamed("magicLinkRequestByTokenHash", buildMagicLinkRequestByTokenHash(args), opts);
 };
 
+/** Every measurement the caller may see, newest first (epic memql#5146, D4).
+The read the LIVE CATALOG makes, so the measured ordering and the page read one fact rather than two. Two readers of "which model is strongest" would disagree eventually, and the disagreement would be invisible, because both answers are plausible.
+UNFILTERED BEYOND THE TIER, deliberately. The concept's own tier decides what comes back -- a plain user sees their own machines' figures, a cluster owner sees the fleet's -- and narrowing further here would be a second implementation of a decision the declaration already made. */
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForCaller"] in generated_concepts.ts).
+export interface MeasurementsForCallerArgs {
+}
+
+export function buildMeasurementsForCaller(args: MeasurementsForCallerArgs): string {
+  void args;
+  return "query measurementsForCaller()";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    measurementsForCaller(args?: MeasurementsForCallerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.measurementsForCaller = function (this: QueryClient, args: MeasurementsForCallerArgs = {} as MeasurementsForCallerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("measurementsForCaller", buildMeasurementsForCaller(args), opts);
+};
+
+/** Every measurement for one machine, newest first. The machine page's per-model figures.
+KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a person reading it wants every model it has been measured on -- including the ones they have forgotten they pulled. */
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForMachine"] in generated_concepts.ts).
+export interface MeasurementsForMachineArgs {
+  machineId: string;
+}
+
+export function buildMeasurementsForMachine(args: MeasurementsForMachineArgs): string {
+  const parts: string[] = [];
+  parts.push("machineId: " + renderMemQLValue(args.machineId));
+  return "query measurementsForMachine(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    measurementsForMachine(args: MeasurementsForMachineArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.measurementsForMachine = function (this: QueryClient, args: MeasurementsForMachineArgs = {} as MeasurementsForMachineArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("measurementsForMachine", buildMeasurementsForMachine(args), opts);
+};
+
+/** Every measurement of one model across the machines the caller can read, newest first.
+The fleet-wide half of the same question. A cluster owner sees every machine's figures for a model, which is the read that makes "this model is slow" answerable as "on which hardware". */
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForModel"] in generated_concepts.ts).
+export interface MeasurementsForModelArgs {
+  modelId: string;
+}
+
+export function buildMeasurementsForModel(args: MeasurementsForModelArgs): string {
+  const parts: string[] = [];
+  parts.push("modelId: " + renderMemQLValue(args.modelId));
+  return "query measurementsForModel(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    measurementsForModel(args: MeasurementsForModelArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.measurementsForModel = function (this: QueryClient, args: MeasurementsForModelArgs = {} as MeasurementsForModelArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("measurementsForModel", buildMeasurementsForModel(args), opts);
+};
+
 /** The membership rows of one group. Removed members are history and are excluded unless asked for -- the row stays, because who left and when is the question the versions exist to answer. */
 // Bound concept: v1:identity:groupMembership (machine-readable: BoundConcepts["membersOfGroup"] in generated_concepts.ts).
 export interface MembersOfGroupArgs {
@@ -4337,6 +4405,55 @@ declare module "./query.js" {
 
 QueryClient.prototype.missingCapabilityByKindAndName = function (this: QueryClient, args: MissingCapabilityByKindAndNameArgs = {} as MissingCapabilityByKindAndNameArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("missingCapabilityByKindAndName", buildMissingCapabilityByKindAndName(args), opts);
+};
+
+/** One model's evidence at one level for one week -- the row a fold reads before deciding whether it has already proposed, and the row a decline writes back to.
+THE THREE ARGUMENTS ARE THE KEY. A fold that read only by model would re-propose at every level on the same evidence, and one that read only by week would collapse two models into one row. */
+// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["modelEvidenceForKey"] in generated_concepts.ts).
+export interface ModelEvidenceForKeyArgs {
+  modelId: string;
+  level: string;
+  week: string;
+}
+
+export function buildModelEvidenceForKey(args: ModelEvidenceForKeyArgs): string {
+  const parts: string[] = [];
+  parts.push("modelId: " + renderMemQLValue(args.modelId));
+  parts.push("level: " + renderMemQLValue(args.level));
+  parts.push("week: " + renderMemQLValue(args.week));
+  return "query modelEvidenceForKey(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelEvidenceForKey(args: ModelEvidenceForKeyArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelEvidenceForKey = function (this: QueryClient, args: ModelEvidenceForKeyArgs = {} as ModelEvidenceForKeyArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelEvidenceForKey", buildModelEvidenceForKey(args), opts);
+};
+
+/** The CALLER'S probes for one machine, newest first (epic memql#5146). Backs the machine detail's Models group: a live probe renders its case counter, and finished ones answer "when was this measured, and did it work". */
+// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["modelProbesForWorker"] in generated_concepts.ts).
+export interface ModelProbesForWorkerArgs {
+  workerId: string;
+}
+
+export function buildModelProbesForWorker(args: ModelProbesForWorkerArgs): string {
+  const parts: string[] = [];
+  parts.push("workerId: " + renderMemQLValue(args.workerId));
+  return "query modelProbesForWorker(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelProbesForWorker(args: ModelProbesForWorkerArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelProbesForWorker = function (this: QueryClient, args: ModelProbesForWorkerArgs = {} as ModelProbesForWorkerArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelProbesForWorker", buildModelProbesForWorker(args), opts);
 };
 
 /** One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it. */
@@ -4776,6 +4893,35 @@ declare module "./query.js" {
 
 QueryClient.prototype.oidcIdentityBySubject = function (this: QueryClient, args: OidcIdentityBySubjectArgs = {} as OidcIdentityBySubjectArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("oidcIdentityBySubject", buildOidcIdentityBySubject(args), opts);
+};
+
+/** Every probe nobody is driving, for the sweep that closes them.
+TWO CUTOFFS, for openModelPulls' reason and with the same trap: a row still at `requested` was never picked up and is judged against when it was ASKED FOR, while a row at `running` was claimed and then lost and is judged against when it last REPORTED. One cutoff applied to both fails every ACTIVE suite older than the claim grace and then flaps, because the next case stamps `running` back on the row.
+The stall grace must exceed the worker handle's own idle ceiling, or the row watcher gives up on a probe the runtime watcher has not -- and here the two are further apart than for a pull: a single 32K case on a modest machine can be minutes of silence that is not silence at all.
+It reads under `actor.isClusterOwner==true` because its only caller is a cron running under the cluster's MAINTENANCE PRINCIPAL; writing the conjunct is what makes the failure loud, since stripping the principal returns zero rows and the filter says why. */
+// Bound concept: v1:worker:modelProbe (machine-readable: BoundConcepts["openModelProbes"] in generated_concepts.ts).
+export interface OpenModelProbesArgs {
+  /** A `requested` row older than this was never claimed. */
+  requestedBefore: string;
+  /** A `running` row that has not reported since this has stopped moving. */
+  updatedBefore: string;
+}
+
+export function buildOpenModelProbes(args: OpenModelProbesArgs): string {
+  const parts: string[] = [];
+  parts.push("requestedBefore: " + renderMemQLValue(args.requestedBefore));
+  parts.push("updatedBefore: " + renderMemQLValue(args.updatedBefore));
+  return "query openModelProbes(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    openModelProbes(args: OpenModelProbesArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.openModelProbes = function (this: QueryClient, args: OpenModelProbesArgs = {} as OpenModelProbesArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("openModelProbes", buildOpenModelProbes(args), opts);
 };
 
 /** Every model pull nobody is driving, for the sweep that closes them.
@@ -5746,6 +5892,29 @@ QueryClient.prototype.recentAuthActivity = function (this: QueryClient, args: Re
   return this.executeNamed("recentAuthActivity", buildRecentAuthActivity(args), opts);
 };
 
+/** The most recent folded weeks, newest first. The routing evidence view.
+Cluster-owner only by the concept's tier: the question is how a MODEL behaved across the fleet, which is nobody's personal data and everybody's calls. */
+// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["recentModelEvidence"] in generated_concepts.ts).
+export interface RecentModelEvidenceArgs {
+  week?: string;
+}
+
+export function buildRecentModelEvidence(args: RecentModelEvidenceArgs): string {
+  const parts: string[] = [];
+  if (args.week !== undefined) parts.push("week: " + renderMemQLValue(args.week));
+  return "query recentModelEvidence(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    recentModelEvidence(args: RecentModelEvidenceArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.recentModelEvidence = function (this: QueryClient, args: RecentModelEvidenceArgs = {} as RecentModelEvidenceArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("recentModelEvidence", buildRecentModelEvidence(args), opts);
+};
+
 /** ENGINE: the most recent send jobs in any status, newest first. Cluster-owner gated, and it spans owners for the same reason drainableSendJobs does -- the question it answers is about the cluster, not about one operator. Backs one thing only: the boot-time check behind the unsubscribe-secret rotation warning (memql#3458), which needs to know whether this deployment has ever put a signed unsubscribe link in front of a recipient. The row carries no recipient data. */
 // Bound concept: v1:campaigns:sendJob (machine-readable: BoundConcepts["recentSendJobs"] in generated_concepts.ts).
 export interface RecentSendJobsArgs {
@@ -6137,6 +6306,65 @@ declare module "./query.js" {
 
 QueryClient.prototype.routerBudgets = function (this: QueryClient, args: RouterBudgetsArgs = {} as RouterBudgetsArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("routerBudgets", buildRouterBudgets(args), opts);
+};
+
+/** Every router call in a window, for the nightly evidence fold.
+It reads under `actor.isClusterOwner==true` because its only caller is the fold, running under the cluster's MAINTENANCE PRINCIPAL. The question is how a MODEL behaved across the fleet, not how it behaved for one person, so there is no owner to scope to -- and writing the conjunct is what makes the failure LOUD: strip the principal and this returns zero rows, and the filter says why. Without it a fold that proposes nothing is indistinguishable from a fleet where every model is behaving, which is the one shape of silence this feature exists to break. */
+// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerCallsInWindow"] in generated_concepts.ts).
+export interface RouterCallsInWindowArgs {
+  /** Inclusive lower bound, RFC3339. */
+  since: string;
+  /** Exclusive upper bound, RFC3339. */
+  until: string;
+}
+
+export function buildRouterCallsInWindow(args: RouterCallsInWindowArgs): string {
+  const parts: string[] = [];
+  parts.push("since: " + renderMemQLValue(args.since));
+  parts.push("until: " + renderMemQLValue(args.until));
+  return "query routerCallsInWindow(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    routerCallsInWindow(args: RouterCallsInWindowArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.routerCallsInWindow = function (this: QueryClient, args: RouterCallsInWindowArgs = {} as RouterCallsInWindowArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("routerCallsInWindow", buildRouterCallsInWindow(args), opts);
+};
+
+/** Every call served by ONE machine in a window, for that machine's sharing ledger.
+SCOPED BY SURFACE, NOT BY OWNER, and the difference is a wrong answer rather than a style choice. `machineOwnerUserId` is deliberately EMPTY for a call a person ran on their own machine -- it names whose machine served a call when that machine was somebody ELSE's -- so `machineOwnerUserId==actor.userId` would return only the calls OTHER people ran on your hardware and none of your own. The fold counts the owner's own calls alongside everybody else's, because the figure answers "how busy has this machine been" rather than "how much have I lent it out", so that filter would show near-zero on a machine its owner uses constantly.
+AUTHORIZATION IS THE CALLER'S OWNERSHIP OF THE MACHINE, checked in the builtin before this runs: `fleetSharingLedger` resolves the registration through the caller's own machines and refuses one that is not theirs, which is the same gate the pull and the probe use. The surface argument is then derived from a registration id the caller has already been proven to own, so it cannot be pointed at somebody else's machine by passing a different string.
+It is a SEPARATE query from routerCallsInWindow for that reason: the fold's read is gated on `actor.isClusterOwner`, which is right for a maintenance sweep and returns zero rows for the machine owner this one serves. */
+// Bound concept: v1:router:call (machine-readable: BoundConcepts["routerCallsOnMachine"] in generated_concepts.ts).
+export interface RouterCallsOnMachineArgs {
+  /** The execution surface, as `fleet:<registrationId>`. */
+  surface: string;
+  /** Inclusive lower bound, RFC3339. */
+  since: string;
+  /** Exclusive upper bound, RFC3339. */
+  until: string;
+}
+
+export function buildRouterCallsOnMachine(args: RouterCallsOnMachineArgs): string {
+  const parts: string[] = [];
+  parts.push("surface: " + renderMemQLValue(args.surface));
+  parts.push("since: " + renderMemQLValue(args.since));
+  parts.push("until: " + renderMemQLValue(args.until));
+  return "query routerCallsOnMachine(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    routerCallsOnMachine(args: RouterCallsOnMachineArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.routerCallsOnMachine = function (this: QueryClient, args: RouterCallsOnMachineArgs = {} as RouterCallsOnMachineArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("routerCallsOnMachine", buildRouterCallsOnMachine(args), opts);
 };
 
 /** The recent AI routing decisions, newest first. This is how a rule is checked: a rule set nobody can read the consequences of is a set of assertions.

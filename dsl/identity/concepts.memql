@@ -284,7 +284,7 @@ concept clusterSettings {
   registrationMode                enum("open", "domain_restricted", "invite_only", "waitlist")!  @default("open")  @description("Who can self-register. Mirror of MEMQL_IDENTITY_REGISTRATION_MODE.")
   registrationDomains             string  @description("Comma-separated allowlist used when registrationMode=domain_restricted. Mirror of MEMQL_IDENTITY_REGISTRATION_DOMAINS.")
   internalDomains                 string  @description("Comma-separated email-domain allowlist that flips the per-user 'internal' flag at first login. Internal users get the cluster-wide internalDefaultRole; external users get owner of an auto-created personal partition.")
-  internalDefaultRole             string  @description("Cluster-wide role granted to internal users on first login. A v1:rbac:role SLUG or one of its aliases, validated in Go at the seam that writes a user row -- a DSL enum cannot name a row, and a five-value enum here would mean a cluster could never default new people onto a role it authored itself (epic memql#5166). Always written: createClusterSettings takes this as a required arg and stamps it; the 'writer' fallback lives in MEMQL_IDENTITY_INTERNAL_DEFAULT_ROLE, which is where the operator sets it.")
+  internalDefaultRole             enum("owner", "admin", "developer", "writer", "reader")  @description("Cluster-wide role granted to internal users on first login. Always written: createClusterSettings takes this as a required arg and stamps it; the 'writer' fallback lives in MEMQL_IDENTITY_INTERNAL_DEFAULT_ROLE, which is where the operator sets it.")
   brandName                       string  @description("Display name shown in the web UI and in outbound emails. Empty falls back to 'MemQL'.")
   brandPrimaryColor               string  @description("Hex color used as --brand-primary in the web UI. Empty falls back to a neutral blue.")
   brandLogoDataURI                string  @description("Optional horizontal brand logo (name+icon mark) encoded as a data URI. Used for the wide-display contexts (header brand, login page top). CSP allows img-src data: precisely so this can render without an external host.")
@@ -317,7 +317,7 @@ concept delegation {
   identitySubject    string!  @description("authenticated subject id of the delegating identity (denormalized for fast lookup on the auth hot path).")
   identityType       enum("human", "synthetic")!  @description("Type of the delegating identity. Separate from v1:identity:identity.identityType (which classifies the credential family); this classifies the principal behind it.")
   agentId            string!  @description("Node ID of the v1:agents:agent receiving delegated authority.")
-  roleCeiling        string!  @description("Maximum role the agent may assume under this delegation. A v1:rbac:role SLUG or one of its aliases, validated in Go where the delegation is created and again where it is resolved (epic memql#5166) -- a DSL enum cannot name a row. Compared by RANK, not by the legacy four-value level scale, which collapsed every custom role into its bottom rung and so admitted a ceiling that outranked its own delegator. The engine caps the effective role at RoleAtMost(identity.role, roleCeiling).")
+  roleCeiling        enum("owner", "admin", "developer", "writer", "reader")!  @description("Maximum role the agent may assume under this delegation. The engine caps the effective role at RoleAtMost(identity.role, roleCeiling).")
   scopes             []string  @description("Allowed operation scopes. Empty means all operations within the role ceiling. Examples: query:*, mutation:library.*.")
   expiresAt          datetime  @description("When this delegation expires. Null means persistent (no expiry).")
   active             bool  @default("true")  @description("Whether this delegation is currently in effect.")
@@ -484,7 +484,7 @@ concept invitation {
   expiresAt     datetime                                                                      @description("Absolute expiration timestamp. Set for both kinds since memql#4270: a user invitation that never expires is a standing credential nobody remembers issuing.")
   inviteeEmail  string                                                                        @description("Email address of the invitee. Set for BOTH kinds. For kind=user it is the address the invitation authorizes to register, which is the whole point: the recipient has no account yet, so there is no id to name them by.")
   inviteeId     string                                                                        @description("User ID of the invitee, when one already exists. Empty for the common kind=user case -- an invitation to a person who has not registered cannot name a row that does not exist. Stamped on acceptance.")
-  inviteeRole   string  @description("The cluster role the recipient lands with on redemption (memql#4270). A v1:rbac:role SLUG or one of its aliases (epic memql#5166); a DSL enum cannot name a row, so the check is auth.MayAssignRole in component/identity/adminops, which is the same function SetUserRole calls. Empty means the cluster default for a new user. An inviter cannot grant above their own role -- enforced in component/identity/adminops, not here, because the comparison needs the caller.")
+  inviteeRole   enum("owner", "admin", "developer", "writer", "reader")  @description("The cluster role the recipient lands with on redemption (memql#4270). Empty means the cluster default for a new user. An inviter cannot grant above their own role -- enforced in component/identity/adminops, not here, because the comparison needs the caller.")
   inviteeName   string                                                                        @description("Display name suggested by the inviter. Optional.")
   inviterId     string!                                                             @description("User ID of the person who issued the invitation.")
   inviterName   string                                                                        @description("Display name of the inviter. Denormalized for notification/email rendering.")
@@ -600,7 +600,7 @@ concept user {
   primaryRole     string  @pii  @description("Free-form job title / role at the org (e.g. 'CEO', 'Engineer'). Distinct from the cluster-wide auth `role` field above; admin-curated, not auth-related.")
   gender          string  @pii  @description("Optional self-identified gender. Free-form string -- the frontend offers a curated list but the backend doesn't enforce one.")
   birthdate       string  @pii  @description("ISO-8601 date (YYYY-MM-DD), optional. Stored as a string rather than datetime because we never compute against it -- it's reference data the admin sets and the profile UI surfaces.")
-  role            string  @default("reader")  @description("Cluster-wide role: a v1:rbac:role SLUG or one of its aliases (epic memql#5166). It was a five-value enum, and that enum is why a custom role could be created, could rank, and could not be assigned -- the value would not fit the field. A DSL enum cannot name a row, so validation is auth.IsValidRole against the runtime catalog, applied at every seam that writes this field. owner is the sole cluster-owner tier (actor.isClusterOwner==true is what an admin-tier row's @rowAuthz gates on -- e.g. the audit log); admin/developer/writer/reader are RBAC roles for the identity admin console + engineering surfaces (component/auth/rbac.go) but carry no automatic per-row data access of their own -- reaching an owned/granted row still requires being its owner or holding a relationship grant, not just this role. developer additionally gets authoring + inline DSL + deploy/cut-version; admin/writer/reader do not.")
+  role            enum("owner", "admin", "developer", "writer", "reader")  @default("reader")  @description("Cluster-wide role. owner is the sole cluster-owner tier (actor.isClusterOwner==true is what an admin-tier row's @rowAuthz gates on -- e.g. the audit log); admin/developer/writer/reader are RBAC roles for the identity admin console + engineering surfaces (component/auth/rbac.go) but carry no automatic per-row data access of their own -- reaching an owned/granted row still requires being its owner or holding a relationship grant, not just this role. developer additionally gets authoring + inline DSL + deploy/cut-version; admin/writer/reader do not.")
   // Every nested block rejects undeclared keys (memql#3641), and this is the
   // block that made the case for it: `computerUseEnbaled` used to store
   // happily beside `computerUseEnabled`, leaving the computer-use kill switch
@@ -728,7 +728,26 @@ concept group {
   status       enum("active", "archived")!  @description("Lifecycle. Only an ACTIVE group grants anything -- the resolution reads the group's status rather than trusting the membership, because a group is archived without its memberships being rewritten. Archive is the only exit; there is no delete.")
   archivedAt   datetime  @description("When status became archived. Written by groupArchive and by the archiveAccountGroup cascade.")
 
-  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
+  // NO @relationship ON accountId, and that is a decision rather than an
+  // omission (epic memql#5165).
+  //
+  // A relationship canonicalizes the field on write, against the concept its
+  // `target=` names -- and the bare name `account` is AMBIGUOUS IN THIS FILE:
+  // v1:identity:account is declared below, and the flat registry resolves a
+  // bare name first-wins, so `target=account` here binds the identity concept
+  // rather than the client registry. The DSL has no qualified spelling to
+  // disambiguate with.
+  //
+  // For v1:identity:invitation.accountId that ambiguity is harmless, because
+  // the stored value and the filter argument canonicalize the SAME wrong way
+  // and agree with each other. Here it is not: this field is compared against
+  // the accountId of a SITE or a CAMPAIGN, which canonicalize correctly in
+  // their own files -- so a relationship would store `v1:identity:account:X`
+  // against their `v1:accounts:account:X` and the grant would match nothing,
+  // silently, while every declaration read correctly.
+  //
+  // Stored BARE instead, which is the wire contract at every seam anyway, and
+  // the account scope carries both spellings for exactly this reason.
 }
 
 /// ONE PERSON'S MEMBERSHIP OF ONE GROUP (epic memql#5165, D11).

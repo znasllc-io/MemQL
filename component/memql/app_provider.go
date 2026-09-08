@@ -296,6 +296,17 @@ type appProvider struct {
 // LastCall reports the machine, usage and billing of the most recent call. The
 // provider interfaces return a bare string, so the accounting is read back
 // rather than returned -- the same shape fleetProvider uses.
+// ExecutionSurface reports where the last call ran, for the router's decision
+// row (epic memql#5146). See the fleet provider's for the seam's shape.
+func (p *appProvider) ExecutionSurface() string {
+	if p == nil {
+		return ""
+	}
+	p.lastMu.Lock()
+	defer p.lastMu.Unlock()
+	return p.lastSurface
+}
+
 func (p *appProvider) LastCall() (surface string, usage AppUsage, billing string) {
 	if p == nil {
 		return "", AppUsage{}, ""

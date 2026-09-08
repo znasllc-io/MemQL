@@ -7,7 +7,8 @@ use accounts.concepts.{ account }
 use agents.concepts.{ agent }
 use identity.concepts.{ user }
 use library.concepts.{ artifact }
-use work.concepts.{ run }
+use work.concepts.{ approval, run }
+use worker.concepts.{ registration }
 
 /// Instance-wide encrypted secret. Lives in the reserved _system partition (via @scope("global")).
 /// The cleartext value is NEVER stored -- only a NaCl secretbox ciphertext (base64(nonce||ct))
@@ -201,7 +202,7 @@ concept inboundRequest {
 /// ownerUserId EMPTY means cluster-owned, and the seeded platform-site row is the case: sameRowAuthzOwner
 /// refuses an empty owner outright, so a cluster-owned row is reachable through the admin branch
 /// alone -- never by a caller who happens to have no identity resolved.
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 @displayCard(primary="hostname", secondary="kind", tertiary="title", status="status")
 concept site {
   ownerUserId  string   @description("v1:identity:user.id that owns this deployable, or EMPTY for a cluster-owned site. Stamped from the actor on create by createSite, which is what makes the tier below true rather than aspirational. A write made as the DEPLOYMENT -- a cluster owner, a system actor, or trusted server-side Go -- has that stamp undone and produces a cluster-owned row instead; the seeded platform site is the one the platform ships that way, and re-running createSite on an existing id is how an operator hands a site over or takes it back. It is the row-authz key: the composite tier compares it against actor.userId and ORs in the cluster-owner branch, so a user reads and writes exactly their own sites while an operator reads every one. NOT `string!` -- an empty value is the meaningful cluster-owned state, and `string!` would refuse the platform-site seed.")
@@ -693,4 +694,95 @@ concept moduleVerdict {
 concept readinessRecomputeResult {
   nodeId   string!  @description("The node that re-evaluated.")
   written  int!     @description("How many moduleReadiness rows were written.")
+}
+
+// ---- Measurement and evidence (epic memql#5146, D3 and D5) ------------------
+//
+// A pull says a model is on a disk. These two say what it DOES there, and what
+// it has done since.
+//
+// modelMeasurement is one probe's answer for one model on one machine, under
+// one suite version. modelEvidence is the nightly fold of what actually
+// happened afterwards -- the decision records and step receipts a week of real
+// calls left behind. The first is a measurement taken on purpose; the second is
+// a measurement nobody had to take, and neither substitutes for the other.
+
+/// One probe's figures for one model on one machine, under one suite version.
+///
+/// KEYED BY (machineId, modelId, suiteVersion), AND THE THIRD IS NOT METADATA. Two figures scored by
+/// different suites are not comparable, so a new suite version produces a NEW row rather than
+/// overwriting a figure that meant something else. The row id is a digest of the three, so a re-probe
+/// under the same suite is a new VERSION of one logical row and the history stays readable.
+///
+/// EVERY FIGURE IS A STAT OR AN ABSENT REASON, never both and never neither. That is
+/// component/proving/figure's discipline carried onto a row, and the reason is a page: a machine
+/// nobody has probed showing "0 tok/s" reads exactly like a slow machine, and the two lead to
+/// opposite actions. Each figure is an object of the shape
+/// { measured: true, median, spreadLow, spreadHigh, n } XOR
+/// { measured: false, absentReason, absentDetail }, where absentReason is one of unmeasured,
+/// refused or failed. `refused` is NOT a failure -- it is the 32K case put to an 8K model, a
+/// question the model never claimed to answer -- and counting it as one would penalise a model in
+/// every ranking for a limit it had already declared.
+///
+/// A MEASURED ZERO IS A REAL ANSWER. Five structured cases that ran and all failed is 0.0 with n=5,
+/// and it says do not route structured work to this model; that is a different sentence from the
+/// absence a crashed runtime leaves, and the whole shape above exists to keep them apart.
+///
+/// TIER: the composite owner, clusterOwner. A measurement is a fact about somebody's machine -- it
+/// says what their hardware does -- so the owner tier is right, and a plain one would hide every
+/// machine's figures from the operator who has to explain the routing.
+@rowAuthz(owner="ownerUserId", clusterOwner)
+@displayCard(primary="modelId", secondary="machineId", tertiary="measuredAt", status="suiteVersion")
+concept modelMeasurement {
+  ownerUserId          string!  @serverSet  @description("v1:identity:user.id who owns the machine the suite ran on. THE ROW-AUTHZ OWNER FIELD, stamped from the actor and never taken from caller args. The probe's report arrives on an agent replica, which runs the write under auth.ContextWithUserActor for the registration's owner -- the borrowed-authority shape every other write about somebody's machine already uses.")
+  machineId            string!  @description("v1:worker:registration.id the suite ran on. A figure with no machine is a figure about nothing: the whole content of a measurement is which hardware produced it, which is also why a probe names one machine and has nothing to fall through to.")
+  modelId              string!  @description("The runtime's own id, byte-identical to the model label and to v1:models:modelProfile.modelId, so a measurement joins to both by string equality and never by a fuzzy match.")
+  suiteVersion         string!  @description("The probe suite this run was scored under (component/worker/probe.SuiteVersion). Part of the key rather than metadata: two figures from different suites are not comparable, so a bump produces new rows and the machine page shows the older ones as measured under an older suite rather than silently mixing them.")
+  measuredAt           datetime!  @description("When the machine finished the suite, server-stamped from the report's arrival rather than taken from the machine: a clock this cluster does not control must not decide which of two measurements is newer.")
+  structuredValidity   object  @description("Figure. Fraction of the structured cases whose output validated against the platform's own schemas. THE FACT THE ROUTER NEEDS: a model's parameter count says nothing about whether its structured output satisfies the schemas this cluster actually sends.")
+  toolCallCorrectness  object  @description("Figure. Fraction of the tool cases where the model called the right tool with arguments satisfying its schema. A runtime handed tools it cannot honour answers prose, which surfaces three layers away as an agent that stopped using its tools for no reason a reader can see.")
+  throughputTps        object  @description("Figure, tokens per second, over the 8K and 32K cases as ONE figure with a spread. Two numbers would invite a reader to quote the short prompt, and a single best case is what the spread exists to prevent.")
+  ttftMs               object  @description("Figure, time to first token in milliseconds, over the same two cases.")
+  probeError           string  @description("The machine's own sentence when the probe itself failed. Empty on a clean run, and PRESENT ALONGSIDE FIGURES when some cases ran and some did not -- that is a real state rather than a contradiction, and each figure says for itself which it was.")
+
+  @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
+  @relationship(type="parent", field="machineId", target=registration, direction="outgoing")
+}
+
+/// One model's week at one level, folded from what actually happened.
+///
+/// A MEASUREMENT AND AN EVIDENCE ROW ANSWER DIFFERENT QUESTIONS. The probe asks a model to do things
+/// nobody needed done, under controlled conditions, and reports how it went. This row is the record
+/// of real calls: how many, how many failed the structured contract, how often a repair or a retry
+/// followed, how often a run parked. Neither substitutes for the other -- a model can probe well and
+/// fail in service, and a model with a bad week can be perfectly capable.
+///
+/// IT PROPOSES AND NEVER APPLIES. Above a 0.3 structured failure rate over at least twenty calls,
+/// the nightly fold opens a v1:work:approval of kind routingReview carrying a generated rule hashed
+/// over its exact text; approving arms it and declining is recorded so the same week's evidence does
+/// not re-propose. Automatic demotion was considered and rejected: it violates the never-a-silent-edit
+/// rule, and a week of bad luck on one schema is not a reason to route a whole level elsewhere.
+///
+/// THE CALL COUNT IS ON THE ROW EVEN WHEN IT IS UNDER THE FLOOR, so an operator asking why nothing
+/// was proposed reads the answer rather than inferring it.
+///
+/// TIER: clusterOwner. It spans every owner's calls by nature -- the question is how a MODEL behaved
+/// across the fleet, not how it behaved for one person -- so there is no owner to scope it to.
+@rowAuthz(clusterOwner)
+@displayCard(primary="modelId", secondary="level", tertiary="week", status="proposal")
+concept modelEvidence {
+  modelId             string!  @description("The runtime's own id, matching v1:router:call and the model label byte for byte.")
+  level               enum("fast", "strong", "reasoning", "embeddings")!  @description("The level these calls were serving. Evidence is per level because a model can be right for one and wrong for another, and a demotion that took a model out of every level for a failure at one would be a heavier act than the evidence supports.")
+  week                string!  @description("The ISO week the fold covered, as YYYY-Www. A string rather than a pair of timestamps because it is a KEY -- one row per model per level per week -- and two folds of the same week must land on one row rather than two.")
+  calls               int!  @description("Decision records for this model at this level in the week. Recorded even when it is under the twenty-call floor, so a fold that proposed nothing has a readable reason.")
+  structuredFailures  int  @description("Calls whose structured contract was violated. The numerator of the rate the threshold reads.")
+  repairs             int  @description("Steps re-run with the violation as guidance. A repair is cheaper than a resample and it is evidence, not a failure.")
+  retries             int  @description("Steps retried after a transient failure.")
+  parks               int  @description("Runs that parked on an approval while this model was serving them.")
+  proposal            enum("", "none", "demotion", "promotion", "declined")  @description("What the fold did with this week's evidence. `none` is the fold having looked and decided nothing -- distinct from the empty string, which is a row no fold has reached yet. `declined` records a person's decision so the same week's evidence does not re-propose, which is the difference between a proposal and a nag. NO @default, deliberately: every writer of this row is a fold that has already decided, so a declared default would document a create-time value nothing ever stamps.")
+  approvalId          string  @description("v1:work:approval.id of the routingReview this row opened, when it opened one.")
+  ruleHash            string  @description("SHA-256 of the RENDERED rule source the proposal carries. The approval hashes the same string, so an approved decision can never carry to a different rule -- which is the whole guarantee, since two renderers of one grammar would drift and the drift would be silent.")
+  foldedAt            datetime!  @description("When the fold ran.")
+
+  @relationship(type="parent", field="approvalId", target=approval, direction="outgoing")
 }

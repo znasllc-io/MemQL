@@ -1201,12 +1201,7 @@ mutate user createUser {
     userId        string!
     displayName   string!
     primaryEmail  string!
-    /// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum
-    /// cannot name a row, and the five-value one this replaced is why a
-    /// custom role could never land on a user (epic memql#5166). Validated
-    /// in Go by the caller -- the magic-link verifier, the invitation
-    /// redemption, SetUserRole -- through auth.IsValidRole.
-    role          string
+    role          enum("owner", "admin", "developer", "writer", "reader")
     preferences   object
   }
   insert {
@@ -1264,12 +1259,7 @@ mutate user createUserOnFirstLogin {
     primaryRole   string
     gender        string
     birthdate     string
-    /// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum
-    /// cannot name a row, and the five-value one this replaced is why a
-    /// custom role could never land on a user (epic memql#5166). Validated
-    /// in Go by the caller -- the magic-link verifier, the invitation
-    /// redemption, SetUserRole -- through auth.IsValidRole.
-    role          string
+    role          enum("owner", "admin", "developer", "writer", "reader")
     internal      bool!
     sharedMailbox bool
     preferences   object
@@ -2981,6 +2971,8 @@ mutate invitation createUserInvitation {
     inviterId     string!
     inviterName   string
     role          string
+    groupIds      object
+    accountId     string
   }
   insert {
     accept { tokenHash, expiresAt, inviterId }
@@ -2990,6 +2982,12 @@ mutate invitation createUserInvitation {
       inviteeEmail: args.email
       inviteeRole: args.role ?? ""
       inviterName: args.inviterName ?? ""
+      // The groups this person joins on acceptance, validated at ISSUE by
+      // the handler (epic memql#5165, section G), and the account tie
+      // stamped from the first account-kind group among them so the
+      // Accounts ledger's invitationsForAccount keeps reading.
+      groupIds: args.groupIds ?? []
+      accountId: args.accountId ?? ""
       status: "pending"
       active: true
       // not_attempted until recordUserInvitationDelivery says otherwise. The

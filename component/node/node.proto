@@ -48,6 +48,8 @@ message NodeClientMessage {
     ModelForwardCancel model_forward_cancel = 103;
     ModelPullForwardRequest model_pull_forward_request = 104;
     ModelPullForwardCancel model_pull_forward_cancel = 105;
+    ModelProbeForwardRequest model_probe_forward_request = 106;
+    ModelProbeForwardCancel model_probe_forward_cancel = 107;
   }
 }
 
@@ -80,6 +82,8 @@ message NodeServerMessage {
     ModelForwardDelta model_forward_delta = 103;
     ModelPullForwardResponse model_pull_forward_response = 104;
     ModelPullForwardProgress model_pull_forward_progress = 105;
+    ModelProbeForwardResponse model_probe_forward_response = 106;
+    ModelProbeForwardProgress model_probe_forward_progress = 107;
   }
 }
 
@@ -723,6 +727,69 @@ message ModelPullForwardProgress {
 
 // ModelPullForwardCancel stops a forwarded pull.
 message ModelPullForwardCancel {
+  string request_id = 1;
+  string reason = 2;
+}
+
+// ModelProbeForwardRequest carries a model probe to the replica holding the
+// machine's WorkerService stream (epic memql#5146, design D3).
+//
+// The pull's hop, and the same authority rule: the receiver re-checks ownership
+// against the VERIFIED `authority` and never against `owner_user_id`, which is
+// a hint for the fleet read.
+//
+// WHAT IT PROTECTS SITS BETWEEN THE OTHER TWO. A probe does not write gigabytes
+// the way a pull does, but it is not read-shaped either: it occupies somebody's
+// GPU for minutes, which is a real cost on hardware the cluster does not own.
+// So the ownership re-check is the same gate, and there is likewise no
+// `refused_before_start` re-pick -- a probe measures ONE machine because a
+// measurement of a different machine answers a question nobody asked.
+message ModelProbeForwardRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  // A HINT for the fleet read only. The owner that DECIDES is the subject of
+  // `authority`.
+  string owner_user_id = 3;
+  string model = 4;
+  // The suite version, carried so the receiving replica cannot substitute its
+  // own and file the figures under a name that means something else.
+  string suite_version = 5;
+  int32 timeout_sec = 6;
+  ForwardedAuthority authority = 7;
+}
+
+// ModelProbeForwardResponse is the terminal answer, figures included.
+//
+// The figures ride as JSON rather than as a repeated message, and that is
+// deliberate: the shape is component/proving/figure's discriminated union, which
+// protobuf cannot express as one-or-the-other. Encoding it as a message with
+// both halves present would put a `measured` bool beside a populated median on
+// the wire and invite exactly the reader that ignores the bool.
+message ModelProbeForwardResponse {
+  string request_id = 1;
+  bool ok = 2;
+  string model = 3;
+  string error_code = 4;
+  string error_message = 5;
+  string suite_version = 6;
+  // The four figures, as the JSON object v1:platform:modelMeasurement stores.
+  string figures_json = 7;
+}
+
+// ModelProbeForwardProgress relays one ModelProbeProgress across the hop,
+// untouched, for ModelPullForwardProgress's reason.
+message ModelProbeForwardProgress {
+  string request_id = 1;
+  string model = 2;
+  string case_id = 3;
+  uint32 completed_cases = 4;
+  uint32 total_cases = 5;
+  bool case_ok = 6;
+  string case_error = 7;
+}
+
+// ModelProbeForwardCancel stops a forwarded probe.
+message ModelProbeForwardCancel {
   string request_id = 1;
   string reason = 2;
 }

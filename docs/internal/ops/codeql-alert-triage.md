@@ -265,7 +265,7 @@ see: the result is a NEW map, never a write into the source row's own.
 
 ## Dismissed as false positives
 
-### `go/weak-sensitive-data-hashing` x9 (high)
+### `go/weak-sensitive-data-hashing` x10 (high)
 
 The query flags SHA-256 reached by a value it has classified as a password.
 **None of the nine sites hash a password, or any credential at all.** They are:
@@ -305,6 +305,20 @@ rounds, each with its reason on the alert, and two in round three:
 | #1129 | `component/memql/authoring_catalog.go` | `CatalogKey` -- a construct's canonicalized SOURCE, the name-independent dedup signature |
 | #1128 | `core/common/modelcall.go` | `ModelRequest.Hash` -- the journal's replay key over provider, model, settings, messages, tools and schema |
 | #1133 | `component/memql/app_provider.go` | `AppCallFingerprint` -- the app door's loop-breaker key over `(app, conversation)`, the twin of #1027-#1029 |
+| #1137 | `component/router/evidence.go` | `ProposalHash` -- the digest of the RENDERED rule source an approval is a decision about, the twin of #1074 |
+
+**#1137 (epic memql#5146) is #1074's twin and the pairing is the argument.**
+Both digest an ARTIFACT A PERSON IS APPROVING -- there, a command or a patch;
+here, the routing rule the evidence fold proposes. The hash exists so that
+approving cannot carry to different text: resume compares it, and a rule
+edited after approval must fail that comparison. A salted KDF gives a
+different digest for identical input, which does not harden the check, it
+deletes it -- every resume would refuse, including the honest ones.
+
+It hashes the RENDERED SOURCE rather than the form that produced it,
+deliberately, so a renderer change moves the text out from under an approval
+that would otherwise still verify. That is the one failure the hash exists to
+prevent and the one nobody would notice.
 
 What round three adds is the SOURCE the query traced, which no dismissal
 before it named. Every path into #1128 and #1129 starts at one of three

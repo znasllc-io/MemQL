@@ -90,6 +90,12 @@ mutate account createClientAccount {
       id:           args.accountId
       ownerUserId:  actor.userId
       status:       "active"
+      // SUPPLIED HERE, not left to the concept's @default (epic memql#5165).
+      // A concept @default is never applied on insert (memql#2960), so a
+      // @required field carrying one fails JSON-schema validation on every
+      // call -- which is a mutation that cannot succeed at all, not a field
+      // that arrives empty.
+      domainStatus: "unverified"
     }
   }
 }

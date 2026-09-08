@@ -50,6 +50,8 @@ shape registration workerRegistrationFull {
   activeCount
   concurrency
   platformInfo
+  hardware
+  sharing
   permissions
   apps
   appDescriptors
@@ -166,6 +168,28 @@ shape modelPull workerModelPullFull {
   completedBytes
   totalBytes
   readvertised
+  errorMessage
+  targetNodeId
+  requestedAt
+  updatedAt
+  endedAt
+  row.createdAt
+}
+
+/// Full projection of one probe (epic memql#5146). Backs the machine page's live progress and the
+/// stale sweep's read.
+@row
+shape modelProbe workerModelProbeFull {
+  row.id
+  ownerUserId
+  workerId
+  model
+  suiteVersion
+  status
+  completedCases
+  totalCases
+  currentCase
+  measurementId
   errorMessage
   targetNodeId
   requestedAt

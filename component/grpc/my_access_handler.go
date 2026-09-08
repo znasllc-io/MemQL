@@ -8,6 +8,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/auth"
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
+	"github.com/znasllc-io/memql/component/memql"
 )
 
 // handleMyAccess returns the caller's own identity record: userId,
@@ -41,6 +42,14 @@ func (s *streamSession) handleMyAccess(envelope *memqlv1.MemqlClientMessage, msg
 		ClusterRole: roleToProto(ac.Role),
 		SessionId:   sessionIdFromClaims(ctx),
 	}
+	// The caller's GRANT (epic memql#5165, section H): which client groups
+	// they are in, and therefore whose rows they may reach.
+	//
+	// Resolved from the SAME function the row gate uses, so what this reply
+	// says a caller may see and what a read actually returns cannot
+	// disagree. Best-effort inside the engine -- a failure answers an empty
+	// grant rather than failing a reply the session does not depend on.
+	applyAccessGrant(result, s.service.engine.ResolveAccessGrant(ctx))
 
 	return s.sendServerMessage(envelope.GetMessageId(), &memqlv1.MemqlServerMessage{
 		Payload: &memqlv1.MemqlServerMessage_MyAccessResult{
@@ -88,4 +97,28 @@ func sessionIdFromClaims(ctx context.Context) string {
 	}
 	sid, _ := claims["sid"].(string)
 	return strings.TrimSpace(sid)
+}
+
+// applyAccessGrant copies the engine's answer onto the wire message.
+//
+// A SEPARATE FUNCTION so the mapping is testable without a stream: the
+// interesting part is the staff case, where account_ids is EMPTY and empty
+// means "all" rather than "none", and a mapping that silently dropped the flag
+// would be indistinguishable from a caller who belongs to nothing.
+func applyAccessGrant(result *memqlv1.MyAccessResult, grant memql.AccessGrant) {
+	if result == nil {
+		return
+	}
+	result.EveryAccount = grant.EveryAccount
+	result.AccountIds = grant.AccountIDs
+	result.Groups = make([]*memqlv1.MyAccessGroup, 0, len(grant.Groups))
+	for _, g := range grant.Groups {
+		result.Groups = append(result.Groups, &memqlv1.MyAccessGroup{
+			Id:          g.ID,
+			Name:        g.Name,
+			Kind:        g.Kind,
+			AccountId:   g.AccountID,
+			AccountName: g.AccountName,
+		})
+	}
 }

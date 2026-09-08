@@ -63,6 +63,7 @@ type Worker struct {
 	appSessionFn AppSessionFunc
 	modelCallFn  ModelCallFunc
 	modelPullFn  ModelPullFunc
+	modelProbeFn ModelProbeFunc
 	cancelStream func()
 
 	mu           sync.Mutex
@@ -76,6 +77,12 @@ type Worker struct {
 	// once per stream, so unlike `apps` these cannot change mid-connection
 	// and a cockpit that gains a harness advertises it on reconnect.
 	appDescriptors []AppDescriptor
+	// hardware is what the machine IS (epic memql#5146, D1). Guarded by mu
+	// because a heartbeat rewrites it while the recommendation read looks at
+	// it. Like `apps` and unlike `appDescriptors` it CAN change
+	// mid-connection: installing a runtime is exactly the event this field
+	// exists to notice, and it happens while the machine stays connected.
+	hardware Inventory
 }
 
 // DispatchFunc is the worker-side dispatch hook owned by the
@@ -246,6 +253,42 @@ func (w *Worker) SetApps(apps []AppInfo) {
 	defer w.mu.Unlock()
 	w.apps = apps
 	w.Labels = mergeAppLabels(w.Labels, apps)
+}
+
+// SetHardware replaces the worker's reported inventory and re-derives its
+// `runtime:` routing labels (epic memql#5146, D1 and D7).
+//
+// It is SetApps's shape for SetApps's reason, one function above: the derived
+// labels are the cockpit's side of the label pair, so an operator label still
+// wins the merge. What differs is which fact they carry -- an `app:` label says
+// a person can be delegated to on this machine, a `runtime:` label says a class
+// of model can be SERVED on it, and a catalog profile naming a runtime the
+// machine does not have is what the machine page turns into "needs the Kokoro
+// runtime" rather than into silence.
+func (w *Worker) SetHardware(inv Inventory) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hardware = inv
+	w.Labels = mergeRuntimeLabels(w.Labels, inv)
+}
+
+// Hardware returns the worker's reported inventory.
+//
+// The zero value is the ABSENT case and Present() is how a caller asks. There
+// is deliberately no second return saying whether it was set: an Inventory
+// already answers that about itself, and a bool beside it would be a second
+// spelling of the same question that some caller would eventually disagree
+// with.
+func (w *Worker) Hardware() Inventory {
+	if w == nil {
+		return Inventory{}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.hardware
 }
 
 // SetAppDescriptors replaces the worker's harness descriptors. Register-only:

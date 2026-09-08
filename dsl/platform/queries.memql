@@ -775,3 +775,106 @@ query embedderBinding activeEmbedderBinding {
   filter  row.id=="active"
   shape   embedderBindingFull
 }
+
+// ---- Measurement and evidence reads (epic memql#5146) ----
+//
+// The measurement reads are OWNER-SCOPED BY THE TIER rather than by a filter,
+// and that is worth stating because the queries below look permissive. The
+// concept declares @rowAuthz(owner="ownerUserId", clusterOwner), so a caller
+// asking for another person's machine gets zero rows without this file having
+// to check -- the same shape every read about somebody's machine already takes.
+
+/// Every measurement for one machine, newest first. The machine page's per-model figures.
+///
+/// KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a
+/// person reading it wants every model it has been measured on -- including the ones they have
+/// forgotten they pulled.
+@actor
+query modelMeasurement measurementsForMachine {
+  args {
+    machineId  string!
+  }
+  // The tier's own predicate, spelled out as a top-level conjunct. Declaring a
+  // tier narrows every read over the concept, and the enforcement gate requires
+  // the filter to IMPLY the tier rather than merely not contradict it -- a read
+  // that leaves it implicit is one whose narrowing nobody can check.
+  filter   machineId==args.machineId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
+  sort     "measuredAt", "desc"
+  paginate 200
+  shape    modelMeasurementFull
+}
+
+/// Every measurement of one model across the machines the caller can read, newest first.
+///
+/// The fleet-wide half of the same question. A cluster owner sees every machine's figures for a
+/// model, which is the read that makes "this model is slow" answerable as "on which hardware".
+@actor
+query modelMeasurement measurementsForModel {
+  args {
+    modelId  string!
+  }
+  filter   modelId==args.modelId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
+  sort     "measuredAt", "desc"
+  paginate 200
+  shape    modelMeasurementFull
+}
+
+/// The most recent folded weeks, newest first. The routing evidence view.
+///
+/// Cluster-owner only by the concept's tier: the question is how a MODEL behaved across the fleet,
+/// which is nobody's personal data and everybody's calls.
+@actor
+query modelEvidence recentModelEvidence {
+  args {
+    week  string
+  }
+  // The cluster-owner conjunct comes FIRST and outside the guard. A `when()`
+  // block is invisible to the implication analyzer, so a filter that opened
+  // with one would be undecidable rather than merely strict -- and an
+  // undecidable read is one the enforcement gate cannot pass whatever it
+  // actually does.
+  filter   actor.isClusterOwner==true && when(args.week) { week==args.week }
+  sort     "foldedAt", "desc"
+  paginate 200
+  shape    modelEvidenceFull
+}
+
+/// One model's evidence at one level for one week -- the row a fold reads before deciding whether
+/// it has already proposed, and the row a decline writes back to.
+///
+/// THE THREE ARGUMENTS ARE THE KEY. A fold that read only by model would re-propose at every level
+/// on the same evidence, and one that read only by week would collapse two models into one row.
+@actor
+query modelEvidence modelEvidenceForKey {
+  args {
+    modelId  string!
+    level    string!
+    week     string!
+  }
+  filter   actor.isClusterOwner==true && modelId==args.modelId && level==args.level && week==args.week
+  sort     "foldedAt", "desc"
+  paginate 5
+  shape    modelEvidenceFull
+}
+
+/// Every measurement the caller may see, newest first (epic memql#5146, D4).
+///
+/// The read the LIVE CATALOG makes, so the measured ordering and the page read one fact rather than
+/// two. Two readers of "which model is strongest" would disagree eventually, and the disagreement
+/// would be invisible, because both answers are plausible.
+///
+/// UNFILTERED BEYOND THE TIER, deliberately. The concept's own tier decides what comes back -- a
+/// plain user sees their own machines' figures, a cluster owner sees the fleet's -- and narrowing
+/// further here would be a second implementation of a decision the declaration already made.
+@actor
+query modelMeasurement measurementsForCaller {
+  // PARENTHESIZED, and it is not decoration. A bare top-level disjunction is
+  // undecidable to the implication analyzer -- it cannot expand one -- so the
+  // enforcement gate reports the read as undecidable rather than as safe or
+  // unsafe. The parentheses make it a single composite conjunct the analyzer
+  // can match against the tier.
+  filter   (ownerUserId==actor.userId || actor.isClusterOwner==true)
+  sort     "measuredAt", "desc"
+  paginate 500
+  shape    modelMeasurementFull
+}

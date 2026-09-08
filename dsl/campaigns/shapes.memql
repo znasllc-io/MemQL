@@ -121,6 +121,7 @@ shape sendJob sendJobFull {
   row.id
   campaignId
   campaignOwnerUserId
+  campaignAccountId
   audienceId
   templateId
   status

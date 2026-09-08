@@ -395,6 +395,28 @@ there is no backfill, and the record says so rather than pretending the history 
   developer is staff too. That is what the ladder means, and the role editor (record C)
   says so on the rank stop.
 
+## K1. Two facts the implementation surfaced (memql#5169, memql#5175)
+
+**The bare name `account` shadows inside `dsl/identity/concepts.memql`.** That
+file declares `v1:identity:account` AND imports `v1:accounts:account`, and the
+flat registry resolves a relationship's bare `target=` first-wins — so
+`target=account` there binds the identity concept. For `invitation.accountId`
+that is harmless: the stored value and the filter argument canonicalize the same
+wrong way and agree. For `group.accountId` it is not, because that field is
+compared against a SITE's or a CAMPAIGN's, which canonicalize correctly in their
+own files. `v1:identity:group.accountId` therefore declares **no relationship**
+and is stored bare, with the reason on the concept and an entry in
+`idBearingFieldExemptions`. The account scope carries both spellings, which is
+what makes the comparison meet.
+
+**The generic concept browse is stale for up to 60 seconds after a membership
+lands.** An unbound read injects no tier predicate, so its plan carries no
+account term, so the account fingerprint never joins the cache signature — which
+folds in the actor but not their memberships. Named reads bind a concept, carry
+the term, and are immediate. This is the rank scope's own pre-existing shape;
+it is recorded here rather than fixed, because fixing it means keying the
+unbound browse on every scope a row gate might consult.
+
 ## L. Testing
 
 - Parser: the argument is refused without `owner=`, with an undeclared field, with a

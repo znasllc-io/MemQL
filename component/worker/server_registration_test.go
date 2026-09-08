@@ -40,6 +40,9 @@ type fakeRegistrationStore struct {
 	// appUpdates records UpdateApps calls (memql#4359).
 	appUpdates []appUpdate
 	appsErr    error
+
+	hardwareUpdates []hardwareUpdate
+	hardwareErr     error
 }
 
 // appUpdate records one UpdateApps call WHOLE -- the labels matter as
@@ -60,6 +63,21 @@ type lastSeenFlush struct {
 	SourceIP        string
 	ConnectedNodeId string
 	ActiveCount     int
+	// Hardware is the non-material inventory refresh riding this write, or nil
+	// when the beat carried none. Recorded so a test can assert which of the
+	// two paths a change took -- the whole point of the split is that free disk
+	// must NOT buy its own write.
+	Hardware map[string]any
+}
+
+// hardwareUpdate is one UpdateHardware call: the material path, which does not
+// wait for the throttle.
+type hardwareUpdate struct {
+	registrationId string
+	ownerUserId    string
+	hardware       map[string]any
+	labels         map[string]string
+	at             time.Time
 }
 
 var _ Store = (*fakeRegistrationStore)(nil)
@@ -88,7 +106,21 @@ func (f *fakeRegistrationStore) UpdateApps(ctx context.Context, registrationId, 
 	return nil
 }
 
-func (f *fakeRegistrationStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int) error {
+func (f *fakeRegistrationStore) UpdateHardware(ctx context.Context, registrationId, ownerUserId string, hardware map[string]any, labels map[string]string, at time.Time, sourceIP string) error {
+	if f.hardwareErr != nil {
+		return f.hardwareErr
+	}
+	f.hardwareUpdates = append(f.hardwareUpdates, hardwareUpdate{
+		registrationId: registrationId,
+		ownerUserId:    ownerUserId,
+		hardware:       hardware,
+		labels:         labels,
+		at:             at,
+	})
+	return nil
+}
+
+func (f *fakeRegistrationStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any) error {
 	if f.lastSeenErr != nil {
 		return f.lastSeenErr
 	}
@@ -101,6 +133,7 @@ func (f *fakeRegistrationStore) UpdateLastSeen(ctx context.Context, registration
 		SourceIP:        sourceIP,
 		ConnectedNodeId: connectedNodeId,
 		ActiveCount:     activeCount,
+		Hardware:        hardware,
 	})
 	return nil
 }

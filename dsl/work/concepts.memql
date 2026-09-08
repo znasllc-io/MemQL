@@ -25,7 +25,7 @@ use planner.concepts.{ responsibility }
 
 /// The intent, owned by a person. Execution state does not live here: it lives on the run, so a
 /// goal that has been re-run, forked or repaired still reads as one thing.
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountIds")
 @displayCard(primary="statement", secondary="origin", tertiary="requestedVia", status="status")
 concept goal {
   ownerUserId       string  @serverSet  @description("v1:identity:user.id of the person this goal belongs to, stamped from the actor; present-and-empty for a cluster-owned goal.")
@@ -164,9 +164,9 @@ concept modelCall {
 @displayCard(primary="kind", secondary="decision", tertiary="runId", status="decision")
 concept approval {
   ownerUserId   string  @serverSet  @description("Copied from the run's owner: the person whose decision this is.")
-  runId         string!  @description("v1:work:run.id parked on this approval.")
+  runId         string  @description("v1:work:run.id parked on this approval. REQUIRED IN EFFECT for every kind but one, and the exception is why the bang is gone: `routingReview` (epic memql#5146, D5) is raised by a nightly FOLD rather than by a run, so there is no run to park -- and a synthetic one would be a run that never ran, sitting in every list of runs forever. component/work's approval builder refuses an empty runId for every other kind, so the invariant is enforced where it can name the kind rather than by a schema that cannot.")
   stepKey       string  @description("The step that raised it.")
-  kind          enum("sideEffect", "scopeElevation", "budget", "skillMint", "feedback", "planReview", "inferenceUnavailable")!  @description("Which gate. `inferenceUnavailable` (epic memql#5096) is the one raised by a CONDITION rather than by a decision: no door to a model is open, so the run parked. It is the only kind the sweep re-checks on its own -- a lid opening or somebody signing into Claude Code changes the answer with nobody deciding anything, where every other kind waits on a person and must not be re-dispatched behind their back.")
+  kind          enum("sideEffect", "scopeElevation", "budget", "skillMint", "feedback", "planReview", "inferenceUnavailable", "routingReview")!  @description("Which gate. `inferenceUnavailable` (epic memql#5096) is the one raised by a CONDITION rather than by a decision: no door to a model is open, so the run parked. It is the only kind the sweep re-checks on its own -- a lid opening or somebody signing into Claude Code changes the answer with nobody deciding anything, where every other kind waits on a person and must not be re-dispatched behind their back. `routingReview` (epic memql#5146, D5) is the only kind raised by a SWEEP rather than by a run: the nightly evidence fold proposes excluding a model at a level, hashed over the exact rule text, and a person decides. It is therefore the only kind whose runId is empty -- see that field.")
   subject       object  @description("What is being approved, structured.")
   artifactHash  string!  @description("Hash of the exact artifact approved: the command, the patch, the message, the draft template.")
   question      string  @description("The question put to the person, for kind feedback.")

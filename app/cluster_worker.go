@@ -129,6 +129,20 @@ func (a *App) wireWorkerForwarding(
 			"picked up here and its record is failed by workerModelPullStaleSweep")
 	}
 
+	// MODEL PROBES (epic memql#5146, D3). The pull's wiring for the pull's
+	// reasons: the act is served by a bff that cannot reach a machine's stream,
+	// so the row it writes is the whole of the request and this subscription is
+	// the only thing that picks it up.
+	if a.eventBus != nil {
+		probeRunner := agentworker.NewModelProbeRunner(integ.Dispatcher(), forwarder, nodeIdentity.ID)
+		_ = probeRunner.Subscribe(a.eventBus)
+		a.Logger.Info("model probes: this replica will measure models on the machines it holds",
+			"node_id", nodeIdentity.ID)
+	} else {
+		a.Logger.Warn("model probes: no event bus on this node; a Probe from the OS will never be " +
+			"picked up here and its record is failed by workerModelProbeStaleSweep")
+	}
+
 	a.Logger.Info("worker forwarding: this replica can reach machines held by its peers",
 		"node_id", nodeIdentity.ID)
 }

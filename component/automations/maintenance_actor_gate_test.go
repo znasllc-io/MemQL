@@ -88,13 +88,28 @@ func TestMaintenanceAutomationsAreArgued(t *testing.T) {
 	want := []string{
 		"auditEventRetentionSweep",
 		"logsRetentionSweep",
+		// routingEvidenceFold (epic memql#5146) is the one entry here whose
+		// read spans owners because the QUESTION does. It asks how a model
+		// behaved across the fleet, and a model's behaviour is not one
+		// person's to observe: there is no single owner whose authority could
+		// be borrowed instead, because borrowing one would answer a narrower
+		// question while looking like an answer to this one. It PROPOSES a
+		// demotion and applies none, so the privilege buys a read and a parked
+		// approval rather than a write anybody has to trust.
+		"routingEvidenceFold",
 		"seedSelfAccount",
 		"sweepAbandonedPackageDeployments",
 		"sweepWaitingWorkRuns",
 		"workJournalRetentionSweep",
 		"workerInvocationRetentionSweep",
-		// workerModelPullStaleSweep (epic memql#5103) is the newest, and it
-		// is the only entry here that is not a retention sweep. It closes
+		// workerModelProbeStaleSweep (epic memql#5146) is the entry below's
+		// twin: same claim shape, same silence when the claiming replica
+		// dies, same zero-rows-and-no-error without the principal. What is
+		// left on somebody's screen differs only in the noun -- a probe that
+		// will never finish rather than a pull that will never move.
+		"workerModelProbeStaleSweep",
+		// workerModelPullStaleSweep (epic memql#5103) was the first entry
+		// here that is not a retention sweep. It closes
 		// model pulls whose claiming agent replica has gone: a pull is
 		// claimed by exactly one replica, which is what makes the claim
 		// lock-free, and nothing raises an event when the process holding it

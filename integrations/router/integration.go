@@ -17,6 +17,7 @@ import (
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
+	routerlib "github.com/znasllc-io/memql/component/router"
 	"github.com/znasllc-io/memql/component/secret"
 )
 
@@ -30,6 +31,30 @@ type Integration struct {
 	// nil on a node with no authored runtime, where the capability refuses.
 	ruleActivator RuleActivator
 	logger        *slog.Logger
+	// ruleRenderer is the tree's ONE renderer of the routing-rule grammar
+	// (epic memql#5146, D5). Injected rather than called directly, because the
+	// evidence fold hashes what it renders and a second renderer of one grammar
+	// drifts -- silently, since the approval would then carry to text nobody
+	// read.
+	//
+	// It is now WIRED, to epic memql#5127's own renderer. It was nil while that
+	// epic was unlanded and the fold refused to propose rather than rendering
+	// its own text; the refusal path stays, because a node that never folds
+	// evidence still installs none and must not quietly invent one.
+	ruleRenderer func(routerlib.Form) (string, error)
+}
+
+// SetRuleRenderer installs the tree's rule renderer.
+//
+// It is a setter rather than a constructor argument because the renderer lives
+// in a package this one does not otherwise need, and because a node that never
+// folds evidence has no use for it. A fold with none REFUSES, loudly, rather
+// than proposing a rule it rendered itself.
+func (i *Integration) SetRuleRenderer(render func(routerlib.Form) (string, error)) {
+	if i == nil {
+		return
+	}
+	i.ruleRenderer = render
 }
 
 // New builds a Router admin integration.
@@ -60,6 +85,11 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Name:        "listModels",
 			Description: "Return the full live model catalog -- every provider registered at engine startup with its vendor, model id, pricing, and availability. Feeds the /router/catalog page.",
 			Handler:     i.handleListModels,
+		},
+		{
+			Name:        "routingEvidenceFold",
+			Description: "Fold the week's router calls into per-model, per-level evidence rows, and open a routingReview approval where the evidence carries a demotion. It PROPOSES and never applies: routing is a thing a person is accountable for, and a rule that appeared overnight is an edit nobody made.",
+			Handler:     i.handleEvidenceFold,
 		},
 		{
 			Name:        "listPolicies",

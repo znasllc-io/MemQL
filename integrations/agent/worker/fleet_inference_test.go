@@ -201,7 +201,8 @@ func TestAStructuredRequestRequiresAStructuredModel(t *testing.T) {
 // rather than through a dispatch would be the same defect.
 func TestTheSystemCatalogIsTheOptedInSetOnly(t *testing.T) {
 	optedIn := modelMachine("shared", map[string]ModelAttributes{smallModel: {}})
-	optedIn.SharedInference = true
+	optedIn.SharingMode = workerservice.SharingModeCluster
+	optedIn.InferenceServe = workerservice.InferenceServeCluster
 	private := modelMachine("private", map[string]ModelAttributes{bigModel: {}})
 
 	store := &sharedFleet{fakeFleet: &fakeFleet{}, all: []Candidate{optedIn, private}}

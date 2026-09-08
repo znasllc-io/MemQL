@@ -483,10 +483,31 @@ var idBearingFieldExemptions = map[string]string{
 	// nothing ever writes. Its sibling v1:identity:group.ownerUserId is the
 	// same field for the same reason and does not appear here only because its
 	// @description names no v1: row for the heuristic to catch.
+	// v1:identity:group.accountId is a plain FK because the bare name
+	// `account` is AMBIGUOUS in dsl/identity/concepts.memql: that file
+	// declares v1:identity:account AND imports v1:accounts:account, and the
+	// flat registry resolves a bare `target=` first-wins. A relationship here
+	// would canonicalize the field under the identity concept while every
+	// concept it is compared against (site, campaign) canonicalizes under the
+	// client registry -- so the grant would match nothing, silently, with
+	// every declaration reading correctly. Stored bare, which is the wire
+	// contract anyway. See the comment on the concept.
+	"identity/group.accountId":             "plain-fk-by-design: the bare name `account` shadows in this file, so a relationship would canonicalize under the WRONG concept (epic memql#5165)",
 	"identity/groupMembership.ownerUserId": "plain-fk-by-design: always empty (epic memql#5165 D2); the owned tier needs a present-and-empty owner key, and the field names no target",
 	"identity/identity.accountId":          "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
 	// --- deliberate short-form storage by write-side normalization ---
 	"forge/requestEvent.requestId": "bare-by-contract (#1859): recordRequestEvent/recordMentoredEvent store shortId(args.requestId) so the audit trail unifies whether the caller passes a canonical (automation) or short (tool) id; an @relationship would re-canonicalize on insert and re-split the trail (conf_1859_test asserts zero events under the canonical id)",
+	// --- a MODEL TAG that names a row without being one (epic memql#5146) ---
+	// `modelId` is the RUNTIME's own id -- `qwen3.5:9b`, `hf.co/owner/repo:Q4_K_M` --
+	// and it is deliberately not a node id: a tag carries ':' and '/', so the
+	// v1:models:modelProfile row that describes it lives at a SLUG of this value
+	// while the field itself stays byte-identical to what a machine advertises as
+	// `model:<id>`. That byte-identity is the whole point -- the router selects on
+	// the exact string, and a catalog hit is a string equality rather than a fuzzy
+	// match -- so canonicalizing this field against modelProfile would rewrite it
+	// into the slug and make every join and every selection miss.
+	"platform/modelMeasurement.modelId": "a runtime's own model tag, not a node id: the modelProfile row lives at a SLUG of it, and canonicalizing would break the byte-identity with the `model:<id>` label the router selects on (epic memql#5146)",
+	"platform/modelEvidence.modelId":    "a runtime's own model tag, not a node id; same reason as modelMeasurement.modelId (epic memql#5146)",
 }
 
 // idBearingReferencesConcept detects the id-bearing-FK heuristic: a `v1:ns:concept`

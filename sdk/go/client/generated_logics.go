@@ -685,6 +685,29 @@ func WorkerInvocationRetentionSweepBuild(args WorkerInvocationRetentionSweepArgs
 	return b.String()
 }
 
+// WorkerModelProbeStaleSweep -- Every model probe nobody is driving, judged by TWO cutoffs.
+// A row still at `requested` past the CLAIM grace was never picked up: the replica named on it is not there. A row at `running` past the STALL grace was claimed and then lost mid-suite. The two are separated because one cutoff applied to both fails every ACTIVE probe the moment it is older than the claim grace -- see openModelProbes, which carries that reasoning where the filter expresses it.
+// THE STALL GRACE MUST EXCEED THE HANDLE'S OWN IDLE CEILING (`component/worker.DefaultModelProbeIdleTimeout`, 5 minutes), and here the margin matters more than it does for a pull: a single 32K throughput case on a modest machine can be minutes of silence that is not silence at all. The runtime watcher gives up on a genuinely dead machine first and writes a real verdict; a row watcher that fired earlier would replace that verdict with a guess, while the suite was still running.
+// Both graces are read from globalVariables so an operator can widen them on a slow cluster without a release, and both default generously: failing a probe that is merely slow is worse than leaving a dead one on screen for another minute.
+type WorkerModelProbeStaleSweepArgs struct {
+	Event map[string]any
+}
+
+// WorkerModelProbeStaleSweep calls the engine logic workerModelProbeStaleSweep.
+func (qc *QueryClient) WorkerModelProbeStaleSweep(ctx context.Context, args WorkerModelProbeStaleSweepArgs) (*Result, error) {
+	call := WorkerModelProbeStaleSweepBuild(args)
+	return qc.executeNamed(ctx, "workerModelProbeStaleSweep", call)
+}
+
+func WorkerModelProbeStaleSweepBuild(args WorkerModelProbeStaleSweepArgs) string {
+	var b strings.Builder
+	b.WriteString("logic workerModelProbeStaleSweep(")
+	b.WriteString("event: ")
+	b.WriteString(renderMemQLValue(args.Event))
+	b.WriteString(")")
+	return b.String()
+}
+
 // WorkerModelPullStaleSweep -- Every model pull nobody is driving, judged by TWO cutoffs.
 // A row still at `requested` past the CLAIM grace was never picked up: the replica named on it is not there. A row at `running` past the STALL grace was claimed and then lost mid-download. The two are separated because one cutoff applied to both fails every ACTIVE pull the moment it is older than the claim grace -- see openModelPulls, which carries that reasoning at the point the filter expresses it.
 // THE STALL GRACE MUST EXCEED THE HANDLE'S OWN IDLE CEILING (`component/worker.ModelPullIdleDefault`, 5 minutes). The runtime watcher gives up on a silent machine first and writes a real verdict; a row watcher that fired earlier would replace that verdict with a guess, and would do it while the download was still running.

@@ -62,8 +62,13 @@ var pluginKinds = map[string]moduleKind{
 	// --- COMPONENTS: engine internals an operator cannot switch off. ---
 	// Turning any of these off does not remove a feature, it breaks the
 	// engine: there is no MemQL that does not authorise, route or read rows.
-	"auth":          kindComponent,
-	"rbac":          kindComponent,
+	"auth": kindComponent,
+	"rbac": kindComponent,
+	// groups writes the two rows the account grant resolves through (epic
+	// memql#5165). Switching it off would not remove a feature -- it would
+	// leave every account-tied concept declaring an argument nothing can
+	// satisfy, so every client's people would silently reach nothing.
+	"groups":        kindComponent,
 	"router":        kindComponent,
 	"database":      kindComponent,
 	"identity":      kindComponent,

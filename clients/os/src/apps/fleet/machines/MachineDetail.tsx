@@ -5,8 +5,11 @@ import { Button, Chip, Chips, Fact, Facts, Notice, Panel, Subhead } from "../../
 import { formatFreshness, formatMoment } from "../../../kit/format";
 import { isWorkerOnline } from "../online";
 import { machineName, type MachineRow } from "../rows";
+import { HardwareGroup } from "./HardwareGroup";
 import { LabelEditor } from "./LabelEditor";
 import { ModelsGroup } from "./ModelsGroup";
+import { SharingGroup } from "./SharingGroup";
+import { useMachineInference } from "./useMachineInference";
 import type { MachineWrites } from "./useMachineWrites";
 
 // One machine, in full: what it reported, what its owner set, what it can
@@ -24,6 +27,11 @@ export function MachineDetail({
   const label = machineName(machine);
   const busy = writes.busyId === machine.id;
   const online = isWorkerOnline(machine, now);
+  // The CLASS and the usable figure are computed on the engine and stored
+  // nowhere, so they arrive with the recommendation rather than on the row --
+  // one read for both, because a page that fetched the class separately could
+  // show a class the recommendation disagreed with.
+  const inference = useMachineInference(machine.id);
 
   return (
     <Panel label={`${label} detail`}>
@@ -56,6 +64,18 @@ export function MachineDetail({
         Calls in flight is as of the last heartbeat, so it can trail a call that started since.
       </p>
 
+      {/* HARDWARE FIRST, because what a machine IS precedes what it can be
+          asked to do -- and because the machine class it computes is what the
+          Models group's recommendation rests on. A reader who meets the
+          recommendation first has to scroll back to find out why it is that
+          set. */}
+      <HardwareGroup
+        machine={machine}
+        machineClass={inference.recommended.machineClass}
+        usableBytes={inference.recommended.usableBytes}
+        now={now}
+      />
+
       <LabelGroups machine={machine} busy={busy} writes={writes} />
 
       <AppsGroup machine={machine} />
@@ -64,6 +84,12 @@ export function MachineDetail({
           this machine -- what it can be asked to do -- and a person scanning
           for either reads them together. */}
       <ModelsGroup machine={machine} />
+
+      {/* SHARING AFTER MODELS, because the question it asks -- will you lend
+          this machine to everybody -- only means something once a reader knows
+          what the machine can serve. Offering it above an empty Models group
+          would be asking somebody to volunteer a machine that runs nothing. */}
+      <SharingGroup machine={machine} writes={writes} ledger={inference.ledger} />
 
       <CallHistory workerId={machine.id} machineLabel={label} />
 

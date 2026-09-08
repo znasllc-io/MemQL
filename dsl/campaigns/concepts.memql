@@ -101,7 +101,7 @@ use platform.concepts.{ outboundRequest }
 /// rows rather than one enormous payload. Per-row authz: owned -- ownerUserId is stamped from
 /// actor.userId on every write and every read gates on ownerUserId==actor.userId.
 @displayCard(primary="name", secondary="description", tertiary="ownerUserId", status="status")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept audience {
   ownerUserId  string!  @description("v1:identity:user.id that owns this audience. Stamped from actor.userId at create time and re-stamped on every update, so ownership can never be reassigned by a caller. The load-bearing per-row authz key.")
   name         string!  @description("Short operator-facing name for the audience, e.g. 'Beta waitlist'. The primary display field; not required to be unique.")
@@ -119,9 +119,10 @@ concept audience {
 /// future send, including sends of campaigns authored before the unsubscribe. Per-row authz: owned
 /// via ownerUserId, mirrored from the parent audience at create time.
 @displayCard(primary="email", secondary="displayName", tertiary="audienceId", status="subscriptionStatus")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept recipient {
   ownerUserId         string!  @description("v1:identity:user.id that owns this recipient row -- the owner of the parent audience, stamped from actor.userId. The per-row authz key.")
+  accountId    string   @description("The v1:accounts:account this recipient is for, COPIED from its audience at write (epic memql#5165, section J). Denormalized rather than joined for the reason ownerUserId above is: the account grant is a filter conjunct the engine ANDs into every read, and a conjunct that needs a join is one that cannot be pushed down. NO BACKFILL -- rows written before this field existed carry no value and stay owner-only, which is the honest state rather than a history pretending to have moved. A member who can read the campaign can read the recipients written after this change, and cannot read the ones written before it.")
   audienceId          string!  @description("v1:campaigns:audience.id this address belongs to. A person in two audiences is two rows, so a per-audience unsubscribe is expressible and a global one is a sweep.")
   email               string!  @pii  @description("The recipient's email address -- the delivery target and the identity of the row. Marked @pii: it is scrubbed by the deletion path and every query projecting it must constrain its caller.")
   displayName         string   @pii  @description("Optional human name used to personalize the greeting. Marked @pii for the same reason as email.")
@@ -132,6 +133,7 @@ concept recipient {
 
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="parent", field="audienceId", target=audience, direction="outgoing")
+  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
 }
 
 /// The authored content of a campaign -- subject line plus plain-text and optional HTML bodies. Kept
@@ -139,7 +141,7 @@ concept recipient {
 /// retyped, and so editing copy is a different action (and a different authorization decision, later)
 /// from scheduling a send. Per-row authz: owned.
 @displayCard(primary="name", secondary="subject", tertiary="ownerUserId", status="status")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept template {
   ownerUserId  string!  @description("v1:identity:user.id that owns this template. Stamped from actor.userId. The per-row authz key.")
   name         string!  @description("Operator-facing name for the template, e.g. 'August product update'. Distinct from the subject line, which is what the recipient sees.")
@@ -180,7 +182,7 @@ concept template {
 ///
 /// Per-row authz: composite. The operator owns their identities; the cluster owner reads them all.
 @displayCard(primary="address", secondary="fromName", tertiary="accountId", status="status")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept senderIdentity {
   ownerUserId  string!  @description("v1:identity:user.id that owns this identity. Stamped from actor.userId on every write. The per-row authz key.")
   address      string!  @description("The mailbox UPN the Graph application may send as, e.g. news@acme-client.com. Becomes the From ADDRESS and the /users/{address}/sendMail path segment, so it is validated for RFC 5322 shape AND header safety on the write path -- a CR or LF here would be header injection into every message this identity sends. Normalized lowercase; it is also the reputation and warmup key, so two spellings of one mailbox would split its ramp in half.")
@@ -209,7 +211,7 @@ concept senderIdentity {
 // the send job and the delivery ledger, and a compose prompt handed a
 // frozen estimate would report it as a result.
 @composable(as="campaign", fields="name,status,scheduledAt,startedAt,completedAt,lastError", list="campaigns")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept campaign {
   ownerUserId     string!  @description("v1:identity:user.id that owns this campaign. Stamped from actor.userId. The per-row authz key.")
   name            string!  @description("Operator-facing campaign name. The primary display field.")
@@ -267,9 +269,10 @@ concept campaign {
 /// weaken the transactional egress control it exists to provide. The field stays on the schema
 /// because a future queued transport would populate it.
 @displayCard(primary="email", secondary="campaignId", tertiary="sentAt", status="status")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept delivery {
   ownerUserId        string!  @description("v1:identity:user.id that owns this delivery record -- the owner of the campaign, mirrored so the row is gated without a join. The per-row authz key.")
+  accountId    string   @description("The v1:accounts:account this delivery is for, COPIED from its campaign at write (epic memql#5165, section J). Denormalized rather than joined for the reason ownerUserId above is: the account grant is a filter conjunct the engine ANDs into every read, and a conjunct that needs a join is one that cannot be pushed down. NO BACKFILL -- rows written before this field existed carry no value and stay owner-only, which is the honest state rather than a history pretending to have moved. A member who can read the campaign can read the deliverys written after this change, and cannot read the ones written before it.")
   campaignId         string!  @description("v1:campaigns:campaign.id this delivery belongs to.")
   recipientId        string!  @description("v1:campaigns:recipient.id that was targeted.")
   email              string!  @pii  @description("The address the send targeted, captured at send time rather than read back from the recipient row -- an address that changes afterwards must not rewrite what was actually mailed. Marked @pii.")
@@ -287,6 +290,7 @@ concept delivery {
   @relationship(type="references", field="recipientId", target=recipient, direction="outgoing")
   @relationship(type="references", field="outboundRequestId", target=outboundRequest, direction="outgoing")
   @relationship(type="references", as="sentByRule", field="emailRuleId", target=emailRule, direction="outgoing")
+  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
 }
 
 /// One tracked interaction with one delivered message -- an open or a click (memql#4823). Append-only:
@@ -312,9 +316,10 @@ concept delivery {
 /// Per-row authz: composite -- the operator owns their own engagement history, the cluster owner
 /// reads every operator's.
 @displayCard(primary="kind", secondary="campaignId", tertiary="occurredAt", status="kind")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept engagementEvent {
   ownerUserId  string!  @description("v1:identity:user.id that owns the campaign this event is about, mirrored so the row is gated without a join. The per-row authz key. Taken from the signed token's own campaign, never from the request.")
+  accountId    string   @description("The v1:accounts:account this engagement event is for, COPIED from its campaign at write (epic memql#5165, section J). Denormalized rather than joined for the reason ownerUserId above is: the account grant is a filter conjunct the engine ANDs into every read, and a conjunct that needs a join is one that cannot be pushed down. NO BACKFILL -- rows written before this field existed carry no value and stay owner-only, which is the honest state rather than a history pretending to have moved. A member who can read the campaign can read the engagement events written after this change, and cannot read the ones written before it.")
   campaignId   string!  @description("v1:campaigns:campaign.id the tracked message belonged to. Denormalized from the delivery so per-campaign stats need no join.")
   deliveryId   string!  @description("v1:campaigns:delivery.id -- the one recipient's message that was opened or clicked. It is the uniqueness key: unique opens are distinct deliveryIds, not distinct addresses, because one address in two audiences is two people as far as a campaign is concerned.")
   kind         enum("open", "click")!  @description("Which interaction. 'open' is a tracking-pixel fetch on the HTML part; 'click' is a signed redirect being followed. There is deliberately no third value -- 'delivered' is not observable here (the transport says accepted and a bounce arrives later) and inventing it would be a number nothing can honestly produce.")
@@ -324,6 +329,7 @@ concept engagementEvent {
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="parent", field="campaignId", target=campaign, direction="outgoing")
   @relationship(type="references", field="deliveryId", target=delivery, direction="outgoing")
+  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
 }
 
 /// The engine's own record of one send RUN -- the queue the drain worker scans, and the only row in
@@ -360,6 +366,7 @@ concept engagementEvent {
 concept sendJob {
   campaignId           string!  @description("v1:campaigns:campaign.id this job drains. Stored canonical like every other @relationship field; the worker bare-ifies it (memql.BareShortId) before feeding it back to campaignById, because a named-query argument is the BARE-ids client contract.")
   campaignOwnerUserId  string!  @description("v1:identity:user.id the worker impersonates for every owned-tier read and write this job performs -- the campaign, its template, its audience's recipients, and the delivery ledger. SERVER-DERIVED ONLY: both writers read it off a campaign row they had already read under the caller's own actor, so it can never name a user the caller could not already act as. This is the single most security-load-bearing field in the domain.")
+  campaignAccountId    string   @description("The v1:accounts:account the campaign is FOR, copied off the same campaign row campaignOwnerUserId came from (epic memql#5165, section J). Carried HERE rather than read per hit: the open/click tracking path resolves a campaign's owner from this row and cannot read the campaign row at all -- that row is owner-tier, and establishing the owner is the very thing being asked -- so without this field every tracked pixel fetch would cost a second query to learn the client tie. Written once per send, read on a path that already reads this row. Empty for a campaign with no client tie, which is the ordinary case.")
   audienceId           string!  @description("v1:campaigns:audience.id resolved to recipients each batch, so an audience that grows mid-send is mailed as it stands when the batch runs.")
   templateId           string!  @description("v1:campaigns:template.id supplying the subject and bodies.")
   status               enum("scheduled", "queued", "running", "paused", "completed", "failed", "cancelled")!  @description("Job lifecycle. 'scheduled' is committed to a time and NOT drainable -- the worker promotes it to 'queued' once the campaign row's scheduledAt has passed, so a scheduled job can never mail anybody by merely existing; 'queued' is enqueued and unclaimed; 'running' has had at least one batch; 'paused' is an operator stopping the drain without discarding the ledger; 'completed' means every recipient reached a terminal delivery state; 'failed' is a job-level refusal (no configured sender, no unsubscribe secret, audience over the ceiling); 'cancelled' follows the campaign being cancelled.")
@@ -379,6 +386,7 @@ concept sendJob {
   @relationship(type="references", field="campaignOwnerUserId", target=user, direction="outgoing")
   @relationship(type="references", field="audienceId", target=audience, direction="outgoing")
   @relationship(type="references", field="templateId", target=template, direction="outgoing")
+  @relationship(type="references", as="forAccount", field="campaignAccountId", target=account, direction="outgoing")
 }
 
 /// The cluster-wide do-not-mail list. ONE address per row, keyed by the SHA-256 hex digest of the
@@ -492,9 +500,10 @@ concept warmupState {
 /// required on suppress (enforced by recordConsentSuppress). Config and
 /// templates stay data, not this schema.
 @displayCard(primary="kind", secondary="emailDigest", tertiary="occurredAt", status="kind")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept consentEvent {
   ownerUserId  string!  @description("v1:identity:user.id of the operator whose send this consent belongs to. Stamped from actor.userId. The per-row authz key for export.")
+  accountId    string   @description("The v1:accounts:account this consent event is for, COPIED from its recipient at write (epic memql#5165, section J). Denormalized rather than joined for the reason ownerUserId above is: the account grant is a filter conjunct the engine ANDs into every read, and a conjunct that needs a join is one that cannot be pushed down. NO BACKFILL -- rows written before this field existed carry no value and stay owner-only, which is the honest state rather than a history pretending to have moved. A member who can read the campaign can read the consent events written after this change, and cannot read the ones written before it.")
   emailDigest  string!  @description("SHA-256 hex digest of the normalized (lowercased, trimmed) address. The subscriber key. The mailbox is never stored here -- a caller can ask about an address only when it already holds it.")
   kind         enum("grant", "withdraw", "bounce", "complaint", "suppress")!  @description("The event. grant = opted in; withdraw = opted out; bounce / complaint = provider verdict; suppress = operator or policy suppression. There is no mutable status field -- current status is the latest kind.")
   source       enum("signup", "one_click", "import", "provider", "operator", "rfc8058")!  @description("Where the event came from. Data, not DSL source.")
@@ -506,6 +515,7 @@ concept consentEvent {
   @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
   @relationship(type="references", field="recipientId", target=recipient, direction="outgoing")
   @relationship(type="references", field="campaignId", target=campaign, direction="outgoing")
+  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
 }
 
 /// An event-triggered email: "when X happens on concept Y, send template Z" (memql#4829, program P4
@@ -543,7 +553,7 @@ concept consentEvent {
 /// authored it: an automation's actor is not the row owner's, and a caller-scoped read from inside
 /// one returns nothing while looking entirely correct.
 @displayCard(primary="name", secondary="triggerConcept", tertiary="templateId", status="status")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 concept emailRule {
   ownerUserId       string!  @description("v1:identity:user.id that authored this rule. Stamped from actor.userId. The per-row authz key, AND the envelope the generated construct runs under -- see the concept doc's note on the actor trap.")
   name              string!  @description("Operator-facing rule name, e.g. 'Tell the owner about new admins'. The primary display field, and the basis of the generated construct's name, so it is what an operator sees in both places.")

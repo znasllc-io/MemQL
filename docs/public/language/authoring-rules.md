@@ -2857,3 +2857,85 @@ its negative cases), `component/memql/executor_filter_startswith_test.go`
 (SQL + in-process agreement), and
 `component/memql/code_metrics_in_window_db_test.go` (the memql#4208 read
 against a real Postgres, db-gated).
+
+## 33. `account="<field>"` is one argument for two field shapes (epic memql#5165)
+
+`@rowAuthz(owner="<field>", account="<field>")` is the **account grant**: the
+named field holds the account a row belongs to, and reads *and writes* widen to
+"the owner, OR anyone whose group ties them to this row's account".
+
+```memql fragment
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")   // one account
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountIds")  // several
+```
+
+**Both spellings are the same argument, deliberately.** "Which accounts is this
+row for" is one question, and the lowering answers a `string` and a `[]string`
+with a single jsonb containment test — so nothing you write says which shape it
+is, and the concept's own field declaration decides.
+
+### The field's TYPE is checked at load, and that is not tidiness
+
+`string` or `[]string`, and nothing else. The containment test the lowering uses
+also matches a top-level **key** of a jsonb object, so a field declared `object`
+would admit any row whose map happened to carry an account id as a key — a
+widening nobody wrote and nothing else would catch. A field the concept does not
+declare is refused for the reason an unknown `owner=` field is: it lowers to a
+scope that matches nothing, which is a gate that reads like a widening and
+grants nobody anything.
+
+Declaring `account=` on the OWNER field is also refused: it would compare a user
+id against an account id, and the author meant one of the two.
+
+### It widens WRITES, and the verb is decided elsewhere
+
+This is the one place the program widens the rank record's read-only-peer rule.
+A member may write a tied row whatever the owner's rank, **if their role holds
+the verb** — decided upstream by the data-plane capability gate and the
+mutation's own annotations. The row gate answers *which rows*, never *may this
+actor write at all*.
+
+`rankStrict` is untouched: it withdraws the cluster-owner write escape, not the
+account branch.
+
+### A row with no account is not a tied row
+
+An absent or empty account field is admitted by **no** account branch, including
+staff's. Such a row is somebody's own work, and the owner and cluster-owner
+branches still decide it.
+
+### It widens the TIER, not a query that narrows itself
+
+The tier's predicate is **ANDed** into a bound read. A query whose own filter
+already says `ownerUserId==actor.userId` therefore stays owner-scoped no matter
+what its concept declares — an AND with a hand-written owner conjunct cannot be
+widened by anything.
+
+`sitesForAccount` is exactly that shape and predates the grant, so a member of
+Acme's group reads Acme's site through the generic path and **not** through that
+query. If you want a named read to serve members, its filter has to stop saying
+who the caller must be and let the tier decide.
+
+### The generic browse caches for 60 seconds
+
+An UNBOUND read (`concept=="v1:platform:site"`, the generic concept browse)
+injects no tier predicate — admission is the per-row egress gate alone — so its
+plan carries no account term, and the account fingerprint joins the cache
+signature only when one is present. The signature folds in the ACTOR, so no
+caller ever sees another's rows; what it does not fold in is that caller's
+MEMBERSHIPS. A freshly-placed member therefore waits out the 60-second TTL on
+that path.
+
+Named reads are unaffected: they bind a concept, so the tier is injected, the
+plan carries the account term, and the fingerprint is in the key. This is the
+rank scope's own pre-existing shape rather than anything the account grant
+introduced.
+
+### If you add the argument to an existing concept
+
+Every read of that concept widens the moment you do, and nothing narrows. Check
+the concept's CHILDREN too: a member who can read a campaign has to be able to
+read its deliveries, and a child with no `accountId` of its own stays
+owner-only — which reads as a permissions bug in a screen that half works. The
+four campaigns children gained a stamped-from-parent `accountId` for exactly
+that reason, with no backfill for the rows written before it.

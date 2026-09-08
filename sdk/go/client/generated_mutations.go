@@ -46,6 +46,7 @@ type AddRecipientArgs struct {
 	DisplayName string
 	Fields      map[string]any
 	Source      string
+	AccountId   string
 }
 
 // AddRecipient calls the engine mutation addRecipient.
@@ -89,6 +90,13 @@ func AddRecipientBuild(args AddRecipientArgs) string {
 		}
 		b.WriteString("source: ")
 		b.WriteString(quoteMemQL(args.Source))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 22 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
 	}
 	b.WriteString(")")
 	return b.String()
@@ -6833,7 +6841,9 @@ type CreateWorkerRegistrationArgs struct {
 	// Local-app inventory the cockpit reported (memql#4359): a list of {id, version, signedIn, subscription, allowed}. Stored verbatim, including apps this engine cannot drive.
 	Apps []any
 	// How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for.
-	AppDescriptors      []any
+	AppDescriptors []any
+	// What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes, reportedAt}. OMITTED by a cockpit that predates the field, which is not the same as a machine with nothing -- see the concept's field doc.
+	Hardware            map[string]any
 	RegisteredAt        string
 	LastSeenAt          string
 	LastConnectedFromIP string
@@ -6926,6 +6936,13 @@ func CreateWorkerRegistrationBuild(args CreateWorkerRegistrationArgs) string {
 		}
 		b.WriteString("appDescriptors: ")
 		b.WriteString(renderMemQLValue(args.AppDescriptors))
+	}
+	if args.Hardware != nil {
+		if b.Len() > 34 {
+			b.WriteString(", ")
+		}
+		b.WriteString("hardware: ")
+		b.WriteString(renderMemQLValue(args.Hardware))
 	}
 	if b.Len() > 34 {
 		b.WriteString(", ")
@@ -7301,6 +7318,7 @@ func EnablePackageDeployablesBuild(args EnablePackageDeployablesArgs) string {
 type EnqueueCampaignSendArgs struct {
 	CampaignId          string
 	CampaignOwnerUserId string
+	CampaignAccountId   string
 	AudienceId          string
 	TemplateId          string
 	Status              string
@@ -7323,6 +7341,13 @@ func EnqueueCampaignSendBuild(args EnqueueCampaignSendArgs) string {
 	}
 	b.WriteString("campaignOwnerUserId: ")
 	b.WriteString(quoteMemQL(args.CampaignOwnerUserId))
+	if args.CampaignAccountId != "" {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("campaignAccountId: ")
+		b.WriteString(quoteMemQL(args.CampaignAccountId))
+	}
 	if b.Len() > 29 {
 		b.WriteString(", ")
 	}
@@ -8585,6 +8610,7 @@ type RecordConsentBounceArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentBounce calls the engine mutation recordConsentBounce.
@@ -8627,6 +8653,13 @@ func RecordConsentBounceBuild(args RecordConsentBounceArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 29 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8641,6 +8674,7 @@ type RecordConsentComplaintArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentComplaint calls the engine mutation recordConsentComplaint.
@@ -8683,6 +8717,13 @@ func RecordConsentComplaintBuild(args RecordConsentComplaintArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 32 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8697,6 +8738,7 @@ type RecordConsentGrantArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentGrant calls the engine mutation recordConsentGrant.
@@ -8739,6 +8781,13 @@ func RecordConsentGrantBuild(args RecordConsentGrantArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 28 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8754,6 +8803,7 @@ type RecordConsentSuppressArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentSuppress calls the engine mutation recordConsentSuppress.
@@ -8801,6 +8851,13 @@ func RecordConsentSuppressBuild(args RecordConsentSuppressArgs) string {
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
 	}
+	if args.AccountId != "" {
+		if b.Len() > 31 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
+	}
 	b.WriteString(")")
 	return b.String()
 }
@@ -8815,6 +8872,7 @@ type RecordConsentWithdrawArgs struct {
 	OccurredAt  string
 	RecipientId string
 	CampaignId  string
+	AccountId   string
 }
 
 // RecordConsentWithdraw calls the engine mutation recordConsentWithdraw.
@@ -8856,6 +8914,13 @@ func RecordConsentWithdrawBuild(args RecordConsentWithdrawArgs) string {
 		}
 		b.WriteString("campaignId: ")
 		b.WriteString(quoteMemQL(args.CampaignId))
+	}
+	if args.AccountId != "" {
+		if b.Len() > 31 {
+			b.WriteString(", ")
+		}
+		b.WriteString("accountId: ")
+		b.WriteString(quoteMemQL(args.AccountId))
 	}
 	b.WriteString(")")
 	return b.String()
@@ -9811,7 +9876,9 @@ type RefreshWorkerRegistrationArgs struct {
 	// Local-app inventory from the latest Register (memql#4359). An omitted list CLEARS the persisted one, the same way the capability descriptor does: the worker no longer reports apps.
 	Apps []any
 	// How the cockpit DRIVES each app it reported (epic memql#5096): a list of {id, harness, structuredResult, followUps}. Only entries whose app id and harness word this engine knows are stored -- an unrecognised one is dropped rather than refusing the registration, so a newer cockpit never makes the engine attempt a protocol it has no client for.
-	AppDescriptors      []any
+	AppDescriptors []any
+	// What the machine IS, as its cockpit reported it (epic memql#5146, D1): {chip, memoryBytes, gpu, cpuCores, osVersion, diskFreeBytes, runtimes, reportedAt}. OMITTED by a cockpit that predates the field, which is not the same as a machine with nothing -- see the concept's field doc.
+	Hardware            map[string]any
 	LastSeenAt          string
 	LastConnectedFromIP string
 	ConnectedNodeId     string
@@ -9898,6 +9965,13 @@ func RefreshWorkerRegistrationBuild(args RefreshWorkerRegistrationArgs) string {
 		}
 		b.WriteString("appDescriptors: ")
 		b.WriteString(renderMemQLValue(args.AppDescriptors))
+	}
+	if args.Hardware != nil {
+		if b.Len() > 35 {
+			b.WriteString(", ")
+		}
+		b.WriteString("hardware: ")
+		b.WriteString(renderMemQLValue(args.Hardware))
 	}
 	if b.Len() > 35 {
 		b.WriteString(", ")
@@ -12267,6 +12341,36 @@ func SetWorkerOperatorLabelsBuild(args SetWorkerOperatorLabelsArgs) string {
 	}
 	b.WriteString("operatorLabels: ")
 	b.WriteString(renderMemQLValue(args.OperatorLabels))
+	b.WriteString(")")
+	return b.String()
+}
+
+// SetWorkerSharing -- Set the OWNER's half of a machine's sharing consent. The cockpit's half comes from that machine's own policy.yaml and is not writable here; both must say cluster before the machine serves anybody else.
+//
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["setWorkerSharing"] in generated_concepts.go).
+type SetWorkerSharingArgs struct {
+	RegistrationId string
+	// owner or cluster. Anything else is read as owner by every reader, so the enum is enforced here rather than left to be misread later.
+	// Enum: owner | cluster
+	Mode string
+}
+
+// SetWorkerSharing calls the engine mutation setWorkerSharing.
+func (qc *QueryClient) SetWorkerSharing(ctx context.Context, args SetWorkerSharingArgs) (*Result, error) {
+	call := SetWorkerSharingBuild(args)
+	return qc.executeNamed(ctx, "setWorkerSharing", call)
+}
+
+func SetWorkerSharingBuild(args SetWorkerSharingArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation setWorkerSharing(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	if b.Len() > 26 {
+		b.WriteString(", ")
+	}
+	b.WriteString("mode: ")
+	b.WriteString(quoteMemQL(args.Mode))
 	b.WriteString(")")
 	return b.String()
 }
@@ -15014,6 +15118,58 @@ func UpdateWorkerAppsBuild(args UpdateWorkerAppsArgs) string {
 	return b.String()
 }
 
+// UpdateWorkerHardware -- Re-stamp a machine's hardware inventory and the labels derived from it. NOT @serverOnly, for clearWorkerConnectedNode's reason: its caller is component/worker, whose every context descends from a worker's own inbound stream, so the concept's owner tier is the gate -- the store stamps auth.ContextWithUserActor for the registration's owner and the write guard refuses any other actor.
+//
+// Bound concept: v1:worker:registration (machine-readable: BoundConcepts["updateWorkerHardware"] in generated_concepts.go).
+type UpdateWorkerHardwareArgs struct {
+	RegistrationId string
+	// The full inventory as component/worker/hardware.go renders it.
+	Hardware map[string]any
+	// The complete label set, operator labels included. Replaces the stored one wholesale, exactly as updateWorkerApps does -- a merge here could not REMOVE the label of a runtime that was just uninstalled.
+	Labels              map[string]any
+	LastSeenAt          string
+	LastConnectedFromIP string
+}
+
+// UpdateWorkerHardware calls the engine mutation updateWorkerHardware.
+func (qc *QueryClient) UpdateWorkerHardware(ctx context.Context, args UpdateWorkerHardwareArgs) (*Result, error) {
+	call := UpdateWorkerHardwareBuild(args)
+	return qc.executeNamed(ctx, "updateWorkerHardware", call)
+}
+
+func UpdateWorkerHardwareBuild(args UpdateWorkerHardwareArgs) string {
+	var b strings.Builder
+	b.WriteString("mutation updateWorkerHardware(")
+	b.WriteString("registrationId: ")
+	b.WriteString(quoteMemQL(args.RegistrationId))
+	if b.Len() > 30 {
+		b.WriteString(", ")
+	}
+	b.WriteString("hardware: ")
+	b.WriteString(renderMemQLValue(args.Hardware))
+	if args.Labels != nil {
+		if b.Len() > 30 {
+			b.WriteString(", ")
+		}
+		b.WriteString("labels: ")
+		b.WriteString(renderMemQLValue(args.Labels))
+	}
+	if b.Len() > 30 {
+		b.WriteString(", ")
+	}
+	b.WriteString("lastSeenAt: ")
+	b.WriteString(quoteMemQL(args.LastSeenAt))
+	if args.LastConnectedFromIP != "" {
+		if b.Len() > 30 {
+			b.WriteString(", ")
+		}
+		b.WriteString("lastConnectedFromIP: ")
+		b.WriteString(quoteMemQL(args.LastConnectedFromIP))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // UpdateWorkerLastSeen -- Bump lastSeenAt + lastConnectedFromIP on a worker registration.
 //
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["updateWorkerLastSeen"] in generated_concepts.go).
@@ -15023,6 +15179,9 @@ type UpdateWorkerLastSeenArgs struct {
 	LastConnectedFromIP string
 	ConnectedNodeId     string
 	ActiveCount         int
+	// A non-material inventory refresh riding the heartbeat's own write (epic memql#5146). Free disk moves on every report and decides nothing, so it is not worth a second write to this row; an inventory change that moves the `runtime:` labels does not come through here at all, it goes through updateWorkerHardware and does not wait.
+	// OMITTED, never sent empty. update{} is a read-merge and `??` is blank-coalescing, so an absent key keeps the stored inventory while an empty object would overwrite it with a machine that reports nothing -- turning a cockpit's silence into a statement.
+	Hardware map[string]any
 }
 
 // UpdateWorkerLastSeen calls the engine mutation updateWorkerLastSeen.
@@ -15061,6 +15220,13 @@ func UpdateWorkerLastSeenBuild(args UpdateWorkerLastSeenArgs) string {
 		}
 		b.WriteString("activeCount: ")
 		b.WriteString(fmt.Sprintf("%v", args.ActiveCount))
+	}
+	if args.Hardware != nil {
+		if b.Len() > 30 {
+			b.WriteString(", ")
+		}
+		b.WriteString("hardware: ")
+		b.WriteString(renderMemQLValue(args.Hardware))
 	}
 	b.WriteString(")")
 	return b.String()
