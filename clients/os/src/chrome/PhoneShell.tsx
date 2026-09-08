@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, LayoutGrid, Sparkles } from "lucide-react";
+import { ArrowLeft, LayoutGrid } from "lucide-react";
 
 import { useAsk } from "../ask/AskProvider";
 import { ProvenanceDot } from "../kit";
@@ -151,7 +151,7 @@ export function PhoneShell({ onSignOut }: { onSignOut: () => void }) {
           <LayoutGrid size={20} aria-hidden />
         </button>
         <button type="button" className="os-ask-orb" aria-label="Ask" onClick={() => openAsk(null)}>
-          <Sparkles size={18} aria-hidden />
+          <Mark className="os-ask-mark" />
         </button>
       </footer>
     </div>
