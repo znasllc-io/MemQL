@@ -2842,15 +2842,31 @@ button:not(:disabled):active {
   gap: 3px;
 }
 /* The level LEADS the row, because the question a person is asking is "what
- * will serve my fast calls" rather than "what models are there". A fixed
- * column keeps the four words in a column a reader can scan down. */
+ * will serve my fast calls" rather than "what models are there" -- and it is
+ * the ONLY column, because a model id is an unbreakable 38-character string
+ * and an `auto` column sized to the longest left the shorter rows' sizes at a
+ * different x from the longest one's. Three readings that should scan as a
+ * column read as three unrelated lines. `.os-fleet-machinemodel` above records
+ * the same lesson from the same browser. */
 .os-fleet-recommendedrow {
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, auto) 4.5rem minmax(0, 1fr);
+  grid-template-columns: 5.5rem minmax(0, 1fr);
   align-items: baseline;
   gap: 9px;
   font-size: var(--os-text-xs);
   color: var(--os-muted);
+}
+.os-fleet-recommended-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.os-fleet-recommended-readings {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
 }
 .os-fleet-recommended-level {
   font-weight: 600;
@@ -2874,9 +2890,15 @@ button:not(:disabled):active {
   color: var(--os-muted);
   opacity: 0.85;
 }
+/* align-items: flex-start, and it is a defect fix rather than a preference.
+ * A column flex stretches its children, so the act rendered as a full-width
+ * accented BAR across the panel -- which reads as a banner rather than as a
+ * button, and made the one primary action on this group the loudest thing on
+ * the page. The screenshot found it; jsdom cannot. */
 .os-fleet-recommended-act {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
   margin-top: 3px;
 }
@@ -2981,8 +3003,11 @@ button:not(:disabled):active {
  * than four cramped ones: the level and the model belong together, and the
  * size and the reason do. */
 @media (max-width: 640px) {
+  /* At a narrow window the level moves ABOVE its model rather than beside it,
+   * so a long id keeps the full width instead of a third of it. */
   .os-fleet-recommendedrow {
-    grid-template-columns: 5.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
   }
 }
 

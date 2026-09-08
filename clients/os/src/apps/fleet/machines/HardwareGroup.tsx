@@ -106,14 +106,16 @@ export function HardwareGroup({
  * nothing.
  */
 function RuntimeChips({ runtimes }: { runtimes: { name: string; version: string }[] }) {
-  if (runtimes.length === 0) {
-    return (
-      <p className="os-caption">
-        No model runtime reported. This machine can still take tool work; it cannot serve a model
-        until one is installed.
-      </p>
-    );
-  }
+  // NOTHING, and rule 7 is why. The Models group below already says a machine
+  // with no runtime cannot serve a model, and says how to install one -- so a
+  // sentence here would be the same fact twice on one screen, and the browser
+  // is where that became obvious: the two paragraphs sat four inches apart
+  // saying the same thing in different words.
+  //
+  // The absence is not hidden. Hardware reports what the machine HAS, and the
+  // chips being absent is that report; the repair belongs to the group that
+  // owns the act.
+  if (runtimes.length === 0) return null;
   return (
     <Chips label="Runtimes">
       {runtimes.map((r) => (

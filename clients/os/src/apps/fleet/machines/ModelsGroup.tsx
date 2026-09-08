@@ -59,10 +59,17 @@ export function ModelsGroup({ machine }: { machine: MachineRow }) {
   const inference = useMachineInference(machine.id);
 
   const models = useMemo(() => machineModelsFrom(machine.reportedLabels), [machine.reportedLabels]);
-  const runtimes = useMemo(
-    () => machineRuntimesFrom(machine.reportedLabels),
-    [machine.reportedLabels],
-  );
+  // THE INVENTORY WINS OVER THE LABELS, and the screenshot is what showed why.
+  // Since epic memql#5146 a machine reports its runtimes in two places -- the
+  // hardware inventory, with versions, and the `runtime:` labels derived from
+  // it -- and a machine whose cockpit reported an inventory but whose labels
+  // had not yet been re-derived rendered "Served by a runtime this machine did
+  // not name" directly beneath a Hardware group listing Ollama and Kokoro.
+  // Two readings of one fact, disagreeing on the same screen.
+  const runtimes = useMemo(() => {
+    const reported = machine.hardware.runtimes.map((r) => runtimeLabel(r.name));
+    return reported.length > 0 ? reported : machineRuntimesFrom(machine.reportedLabels);
+  }, [machine.hardware, machine.reportedLabels]);
 
   // OWNER ONLY, and ABSENT rather than disabled for anybody else -- rule 12's
   // reading, which the engine enforces independently: fleetModelPull refuses a
@@ -387,20 +394,37 @@ function RecommendedBlock({
   );
 }
 
-/** One recommendation: what it is for, what it is, and what is in the way. */
+/**
+ * One recommendation: what it is for, what it is, and what is in the way.
+ *
+ * THE LEVEL IS THE ONLY COLUMN; everything else stacks under the model id.
+ * The first shape here was four columns, and the browser refuted it for the
+ * reason `.os-fleet-machinemodel` beside it already records: a model id is an
+ * unbreakable 38-character string, so an `auto` column sized to the longest
+ * one left the two shorter rows' sizes and reasons at a different x from the
+ * third's. Three readings that should scan as a column read as three
+ * unrelated lines.
+ *
+ * Stacked, the level still leads -- which is the question a person is actually
+ * asking, "what will serve my fast calls" -- and the id keeps its own line,
+ * which it needs, being the one string here somebody may have to copy.
+ */
 function RecommendedRow({ entry }: { entry: Recommendation }) {
+  const size = entry.sizeBytes > 0 ? formatBytes(entry.sizeBytes) : "";
   return (
     <li className="os-fleet-recommendedrow" data-blocked={!entry.pullable || undefined}>
       <span className="os-fleet-recommended-level">{levelLabel(entry.level)}</span>
-      <span className="os-fleet-machinemodel-id os-mono">{entry.modelId}</span>
-      <span className="os-fleet-recommended-size">
-        {entry.sizeBytes > 0 ? formatBytes(entry.sizeBytes) : ""}
+      <span className="os-fleet-recommended-body">
+        <span className="os-fleet-machinemodel-id os-mono">{entry.modelId}</span>
+        <span className="os-fleet-recommended-readings">
+          {size ? <span className="os-fleet-recommended-size">{size}</span> : null}
+          {entry.pullable ? (
+            <span className="os-fleet-recommended-note">{entry.notes}</span>
+          ) : (
+            <span className="os-fleet-recommended-blocked">{entry.blocked}</span>
+          )}
+        </span>
       </span>
-      {entry.pullable ? (
-        <span className="os-fleet-recommended-note">{entry.notes}</span>
-      ) : (
-        <span className="os-fleet-recommended-blocked">{entry.blocked}</span>
-      )}
     </li>
   );
 }

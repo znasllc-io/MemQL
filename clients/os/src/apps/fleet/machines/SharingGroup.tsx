@@ -5,6 +5,7 @@ import { Button, Notice, Subhead } from "../../../kit";
 import { formatMoment } from "../../../kit/format";
 import { machineName, type MachineRow } from "../rows";
 import type { MachineWrites } from "./useMachineWrites";
+import type { SharingLedger } from "./useMachineInference";
 
 // Whether this machine serves the cluster (epic memql#5146, D6).
 //
@@ -40,7 +41,7 @@ export function SharingGroup({
   writes: MachineWrites;
   /** The week's counts, already folded by the engine: calls, people, and
    *  nothing else. Null while it has not been read. */
-  ledger: { sentence: string } | null;
+  ledger: SharingLedger | null;
 }) {
   const { access } = useSession();
   const isOwner =
@@ -81,7 +82,7 @@ export function SharingGroup({
         />
       </ul>
 
-      {serving && ledger ? <p className="os-caption">{ledger.sentence}</p> : null}
+      {serving && ledger ? <LedgerLine ledger={ledger} /> : null}
 
       {isOwner ? (
         <ShareControl machine={machine} shared={ownerShared} writes={writes} />
@@ -190,4 +191,28 @@ function sameSubject(a: string, b: string): boolean {
     return at >= 0 ? trimmed.slice(at + 1) : trimmed;
   };
   return a.trim() === b.trim() || (bare(a) !== "" && bare(a) === bare(b));
+}
+
+/**
+ * The week, in one sentence the engine wrote.
+ *
+ * THE TWO ANSWERS DO NOT LOOK ALIKE, and `readable` is the only thing that can
+ * tell them apart. Both arrive as a sentence, because the engine refuses to
+ * hand a page a count it would have to phrase: "Served 41 calls for 3 people
+ * this week." and "This week's usage could not be read. It is not that nothing
+ * ran -- nobody looked." are both true sentences about the same field.
+ *
+ * Rendered identically they would read alike, and the second is not a reading
+ * at all -- it is a question that did not get an answer. So the count is a
+ * quiet caption and the failure is a notice, which is what this surface uses
+ * everywhere else for "you asked and I could not tell you".
+ *
+ * The surface never composes a sentence from the counts, and that is the point
+ * of taking one: a renderer that could phrase the ledger could phrase it wrong,
+ * and the promise made to somebody lending their machine -- counts, never
+ * content -- would then be kept in two places instead of one.
+ */
+function LedgerLine({ ledger }: { ledger: SharingLedger }) {
+  if (!ledger.readable) return <Notice tone="warn" sentence={ledger.sentence} />;
+  return <p className="os-caption">{ledger.sentence}</p>;
 }

@@ -237,6 +237,33 @@ describe("the Sharing group", () => {
     expect(screen.getByText("Served 41 calls for 3 people this week.")).toBeTruthy();
   });
 
+  it("does not let a ledger that could not be read look like a count of zero", () => {
+    // The engine answers `readable: false` with a sentence of its own rather
+    // than with zero, and the surface has to keep those apart: a quiet caption
+    // saying nothing ran and a quiet caption saying nobody looked read alike,
+    // and only one of them is a measurement. The failure takes the notice this
+    // page uses everywhere else for "you asked and I could not tell you".
+    const { container } = render(
+      withSession(
+        <SharingGroup
+          machine={machine({
+            sharing: { mode: "cluster" },
+            capabilityDescriptor: { inferenceServe: "cluster" },
+          })}
+          writes={noWrites}
+          ledger={{
+            sentence:
+              "This week's usage could not be read. It is not that nothing ran -- nobody looked.",
+            readable: false,
+          }}
+        />,
+        { userId: OWNER },
+      ),
+    );
+    expect(screen.getByText(/nobody looked/)).toBeTruthy();
+    expect(container.querySelector(".os-notice")).toBeTruthy();
+  });
+
   it("tells the owner what they will and will not see, where the question is asked", () => {
     // Somebody deciding whether to lend their machine is entitled to the terms
     // at the moment of deciding, not in a help page they have to find.
