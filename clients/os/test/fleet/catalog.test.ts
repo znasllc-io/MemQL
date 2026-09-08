@@ -455,6 +455,20 @@ describe("the machine-class floor, once memory is reported", () => {
     expect(hasUncheckableClass(groupByCategory(silent))).toBe(true);
   });
 
+  it("blocks a 32 GB entry for a machine reporting 16 GB, with its figures", () => {
+    // memql#5195's acceptance, verbatim. Written out even though the code path
+    // is the same as the case above, because an acceptance criterion stated with
+    // numbers is worth pinning at those numbers: it is what somebody rereading
+    // the issue will look for.
+    const needs32 = profile({ modelId: "qwen3.5:32b", minMachineClass: "32" });
+    const r = joinCatalog([needs32], [], [machine({ memoryGb: 16 })]);
+    expect(r.rows[0]!.blocked?.kind).toBe("no-machine-of-class");
+    expect(r.rows[0]!.blocked?.detail).toBe(
+      "Needs a 32 GB machine. Your largest has 16 GB for a model.",
+    );
+    expect(r.rows[0]!.classKnown).toBe(true);
+  });
+
   it("takes the largest machine, not the first", () => {
     const big = profile({ minMachineClass: "64" });
     const r = joinCatalog([big], [], [machine({ memoryGb: 12 }), machine({ memoryGb: 96 })]);
