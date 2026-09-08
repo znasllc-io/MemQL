@@ -7913,6 +7913,8 @@
         "revokeReason",
         "revokedAt",
         "revokedBy",
+        "rttAt",
+        "rttMs",
         "sharing",
         "version"
       ],

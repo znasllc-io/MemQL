@@ -1003,7 +1003,11 @@ first-choice surface for headless work is the Workbench, below.
   `clients/os/src/apps/fleet/online.ts`, held together by
   `TestFleetOnlineWindowMatchesTheClients`. Deriving it from the in-memory registry
   is refused: that answers "connected to ME", and the fleet needs "connected to
-  ANY replica".
+  ANY replica". Beside it, `rttMs` / `rttAt` are the CLUSTER's own evidence
+  of the return path (epic memql#5218, D11): the agent pings the machine
+  `FirstPingDelay` after RegisterAck and every `PingInterval`, the Pong's
+  round trip lands on the row at the next flush, and an ABSENT `rttAt` is
+  "not measured" -- a cockpit predating the message -- never "slow".
 - **Cross-node dispatch (memql#4352):** `connectedNodeId` names the replica
   holding the stream; any other replica forwards over `WorkerForward*`.
   `refused_before_start` is the re-pick predicate and the one wire field that

@@ -68,6 +68,11 @@ type lastSeenFlush struct {
 	// two paths a change took -- the whole point of the split is that free disk
 	// must NOT buy its own write.
 	Hardware map[string]any
+	// RttMs / RttAt are the Ping round trip riding this write (epic
+	// memql#5218, D11). A zero RttAt is what the session passes when no Pong
+	// has landed; the real store then leaves both out of the mutation call.
+	RttMs int
+	RttAt time.Time
 }
 
 // hardwareUpdate is one UpdateHardware call: the material path, which does not
@@ -120,7 +125,7 @@ func (f *fakeRegistrationStore) UpdateHardware(ctx context.Context, registration
 	return nil
 }
 
-func (f *fakeRegistrationStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any) error {
+func (f *fakeRegistrationStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any, rttMs int, rttAt time.Time) error {
 	if f.lastSeenErr != nil {
 		return f.lastSeenErr
 	}
@@ -134,6 +139,8 @@ func (f *fakeRegistrationStore) UpdateLastSeen(ctx context.Context, registration
 		ConnectedNodeId: connectedNodeId,
 		ActiveCount:     activeCount,
 		Hardware:        hardware,
+		RttMs:           rttMs,
+		RttAt:           rttAt,
 	})
 	return nil
 }

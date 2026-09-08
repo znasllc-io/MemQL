@@ -83,6 +83,13 @@ type Worker struct {
 	// mid-connection: installing a runtime is exactly the event this field
 	// exists to notice, and it happens while the machine stays connected.
 	hardware Inventory
+	// LastRttMs and LastPongAt are the latest Ping round trip and when it was
+	// measured (epic memql#5218, D11). Guarded by mu like LastSeenAt: the
+	// stream's recv goroutine writes them on each Pong while a fleet read
+	// looks at them. A ZERO LastPongAt is NOT MEASURED -- no Pong yet on this
+	// stream -- and LastRttMs means nothing until it is set.
+	LastRttMs  int
+	LastPongAt time.Time
 }
 
 // DispatchFunc is the worker-side dispatch hook owned by the
@@ -525,6 +532,29 @@ func (w *Worker) TouchLastSeen(at time.Time, sourceIP string) {
 		w.SourceIP = sourceIP
 	}
 	w.mu.Unlock()
+}
+
+// RecordRoundTrip stores the latest Ping round trip (epic memql#5218, D11).
+// Persistence rides the heartbeat flush, the way TouchLastSeen's does.
+func (w *Worker) RecordRoundTrip(rttMs int, at time.Time) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.LastRttMs = rttMs
+	w.LastPongAt = at
+	w.mu.Unlock()
+}
+
+// RoundTrip returns the latest round trip and when it was measured. A zero
+// time is NOT MEASURED, and the milliseconds beside it mean nothing then.
+func (w *Worker) RoundTrip() (rttMs int, at time.Time) {
+	if w == nil {
+		return 0, time.Time{}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.LastRttMs, w.LastPongAt
 }
 
 func (w *Worker) removeFromQueue(target chan struct{}) {

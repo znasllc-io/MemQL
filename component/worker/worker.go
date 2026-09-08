@@ -47,6 +47,25 @@ const (
 	// decays within 30s. See IsOnline in online.go.
 	HeartbeatBatchInterval = 15 * time.Second
 
+	// PingInterval is how often the agent sends a Ping down a connected
+	// worker's stream (epic memql#5218, D11). A heartbeat is the MACHINE's
+	// word that it is there; the Ping is the cluster's own evidence that the
+	// return path works, and how fast. The Pong's round trip lands on the
+	// registration as rttMs / rttAt on the next heartbeat flush. Once a minute
+	// rather than every beat because the figure is shown beside "checked N s
+	// ago" and decides no routing: a machine is not slow because one sample
+	// aged. See streamSession.runPinger.
+	PingInterval = 60 * time.Second
+
+	// FirstPingDelay is how soon after RegisterAck the FIRST Ping goes out. A
+	// few seconds rather than a whole PingInterval so the OS's guided install
+	// -- which is watching the row for exactly this -- sees a round trip
+	// inside the first heartbeat flush, not a minute later. Not zero, because
+	// a cockpit is still finishing its own registration bookkeeping in the
+	// instant after the ack, and a Ping that arrives before its dispatcher is
+	// listening is a Ping it cannot answer.
+	FirstPingDelay = 3 * time.Second
+
 	// DispatchTimeoutDefault is the default ToolDispatch timeout when
 	// the calling tool doesn't supply one.
 	DispatchTimeoutDefault = 5 * time.Minute
@@ -107,7 +126,16 @@ type Store interface {
 	// arrived with, so it belongs in the heartbeat's write. A change that
 	// alters what the machine can RUN does not wait for this window at all;
 	// UpdateHardware is that path.
-	UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any) error
+	//
+	// `rttMs` / `rttAt` ride along on the same terms (epic memql#5218, D11):
+	// the latest Ping round trip and when it was measured. A ZERO rttAt means
+	// NOT MEASURED -- no Pong has arrived on this stream, which is what a
+	// cockpit predating the message looks like -- and then BOTH are left out
+	// of the write, the rule `hardware` already follows: the mutation
+	// coalesces with the blank-coalescing `??`, so an absent key keeps
+	// whatever the row holds while a zero would overwrite a real figure with
+	// a fake one.
+	UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any, rttMs int, rttAt time.Time) error
 	// UpdateHardware re-stamps the reported inventory and the labels derived
 	// from it (epic memql#5146, D1). Separate from UpdateLastSeen for the
 	// reason UpdateApps is separate: an inventory change that alters what the
@@ -234,9 +262,17 @@ type RegistrationRow struct {
 	RegisteredAt        time.Time
 	LastSeenAt          time.Time
 	LastConnectedFromIP string
-	RevokedAt           time.Time
-	RevokedBy           string
-	RevokeReason        string
+	// RttMs and RttAt are the latest Ping round trip and when the agent
+	// measured it (epic memql#5218, D11) -- the cluster's own evidence of the
+	// return path, where LastSeenAt is the machine's word. A ZERO RttAt is
+	// NOT MEASURED: no Pong has landed, which is what a cockpit predating the
+	// message looks like. It is never "slow", and a reader that shows RttMs
+	// without checking RttAt first shows a zero as a figure.
+	RttMs        int
+	RttAt        time.Time
+	RevokedAt    time.Time
+	RevokedBy    string
+	RevokeReason string
 }
 
 // IsActive reports whether the registration is currently usable.

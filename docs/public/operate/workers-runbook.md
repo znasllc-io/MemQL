@@ -430,6 +430,18 @@ registry instead is what this design refuses: the registry is ONE replica's
 stream table, so it answers "connected to me" rather than "connected to any
 replica".
 
+**The cluster pings too** (epic memql#5218, D11). A heartbeat is the machine's
+word that it is there; the cluster's own evidence that the return path works,
+and how fast, is a `Ping` the agent sends down the stream a few seconds after
+`RegisterAck` (`FirstPingDelay = 3s`) and then every `PingInterval = 60s`,
+answered by a `Pong`. The round trip lands on the registration as `rttMs` and
+`rttAt` on the next heartbeat flush, measured against the agent's own clock so a
+skewed clock on the machine cannot shape the figure. **An absent `rttAt` means
+NOT MEASURED, never slow**: no `Pong` has landed on this stream, which is what a
+cockpit predating the message looks like (its dispatcher ignores the `Ping`). The
+OS shows "round trip 12 ms, checked 40 s ago" beside the heartbeat, and shows
+nothing as a number while the pair is absent.
+
 ### 5.5 Pairing a machine from the portal
 
 `/fleet/machines` -> **Add a machine**. It mints a worker token over

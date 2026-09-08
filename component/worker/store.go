@@ -212,7 +212,12 @@ func (s *EngineStore) RefreshRegistration(ctx context.Context, row RegistrationR
 // heartbeat's write rather than in a second one to the same row. An inventory
 // change that alters what the machine can RUN does not wait for this window;
 // UpdateHardware is that path.
-func (s *EngineStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any) error {
+//
+// `rttMs` / `rttAt` ride the same write on the same terms (epic memql#5218,
+// D11): the latest Ping round trip, and a ZERO rttAt means not measured, so
+// both stay out of the call. See the Store interface for why a zero must
+// never be sent as a figure.
+func (s *EngineStore) UpdateLastSeen(ctx context.Context, registrationId, ownerUserId string, lastSeenAt time.Time, sourceIP, connectedNodeId string, activeCount int, hardware map[string]any, rttMs int, rttAt time.Time) error {
 	if s == nil || s.Engine == nil {
 		return nil
 	}
@@ -233,6 +238,12 @@ func (s *EngineStore) UpdateLastSeen(ctx context.Context, registrationId, ownerU
 	// nothing -- turning silence into a statement.
 	if len(hardware) > 0 {
 		args["hardware"] = hardware
+	}
+	// The same rule for the round trip: a zero rttAt is "not measured", and
+	// sending it would write a 0 ms figure over a real one.
+	if !rttAt.IsZero() {
+		args["rttMs"] = rttMs
+		args["rttAt"] = rttAt.UTC().Format(time.RFC3339Nano)
 	}
 	query, err := langparser.RenderCall("updateWorkerLastSeen", args)
 	if err != nil {
@@ -476,6 +487,8 @@ func decodeRegistration(node *memqlv1.MemoryNode) *RegistrationRow {
 		RegisteredAt:         g.time("registeredAt"),
 		LastSeenAt:           g.time("lastSeenAt"),
 		LastConnectedFromIP:  g.str("lastConnectedFromIP"),
+		RttMs:                g.intVal("rttMs"),
+		RttAt:                g.time("rttAt"),
 		RevokedAt:            g.time("revokedAt"),
 		RevokedBy:            g.str("revokedBy"),
 		RevokeReason:         g.str("revokeReason"),

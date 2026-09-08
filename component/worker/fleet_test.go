@@ -247,9 +247,11 @@ func TestRegistrationWrites_RefuseABlankOwner(t *testing.T) {
 	ctx := context.Background()
 
 	cases := map[string]func() error{
-		"create":     func() error { return store.CreateRegistration(ctx, RegistrationRow{ID: "reg-1"}) },
-		"refresh":    func() error { return store.RefreshRegistration(ctx, RegistrationRow{ID: "reg-1"}) },
-		"updateSeen": func() error { return store.UpdateLastSeen(ctx, "reg-1", "", time.Now(), "", "n1", 0, nil) },
+		"create":  func() error { return store.CreateRegistration(ctx, RegistrationRow{ID: "reg-1"}) },
+		"refresh": func() error { return store.RefreshRegistration(ctx, RegistrationRow{ID: "reg-1"}) },
+		"updateSeen": func() error {
+			return store.UpdateLastSeen(ctx, "reg-1", "", time.Now(), "", "n1", 0, nil, 0, time.Time{})
+		},
 		"updateHardware": func() error {
 			return store.UpdateHardware(ctx, "reg-1", "", map[string]any{"chip": "M4"}, nil, time.Now(), "")
 		},

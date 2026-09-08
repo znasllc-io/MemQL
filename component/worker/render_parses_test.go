@@ -170,14 +170,20 @@ func writeDrivers() []driver {
 			return s.RefreshRegistration(ctx, reg)
 		}},
 		{"UpdateLastSeen", func(ctx context.Context, s *EngineStore) error {
-			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, nil)
+			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, nil, 0, time.Time{})
 		}},
 		{"UpdateLastSeenWithHardware", func(ctx context.Context, s *EngineStore) error {
 			// The nested-object case. A hardware row carries an object inside an
 			// object and a list of objects, which is where a renderer that omits
 			// separators produces MemQL that lexes as one long identifier and
 			// fails at a place naming nothing in this file.
-			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, awkwardHardware(at))
+			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, awkwardHardware(at), 0, time.Time{})
+		}},
+		{"UpdateLastSeenWithRoundTrip", func(ctx context.Context, s *EngineStore) error {
+			// The measured case (epic memql#5218, D11): rttMs and rttAt are on
+			// the call only when rttAt is set, so this is the one driver that
+			// renders them at all.
+			return s.UpdateLastSeen(ctx, reg.ID, testOwner, at, "203.0.113.7", "agent-1", 2, nil, 12, at)
 		}},
 		{"UpdateHardware", func(ctx context.Context, s *EngineStore) error {
 			return s.UpdateHardware(ctx, reg.ID, testOwner, awkwardHardware(at),

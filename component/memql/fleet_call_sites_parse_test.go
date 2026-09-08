@@ -89,6 +89,7 @@ func fleetCallSites() []struct {
 		}, "component/worker/store.go RefreshRegistration"},
 		{"updateWorkerLastSeen", []string{
 			"registrationId", "lastSeenAt", "lastConnectedFromIP", "connectedNodeId", "activeCount",
+			"hardware", "rttMs", "rttAt",
 		}, "component/worker/store.go UpdateLastSeen"},
 		{"clearWorkerConnectedNode", []string{"registrationId"}, "component/worker/store.go ClearConnectedNode"},
 		{"revokeWorker", []string{
