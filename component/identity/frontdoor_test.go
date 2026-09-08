@@ -60,12 +60,11 @@ func TestAHostWithNoLiveDoorResolvesToNothing(t *testing.T) {
 	}
 }
 
-func TestALiveDoorResolvesFromEitherBrowserFacingHost(t *testing.T) {
+func TestALiveDoorResolvesFromTheCeremonyHost(t *testing.T) {
 	d := NewDoorResolver(&doorEngine{rows: liveDoorRows("memql.acme.com")})
 
 	for _, host := range []string{
 		"id.memql.acme.com",     // where the ceremony runs
-		"app.memql.acme.com",    // where the OS is served
 		"ID.MEMQL.ACME.COM",     // case
 		"id.memql.acme.com:443", // a Host header carries a port
 		"id.memql.acme.com.",    // a trailing dot is legal in a Host
@@ -77,14 +76,16 @@ func TestALiveDoorResolvesFromEitherBrowserFacingHost(t *testing.T) {
 	}
 }
 
-// The api. host serves the bff and never reaches this binary. Recognising it
-// here would be admitting a label on a path that cannot produce one -- and
-// every label this accepts is one an attacker can put in front of a domain
-// they own.
-func TestTheApiLabelIsNotADoorHostHere(t *testing.T) {
+// ONLY `id.` REACHES THE CEREMONY. `app.` goes to the edge and `api.` to the
+// bff, both by Ingress rule, so a request arriving at THIS binary under either
+// label is not a door being resolved. Narrowing it means a forged `app.` Host
+// cannot even reach the lookup.
+func TestOnlyTheCeremonyHostResolvesForARelyingParty(t *testing.T) {
 	d := NewDoorResolver(&doorEngine{rows: liveDoorRows("memql.acme.com")})
-	if name, ok := d.ReservedNameFor(context.Background(), "api.memql.acme.com"); ok {
-		t.Errorf("api.memql.acme.com resolved to %q; only id. and app. reach the identity service", name)
+	for _, host := range []string{"app.memql.acme.com", "api.memql.acme.com"} {
+		if name, ok := d.ReservedNameFor(context.Background(), host); ok {
+			t.Errorf("%q resolved to %q; only the id. host may scope a relying party", host, name)
+		}
 	}
 }
 

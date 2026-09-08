@@ -85,16 +85,21 @@ func NewDoorResolver(engine EngineExecutor) *DoorResolver {
 // ReservedNameFor returns the reserved name a request Host belongs to, and
 // whether it is a live door.
 //
-// It accepts EITHER of the two hosts a browser can reach the identity service
-// at under a door -- `id.<reservedName>` (where the ceremony runs) and
-// `app.<reservedName>` (where the OS is served, and where a redirect lands).
-// Neither is trusted: both are stripped to the same candidate name and the
-// name is what is looked up.
+// ONLY THE `id.` HOST. That is where a WebAuthn ceremony runs, and it is the
+// only door host a request can legitimately reach this binary on -- `app.`
+// goes to the edge and `api.` to the bff, both by Ingress rule. Accepting
+// either of those here would recognise a name on a path that cannot produce
+// it, and every label this function accepts is one an attacker can put in
+// front of a domain they own.
+//
+// The Host is not trusted either way: it is stripped to a CANDIDATE name and
+// that name is looked up against a live row. What the narrowing buys is that a
+// forged `app.` Host cannot even reach the lookup.
 func (d *DoorResolver) ReservedNameFor(ctx context.Context, host string) (string, bool) {
 	if d == nil {
 		return "", false
 	}
-	name, ok := reservedNameFromDoorHost(host)
+	name, ok := reservedNameFromDoorHost(host, frontdoor.AccountRoleID)
 	if !ok {
 		return "", false
 	}
@@ -104,13 +109,12 @@ func (d *DoorResolver) ReservedNameFor(ctx context.Context, host string) (string
 	return name, true
 }
 
-// reservedNameFromDoorHost strips a known door label off a host.
+// reservedNameFromDoorHost strips ONE named door label off a host.
 //
-// ONLY `id.` AND `app.`. The `api.` host serves the bff and never reaches the
-// identity binary, so accepting it here would be recognising a name on a path
-// that cannot produce one -- and every label this function accepts is a label
-// an attacker can put in front of a domain they own.
-func reservedNameFromDoorHost(host string) (string, bool) {
+// The label is a parameter rather than a set, so each caller states which of
+// the three it can legitimately see: the ceremony sees `id.`, a redirect URI
+// names `app.`, and nothing here ever sees `api.`.
+func reservedNameFromDoorHost(host string, role frontdoor.AccountRole) (string, bool) {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if h == "" {
 		return "", false
@@ -121,18 +125,15 @@ func reservedNameFromDoorHost(host string) (string, bool) {
 	}
 	h = strings.TrimSuffix(h, ".")
 
-	for _, role := range []frontdoor.AccountRole{frontdoor.AccountRoleID, frontdoor.AccountRoleApp} {
-		rest, ok := strings.CutPrefix(h, string(role)+".")
-		if !ok || rest == "" {
-			continue
-		}
-		// A reserved name is a client's own multi-label domain.
-		if !strings.Contains(rest, ".") {
-			continue
-		}
-		return rest, true
+	rest, ok := strings.CutPrefix(h, string(role)+".")
+	if !ok || rest == "" {
+		return "", false
 	}
-	return "", false
+	// A reserved name is a client's own multi-label domain.
+	if !strings.Contains(rest, ".") {
+		return "", false
+	}
+	return rest, true
 }
 
 // isLive answers from the cache, refreshing the whole live set when it is
@@ -293,7 +294,10 @@ func reservedNameFromURI(uri string) (string, bool) {
 	if !found || host == "" {
 		return "", false
 	}
-	return reservedNameFromDoorHost(host)
+	// ONLY THE `app.` HOST. A door adds exactly one callback URI and it is the
+	// OS's; naming `id.` or `api.` here would admit a redirect to a host that
+	// serves no callback.
+	return reservedNameFromDoorHost(host, frontdoor.AccountRoleApp)
 }
 
 // String is here so a DoorResolver in a log line says something useful rather
