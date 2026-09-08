@@ -2,6 +2,7 @@ package worker
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -522,9 +523,19 @@ func rowHardwareInt(row map[string]any, key string) int {
 
 // rowHardwareUint64 narrows a decoded payload number to a byte count.
 //
+// narrowing: GUARDED -- the bound is inline and both ends are load-bearing.
 // A NEGATIVE value reads as ZERO rather than wrapping to an enormous positive:
-// a machine cannot have minus four gigabytes, and the wrap would produce a
-// figure that classes the machine as the largest one in the fleet.
+// a machine cannot have minus four gigabytes, and the wrap would class it as
+// the largest machine in the fleet and recommend it everything -- the one
+// direction this file is built not to fail in. An ABSURDLY LARGE float
+// saturates at the top for the same reason read the other way: the figure is
+// an ORDERING, a cockpit reporting more memory than the address space can hold
+// is a corrupt reading rather than a claim, and `uint64(x)` above the range is
+// implementation-defined and answers with the integer indefinite value.
+//
+// It is not core/num's because core/num narrows to `int` and this is a `uint64`
+// byte count; adding a uint64 arm there for two call sites would widen the one
+// narrowing seam rather than use it.
 func rowHardwareUint64(row map[string]any, key string) uint64 {
 	switch n := row[key].(type) {
 	case uint64:
@@ -542,6 +553,9 @@ func rowHardwareUint64(row map[string]any, key string) uint64 {
 	case float64:
 		if n <= 0 {
 			return 0
+		}
+		if n >= math.MaxUint64 {
+			return math.MaxUint64
 		}
 		return uint64(n)
 	}

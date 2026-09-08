@@ -29,6 +29,7 @@ package memql
 import (
 	"context"
 	"fmt"
+	"github.com/znasllc-io/memql/core/num"
 	"strings"
 	"time"
 
@@ -301,6 +302,13 @@ func stringListField(row map[string]any, key string) []string {
 	return out
 }
 
+// narrowing: SATURATE -- every field read through here is an ORDERING.
+//
+// `params`, `contextWindow` and `sizeBytes` are compared and sorted, never
+// summed, so a value past int64 belongs at the end of the order rather than
+// wherever `int64(x)` lands -- which above the range is implementation-defined
+// and answers with the integer indefinite value, a large NEGATIVE that would
+// sort a corrupt catalog row FIRST.
 func int64Field(row map[string]any, key string) int64 {
 	switch n := row[key].(type) {
 	case int:
@@ -308,7 +316,7 @@ func int64Field(row map[string]any, key string) int64 {
 	case int64:
 		return n
 	case float64:
-		return int64(n)
+		return num.ClampFloat64ToInt64(n)
 	}
 	return 0
 }

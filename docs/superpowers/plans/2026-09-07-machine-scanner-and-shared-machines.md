@@ -827,7 +827,7 @@ concept modelMeasurement {
 }
 ```
 
-      Plus `mutationRecordModelMeasurement` (`@serverOnly`), `measurementsForMachine` and
+      Plus `recordModelMeasurement` (`@serverOnly`), `measurementsForMachine` and
       `measurementsForModel` queries, and the shapes. Register the write under the
       MAINTENANCE actor -- the probe's report arrives on the agent and the row is the
       owner's.
@@ -1136,8 +1136,63 @@ git commit -m "Issue #5152: runtimes as capabilities, and the docs for a shared 
 - [ ] `make sdk-gen` and confirm no diff.
 - [ ] A real-browser pass on the machine page: screenshots are the acceptance for an OS
       surface, and a control that moved leaves the original behind with no test seeing it.
-- [ ] Rebase: `git rebase --onto origin/main bd63f10b3` once epics 2 and 3 have landed;
-      then plug `MeasuredKey` into epic 2's `orderModels` hook, `preferOwnMachines` into
-      `dsl/rules/rules.memql`, the activation call into `routingRuleActivate`, and the
-      `kit/measure` import if epic 5 landed first.
+### The rebase, as a checklist
+
+Use the `--onto` form against the recorded stack base, once epics 2 and 3 have landed.
+**Never the plain form** -- this branch is STACKED on epic 3, so the plain form replays
+ten of somebody else's commits into this PR and conflicts on `dsl/embed.go` and
+`embed_inventory_test.go` on the way. (Measured: it does exactly that.)
+
+The branch cannot leave epic 3 behind, either: `component/memql/fleet_recommend.go` reads
+`v1:models:modelProfile` rows, so `fleetRecommended` and the whole recommended block are
+epic 3's catalog. Dropping their commits leaves a builtin querying a concept that does not
+exist, which strict boot refuses.
+
+- [ ] **The ledger read is BROKEN until this lands, and the patch is written.**
+      `scratchpad/ledger-fix.patch` plus `sharing_ledger_projection_test.go`. Two
+      independent faults, both silent:
+      1. `sharing_ledger_read.go` renders `routerCallsInWindow`, which is gated on
+         `actor.isClusterOwner==true`. The caller is a machine's OWNER, usually not a
+         cluster owner, so the read returns zero rows.
+      2. That query's shape, `routerCallEvidence`, does not project `executionSurface` or
+         `userId` -- the two fields the fold reads off every row. So even as a cluster
+         owner the surface is empty, every row fails the `fleet:` prefix check and is
+         skipped.
+      Either one alone folds to **"No calls have run on this machine this week."** -- a
+      specific claim, made on no evidence, to the one person entitled to a true answer,
+      rendered identically to the honest zero.
+      The fix is a dedicated `routerCallLedger` shape (`executionSurface`, `userId`,
+      `level`) and a `routerCallsForMachineOwner` query filtered on
+      `machineOwnerUserId==actor.userId`. **It needs the rebase**: `level` and
+      `machineOwnerUserId` are epic 2's fields and `v1:router:call` declares neither on
+      this branch, so applying the patch early refuses strict boot naming `level`.
+      Three gates ship with it and the negative control is run: pointing the query back at
+      `routerCallEvidence` fails `TestTheLedgerQueryUsesTheLedgerShape` by name.
+- [ ] `Decision.MachineOwnerUserId` in `resolvedFrom` -- **the fix above depends on it.**
+      The field exists on the row and nothing writes it, so the owner-scoped filter matches
+      zero rows until this line lands. A declared field with no writer reads as "no value".
+- [ ] Plug `ValidityOf` / `ThroughputOf` into epic 2's `orderModels` / `orderModelsFastest`.
+- [ ] `preferOwnMachines` into `dsl/rules/rules.memql`.
+- [ ] `routingrules.GenerateRule` as the evidence fold's injected `Renderer`.
+- [ ] `level` onto the router-call evidence shape.
+- [ ] The `kit/measure` import rename (`FigureValue` -> `Measure`) if epic 5 landed first.
+- [ ] `TestUndeclaredRowAuthzPopulationOnlyShrinks` is RED on this branch for
+      `routerCallsInWindow`, and the new ledger query joins it. Decide the tier on
+      `v1:router:call` once epic 2's `routerDecisionsRecent` is visible in the tree:
+      `@rowAuthz(owner="machineOwnerUserId", clusterOwner)` fits both reads IF their query
+      is already cluster-owner gated. Declaring a tier NARROWS every existing read, so
+      check theirs before declaring, and do not take the list's escape hatch without
+      filing the issue it asks for.
+- [ ] `TestDocsRelativeLinksResolve` is RED for the `shared-machines.md` link to the AI
+      routing runbook. The link is correct; the file arrives with epic 2. Re-run after.
+- [ ] `clients/os/src/styles/index.css`: epic 3 appends a 104-line block of its own and
+      this branch appends one. **Take theirs whole and re-append ours** -- two appended
+      blocks interleave on a three-way merge and the result still compiles, which neither
+      the OS typecheck nor any test catches. The OS build is the only thing that parses
+      the stylesheet.
+- [ ] `component/architecture/topology.model.json`: take main's wholesale and regenerate
+      with `make arch-model`. A derived file has no side worth keeping.
+- [ ] Re-run, in this order: the root repo gates, `make test`, `make sdk-gen` (no diff),
+      `make arch-model-check`, the OS typecheck, `make os-build`, the OS vitest suite from
+      inside `clients/os`, `make frontdoor-hosts-check`, `make frontdoor-paths-check`.
 - [ ] Delete this plan in the epic's merge commit.
