@@ -35,7 +35,30 @@
 // clean". Carrying it as a type rather than as a habit is what keeps the
 // fifth surface from getting it wrong.
 
-/** Why a figure has no number. Closed: a new reason is a design decision. */
+/**
+ * Why a figure has no number. Closed: a new reason is a design decision.
+ *
+ * ===========================================================================
+ * WHAT THESE FOUR CANNOT SAY, AND WHY THAT IS LEFT OPEN
+ * ===========================================================================
+ * They cannot express "the mechanism exists, but not in THIS mode" -- a figure
+ * that is unmeasurable on one path and perfectly measurable on another. The
+ * nearest value is `unmeasured`, which would report a figure nothing on this
+ * path can produce as one nobody has got round to: right about the absence,
+ * wrong about who can fix it, and it sends the reader somewhere there is
+ * nothing to do.
+ *
+ * `component/proving/figure` hit this in Go and its answer is the shape to
+ * copy -- `seamNotBuilt` became `notMeasurableOnReplay` when the seam was
+ * built, because THE REASON CHANGED WHILE THE ABSENCE DID NOT. That is the
+ * property a fifth value would have to preserve.
+ *
+ * It is not added here because this set already has twelve consumers, and
+ * widening a closed vocabulary hands every one of them a value none of them
+ * handles. Add the fifth when a surface actually has the mode -- epic
+ * memql#5146's probe is the likely first -- and treat it as a design decision
+ * with its own reading, not as an enum entry.
+ */
 export type AbsentReason =
   /** Nothing has ever reported this. A sweep that has not run, an app that
    *  reported no usage. NOT an error, and NOT zero. */
