@@ -202,7 +202,7 @@ concept inboundRequest {
 /// ownerUserId EMPTY means cluster-owned, and the seeded platform-site row is the case: sameRowAuthzOwner
 /// refuses an empty owner outright, so a cluster-owned row is reachable through the admin branch
 /// alone -- never by a caller who happens to have no identity resolved.
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountId")
 @displayCard(primary="hostname", secondary="kind", tertiary="title", status="status")
 concept site {
   ownerUserId  string   @description("v1:identity:user.id that owns this deployable, or EMPTY for a cluster-owned site. Stamped from the actor on create by createSite, which is what makes the tier below true rather than aspirational. A write made as the DEPLOYMENT -- a cluster owner, a system actor, or trusted server-side Go -- has that stamp undone and produces a cluster-owned row instead; the seeded platform site is the one the platform ships that way, and re-running createSite on an existing id is how an operator hands a site over or takes it back. It is the row-authz key: the composite tier compares it against actor.userId and ORs in the cluster-owner branch, so a user reads and writes exactly their own sites while an operator reads every one. NOT `string!` -- an empty value is the meaningful cluster-owned state, and `string!` would refuse the platform-site seed.")

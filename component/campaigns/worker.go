@@ -585,7 +585,7 @@ func (w *Worker) processRecipient(
 		// Not a suppression and not a transport failure: the address
 		// cannot be mailed at all, and retrying it will never help.
 		// Terminal `failed` with the reason on the row.
-		w.recordFailed(ownerCtx, job, campaign.ID, r, item.attempts+1, "recipient address is not a usable email address")
+		w.recordFailed(ownerCtx, job, campaign, r, item.attempts+1, "recipient address is not a usable email address")
 		return false, nil
 	}
 
@@ -594,7 +594,7 @@ func (w *Worker) processRecipient(
 	// re-imported after a bounce has a recipient row saying `subscribed`,
 	// and the cluster list is what still refuses it.
 	if sup, found, err := w.store.SuppressionByDigest(systemCtx, digest); err == nil && found {
-		w.recordSkipped(ownerCtx, job, campaign.ID, r, sup.Reason)
+		w.recordSkipped(ownerCtx, job, campaign, r, sup.Reason)
 		// Converge this operator's own row onto the cluster verdict, so
 		// the audience view stops showing the address as sendable. Done
 		// under the OWNER's actor: the cluster list is authoritative, but
@@ -620,7 +620,7 @@ func (w *Worker) processRecipient(
 	}
 
 	if r.SubscriptionStatus != "" && r.SubscriptionStatus != "subscribed" {
-		w.recordSkipped(ownerCtx, job, campaign.ID, r, r.SubscriptionStatus)
+		w.recordSkipped(ownerCtx, job, campaign, r, r.SubscriptionStatus)
 		return false, nil
 	}
 
@@ -654,6 +654,7 @@ func (w *Worker) processRecipient(
 		if derr := w.store.RecordDelivery(ownerCtx, Delivery{
 			CampaignID: campaign.ID, RecipientID: r.ID, Email: r.Email,
 			Status: "sent", SentAt: now, Attempts: attempts,
+			AccountID: campaign.AccountID,
 		}); derr != nil {
 			// The message IS sent. A ledger write that fails leaves the
 			// recipient eligible again next batch, which risks ONE
@@ -682,7 +683,7 @@ func (w *Worker) processRecipient(
 		_ = w.store.RecordDelivery(ownerCtx, Delivery{
 			CampaignID: campaign.ID, RecipientID: r.ID, Email: r.Email,
 			Status: "pending", Attempts: item.attempts, LastError: err.Error(),
-			NextAttemptAt: until,
+			NextAttemptAt: until, AccountID: campaign.AccountID,
 		})
 		w.logger.Warn("campaigns worker: provider throttled the send; parking the job",
 			"job", job.ID, "until", until.Format(time.RFC3339), "error", err)
@@ -690,7 +691,7 @@ func (w *Worker) processRecipient(
 	}
 
 	if email.IsPermanent(err) || attempts >= w.cfg.MaxAttempts {
-		w.recordFailed(ownerCtx, job, campaign.ID, r, attempts, err.Error())
+		w.recordFailed(ownerCtx, job, campaign, r, attempts, err.Error())
 		return false, nil
 	}
 
@@ -698,6 +699,7 @@ func (w *Worker) processRecipient(
 	if derr := w.store.RecordDelivery(ownerCtx, Delivery{
 		CampaignID: campaign.ID, RecipientID: r.ID, Email: r.Email,
 		Status: "pending", Attempts: attempts, LastError: err.Error(), NextAttemptAt: next,
+		AccountID: campaign.AccountID,
 	}); derr != nil {
 		w.logger.Warn("campaigns worker: could not record a retryable delivery", "error", derr)
 	}
@@ -777,23 +779,27 @@ func (w *Worker) resolveSender() email.Sender {
 	return w.resolve()
 }
 
-func (w *Worker) recordSkipped(ownerCtx context.Context, job *SendJob, campaignID string, r Recipient, reason string) {
+// recordSkipped and recordFailed take the CAMPAIGN rather than its id
+// (epic memql#5165, section J): the delivery row carries the client tie, and
+// every caller already holds the row it comes from. Passing the id and reading
+// the account back would be a query per skipped recipient on the send path.
+func (w *Worker) recordSkipped(ownerCtx context.Context, job *SendJob, campaign Campaign, r Recipient, reason string) {
 	job.SkippedCount++
 	w.skipTotal.Add(1)
 	if err := w.store.RecordDelivery(ownerCtx, Delivery{
-		CampaignID: campaignID, RecipientID: r.ID, Email: r.Email,
-		Status: "skipped", SkipReason: reason,
+		CampaignID: campaign.ID, RecipientID: r.ID, Email: r.Email,
+		Status: "skipped", SkipReason: reason, AccountID: campaign.AccountID,
 	}); err != nil {
 		w.logger.Warn("campaigns worker: could not record a skipped delivery", "error", err)
 	}
 }
 
-func (w *Worker) recordFailed(ownerCtx context.Context, job *SendJob, campaignID string, r Recipient, attempts int, detail string) {
+func (w *Worker) recordFailed(ownerCtx context.Context, job *SendJob, campaign Campaign, r Recipient, attempts int, detail string) {
 	job.FailedCount++
 	w.failedTotal.Add(1)
 	if err := w.store.RecordDelivery(ownerCtx, Delivery{
-		CampaignID: campaignID, RecipientID: r.ID, Email: r.Email,
-		Status: "failed", Attempts: attempts, LastError: detail,
+		CampaignID: campaign.ID, RecipientID: r.ID, Email: r.Email,
+		Status: "failed", Attempts: attempts, LastError: detail, AccountID: campaign.AccountID,
 	}); err != nil {
 		w.logger.Warn("campaigns worker: could not record a failed delivery", "error", err)
 	}

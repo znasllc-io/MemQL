@@ -38,7 +38,7 @@ use worker.concepts.{ registration }
 /// that to the paths a filter cannot reach (subscriptions, graph expansion, a raw query string) and
 /// what gives an operator console the cross-user view a plain owner= tier has no bypass for.
 @displayCard(primary="title", secondary="summary", tertiary="updatedAt", status="lens")
-@rowAuthz(owner="ownerUserId", clusterOwner)
+@rowAuthz(owner="ownerUserId", clusterOwner, account="accountIds")
 concept artifact {
   ownerUserId      string!  @description("v1:identity:user.id that owns this index row. Stamped from actor.userId at create time and re-stamped on every update so ownership can never be reassigned. The load-bearing per-row authz key.")
 
