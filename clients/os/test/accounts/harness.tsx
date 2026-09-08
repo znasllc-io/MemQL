@@ -222,6 +222,14 @@ export function accountRow(over: Partial<Row> & { id: string }): Row {
     // token this used to hold ("memql-verify-abc123") tripped gitleaks'
     // generic-api-key rule at entropy 3.93, and a fixture cannot be dismissed
     // as a false positive without teaching everybody that this rule is noise.
+    //
+    // DO NOT "FIX" THIS TO LOOK REAL. The production value is
+    // `base64.RawURLEncoding` over 32 crypto/rand bytes -- 43 characters at
+    // maximal entropy with no prefix -- so a fixture that imitates it
+    // faithfully trips the rule HARDER than the one that was caught here.
+    // There is no realistic spelling that passes, which makes joined-from-words
+    // the convention rather than a workaround.
+    //
     // The stop renders whatever this says, so the words are the assertion too.
     domainToken: ["memql", "verify", "example", "not", "a", "real", "token"].join("-"),
     domainStatus: "unverified",
