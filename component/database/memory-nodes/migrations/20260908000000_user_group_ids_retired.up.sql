@@ -39,8 +39,8 @@ SET payload = payload - 'groupIds'
 WHERE concept = 'v1:identity:user'
   AND payload ? 'groupIds';
 
--- And the five fields the RESHAPED v1:identity:group sheds: memberIds,
--- agentIds, maxHumans, maxAgents, externalId. Membership is its own concept
+-- And the six fields the RESHAPED v1:identity:group sheds: memberIds,
+-- agentIds, maxHumans, maxAgents, externalId, active. Membership is its own concept
 -- now (v1:identity:groupMembership), the capacities had no enforcement behind
 -- them, and agents as group members is out of scope (design section N).
 --
@@ -49,13 +49,22 @@ WHERE concept = 'v1:identity:user'
 -- But `externalId`'s own @description said the field was "preserved for any
 -- legacy rows that came from a previous external sync source", which is a
 -- statement that such rows may exist somewhere. If they do, they carry all
--- five keys and the first write to touch one fails exactly as the user rows
+-- six keys and the first write to touch one fails exactly as the user rows
 -- did.
+--
+-- `active` was in that set and this migration MISSED IT until a per-concept
+-- field sweep found it (memql-f9's, written after the per-file version I ran
+-- proved unable to see a field that moves between concepts in one file). The
+-- reshaped concept replaced `active` with a `status` enum -- a lifecycle with
+-- an archivedAt rather than a boolean -- so the key is genuinely gone, and it
+-- was missing here only because I enumerated the shed fields from memory of
+-- the reshape instead of measuring the difference.
 --
 -- Idempotent and free where they do not: `payload ?| array[...]` matches
 -- nothing on a cluster whose group rows this epic wrote.
 
 UPDATE "MemoryNodes"
-SET payload = payload - 'memberIds' - 'agentIds' - 'maxHumans' - 'maxAgents' - 'externalId'
+SET payload = payload - 'memberIds' - 'agentIds' - 'maxHumans' - 'maxAgents'
+                    - 'externalId' - 'active'
 WHERE concept = 'v1:identity:group'
-  AND payload ?| array['memberIds', 'agentIds', 'maxHumans', 'maxAgents', 'externalId'];
+  AND payload ?| array['memberIds', 'agentIds', 'maxHumans', 'maxAgents', 'externalId', 'active'];
