@@ -52,3 +52,19 @@ shape call routerDecision {
   billing
   executionSurface
 }
+
+/// Full projection of one router call, for the nightly evidence fold.
+///
+/// NARROW ON PURPOSE. The fold counts calls, structured failures and outcomes; it does not read
+/// costs, tokens or error messages, and projecting them would put a week of prompt-adjacent text
+/// through a sweep that has no use for it.
+@row
+shape call routerCallEvidence {
+  row.id
+  model
+  promptName
+  outcome
+  errorCategory
+  billing
+  row.createdAt
+}

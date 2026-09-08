@@ -760,3 +760,10 @@ builtin fleetModelProbe {
   registrationId  string!  @description("v1:worker:registration.id of the machine to measure on. It must be one of the caller's own; another user's id answers exactly as a made-up one does.")
   model           string!  @description("The model id in the runtime's own vocabulary. The machine must already ADVERTISE it -- a probe measures a model that is present, where a pull exists precisely because one is not, so probing an unadvertised model would measure a download.")
 }
+
+// ---- The nightly evidence fold (epic memql#5146, D5) ----
+
+@description("Fold the week's router calls into per-model, per-level evidence rows, and open a routingReview approval where the evidence carries a demotion. It PROPOSES and never applies: routing is a thing a person is accountable for, and a rule that appeared overnight because a threshold was crossed is an edit nobody made. Above a 0.3 structured-failure rate over at least twenty calls it renders the exclusion rule, hashes the exact text, and puts it to a person; approving arms it through the authoring pipeline and declining is recorded so the same week's evidence does not ask again. Calls that did not say which level they were serving are COUNTED AND EXCLUDED rather than folded under a blank -- a demotion at an unknown level is a demotion at every level, which is far more than the evidence supports.")
+@executor("integration.router.routingEvidenceFold")
+builtin routingEvidenceFold {
+}
