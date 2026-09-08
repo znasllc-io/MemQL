@@ -1,6 +1,7 @@
 # Roles as data, enforced -- Design (sub-project B of the access program)
 
 - **Date:** 2026-09-07
+- **Epic:** memql#5166 (tasks #5177-#5181; the cockpit follow-up memql-cockpit#403), filed 2026-09-08
 - **Status:** approved in the 2026-09-07 brainstorm; the program record
   (`2026-09-07-access-program.md`) carries the cross-cutting decisions P1 to P9, cited
   below by number.

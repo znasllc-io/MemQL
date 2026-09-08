@@ -1,6 +1,7 @@
 # The per-account front door -- Scope (sub-project D of the access program)
 
 - **Date:** 2026-09-07
+- **Epic:** memql#5168 (the design-session task #5191), filed 2026-09-08
 - **Status:** scope agreed with the owner in the 2026-09-07 brainstorm; **the design is a
   session of its own**, to be held after sub-project A ships. This file fixes what that
   session must answer and what it inherits, so it starts in the right place. It is not

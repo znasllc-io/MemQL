@@ -1,6 +1,7 @@
 # The Users app and the account ties -- Design (sub-project C of the access program)
 
 - **Date:** 2026-09-07
+- **Epic:** memql#5167 (tasks #5182-#5188, #5190), filed 2026-09-08
 - **Status:** approved in the 2026-09-07 brainstorm, on four rendered mockups (the app's
   shape, the New role rail, the person page and the Invite rail, the account page); the
   program record (`2026-09-07-access-program.md`) carries the cross-cutting decisions P1 to

@@ -1,6 +1,7 @@
 # Groups and grants -- Design (sub-project A of the access program)
 
 - **Date:** 2026-09-07
+- **Epic:** memql#5165 (tasks #5169-#5176), filed 2026-09-08
 - **Status:** approved in the 2026-09-07 brainstorm; the program record
   (`2026-09-07-access-program.md`) carries the cross-cutting decisions P1 to P9, cited
   below by number.
