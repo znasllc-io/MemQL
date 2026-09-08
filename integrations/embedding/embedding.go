@@ -534,11 +534,21 @@ func cacheKey(text, provider, bindingID string) string {
 
 // activeBindingID names the binding a cached vector belongs to, or "" when the
 // caller named a provider itself.
+//
+// IT CARRIES THE WIDTH, AND THE PROVIDER NAME ALONE IS NOT ENOUGH. Two bindings
+// can name the same provider at different widths -- qwen3-embedding truncates
+// from 4096 all the way down to 32 -- and those produce vectors in different
+// geometries. Keyed on the name alone, a re-binding from that provider at 4096
+// to the same provider at 1024 would serve the 4096-dimension entry as though
+// it were the new one: not a stale answer, a vector from another space, with a
+// cosine distance against it that is a number with no meaning. The width is the
+// part that differs, so the width is in the key.
 func activeBindingID() string {
-	if b, ok := memql.ActiveEmbedderBinding(); ok {
-		return b.ProviderRef
+	b, ok := memql.ActiveEmbedderBinding()
+	if !ok {
+		return ""
 	}
-	return ""
+	return fmt.Sprintf("%s@%d", b.ProviderRef, b.Dimensions)
 }
 
 // vectorLiteral formats a float32 slice as a pgvector literal: [0.1,0.2,...].
