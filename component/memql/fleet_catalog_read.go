@@ -104,6 +104,13 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 				"busy":           mm.Busy(),
 				"activeCount":    mm.ActiveCount,
 				"maxConcurrent":  int(mm.MaxConcurrent),
+				// memory and platform are what let the catalog CHECK a model's
+				// machine-class floor. Before memql#5195 no field on this entry
+				// carried either, so the floor was guarded on a fleet size that
+				// was never reported and was therefore never checked, on any
+				// fleet. Zero and "" mean the machine has not said.
+				"memoryGb": int(mm.MemoryGb),
+				"platform": mm.Platform,
 			})
 		}
 		raw, err := json.Marshal(map[string]any{
@@ -122,11 +129,11 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 			// row stores (epic memql#5146). ABSENT AS A REASON, never as a
 			// zero: a surface reading `measured: false` renders the sentence,
 			// and there is no median beside the flag to be read by mistake.
-			"measured": measuredRow(m.Measured),
-			"online":           m.Online(),
-			"machineCount":     len(m.Machines),
-			"onlineCount":      online,
-			"machines":         machines,
+			"measured":     measuredRow(m.Measured),
+			"online":       m.Online(),
+			"machineCount": len(m.Machines),
+			"onlineCount":  online,
+			"machines":     machines,
 		})
 		if err != nil {
 			return nil, err

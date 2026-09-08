@@ -194,6 +194,16 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 				Online:         online,
 				ActiveCount:    m.ActiveCount,
 				MaxConcurrent:  attrs.MaxConcurrent,
+				// What the machine IS, as against what it is currently serving.
+				// Both were in scope here and dropped on the floor, which is why
+				// the catalog's machine-class floor was never checked (memql#5195):
+				// `minMachineClass` was compared against a fleet size nothing
+				// reported. Hardware is the zero value for a cockpit that
+				// predates the scanner, and UsableGigabytes answers 0 for it --
+				// which every reader downstream takes as "has not said" rather
+				// than as "has no memory".
+				MemoryGb: memqlengine.UsableGigabytes(memqlengine.HardwareFromRow(m.Hardware.Row())),
+				Platform: memqlengine.NormalizePlatform(m.Labels["os"]),
 			})
 		}
 	}

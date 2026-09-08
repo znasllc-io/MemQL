@@ -266,8 +266,16 @@ func sortRecommendations(entries []Recommendation) {
 // direction: a restriction nobody declared is not a restriction, and refusing a
 // machine for not stating its platform would rule out every cockpit that
 // reports an inventory without one.
+//
+// THE MACHINE'S WORD IS NORMALIZED FIRST, and without that this comparison was
+// wrong for every Mac (memql#5195). `platformInfo.os` is Go's GOOS, so a Mac
+// says `darwin`; `offeredOn` is declared `macos | linux` and every seed spells
+// it `macos`. A plain EqualFold between the two answers false, which blocked the
+// one macOS-only profile in the catalog ON MACOS, with the sentence "Not offered
+// on macOS. This entry is macos only." Every test here passed because they all
+// used OfferedOn: ["linux"] -- the pair that collides was never spelled.
 func offeredOn(p CatalogProfile, os string) bool {
-	os = strings.TrimSpace(strings.ToLower(os))
+	os = NormalizePlatform(os)
 	if len(p.OfferedOn) == 0 || os == "" {
 		return true
 	}

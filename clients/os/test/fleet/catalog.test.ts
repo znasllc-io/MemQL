@@ -335,3 +335,152 @@ describe("applyFacets", () => {
     expect(out).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// The machine-class floor becomes checkable (memql#5195)
+// ===========================================================================
+// The floor was never checked on any fleet, because the memory a machine
+// reports never reached the comparison: nothing on a fleetModel row's machine
+// entries carried memory or platform. These cover the two states that used to
+// be one, and the fold that now produces them.
+
+const { machineFactsFrom } = await import("../../src/apps/fleet/models/CatalogSection");
+type CatalogModel = import("../../src/apps/fleet/models/useInference").CatalogModel;
+type CatalogMachine = import("../../src/apps/fleet/models/useInference").CatalogMachine;
+
+function wireMachine(over: Partial<CatalogMachine> = {}): CatalogMachine {
+  return {
+    registrationId: "reg-1",
+    name: "studio",
+    displayName: "Studio",
+    runtimes: ["ollama"],
+    online: true,
+    busy: false,
+    activeCount: 0,
+    maxConcurrent: 2,
+    memoryGb: 36,
+    platform: "macos",
+    ...over,
+  };
+}
+
+function wireModel(modelId: string, machines: CatalogMachine[]): CatalogModel {
+  return {
+    modelId,
+    params: 9_000_000_000,
+    contextWindow: 262_144,
+    structuredOutput: true,
+    embeddings: false,
+    tools: true,
+    online: true,
+    quant: "Q4_K_M",
+    machineCount: machines.length,
+    onlineCount: machines.filter((m) => m.online).length,
+    machines,
+  };
+}
+
+describe("machineFactsFrom", () => {
+  it("carries memory and platform off the wire", () => {
+    // The whole of link three. Before memql#5195 this function returned the
+    // constants "" and 0 no matter what the wire said, so every fleet read as
+    // one that had not reported.
+    const facts = machineFactsFrom([wireModel("qwen3.5:9b", [wireMachine()])]);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.memoryGb).toBe(36);
+    expect(facts[0]!.platform).toBe("macos");
+  });
+
+  it("folds one machine across every model it serves", () => {
+    // A machine appears under each model it runs, and the entries describe the
+    // same machine. The fold must not let a later entry that happened to omit a
+    // figure erase one an earlier entry carried.
+    const facts = machineFactsFrom([
+      wireModel("a:9b", [wireMachine({ runtimes: ["ollama"] })]),
+      wireModel("b:9b", [wireMachine({ runtimes: ["mlx"], memoryGb: 0, platform: "" })]),
+    ]);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.memoryGb).toBe(36);
+    expect(facts[0]!.platform).toBe("macos");
+    expect(facts[0]!.runtimes.sort()).toEqual(["mlx", "ollama"]);
+  });
+
+  it("reports nothing for a machine that has said nothing", () => {
+    // The control. A cockpit predating the hardware scanner sends no inventory,
+    // and 0 must stay 0 rather than acquiring a default -- 0 is what blocks
+    // nothing, and any invented figure would block or clear a floor on its own.
+    const facts = machineFactsFrom([
+      wireModel("a:9b", [wireMachine({ memoryGb: 0, platform: "" })]),
+    ]);
+    expect(facts[0]!.memoryGb).toBe(0);
+    expect(facts[0]!.platform).toBe("");
+  });
+});
+
+describe("the machine-class floor, once memory is reported", () => {
+  it("blocks an entry the fleet is too small for, and names the machine rather than its rung", () => {
+    // THE SECOND SENTENCE USED TO BE A LIE AN OPERATOR COULD CHECK. It printed
+    // the class the machine landed on, so a 48 GB Mac -- 36 GB usable, class 32
+    // -- read "your largest machine has 32 GB". It now reports the figure the
+    // comparison actually ran on.
+    const big = profile({ modelId: "qwen3.5:122b", minMachineClass: "128" });
+    const r = joinCatalog([big], [], [machine({ memoryGb: 36 })]);
+    expect(r.rows[0]!.blocked?.kind).toBe("no-machine-of-class");
+    expect(r.rows[0]!.blocked?.detail).toBe(
+      "Needs a 128 GB machine. Your largest has 36 GB for a model.",
+    );
+    expect(r.rows[0]!.classKnown).toBe(true);
+  });
+
+  it("tells a fleet that is too small for everything from one that has not spoken", () => {
+    // THE STATE THAT DID NOT EXIST, and the reason the reading is (known,
+    // largestGb) rather than a class index where -1 meant both things. An 8 GB
+    // laptop reports perfectly well and reaches no rung. Under the old reading
+    // it was indistinguishable from silence, so this person would have been told
+    // "your machines have not reported their memory yet" about a machine that
+    // had.
+    const floored = profile({ minMachineClass: "16" });
+    const tiny = joinCatalog([floored], [], [machine({ memoryGb: 8 })]);
+    expect(tiny.rows[0]!.classKnown).toBe(true);
+    expect(tiny.rows[0]!.blocked?.kind).toBe("no-machine-of-class");
+    expect(tiny.rows[0]!.blocked?.detail).toBe(
+      "Needs a 16 GB machine. Your largest has 8 GB for a model.",
+    );
+    expect(hasUncheckableClass(groupByCategory(tiny))).toBe(false);
+
+    // Silence is the other answer, and it still blocks nothing.
+    const silent = joinCatalog([floored], [], [machine({ memoryGb: 0 })]);
+    expect(silent.rows[0]!.classKnown).toBe(false);
+    expect(silent.rows[0]!.blocked).toBeNull();
+    expect(hasUncheckableClass(groupByCategory(silent))).toBe(true);
+  });
+
+  it("blocks a 32 GB entry for a machine reporting 16 GB, with its figures", () => {
+    // memql#5195's acceptance, verbatim. Written out even though the code path
+    // is the same as the case above, because an acceptance criterion stated with
+    // numbers is worth pinning at those numbers: it is what somebody rereading
+    // the issue will look for.
+    const needs32 = profile({ modelId: "qwen3.5:32b", minMachineClass: "32" });
+    const r = joinCatalog([needs32], [], [machine({ memoryGb: 16 })]);
+    expect(r.rows[0]!.blocked?.kind).toBe("no-machine-of-class");
+    expect(r.rows[0]!.blocked?.detail).toBe(
+      "Needs a 32 GB machine. Your largest has 16 GB for a model.",
+    );
+    expect(r.rows[0]!.classKnown).toBe(true);
+  });
+
+  it("takes the largest machine, not the first", () => {
+    const big = profile({ minMachineClass: "64" });
+    const r = joinCatalog([big], [], [machine({ memoryGb: 12 }), machine({ memoryGb: 96 })]);
+    expect(r.rows[0]!.blocked).toBeNull();
+  });
+
+  it("counts what fits once the fleet has reported", () => {
+    // Acceptance: the per-category count appears, and the "have not reported"
+    // line does not.
+    const fits = profile({ modelId: "qwen3.5:9b", minMachineClass: "16" });
+    const group = groupByCategory(joinCatalog([fits], [], [machine({ memoryGb: 36 })]))[0]!;
+    expect(categorySentence(group)).toContain("1 of them runs on a machine you already have");
+    expect(hasUncheckableClass([group])).toBe(false);
+  });
+});

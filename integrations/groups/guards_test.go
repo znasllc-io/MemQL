@@ -2,6 +2,8 @@ package groups
 
 import (
 	"context"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -210,22 +212,91 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
+// The refusal codes are the contract the OS keys its copy on, so the set has
+// to be measured rather than restated.
+//
+// READ OUT OF THE SOURCE, not listed here. A hand-kept list satisfies every
+// "nothing uncovered" assertion while covering only what somebody remembered
+// to add -- a peer session hit exactly that shape on a sibling package, where
+// a scanner matching `Code\w+ = "..."` found ZERO codes in a package whose
+// constants are private and passed. So this reads the declarations, asserts a
+// POSITIVE (that it found some at all), and then checks the properties.
 func TestEveryRefusalCodeIsDistinct(t *testing.T) {
-	// The codes are the contract the OS keys its copy on. Two that collide
-	// would make one refusal indistinguishable from another at the only
-	// place a person reads them.
-	seen := map[string]bool{}
-	for _, code := range []string{
-		CodeNoCaller, CodeCapabilityMissing, CodeSelfAddRefused, CodeRankNotBelowCaller,
-		CodeGroupAccountActive, CodeGroupNotActive, CodeGroupNotFound, CodeAccountNotFound,
-		CodeAccountNotActive, CodeTargetUserNotFound, CodeAccountKindNotCreatable,
-	} {
-		if !strings.HasPrefix(code, "group_") {
-			t.Fatalf("code %q does not carry the group_ prefix every OS key matches on", code)
-		}
-		if seen[code] {
-			t.Fatalf("duplicate refusal code %q", code)
-		}
-		seen[code] = true
+	declared := declaredRefusalCodes(t)
+	if len(declared) < 8 {
+		t.Fatalf("found %d refusal codes in guards.go; the scan is not seeing the "+
+			"declarations, so every assertion below is measuring an empty set", len(declared))
 	}
+	seen := map[string]string{}
+	for name, code := range declared {
+		if !strings.HasPrefix(code, "group_") {
+			t.Errorf("%s = %q does not carry the group_ prefix every OS key matches on", name, code)
+		}
+		if prior, dup := seen[code]; dup {
+			t.Errorf("%s and %s are both %q -- one refusal would be indistinguishable "+
+				"from another at the only place a person reads them", prior, name, code)
+		}
+		seen[code] = name
+	}
+}
+
+// TestEveryRefusalCodeIsReachable is the other half, and the one a restated
+// list cannot give: every code declared must actually be RETURNED somewhere.
+//
+// A code nobody raises is a contract the OS copies for a refusal that cannot
+// happen, and it reads exactly like one that can.
+func TestEveryRefusalCodeIsReachable(t *testing.T) {
+	declared := declaredRefusalCodes(t)
+	body := packageSource(t)
+	for name, code := range declared {
+		// The constant is referenced by NAME at the refusal site, so look for
+		// the name rather than the string -- searching for the literal would
+		// find the declaration itself and pass vacuously.
+		uses := strings.Count(body, name)
+		if uses < 2 {
+			t.Errorf("%s (%q) is declared and never returned. A code nobody raises is a "+
+				"refusal the OS has copy for and can never show", name, code)
+		}
+	}
+}
+
+// declaredRefusalCodes reads the `Code... = "group_..."` constants out of
+// guards.go.
+func declaredRefusalCodes(t *testing.T) map[string]string {
+	t.Helper()
+	src, err := os.ReadFile("guards.go")
+	if err != nil {
+		t.Fatalf("read guards.go: %v", err)
+	}
+	re := regexp.MustCompile(`(?m)^\s*(Code\w+)\s*=\s*"([^"]+)"`)
+	out := map[string]string{}
+	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+		out[m[1]] = m[2]
+	}
+	return out
+}
+
+// packageSource concatenates every non-test .go file in the package.
+func packageSource(t *testing.T) string {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		b.Write(src)
+	}
+	if b.Len() == 0 {
+		t.Fatal("no package source read; both tests above would measure nothing")
+	}
+	return b.String()
 }

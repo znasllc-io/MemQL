@@ -145,6 +145,18 @@ type FleetMachine struct {
 	Online        bool
 	ActiveCount   int
 	MaxConcurrent uint32
+	// MemoryGb is what the machine has to give a model, in whole gigabytes, as
+	// UsableGigabytes computes it -- VRAM on a discrete card, 75 percent of the
+	// pool on unified memory. ZERO MEANS THE COCKPIT HAS NOT REPORTED, never a
+	// machine with no memory: a cockpit that predates the hardware scanner sends
+	// no inventory at all, and every reader must take the zero that way or it
+	// will tell somebody their machine is too small when nobody has asked it yet.
+	MemoryGb uint64
+	// Platform is the machine's operating system in the CATALOG's vocabulary
+	// (`macos`, `linux`), normalized here so the wire carries one spelling --
+	// the machine itself reports Go's GOOS, which says `darwin`. Empty when the
+	// machine has not said, which blocks nothing.
+	Platform string
 }
 
 // Busy reports whether the machine is at its declared ceiling for this model.
