@@ -268,9 +268,20 @@ func catalogProfilesFromRows(rows []map[string]any) []CatalogProfile {
 			OfferedOn:       stringListField(row, "offeredOn"),
 			Flags:           stringListField(row, "flags"),
 			Params:          int64Field(row, "params"),
-			ContextWindow:   int(int64Field(row, "contextWindow")),
-			SizeBytes:       int64Field(row, "sizeBytes"),
-			Notes:           mapString(row, "notes"),
+			// narrowing: SATURATE, and the bare `int(...)` this replaces is
+			// what CodeQL's go/incorrect-integer-conversion caught. `int` is
+			// 32 bits on a 32-bit build, so a context window past MaxInt32
+			// wrapped -- to a NEGATIVE, which sorts a corrupt catalog row
+			// first and reads as a model with no context at all.
+			//
+			// TestEveryPayloadNarrowingCarriesAnAnswer does not cover this:
+			// it sweeps the float64/int64 ARMS of a type switch, and this is
+			// a conversion at a call site. The gate is not wrong, it is
+			// scoped -- worth knowing before trusting it as the whole answer
+			// on numeric narrowing.
+			ContextWindow: num.ClampInt64(int64Field(row, "contextWindow")),
+			SizeBytes:     int64Field(row, "sizeBytes"),
+			Notes:         mapString(row, "notes"),
 		})
 	}
 	return out
