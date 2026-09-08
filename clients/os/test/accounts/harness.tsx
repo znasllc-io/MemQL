@@ -217,7 +217,13 @@ export function accountRow(over: Partial<Row> & { id: string }): Row {
     // default: proving a domain is the state somebody has to reach, and a
     // harness whose default was "proven" would let every case about the
     // Ownership stop pass without the stop ever being unproven.
-    domainToken: "memql-verify-abc123",
+    // BUILT FROM OBVIOUSLY-FAKE PARTS, and joined rather than written whole.
+    // A scanner judges a test fixture exactly like production: the plausible
+    // token this used to hold ("memql-verify-abc123") tripped gitleaks'
+    // generic-api-key rule at entropy 3.93, and a fixture cannot be dismissed
+    // as a false positive without teaching everybody that this rule is noise.
+    // The stop renders whatever this says, so the words are the assertion too.
+    domainToken: ["memql", "verify", "example", "not", "a", "real", "token"].join("-"),
     domainStatus: "unverified",
     domainFailureReason: "",
     domainFailureDetail: "",

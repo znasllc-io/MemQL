@@ -87,7 +87,7 @@ describe("the domain rail", () => {
     const ownership = await openStop(rail, "Ownership");
     expect(within(ownership).getByText("TXT")).toBeTruthy();
     expect(within(ownership).getByText("_memql-verify.acme.com")).toBeTruthy();
-    expect(within(ownership).getByText("memql-verify-abc123")).toBeTruthy();
+    expect(within(ownership).getByText("memql-verify-example-not-a-real-token")).toBeTruthy();
     expect(within(ownership).getByRole("button", { name: /Copy Value/ })).toBeTruthy();
   });
 
