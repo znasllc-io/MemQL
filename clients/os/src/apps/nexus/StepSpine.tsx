@@ -2,10 +2,12 @@ import { ChevronRight } from "lucide-react";
 
 import { Chip, formatDuration } from "../../kit";
 import {
+  decisionLine,
   formatMoney,
   formatTokens,
   stepCallLine,
   stepThought,
+  type StepDecision,
   type StepRow,
 } from "./rows";
 import {
@@ -67,22 +69,50 @@ export interface StepSpineRowProps {
   last: boolean;
   open: boolean;
   onOpen: () => void;
+  /**
+   * Which door answered for this step, when the journal has been read.
+   *
+   * OPTIONAL, AND ABSENT IS THE ORDINARY CASE rather than a gap to fill in.
+   * Most steps are deterministic and never call a model, and the journal is an
+   * on-demand read (`useJournal` deliberately does not read on open), so a
+   * caller that has not read it hands nothing here -- as `GoalView` does. Both
+   * of those render no decision line at all, which is the same answer for two
+   * different reasons and the right one for both: an empty slot on a step that
+   * never called a model is a claim that something is missing.
+   */
+  decision?: StepDecision | null;
 }
 
-export function StepSpineRow({ step, position, last, open, onOpen }: StepSpineRowProps) {
+export function StepSpineRow({
+  step,
+  position,
+  last,
+  open,
+  onOpen,
+  decision = null,
+}: StepSpineRowProps) {
   const thought = stepThought(step);
   const kind = step.kind === "" ? "unclassified" : step.kind;
   const failed = step.status === "failed";
   const waiting = step.status === "waiting";
 
+  // The decision is rendered from the SAME string the accessible name carries,
+  // so the two cannot drift apart. A step with no model call contributes "",
+  // which the filter below drops.
+  const decided = decision === null ? "" : decisionLine(decision);
+
   // The accessible name says everything the drawing says, in words. A reader
   // who cannot see the spine gets "step 3, reasoning, called a model, done".
+  // That contract is why the decision is appended here and not only drawn: a
+  // line about who was billed, visible to sighted readers only, is the whole
+  // point of this epic withheld from half of them.
   const spoken = [
     `Step ${position}`,
     step.key,
     stepKindWord(step.kind),
     stepKindMeaning(step.kind),
     stepStatusWord(step.status),
+    decided,
   ]
     .filter((part) => part !== "")
     .join(", ");
@@ -119,6 +149,30 @@ export function StepSpineRow({ step, position, last, open, onOpen }: StepSpineRo
           ) : null}
         </span>
         <span className="os-nexus-step-call">{stepCallLine(step)}</span>
+        {/* WHICH DOOR ANSWERED, ON THE STEP THAT ASKED. It sits in the body
+            slot with the symptom and the error, for the same reason they do:
+            it is a sentence about this step, and a sentence in a column is a
+            sentence nobody can read.
+
+            A STEP THAT CALLED NO MODEL RENDERS NOTHING HERE -- not a dash, not
+            an empty line. Most of a run is deterministic, and a dash on
+            forty-four rows to say "no model was involved" is forty-four things
+            to read past; the spine has already said which steps thought. */}
+        {decided === "" ? null : (
+          /* IT BORROWS THE CALL LINE'S TYPE rather than inventing a second
+             one. Both are the same voice -- a quiet line under the step's own
+             name, saying more about the same call -- and a third size in this
+             row would be a size nobody chose. `os-nexus-step-decision` and
+             `data-served` are the hooks for giving a door its own weight, so
+             that decision can be made in the stylesheet: a fleet line and a
+             billed line want to read differently. */
+          <span
+            className="os-nexus-step-call os-nexus-step-decision"
+            data-served={decision?.served || undefined}
+          >
+            {decided}
+          </span>
+        )}
         {/* The symptom is the classifier's answer and belongs UNDER the step
             it is about, not in a column: it is a sentence, and a sentence in a
             column is a sentence nobody can read. */}

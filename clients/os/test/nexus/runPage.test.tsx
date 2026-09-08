@@ -474,3 +474,170 @@ describe("what a run is for", () => {
     ).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Which door answered, on the step that asked (memql#5157, design record D2)
+// ---------------------------------------------------------------------------
+
+/** Four steps: one that never called a model, and one per door. */
+function decisionSteps() {
+  return [
+    stepRow({ id: "d1", key: "fetchLedger", seq: 0, durationMs: 38 }),
+    stepRow({ id: "d2", key: "classify", seq: 1, kind: "reasoning", durationMs: 2100 }),
+    stepRow({ id: "d3", key: "summarise", seq: 2, kind: "reasoning", durationMs: 900 }),
+    stepRow({ id: "d4", key: "draft", seq: 3, kind: "reasoning", durationMs: 12 }),
+  ];
+}
+
+/**
+ * One call per door. The steps above carry NO cost of their own, so every
+ * money figure on the page below comes from a decision line -- otherwise "the
+ * fleet line shows no money" would be asserting against the step's own spend
+ * readout rather than against the line under test.
+ */
+function decisionCalls() {
+  return [
+    {
+      id: "m1",
+      runId: "run-1",
+      stepKey: "classify",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      served: "live",
+      inputTokens: 900,
+      outputTokens: 340,
+      cost: 0.0041,
+      latencyMs: 2100,
+      error: "",
+      createdAt: "2026-09-01T09:02:00Z",
+    },
+    {
+      // A fleet call reports no cost at all, because nothing was billed.
+      id: "m2",
+      runId: "run-1",
+      stepKey: "summarise",
+      provider: "",
+      model: "qwen3:8b",
+      served: "local",
+      inputTokens: 400,
+      outputTokens: 120,
+      latencyMs: 800,
+      error: "",
+      createdAt: "2026-09-01T09:03:00Z",
+    },
+    {
+      id: "m3",
+      runId: "run-1",
+      stepKey: "draft",
+      provider: "anthropic",
+      model: "claude-haiku",
+      served: "journal",
+      inputTokens: 120,
+      outputTokens: 40,
+      cost: 0,
+      latencyMs: 4,
+      error: "",
+      createdAt: "2026-09-01T09:04:00Z",
+    },
+  ];
+}
+
+/** The decision comes from the journal, which is an on-demand read. */
+async function openRunAndReadJournal(conn: Conn) {
+  const timeline = await openRun(conn);
+  fireEvent.click(screen.getByText("Read the journal"));
+  await waitFor(() => expect(conn.query.workModelCallsForOwnerRun).toHaveBeenCalled());
+  await screen.findByText(/^Read at /);
+  return timeline;
+}
+
+describe("each step's decision", () => {
+  it("names your own fleet, and puts no money on it", async () => {
+    // The claim this epic exists to make legible: a call your own hardware
+    // answered was not billed, and the row must not leave a reader hunting
+    // for a charge that does not exist.
+    const conn = fakeConnection({
+      runs: [runRow({ id: "run-1" })],
+      steps: decisionSteps(),
+      modelCalls: decisionCalls(),
+    });
+    const timeline = await openRunAndReadJournal(conn);
+    const row = within(timeline).getByLabelText(/Step 3, summarise/);
+    const line = row.querySelector(".os-nexus-step-decision");
+    expect(line?.textContent).toBe("your fleet · qwen3:8b");
+    // Asserted on the LINE and on the name, because a money figure could
+    // arrive in either and each channel has to stand on its own.
+    expect(line?.textContent ?? "").not.toContain("$");
+    expect(row.getAttribute("aria-label") ?? "").not.toContain("$");
+  });
+
+  it("names the vendor that answered, and what it cost", async () => {
+    const conn = fakeConnection({
+      runs: [runRow({ id: "run-1" })],
+      steps: decisionSteps(),
+      modelCalls: decisionCalls(),
+    });
+    const timeline = await openRunAndReadJournal(conn);
+    expect(within(timeline).getByText("anthropic · claude-sonnet-4 · $0.0041")).toBeTruthy();
+  });
+
+  it("says a replayed step made no call, which is the whole product claim", async () => {
+    const conn = fakeConnection({
+      runs: [runRow({ id: "run-1" })],
+      steps: decisionSteps(),
+      modelCalls: decisionCalls(),
+    });
+    const timeline = await openRunAndReadJournal(conn);
+    expect(within(timeline).getByText("replayed · claude-haiku, no call made")).toBeTruthy();
+  });
+
+  it("puts NO decision line on a step that called no model -- not a dash, nothing", async () => {
+    // Most of a run is deterministic. A dash on every free row to say "no
+    // model was involved" is a row of things to read past, and the spine has
+    // already said which steps thought.
+    const conn = fakeConnection({
+      runs: [runRow({ id: "run-1" })],
+      steps: decisionSteps(),
+      modelCalls: decisionCalls(),
+    });
+    const timeline = await openRunAndReadJournal(conn);
+    expect(timeline.querySelectorAll(".os-nexus-step-decision")).toHaveLength(3);
+    const free = within(timeline).getByLabelText(/Step 1, fetchLedger/);
+    expect(free.querySelector(".os-nexus-step-decision")).toBeNull();
+  });
+
+  it("says the decision in WORDS too, or the epic's point is sighted-only", async () => {
+    // The file's own contract: the accessible name says everything the drawing
+    // says. A visible line about who was billed, absent from the name, is that
+    // contract broken in the one place it matters most.
+    const conn = fakeConnection({
+      runs: [runRow({ id: "run-1" })],
+      steps: decisionSteps(),
+      modelCalls: decisionCalls(),
+    });
+    const timeline = await openRunAndReadJournal(conn);
+    expect(
+      within(timeline).getByLabelText(
+        "Step 2, classify, Reasoning, called a model, Done, anthropic · claude-sonnet-4 · $0.0041",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(timeline).getByLabelText(
+        "Step 4, draft, Reasoning, called a model, Done, replayed · claude-haiku, no call made",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows nothing until the journal is read, and never claims a door it was not told about", async () => {
+    // `useJournal` does not read on open, deliberately. Before the read this
+    // window does not know which door answered, and a row cannot say what it
+    // has not been told.
+    const conn = fakeConnection({
+      runs: [runRow({ id: "run-1" })],
+      steps: decisionSteps(),
+      modelCalls: decisionCalls(),
+    });
+    const timeline = await openRun(conn);
+    expect(timeline.querySelectorAll(".os-nexus-step-decision")).toHaveLength(0);
+  });
+});
