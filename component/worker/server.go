@@ -176,6 +176,7 @@ func (s *server) admitRegistration(
 	w.SetAppSessionFunc(session.openAppSession)
 	w.SetModelCallFunc(session.openModelCall)
 	w.SetModelPullFunc(session.openModelPull)
+	w.SetModelProbeFunc(session.openModelProbe)
 	s.registry.Add(w)
 
 	if err := stream.Send(&memqlv1.WorkerServerMessage{
@@ -342,9 +343,13 @@ type streamSession struct {
 	// id spaces are separate and a pull is not a call: conflating them
 	// would let a cancel for one reach the other.
 	modelPulls map[string]*ModelPullHandle
-	sendMu     sync.Mutex
-	sendErr    error
-	closeOnce  sync.Once
+	// modelProbes is the probe table, separate from modelPulls for the reason
+	// modelPulls is separate from modelCalls: the id spaces are separate, and a
+	// cancel for one must not reach the other.
+	modelProbes map[string]*ModelProbeHandle
+	sendMu      sync.Mutex
+	sendErr     error
+	closeOnce   sync.Once
 
 	// lastPersistedAt is the heartbeat timestamp of the most recent
 	// successful lastSeenAt DB flush (memql#1340). Zero until the
@@ -370,16 +375,17 @@ func newStreamSession(
 	cancel context.CancelFunc,
 ) *streamSession {
 	return &streamSession{
-		server:     srv,
-		stream:     stream,
-		worker:     w,
-		ctx:        ctx,
-		cancel:     cancel,
-		pending:    make(map[string]chan *memqlv1.ToolResult),
-		chunkSinks: make(map[string]func(*memqlv1.ToolStream)),
-		sessions:   make(map[string]*AppSessionHandle),
-		modelCalls: make(map[string]*ModelCallHandle),
-		modelPulls: make(map[string]*ModelPullHandle),
+		server:      srv,
+		stream:      stream,
+		worker:      w,
+		ctx:         ctx,
+		cancel:      cancel,
+		pending:     make(map[string]chan *memqlv1.ToolResult),
+		chunkSinks:  make(map[string]func(*memqlv1.ToolStream)),
+		sessions:    make(map[string]*AppSessionHandle),
+		modelCalls:  make(map[string]*ModelCallHandle),
+		modelPulls:  make(map[string]*ModelPullHandle),
+		modelProbes: make(map[string]*ModelProbeHandle),
 	}
 }
 
@@ -422,7 +428,18 @@ func (s *streamSession) close() {
 			livePulls = append(livePulls, h)
 		}
 		s.modelPulls = nil
+		// And probes, where the caller is a goroutine ranging over the progress
+		// channel: a handle left unfinished on a disconnect leaves it ranging
+		// forever, and the runner that owns it never releases the probe id.
+		liveProbes := make([]*ModelProbeHandle, 0, len(s.modelProbes))
+		for _, h := range s.modelProbes {
+			liveProbes = append(liveProbes, h)
+		}
+		s.modelProbes = nil
 		s.mu.Unlock()
+		for _, h := range liveProbes {
+			h.Finish(ModelProbeOutcome{Error: "worker_disconnected"}, ErrWorkerDisconnected)
+		}
 		for _, h := range liveSessions {
 			h.finish(AppSessionOutcome{Error: "worker_disconnected"}, ErrWorkerDisconnected)
 		}
@@ -594,6 +611,10 @@ func (s *streamSession) handle(ctx context.Context, msg *memqlv1.WorkerClientMes
 		s.handleModelPullProgress(payload.ModelPullProgress)
 	case *memqlv1.WorkerClientMessage_ModelPullEnd:
 		s.handleModelPullEnd(payload.ModelPullEnd)
+	case *memqlv1.WorkerClientMessage_ModelProbeProgress:
+		s.handleModelProbeProgress(payload.ModelProbeProgress)
+	case *memqlv1.WorkerClientMessage_ModelProbeEnd:
+		s.handleModelProbeEnd(payload.ModelProbeEnd)
 	case *memqlv1.WorkerClientMessage_RotationRequest:
 		s.handleRotationRequest(ctx, payload.RotationRequest)
 	case *memqlv1.WorkerClientMessage_AuditEvent:
@@ -1456,6 +1477,127 @@ func (s *streamSession) openModelPull(ctx context.Context, req ModelPullRequest)
 	}()
 
 	return handle, nil
+}
+
+// openModelProbe is the per-stream hook behind Worker.StartModelProbe.
+//
+// It registers the probe BEFORE sending Start, the ordering openModelPull,
+// openModelCall and openAppSession all keep: a machine that answers instantly
+// must not be able to deliver an observation for a probe this side has not yet
+// recorded.
+func (s *streamSession) openModelProbe(ctx context.Context, req ModelProbeRequest) (*ModelProbeHandle, error) {
+	if req.RequestId == "" {
+		return nil, fmt.Errorf("worker: model probe requires a request id")
+	}
+	clock := time.Now
+	if s.server != nil && s.server.clock != nil {
+		clock = s.server.clock
+	}
+	detach := func() {
+		s.mu.Lock()
+		if s.modelProbes != nil {
+			delete(s.modelProbes, req.RequestId)
+		}
+		s.mu.Unlock()
+	}
+	handle := NewModelProbeHandle(req.RequestId, req.Model, req.Limits, s.sendModelProbeCancel, detach, clock)
+
+	s.mu.Lock()
+	if s.modelProbes == nil {
+		s.mu.Unlock()
+		return nil, ErrWorkerDisconnected
+	}
+	if _, exists := s.modelProbes[req.RequestId]; exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("worker: model probe %s already open", req.RequestId)
+	}
+	s.modelProbes[req.RequestId] = handle
+	s.mu.Unlock()
+
+	start := &memqlv1.ModelProbeStart{
+		RequestId:      req.RequestId,
+		RegistrationId: s.worker.RegistrationId,
+		Model:          req.Model,
+		SuiteVersion:   req.SuiteVersion,
+	}
+	if err := s.send(&memqlv1.WorkerServerMessage{
+		Payload: &memqlv1.WorkerServerMessage_ModelProbeStart{ModelProbeStart: start},
+	}); err != nil {
+		handle.Finish(ModelProbeOutcome{Error: "start_send_failed"}, err)
+		return nil, fmt.Errorf("worker: send model probe start: %w", err)
+	}
+
+	// A caller context that dies before the probe ends stops the suite on the
+	// machine. It is somebody's GPU.
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = handle.Cancel("caller_context_done")
+		case <-handle.done:
+		case <-s.ctx.Done():
+		}
+	}()
+
+	return handle, nil
+}
+
+func (s *streamSession) sendModelProbeCancel(cancel *memqlv1.ModelProbeCancel) error {
+	if cancel == nil {
+		return nil
+	}
+	return s.send(&memqlv1.WorkerServerMessage{
+		Payload: &memqlv1.WorkerServerMessage_ModelProbeCancel{ModelProbeCancel: cancel},
+	})
+}
+
+func (s *streamSession) lookupModelProbe(requestId string) *ModelProbeHandle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.modelProbes == nil {
+		return nil
+	}
+	return s.modelProbes[requestId]
+}
+
+func (s *streamSession) handleModelProbeProgress(p *memqlv1.ModelProbeProgress) {
+	if p == nil || p.GetRequestId() == "" {
+		return
+	}
+	handle := s.lookupModelProbe(p.GetRequestId())
+	if handle == nil {
+		return
+	}
+	handle.DeliverProgress(ModelProbeProgress{
+		CaseId:    p.GetCaseId(),
+		Completed: p.GetCompletedCases(),
+		Total:     p.GetTotalCases(),
+		Ok:        p.GetCaseOk(),
+		Error:     p.GetCaseError(),
+	})
+}
+
+func (s *streamSession) handleModelProbeEnd(end *memqlv1.ModelProbeEnd) {
+	if end == nil || end.GetRequestId() == "" {
+		return
+	}
+	handle := s.lookupModelProbe(end.GetRequestId())
+	if handle == nil {
+		return
+	}
+	// A FAILED PROBE IS NOT A TRANSPORT ERROR, the rule handleModelPullEnd
+	// states one function along: `ok=false` with text is an ANSWER, and Wait
+	// returns it with a nil error so the caller records the machine's own
+	// words. Returning an error here would make "the runtime crashed on case
+	// three" indistinguishable from the machine falling off the network -- the
+	// one thing the two ends of this protocol exist to separate, and here the
+	// difference decides whether a figure is `failed` or `unmeasured`.
+	handle.Finish(ModelProbeOutcome{
+		Model:        end.GetModel(),
+		Ok:           end.GetOk(),
+		Error:        end.GetError(),
+		SuiteVersion: end.GetSuiteVersion(),
+		Figures:      FiguresFromProto(end),
+	}, nil)
 }
 
 func (s *streamSession) sendModelPullCancel(cancel *memqlv1.ModelPullCancel) error {
