@@ -89,11 +89,18 @@ func TestParseRowAuthzRefusesIncoherentAccountDeclarations(t *testing.T) {
 	}{
 		{
 			// `account=` is an argument of the OWNED tier. Without an
-			// `owner=` there is no tier for it to qualify, and the shared
-			// "takes exactly one tier" diagnostic is the right message.
+			// `owner=` there is no tier for it to qualify.
+			//
+			// The DIAGNOSTIC changed in memql#5216 and the refusal did not.
+			// This used to fall through to the shared "takes exactly one tier"
+			// message, which was a fallthrough artifact rather than a
+			// description -- only one tier is named in this input. Now that the
+			// cluster-owner tier has a modifier of its own the shape is
+			// recognised, so the message can say the true thing and still list
+			// every accepted form, which is the property asserted below.
 			"account with no owner field",
 			`@rowAuthz(clusterOwner, account="accountId")`,
-			"exactly one tier",
+			"the cluster-owner tier takes",
 		},
 		{
 			"account on the granted tier",

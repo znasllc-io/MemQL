@@ -95,7 +95,14 @@ func TestParseRowAuthzRefusesIncoherentRankCombinations(t *testing.T) {
 		{"an unowned floor without rankVisible", `@rowAuthz(owner="ownerUserId", unowned="developer")`, "rankVisible"},
 		{"rankVisible carrying a value", `@rowAuthz(owner="ownerUserId", rankVisible="yes")`, "takes no value"},
 		{"an unowned floor with no slug", `@rowAuthz(owner="ownerUserId", rankVisible, unowned="")`, "quoted role slug"},
-		{"rank modifiers with no owner field", `@rowAuthz(clusterOwner, rankVisible)`, "exactly one tier"},
+		// Still refused, and the diagnostic IMPROVED when the cluster-owner
+		// tier gained a modifier of its own (memql#5216). It used to fall
+		// through to the shared "exactly one tier" message, which was a
+		// fallthrough artifact rather than a description -- only one tier is
+		// named in this input. The shape is now recognised, so the refusal can
+		// say the true thing: this tier takes `rankFloor` and the rank
+		// vocabulary `rankVisible` belongs to needs an `owner=` field.
+		{"rank modifiers with no owner field", `@rowAuthz(clusterOwner, rankVisible)`, "rankFloor"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -126,7 +126,9 @@ func TestOnlyAllowlistedPackagesStampInternalOrigin(t *testing.T) {
 		//
 		// The stamp is not a widening. It is for exactly two mutations,
 		// createBenchRun and createBenchSample, both @serverOnly and both bound
-		// to a @rowAuthz(clusterOwner) concept -- and @serverOnly is the point
+		// to a @rowAuthz(clusterOwner, rankFloor="admin") concept -- whose WRITE
+		// rule is still plain clusterOwner, because memql#5216's floor relaxes
+		// the READ only -- and @serverOnly is the point
 		// rather than a precaution here, because README and docs/public carry
 		// published claims checked against these rows by
 		// TestPublishedClaimsRestOnAScorecardNumber. A client-reachable write

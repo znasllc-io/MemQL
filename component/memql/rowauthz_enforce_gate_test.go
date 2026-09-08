@@ -130,7 +130,7 @@ func loadedTreeRegistry(t *testing.T) *FunctionRegistry {
 // structural complaint is accurate and its behavioural conclusion -- "this
 // construct's result set CHANGES for its callers" -- is false for these two.
 //
-// A THIRD ENTRY IS A DESIGN DECISION, not a fix. The right question for a new
+// A FURTHER ENTRY IS A DESIGN DECISION, not a fix. The right question for a new
 // candidate is whether every caller the construct admits is one for whom the
 // tier ALREADY decides the whole row set; if the answer needs a paragraph about
 // what a particular caller sees, the answer is no.
@@ -171,6 +171,38 @@ var tierDecidesTheRead = map[string]string{
 	"groupsForAccount": "epic memql#5165, as groupsAll.",
 	"membersOfGroup":   "epic memql#5165, as groupsAll, over v1:identity:groupMembership -- whose ownerUserId is empty for the sharper reason that the natural owner field would be `userId`, and an owned row admits its owner's inserts.",
 	"groupsForUser":    "epic memql#5165, as membersOfGroup.",
+
+	// The four benchmark reads (memql#5216), and the property holds in its
+	// STRONGEST form here -- the tier decides the row set IDENTICALLY for
+	// every caller the annotation admits, with no owner arm to reason about
+	// at all.
+	//
+	// v1:bench:run and v1:bench:sample have NO owner field: "a benchmark is a
+	// fact about the DEPLOYMENT rather than about a person", in the concept's
+	// own words. The tier is `clusterOwner, rankFloor="admin"`, so its two
+	// arms are "is a cluster owner" and "ranks admin or above" -- and
+	// `@requiresRank("admin")` bounds the caller set to exactly the second.
+	// Every admitted caller therefore clears the tier for every row.
+	//
+	// WHAT A CONJUNCT WOULD COST, which is what makes this a design decision
+	// rather than a formality: these four USED to carry
+	// `actor.isClusterOwner==true`, and that is the bug memql#5216 is filed
+	// for. It is false for every admin the OS's Benchmarks section admits, so
+	// the screen served them a full set of figures rendered as UNMEASURED --
+	// a refusal wearing the costume of a measurement, on the surface built to
+	// make an absence legible. Re-adding the conjunct restores that.
+	//
+	// The test the note above asks for -- the one that fails if this reasoning
+	// is wrong -- is TestBenchReadsAnswerForAdminAndRefuseBelowTheFloor, which
+	// asserts BOTH halves against the real tier.
+	"benchRuns": "memql#5216. The concept has no owner field, so the tier's arms are " +
+		"clusterOwner OR rankFloor=\"admin\" -- and @requiresRank(\"admin\") bounds the callers " +
+		"to exactly the second, so the tier decides every row for every admitted caller. The " +
+		"actor.isClusterOwner conjunct this used to carry is the defect the issue names: false " +
+		"for every admin the Benchmarks section admits.",
+	"benchRunById":          "memql#5216, as benchRuns -- the same concept, tier and annotation.",
+	"benchSamplesForRun":    "memql#5216, as benchRuns, over v1:bench:sample, which is ownerless for the same reason.",
+	"benchSamplesForMetric": "memql#5216, as benchSamplesForRun.",
 }
 
 func TestRowAuthzEnforcementLandGate(t *testing.T) {

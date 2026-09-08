@@ -543,6 +543,13 @@ func (e *MemQLEngine) lowerRankScope(ctx context.Context, expr ExpressionNode) E
 	switch n := expr.(type) {
 	case *RankScopeExpression:
 		return e.rankScopeComparison(ctx, n)
+	case *ReadFloorExpression:
+		// The cluster-owner tier's read floor (memql#5216) rides this SAME
+		// walk rather than a second one. Two walks would be two places to
+		// forget a node, and the symptom of forgetting is a symbolic
+		// placeholder reaching the SQL compiler -- which is the one failure a
+		// gate must not have.
+		return e.lowerReadFloor(ctx, n)
 	case *LogicalExpression:
 		left := e.lowerRankScope(ctx, n.Left)
 		right := e.lowerRankScope(ctx, n.Right)
@@ -557,13 +564,20 @@ func (e *MemQLEngine) lowerRankScope(ctx context.Context, expr ExpressionNode) E
 	}
 }
 
-// treeHasRankScope reports whether a tree carries a rank term, so the
-// callers that must resolve one can skip the walk entirely when it does
-// not -- every read in the tree that does not declare a rank modifier
-// pays nothing.
+// treeHasRankScope reports whether a tree carries a term this walk must
+// lower -- a rank scope or a read floor (memql#5216) -- so the callers that
+// must resolve one can skip the walk entirely when it does not. Every read in
+// the tree that declares neither pays nothing.
+//
+// IT MUST ANSWER TRUE FOR EVERY NODE lowerRankScope HANDLES. The two are one
+// mechanism split in half for cost, and a node known to the lowering but not
+// to this predicate is a symbolic placeholder that reaches the SQL compiler
+// unlowered.
 func treeHasRankScope(expr ExpressionNode) bool {
 	switch n := expr.(type) {
 	case *RankScopeExpression:
+		return true
+	case *ReadFloorExpression:
 		return true
 	case *LogicalExpression:
 		return treeHasRankScope(n.Left) || treeHasRankScope(n.Right)
