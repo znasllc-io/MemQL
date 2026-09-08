@@ -19,10 +19,8 @@ import type { OsAppSection } from "../../system/registry";
  */
 export const USERS_SECTIONS: OsAppSection[] = [
   { id: "people", name: "People" },
-  // WANTS, not requires: the list of who has been invited is rows, and reads
-  // fine with no mailbox. Only SENDING one needs email, and that path refuses
-  // with its own message.
-  { id: "invites", name: "Invites", wants: ["email"] },
+  { id: "groups", name: "Groups" },
+  { id: "roles", name: "Roles" },
   // The app's slice of the cluster's logs (epic memql#4895): the lines it
   // tagged and the lines about the things it owns. Admin-floored because
   // every read on the log store is (spec L3), and this is the ONE section
@@ -32,6 +30,18 @@ export const USERS_SECTIONS: OsAppSection[] = [
 ];
 
 export const USERS_SECTION_IDS = USERS_SECTIONS.map((s) => s.id);
+
+/**
+ * How the People list is ordered. A preference, per rule 3 and rule 4: sort is
+ * quiet text on the scope line and its DEFAULT lives here.
+ *
+ * Two orderings and no more. "Name" is the one a person reads a directory by;
+ * "last seen" is the one an operator reads it by when they are looking for
+ * somebody who has stopped arriving. A third would be a column nobody sorts on.
+ */
+export type UsersSort = "name" | "lastSeen";
+
+export const USERS_SORTS: readonly UsersSort[] = ["name", "lastSeen"];
 
 export interface UsersSettings {
   version: 1;
@@ -49,6 +59,19 @@ export interface UsersSettings {
    * narrowing on the read side is what lets the toggle be instant and quiet.
    */
   showDeactivated: boolean;
+  /**
+   * Whether archived groups are listed, the Groups section's counterpart to
+   * `showDeactivated` and off for the same reason: an archived group grants
+   * nothing, so the standing question the list answers is which groups are
+   * placing people right now.
+   *
+   * SEPARATE FROM `showDeactivated` rather than one "show retired things"
+   * flag, because the two are different questions asked in different sections
+   * and folding them would make turning one on turn the other on.
+   */
+  showArchivedGroups: boolean;
+  /** The People list's default ordering. */
+  sort: UsersSort;
 }
 
 export const USERS_SETTINGS_KEY = "memql-os-users-v1";
@@ -60,6 +83,8 @@ export const DEFAULT_USERS_SETTINGS: UsersSettings = {
   // "whatever is first in an array" would move with an unrelated edit.
   defaultSection: "people",
   showDeactivated: false,
+  showArchivedGroups: false,
+  sort: "name",
 };
 
 /**
@@ -89,6 +114,14 @@ export function sanitizeUsersSettings(raw: unknown): UsersSettings {
       typeof doc.showDeactivated === "boolean"
         ? doc.showDeactivated
         : DEFAULT_USERS_SETTINGS.showDeactivated,
+    // EACH FIELD ON ITS OWN, still. A `sort` value from a build that offered a
+    // third ordering must not cost somebody the two booleans beside it.
+    showArchivedGroups:
+      typeof doc.showArchivedGroups === "boolean"
+        ? doc.showArchivedGroups
+        : DEFAULT_USERS_SETTINGS.showArchivedGroups,
+    sort:
+      doc.sort === "name" || doc.sort === "lastSeen" ? doc.sort : DEFAULT_USERS_SETTINGS.sort,
   };
 }
 

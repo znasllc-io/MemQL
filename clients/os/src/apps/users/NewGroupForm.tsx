@@ -1,0 +1,89 @@
+import { useState } from "react";
+
+import { Button, Field, Input, Panel, Subhead } from "../../kit";
+import { AccountPicker } from "../accounts/AccountPicker";
+import type { AccountRow } from "../accounts/rows";
+import type { UsersActions } from "./actions";
+import { RefusalLine } from "./PersonPage";
+
+// New group: a SHORT FORM in place of the list, not a rail (design record, D3).
+//
+// A rail is for a composition whose answers depend on each other -- the Invite
+// rail's address decides its groups, which decide its roles. A group is a name,
+// a description and an optional client, in any order, and drawing three
+// independent fields as a numbered journey would be ceremony pretending to be
+// guidance.
+
+export function NewGroupForm({
+  accounts,
+  actions,
+  onCancel,
+  onCreated,
+}: {
+  accounts: readonly AccountRow[];
+  actions: UsersActions;
+  onCancel: () => void;
+  /** The row arrives by broadcast; this only leaves the form. */
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [accountId, setAccountId] = useState("");
+
+  const busy = actions.busyKey === `group:new:${name}`;
+
+  return (
+    <Panel label="A new group">
+      <Subhead>New group</Subhead>
+      <Field label="Name">
+        <Input id="group-name" label="Name" value={name} onChange={setName} placeholder="Acme engineering" />
+      </Field>
+      <Field label="What it is for">
+        <Input
+          id="group-description"
+          label="What it is for"
+          value={description}
+          onChange={setDescription}
+          placeholder="Optional"
+        />
+      </Field>
+      <Field label="Client">
+        <AccountPicker
+          value={accountId}
+          onChange={setAccountId}
+          accounts={[...accounts]}
+          id="group-account"
+          label="The client this group grants"
+        />
+      </Field>
+      <p className="os-caption">
+        A group tied to a client is what lets its members reach that client's work. A group tied to
+        nobody grants nothing and exists to organize.
+      </p>
+
+      <RefusalLine actions={actions} />
+
+      <div className="os-form-actions">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button
+          tone="primary"
+          busy={busy}
+          busyLabel="Creating..."
+          onClick={() => {
+            if (name.trim() === "") return;
+            void actions.groupCreate(name.trim(), description.trim(), accountId).then((groupId) => {
+              // NOTHING IS INSERTED LOCALLY. The row arrives on its own
+              // broadcast with the arrival cue, which is what makes the new
+              // group appear the same way it appears in everybody else's
+              // window -- and what stops this one showing a group the cluster
+              // refused to write.
+              if (groupId !== "") onCreated();
+            });
+          }}
+        >
+          Create group
+        </Button>
+      </div>
+    </Panel>
+  );
+}
