@@ -291,3 +291,15 @@ shape moduleReadiness moduleReadinessFull {
   reportedAt
   row.createdAt
 }
+
+/// The cluster's active embedder, whole (epic memql#5137, D6).
+@row
+shape embedderBinding embedderBindingFull {
+  row.id
+  providerRef
+  dimensions
+  activatedAt
+  reembedRunId
+  previousRef
+  row.createdAt
+}

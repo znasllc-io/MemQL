@@ -508,6 +508,21 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "platform/mutations.memql", Name: "recordGithubAppInstallations"}: true,
 		{Path: "platform/queries.memql", Name: "githubAppGrantByExternalId"}:     true,
 		{Path: "platform/queries.memql", Name: "githubAppGrantForCaller"}:        true,
+		// epic memql#5137, D6. The two writes of the embedder binding, and
+		// caller-scoping is not the fix for either because THERE IS NO ACTOR TO
+		// SCOPE TO: the embedder is a property of the deployment -- one binding,
+		// one vector space, everybody's rows in it. A per-user binding is not a
+		// narrower version of this feature but an incoherent one, two users
+		// embedding into two geometries with `similarTo` comparing across them.
+		//
+		// activateEmbedderBinding carries a second argument of its own. Flipping
+		// the binding is the LAST of four steps -- create the new width's table,
+		// fill it, compare the counts, flip -- and a caller-reachable mutation
+		// would let somebody perform step four alone. The cluster would then
+		// read every vector in the old table through the new model's geometry:
+		// half a search space, ranked confidently, with no error anywhere.
+		{Path: "platform/mutations.memql", Name: "recordEmbedderBindingPlan"}: true,
+		{Path: "platform/mutations.memql", Name: "activateEmbedderBinding"}:   true,
 		// memql#4270 / memql#4606 / memql#4601. The four writes of the
 		// user-invitation lifecycle, and none is caller-scopable for the same
 		// underlying reason: the row is not the caller's.

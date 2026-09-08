@@ -134,7 +134,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"halfLife": "number (optional) - recency half-life in seconds (default 3600); the recency term halves every halfLife of age",
 				"wSem":     "number (optional) - semantic (cosine) weight (default 0.7)",
 				"wRec":     "number (optional) - recency (decay) weight (default 0.3)",
-				"provider": "string (optional) - embedding provider name (default embedding3Small)",
+				"provider": "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 			// The handler scores + orders server-side; PreserveOrder
 			// stamps monotonic CreatedAt so the engine's default

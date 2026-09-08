@@ -1866,3 +1866,66 @@ mutate moduleReadiness recordModuleReadiness {
     reportedAt:  args.reportedAt
   }
 }
+
+// THE EMBEDDER BINDING'S WRITES ARE @serverOnly, and the reason is not the tier
+// (epic memql#5137, D6). A cluster owner may certainly CHOOSE the embedder --
+// that is the point of the feature. What they may not do is write this row
+// directly, because activating a binding is not a write: it is create the
+// vector table for the new width, run reembedLibrary to fill it, compare the
+// counts, and only then flip `active`. A mutation reachable from a client would
+// let somebody perform step four on its own, and the cluster would then read
+// every vector in the old table through the new model's geometry -- half a
+// search space, ranked confidently, with no error anywhere.
+//
+// The act an operator performs is the BUILTIN that runs all four steps. These
+// are what it writes with.
+
+/// Record a binding that is being activated. Written before the re-embed starts, with
+/// `activatedAt` deliberately absent -- until the counts match this row is a PLAN, and a reader
+/// seeing a timestamp on it would read a switch that has not happened as one that has.
+///
+/// @serverOnly, AND actor.userId SCOPING IS NOT THE FIX, because there is no actor to scope to.
+/// The embedder is a property of the DEPLOYMENT: one binding, one vector space, everybody's rows in
+/// it. A per-user binding is not a narrower version of this feature, it is a different and
+/// incoherent one -- two users embedding into two geometries and one `similarTo` comparing across
+/// them. The concept carries @rowAuthz(clusterOwner) for the same reason, and this write happens
+/// under the engine's own operator identity as one step of an activation the builtin performs.
+@serverOnly
+@createOnly("providerRef", "dimensions", "previousRef", "reembedRunId")
+mutate embedderBinding recordEmbedderBindingPlan {
+  args {
+    bindingId     string!
+    providerRef   string!
+    dimensions    int!     @minimum(1)
+    previousRef   string
+    reembedRunId  string
+  }
+  insert {
+    accept { providerRef, dimensions, previousRef, reembedRunId }
+    stamp {
+      id: args.bindingId
+    }
+  }
+}
+
+/// Flip the binding to active. Called only when the new width's vector count matches the old one's;
+/// `activatedAt` is what makes this row a state rather than a plan.
+///
+/// @serverOnly, AND actor.userId SCOPING IS NOT THE FIX -- same reason as the plan write above (no
+/// actor owns a deployment-wide vector space) plus one this write has on its own. Flipping the
+/// binding is the LAST of four steps: create the new width's table, fill it, compare the counts,
+/// flip. A caller-reachable mutation would let somebody perform step four alone, and the cluster
+/// would then read every vector in the old table through the new model's geometry -- half a search
+/// space, ranked confidently, with no error anywhere. The guard is that only the builtin that ran
+/// steps one to three can call this.
+@serverOnly
+mutate embedderBinding activateEmbedderBinding {
+  args {
+    bindingId    string!
+    activatedAt  datetime!
+  }
+  update {
+    id:           args.bindingId
+    activatedAt:  args.activatedAt
+  }
+}

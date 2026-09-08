@@ -110,7 +110,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"concept":  "string (required) - concept id of the nodes to search (e.g. v1:knowledge:documentChunk)",
 				"domains":  "[]string (optional) - payload.domainId values to scope the search to; empty = all domains",
 				"limit":    "int (optional) - max nodes to return (default 5)",
-				"provider": "string (optional) - embedding provider name (default embedding3Small)",
+				"provider": "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 			// The handler already sorts by cosine similarity and we
 			// want that order preserved end-to-end (the engine's
@@ -182,20 +182,12 @@ func (i *Integration) similarToHandler(ctx context.Context, args map[string]any,
 		return nil, nil
 	}
 
+	// `provider` is left EMPTY here and resolved at the point of use below
+	// (epic memql#5137, D6). Resolving it HERE would put the "no embedder is
+	// bound" refusal in front of the database check -- and this handler's own
+	// staged-concept gate above already establishes the rule the ordering
+	// follows: a gate that withholds unconditionally is an outage, not a gate.
 	providerName, _ := args["provider"].(string)
-	if providerName == "" {
-		// THE CLUSTER'S BINDING, not a literal (epic memql#5137, D6). This was
-		// `defaultProvider`, a package const reading "embedding3Small" -- one of
-		// five copies of the same paid pin, which happened never to drift only
-		// because nobody had ever changed it. There is no fallback: an embedder
-		// chosen for the caller writes vectors into a search space nobody
-		// picked, and a mismatched width is not an error anywhere.
-		bound, err := memql.ResolveEmbedderProvider(ctx)
-		if err != nil {
-			return nil, err
-		}
-		providerName = bound
-	}
 
 	// limit tolerance: the DSL parser produces int64 for integer
 	// literals, JSON-unmarshal produces float64 when the caller marshaled
@@ -252,6 +244,22 @@ func (i *Integration) similarToHandler(ctx context.Context, args map[string]any,
 		"text_preview", truncateStr(text, 120),
 		"provider", providerName,
 	)
+
+	// THE CLUSTER'S EMBEDDER BINDING (epic memql#5137, D6), resolved here rather
+	// than with the other arguments so the staged gate and the database check
+	// answer first.
+	//
+	// similarTo compares a query vector against STORED ones, so an embedder that
+	// does not match the one the corpus was written with returns confident
+	// nonsense and never an error. There is deliberately no fallback: an
+	// embedder chosen for the caller writes into a search space nobody picked.
+	if providerName == "" {
+		bound, bindErr := memql.ResolveEmbedderProvider(ctx)
+		if bindErr != nil {
+			return nil, bindErr
+		}
+		providerName = bound
+	}
 
 	provider, err := i.embeddingProvider(ctx, providerName)
 	if err != nil {

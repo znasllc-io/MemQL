@@ -100,7 +100,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 				"sourceRef": "string (optional) - origin tag, e.g. 'opid:agents.new' or 'doc:README.md'",
 				"chunkSize": "int (optional) - approx chars per chunk (default 1800)",
 				"overlap":   "int (optional) - char overlap between chunks (default 180)",
-				"provider":  "string (optional) - embedding provider name (default embedding3Small)",
+				"provider":  "string (optional) - embedding provider name; omit to use the cluster's active embedder binding",
 			},
 		},
 		{
@@ -180,7 +180,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			Handler:     i.embedChunkHandler,
 			ArgsSchema: map[string]string{
 				"chunkId":  "string (required) - the chunk to embed.",
-				"provider": "string (optional) - embedding provider name (default embedding3Small).",
+				"provider": "string (optional) - embedding provider name; omit to use the cluster's active embedder binding.",
 			},
 		},
 		{
@@ -197,7 +197,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 			ArgsSchema: map[string]string{
 				"domainId":   "string (required) - the knowledge domain whose chunks to embed.",
 				"documentId": "string (optional) - scope the run to one Document's chunks. Empty = the whole domain.",
-				"provider":   "string (optional) - embedding provider name (default embedding3Small).",
+				"provider":   "string (optional) - embedding provider name; omit to use the cluster's active embedder binding.",
 			},
 		},
 		{

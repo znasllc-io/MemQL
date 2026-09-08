@@ -65,6 +65,13 @@ type EmbedderBinding struct {
 	// the binding replaced another. Empty for the first binding a cluster ever
 	// activates, which has nothing to re-embed FROM.
 	ReembedRunId string
+	// PreviousRef is the ProviderRef this binding replaced.
+	//
+	// KEPT BECAUSE A VECTOR CORPUS IS NOT REVERSIBLE FROM ITS VECTORS. Nothing
+	// in a table of floats says which model produced them, so without this the
+	// only record of what a search space used to mean is gone the moment it is
+	// replaced.
+	PreviousRef string
 }
 
 // Valid reports whether the binding can actually be used. A binding with no
