@@ -78,7 +78,7 @@ concept auditEvent {
   actorRole       string  @description("Cluster role of the actor at the time of the event (owner / admin / developer / writer / reader). Captured for point-in-time accuracy.")
   actorIdentityId string  @description("v1:identity:identity.id of the credential the actor used (magic_link, api_key, etc.). Distinguishes 'logged in via web' from 'PAT in CI'.")
 
-  targetType      enum("user", "session", "identity", "invitation", "accessRequest", "config", "magicLinkRequest", "authCode", "clusterSettings", "deviceCode", "delegation", "workerPairingCode", "enrolmentToken", "passkeyIdentity", "badgeIdentity", "appSession", "shopifyStore", "releaseCut", "oauthClient", "upstreamIdentity", "rowOwnership", "githubGrant", "")  @default("")  @description("Concept type of the target row, if any. oauthClient names the RELYING PARTY rather than a row this cluster necessarily holds -- a built-in first-party client is compiled in, not stored (memql#4515) -- and is what a role-floor refusal on the SSO fast path targets, where no credential row was created to name instead. releaseCut names a v1:cluster:releaseCut row -- the DECISION to ship a version of MemQL itself, which belongs in this log rather than only in the cluster history (epic memql#4434). passkeyIdentity and badgeIdentity name the v1:identity:identity VARIANT rather than the concept, so a credential whose lifecycle is audited on its own (passkey register / login / rename / revoke, badge grant) stays distinguishable in the trail without parsing `action`. rowOwnership names a TRANSFER of who owns a set of rows (memql#4838) -- not a row, and not a user, but the relationship between them. It is the one targetType whose subject is a pair of principals, which is why targetId carries the RECIPIENT and the departing principal rides in detail alongside the rows moved -- the question an auditor asks of this event is who holds these rows now. githubGrant names a v1:platform:sourceCredential row of kind=\"github_app\" -- an AUTHORIZATION this cluster holds on somebody's behalf at GitHub (epic memql#4912). Not `identity`, which names a credential that proves who a person IS here: a grant proves nothing about identity and authenticates nobody at this cluster, it is authority to act at another one. Not `config` either, because it belongs to one person rather than to the deployment, and the audit question asked of it -- who connected, reconnected, or had a callback refused -- is about that person. targetId carries the credential row id and the GitHub login rides in detail. upstreamIdentity names an EXTERNAL identity provider's statement about a person (memql#4611) -- an Entra ID or generic OIDC sign-in. Not `identity`, which names a credential row this cluster holds: the whole point of federation is that the credential lives somewhere else, and there is often no row here at all yet (the linking decision is what determines whether one is created). Every value here must also be accepted by createAuditEvent, and every value a Go writer emits must be here -- test/dslconformance/identity_audit_enum_contract_test.go walks the writers (memql#4213).")
+  targetType      enum("user", "session", "identity", "invitation", "accessRequest", "config", "magicLinkRequest", "authCode", "clusterSettings", "deviceCode", "delegation", "workerPairingCode", "enrolmentToken", "passkeyIdentity", "badgeIdentity", "appSession", "shopifyStore", "releaseCut", "oauthClient", "upstreamIdentity", "rowOwnership", "githubGrant", "group", "groupMembership", "")  @default("")  @description("Concept type of the target row, if any. oauthClient names the RELYING PARTY rather than a row this cluster necessarily holds -- a built-in first-party client is compiled in, not stored (memql#4515) -- and is what a role-floor refusal on the SSO fast path targets, where no credential row was created to name instead. releaseCut names a v1:cluster:releaseCut row -- the DECISION to ship a version of MemQL itself, which belongs in this log rather than only in the cluster history (epic memql#4434). passkeyIdentity and badgeIdentity name the v1:identity:identity VARIANT rather than the concept, so a credential whose lifecycle is audited on its own (passkey register / login / rename / revoke, badge grant) stays distinguishable in the trail without parsing `action`. rowOwnership names a TRANSFER of who owns a set of rows (memql#4838) -- not a row, and not a user, but the relationship between them. It is the one targetType whose subject is a pair of principals, which is why targetId carries the RECIPIENT and the departing principal rides in detail alongside the rows moved -- the question an auditor asks of this event is who holds these rows now. githubGrant names a v1:platform:sourceCredential row of kind=\"github_app\" -- an AUTHORIZATION this cluster holds on somebody's behalf at GitHub (epic memql#4912). Not `identity`, which names a credential that proves who a person IS here: a grant proves nothing about identity and authenticates nobody at this cluster, it is authority to act at another one. Not `config` either, because it belongs to one person rather than to the deployment, and the audit question asked of it -- who connected, reconnected, or had a callback refused -- is about that person. targetId carries the credential row id and the GitHub login rides in detail. group and groupMembership name the two rows of the grant model (epic memql#5165). A group is not a `user` and not `config`: it belongs to the deployment rather than to a person, and the audit question asked of it -- who could reach this client's work, and since when -- is answered by walking the group rather than any one person. The membership is its own type rather than a flavour of `user` for the same reason component/identity/adminops could not reuse its hardcoded `user`: a membership is a decision ABOUT a person but TO a group, so targetId carries the membership row and the person rides in detail. upstreamIdentity names an EXTERNAL identity provider's statement about a person (memql#4611) -- an Entra ID or generic OIDC sign-in. Not `identity`, which names a credential row this cluster holds: the whole point of federation is that the credential lives somewhere else, and there is often no row here at all yet (the linking decision is what determines whether one is created). Every value here must also be accepted by createAuditEvent, and every value a Go writer emits must be here -- test/dslconformance/identity_audit_enum_contract_test.go walks the writers (memql#4213).")
   targetId        string  @description("Identifier of the target row when targetType is set.")
   targetEmail     string  @description("Email associated with the target, if applicable. Useful for filtering audit history by user without needing a join.")
 
@@ -498,6 +498,7 @@ concept invitation {
   deliveryAttemptedAt   datetime                                                              @description("When the delivery verdict on this row was last recorded. Equal to the issue time for a first attempt, and updated by a resend -- which is why it is not simply row.createdAt. Empty on rows predating memql#4587.")
   bindingHash           string                                                                @description("SHA-256 hex digest of the 32-byte CSPRNG nonce handed to the browser that FIRST opened this invitation link, delivered to it as a cookie. The plaintext nonce is never stored. An invitation only ACCEPTS in a browser that presents a cookie hashing to this value, which is what stops a forwarded email from being redeemed by whoever it was forwarded to: the credential arrives by mail, so on its own its holder is anybody who can read the mailbox, and first-touch binding narrows that to the one browser that opened the link (memql#4601 -- the same design D2 magicLinkRequest.bindingHash below carries for memql#4302). Written FIRST-TOUCH ONLY, by bindUserInvitation, and never overwritten: a row a second browser could re-bind is an unbound row, so the no-overwrite rule IS the control rather than a detail of it. Empty means no browser has touched the row yet, or that it predates first-touch binding; both read as a no-cookie touch, and what that is worth is the accept path's decision rather than this row's.")
 
+  groupIds              []string  @description("The v1:identity:group rows this person JOINS when they accept (epic memql#5165, section G). Every id is validated at issue -- it must name an active group, and the invitee's role must sit strictly below the inviter's, the same rank rule groupMemberAdd applies -- so an invitation cannot place somebody where the inviter could not have placed them by hand. On acceptance one groupMembership row is written per entry with origin \"invitation\" and addedBy set to the inviter. Empty is the ordinary case and joins nobody.")
   accountId             string  @description("The v1:accounts:account this invitation is on behalf of -- which client's person is being invited (epic memql#4800, D5). Optional, and a plain reference with NO read effect: the invitation lifecycle, the token hash and every existing query are untouched, and an invitation with no tie behaves exactly as every invitation did before this field existed. It is a LABEL on an invitation, never a grant: tying an invite to an account gives the invitee nothing they would not otherwise have had, because an account admits nobody (D1). Optional on the invitation-send path; an invitation that omits it behaves exactly as before. Rendered on the Users app's invite list and set by the optional account picker in its send flow.")
 
   @relationship(type="parent", field="inviterId", target=user, direction="outgoing")
@@ -600,7 +601,6 @@ concept user {
   gender          string  @pii  @description("Optional self-identified gender. Free-form string -- the frontend offers a curated list but the backend doesn't enforce one.")
   birthdate       string  @pii  @description("ISO-8601 date (YYYY-MM-DD), optional. Stored as a string rather than datetime because we never compute against it -- it's reference data the admin sets and the profile UI surfaces.")
   role            enum("owner", "admin", "developer", "writer", "reader")  @default("reader")  @description("Cluster-wide role. owner is the sole cluster-owner tier (actor.isClusterOwner==true is what an admin-tier row's @rowAuthz gates on -- e.g. the audit log); admin/developer/writer/reader are RBAC roles for the identity admin console + engineering surfaces (component/auth/rbac.go) but carry no automatic per-row data access of their own -- reaching an owned/granted row still requires being its owner or holding a relationship grant, not just this role. developer additionally gets authoring + inline DSL + deploy/cut-version; admin/writer/reader do not.")
-  groupIds        []string  @description("Group memberships. Reserved for future cluster-side group-based access derivation.")
   // Every nested block rejects undeclared keys (memql#3641), and this is the
   // block that made the case for it: `computerUseEnbaled` used to store
   // happily beside `computerUseEnabled`, leaving the computer-use kill switch
@@ -702,19 +702,59 @@ concept enrolmentToken {
   @relationship(type="references", as="redeems", field="invitationId", target=invitation, direction="outgoing")
 }
 
-/// Organization group. Users belong to groups; agents are assigned to groups for scoped access
-/// control. Created and managed in-app; the externalId field is preserved for any legacy rows that
-/// came from a previous external sync source.
-@displayCard(primary="name", secondary="description", tertiary="externalId", status="active")
+/// A GROUP -- the thing that lets a client's people reach the client's work (epic memql#5165, D1).
+///
+/// Membership in a group tied to an account is what admits a person to that account's rows: reads
+/// for any active member, writes for a member whose role holds the verb. That is not a second
+/// authorization mechanism -- it is the `account="<field>"` argument of the owned tier every tied
+/// concept already declares, resolved per request from these rows (design section C).
+///
+/// THE ROW IS THE DEPLOYMENT'S, NOT A PRINCIPAL'S (D2), which is why ownerUserId is always empty
+/// and the tier carries `unowned="admin"`. A membership keyed as owner-tier on `userId` would let
+/// a Member insert their OWN row into Acme's group, because an owned row admits its owner's
+/// inserts -- so both concepts here are unowned and written only by the Go builtins in
+/// integrations/groups under internal origin.
+///
+/// A GROUP WITH NO ACCOUNT GRANTS NOTHING (D8) and exists to organize. `kind` says which of the
+/// two a row is: `account` for the one the automation makes per account, `custom` for any other.
+@displayCard(primary="name", secondary="description", status="status")
+@rowAuthz(owner="ownerUserId", rankVisible, unowned="admin", clusterOwner)
 concept group {
-  name         string! @description("Display name of the group.")
-  description  string! @description("Short description of the group's purpose. Required so group pickers (CreateSpaceModal, admin lists) always have a useful subtitle.")
-  externalId   string! @description("External group id for legacy sync correlation. Empty for in-app-created groups.")
-  memberIds    []string  @description("User IDs that belong to this group.")
-  agentIds     []string  @description("Agent IDs assigned to this group.")
-  maxHumans    int     @description("Maximum human members this group can hold. Convention: 5 -- NOT applied on insert, and no mutation is bound to this concept, so a writer must supply it; an absent value reads as 0 (no capacity). A writer must supply it.")
-  maxAgents    int     @description("Maximum agent members this group can hold (convention: 3 -- NOT applied on insert; no mutation is bound to this concept, so a writer must supply it, and an absent value reads as 0), inclusive of any user's auto-joined assistant.")
-  active       bool    @description("Whether the group is active. Convention: true -- NOT applied on insert, and no mutation is bound to this concept, so a writer must supply it.")
+  ownerUserId  string   @description("ALWAYS EMPTY: this is the deployment's row, not a principal's (D2). Present so the owned tier reads at all -- an ABSENT owner key is denied at every rank, and only a PRESENT-and-empty one is the deliberate statement of cluster ownership that `unowned=\"admin\"` then makes readable. Nothing writes a value here, and a row that carried one would be readable by that principal alone.")
+  name         string!  @description("Display name of the group, as a person would say it. For the group the automation makes per account this is the account's own name; for a custom group it is whatever the operator called it.")
+  description  string   @description("Short description of the group's purpose. Optional, unlike the field it replaces: the account-kind group is created by an automation that has nothing meaningful to say here, and a required field would have forced it to invent one.")
+  kind         enum("account", "custom")!  @description("Which of the two kinds of group this is. `account` is the one ensureAccountGroup writes per account, at the derived id acct-<accountShortId>, and it is refused archive while its account is active. `custom` is any group a person made -- tied to an account or not.")
+  accountId    string   @description("The v1:accounts:account this group GRANTS. Empty on a custom group tied to no account, which grants nothing and exists to organize (D8). This is the field the account scope resolves through: a member of this group reaches every row whose own account argument names this id.")
+  status       enum("active", "archived")!  @description("Lifecycle. Only an ACTIVE group grants anything -- the resolution reads the group's status rather than trusting the membership, because a group is archived without its memberships being rewritten. Archive is the only exit; there is no delete.")
+  archivedAt   datetime  @description("When status became archived. Written by groupArchive and by the archiveAccountGroup cascade.")
+
+  @relationship(type="references", as="forAccount", field="accountId", target=account, direction="outgoing")
+}
+
+/// ONE PERSON'S MEMBERSHIP OF ONE GROUP (epic memql#5165, D11).
+///
+/// The id is derived -- <groupShortId>-<userShortId> -- so re-adding somebody who was removed
+/// writes a NEW VERSION of the same logical row rather than a second row. History is the versions,
+/// which is what makes "when did they join, and who put them there" answerable without a second
+/// audit concept.
+///
+/// UNOWNED for the reason the group is (D2): the row records a decision the deployment made about
+/// a person, not a row that person owns. Written only by integrations/groups, never by a mutation
+/// a caller can reach.
+@displayCard(primary="userId", secondary="origin", status="status")
+@rowAuthz(owner="ownerUserId", rankVisible, unowned="admin", clusterOwner)
+concept groupMembership {
+  ownerUserId  string   @description("ALWAYS EMPTY (D2). See v1:identity:group.ownerUserId for why the field is present and never written.")
+  groupId      string!  @description("The v1:identity:group this membership is in.")
+  userId       string!  @description("The v1:identity:user who is a member. NOT the row's owner: a member who owned their own membership row could insert one, which is the whole reason this concept is unowned.")
+  origin       enum("added", "invitation", "domain")!  @description("How the person got here. `added` is a person calling groupMemberAdd; `invitation` is an invitation that carried this group being accepted; `domain` is the account's verified domain matching a verified email at arrival (D9). Kept because the three answer different questions when somebody asks why a person can see a client's work.")
+  addedBy      string   @description("The acting user's id, or EMPTY for the engine -- domain join and the boot backfill have no acting person, and stamping a synthetic id there would put a principal that does not exist into the audit answer.")
+  status       enum("active", "removed")!  @description("Only an ACTIVE membership grants. Removing writes a new version at the same id with `removed`; the previous version stays as history, which is why every read of these rows collapses to the newest version per id first.")
+  removedAt    datetime  @description("When status became removed.")
+  removedBy    string   @description("Who removed them. Empty when the engine did it -- the archive cascade, for instance.")
+
+  @relationship(type="references", as="memberOf", field="groupId", target=group, direction="outgoing")
+  @relationship(type="references", as="member", field="userId", target=user, direction="outgoing")
 }
 
 /// A CUSTOMER THE OPERATOR MANAGES -- the record MemQL keeps ABOUT a downstream business, as

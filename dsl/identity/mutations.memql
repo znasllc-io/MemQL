@@ -640,7 +640,7 @@ mutate auditEvent createAuditEvent {
     actorEmail       string
     actorRole        string
     actorIdentityId  string
-    targetType       enum("user", "session", "identity", "invitation", "accessRequest", "config", "magicLinkRequest", "authCode", "clusterSettings", "deviceCode", "delegation", "workerPairingCode", "enrolmentToken", "passkeyIdentity", "badgeIdentity", "appSession", "shopifyStore", "releaseCut", "oauthClient", "upstreamIdentity", "rowOwnership", "githubGrant")
+    targetType       enum("user", "session", "identity", "invitation", "accessRequest", "config", "magicLinkRequest", "authCode", "clusterSettings", "deviceCode", "delegation", "workerPairingCode", "enrolmentToken", "passkeyIdentity", "badgeIdentity", "appSession", "shopifyStore", "releaseCut", "oauthClient", "upstreamIdentity", "rowOwnership", "githubGrant", "group", "groupMembership")
     targetId         string
     targetEmail      string
     detail           object
@@ -1202,7 +1202,6 @@ mutate user createUser {
     displayName   string!
     primaryEmail  string!
     role          enum("owner", "admin", "developer", "writer", "reader")
-    groupIds      object
     preferences   object
   }
   insert {
@@ -1210,7 +1209,6 @@ mutate user createUser {
     args.displayName
     args.primaryEmail
     role: args.role ?? "reader"
-    groupIds: args.groupIds ?? []
     preferences: args.preferences ?? {}
     active: true
   }
@@ -1246,7 +1244,6 @@ mutate user createUser {
 //   birthdate     (string, optional)  - ISO-8601 date (YYYY-MM-DD)
 //   role          (string, optional)  - Cluster role; defaults to "reader"
 //   internal      (bool)              - Whether the email matched MEMQL_IDENTITY_INTERNAL_DOMAINS at registration
-//   groupIds      (object, optional)  - manual group memberships
 //   preferences   (object, optional)  - User preference bag
 //
 
@@ -1265,7 +1262,6 @@ mutate user createUserOnFirstLogin {
     role          enum("owner", "admin", "developer", "writer", "reader")
     internal      bool!
     sharedMailbox bool
-    groupIds      object
     preferences   object
   }
   insert {
@@ -1279,7 +1275,6 @@ mutate user createUserOnFirstLogin {
     gender: args.gender ?? ""
     birthdate: args.birthdate ?? ""
     role: args.role ?? "reader"
-    groupIds: args.groupIds ?? []
     preferences: args.preferences ?? {}
     active: true
     args.internal
@@ -3262,6 +3257,87 @@ mutate githubConnectState consumeGithubConnectState {
     stamp {
       id: args.stateId
       consumedFromIP: args.consumedFromIP ?? ""
+    }
+  }
+}
+
+// ---- Groups (epic memql#5165, section D) ----
+//
+// Both are @serverOnly, and that is the whole access story for these rows.
+// v1:identity:group and v1:identity:groupMembership are UNOWNED (D2): no
+// principal owns them, so there is no owned tier for a caller-reachable
+// mutation to pass through, and a client-reachable writer here would be a
+// primitive for putting yourself into any client's group. Every legitimate
+// write goes through integrations/groups, which checks the caller's capability
+// and rank first and then writes under internal origin.
+//
+// They take the WHOLE row rather than a delta, because a caller-supplied
+// partial update of an append-only row is a read-merge the plug-in has already
+// done: the capability layer reads the current version, applies the change it
+// was asked for, and restates the result. Splitting that across two places
+// would give the two of them different ideas about what an omitted field means.
+
+/// Write one v1:identity:group row.
+///
+/// @serverOnly, and actor.userId scoping is not the fix -- it is the thing this
+/// concept deliberately does not have. v1:identity:group is UNOWNED (epic
+/// memql#5165, D2): ownerUserId is always empty because the row is the
+/// deployment's record, not a person's. So there is no field for
+/// `ownerUserId==actor.userId` to compare against, and stamping the caller in
+/// would make the group readable by them alone and by no other admin -- the
+/// opposite of what a shared registry is. Authorization is the caller's
+/// capability and rank, checked in Go by integrations/groups before this runs.
+@serverOnly
+mutate group writeGroup {
+  args {
+    groupId      string!
+    name         string!
+    description  string
+    kind         string!
+    accountId    string
+    status       string!
+    archivedAt   string
+  }
+  insert {
+    accept { name, kind, status }
+    stamp {
+      id:          args.groupId
+      ownerUserId: ""
+      description: args.description ?? ""
+      accountId:   args.accountId ?? ""
+      archivedAt:  args.archivedAt ?? ""
+    }
+  }
+}
+
+/// Write one v1:identity:groupMembership row.
+///
+/// @serverOnly, and actor.userId scoping is worse than merely unavailable here.
+/// The obvious owner field would be `userId`, the member -- and an owned row
+/// admits its owner's INSERTS, so scoping to actor.userId would hand every
+/// person on the cluster a primitive for writing their own membership into any
+/// client's group. That is the D2 reasoning in one sentence, and it is why the
+/// row is unowned and this writer is off the wire.
+@serverOnly
+mutate groupMembership writeGroupMembership {
+  args {
+    membershipId  string!
+    groupId       string!
+    userId        string!
+    origin        string!
+    addedBy       string
+    status        string!
+    removedAt     string
+    removedBy     string
+  }
+  insert {
+    accept { groupId, userId, origin, status }
+    stamp {
+      id:          args.membershipId
+      ownerUserId: ""
+      addedBy:     args.addedBy ?? ""
+      removedAt:   args.removedAt ?? ""
+      removedBy:   args.removedBy ?? ""
     }
   }
 }

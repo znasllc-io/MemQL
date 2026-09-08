@@ -464,7 +464,6 @@ shape user userFull {
   gender
   birthdate
   role
-  groupIds
   preferences
   active
   suspendedAt
@@ -586,5 +585,35 @@ shape githubConnectState githubConnectStateFull {
   consumedAt
   consumedFromIP
   sourceIP
+  row.createdAt
+}
+
+/// Full projection of a group. Names every field of the concept, so a reader can tell an
+/// account-kind group from a custom one and an active one from history without a second read.
+@row
+shape group groupFull {
+  row.id
+  name
+  description
+  kind
+  accountId
+  status
+  archivedAt
+  row.createdAt
+}
+
+/// Full projection of one membership. `origin` is projected deliberately: when somebody asks why a
+/// person can reach a client's work, "an invitation carried this group" and "their email domain
+/// matched" are different answers and the page shows which.
+@row
+shape groupMembership groupMembershipFull {
+  row.id
+  groupId
+  userId
+  origin
+  addedBy
+  status
+  removedAt
+  removedBy
   row.createdAt
 }

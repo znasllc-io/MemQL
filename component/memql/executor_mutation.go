@@ -97,6 +97,14 @@ type writeMeta struct {
 	// those inherits the stored hostname through the read-merge, and the
 	// user policy would refuse a value the user never supplied.
 	priorHostname string
+	// priorAccountDomain is the prior row's v1:accounts:account `domain`
+	// (empty when absent), captured so the domain walk's reset can tell a
+	// write that CHANGES the client's domain from one that inherited it
+	// through the read-merge (epic memql#5165, section F). Proof of one
+	// name is not proof of another, so a changed domain has to clear the
+	// verification -- and a guard reading only the merged payload cannot
+	// see that anything changed.
+	priorAccountDomain string
 	// priorRepoUrl / priorRepoRef are the prior row's v1:platform:package
 	// source pair (empty when absent), so the source-uniqueness guard can
 	// tell "this write is choosing a source" from "this write inherited one
@@ -786,6 +794,11 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 		//     read path uses, which is what keeps "may read" and "may
 		//     write" two rules over one resolution.
 		ctx = contextWithRankScopeMemo(ctx, e)
+		// And the account grant's, which the write guard needs for the same
+		// reason (epic memql#5165, D4): a member may WRITE a tied row when
+		// their role holds the verb, and the guard resolves that from the
+		// same function the read path uses.
+		ctx = contextWithAccountScopeMemo(ctx, e)
 		if err := guardRowAuthzWrite(ctx, conceptMeta.Name, id, priorPayload, existed, requirePrior); err != nil {
 			return nil, meta, err
 		}
@@ -826,6 +839,11 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 			// policy can tell "this write is choosing a hostname" from "this
 			// write inherited one through the read-merge".
 			meta.priorHostname = stringFromAny(priorPayload["hostname"])
+			// Capture the PRIOR client domain (epic memql#5165) for the
+			// reason above it: the walk's reset is a comparison against
+			// the stored value, which the merged payload has already
+			// overwritten by the time any guard runs.
+			meta.priorAccountDomain = stringFromAny(priorPayload["domain"])
 			// Capture the PRIOR source pair (2026-09-05, D8) so the package
 			// source-uniqueness guard judges only a write that changes it.
 			meta.priorRepoUrl = stringFromAny(priorPayload["repoUrl"])
@@ -1146,6 +1164,21 @@ func (e *MemQLEngine) executeWrite(ctx context.Context, mutation MutationNode, r
 	// accounts_self_archive_guard.go.
 	if conceptMeta.Name == conceptAccountsAccount {
 		if err := e.validateSelfAccountNotArchived(ctx, mutation.ID, payload); err != nil {
+			return nil, meta, err
+		}
+		// The domain walk's RESET, before the guards below and not after:
+		// changing a client's domain clears the verification, and the
+		// guards must judge the row as it will be stored rather than as the
+		// caller sent it -- otherwise a write that both changes the domain
+		// and leaves joinOnDomain on would be refused for a verification
+		// this very write is discarding.
+		resetAccountDomainOnChange(payload, meta.priorAccountDomain, meta.priorExisted)
+		// The domain walk's two guards (epic memql#5165, D9 and D10), beside
+		// the one above and for the same reason: neither is expressible in a
+		// mutation body -- one judges a COMBINATION of two fields and the
+		// other reads this cluster's own domain out of the environment.
+		// See component/memql/account_domain_validation.go.
+		if err := e.validateAccountDomainPolicy(ctx, payload); err != nil {
 			return nil, meta, err
 		}
 	}
