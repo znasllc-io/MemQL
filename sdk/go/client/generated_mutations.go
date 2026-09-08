@@ -6440,7 +6440,7 @@ type CreateUserArgs struct {
 	UserId       string
 	DisplayName  string
 	PrimaryEmail string
-	// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole.
+	// Enum: owner | admin | developer | writer | reader
 	Role        string
 	Preferences map[string]any
 }
@@ -6497,7 +6497,7 @@ type CreateUserOnFirstLoginArgs struct {
 	PrimaryRole  string
 	Gender       string
 	Birthdate    string
-	// A v1:rbac:role slug or one of its aliases. NOT an enum: a DSL enum cannot name a row, and the five-value one this replaced is why a custom role could never land on a user (epic memql#5166). Validated in Go by the caller -- the magic-link verifier, the invitation redemption, SetUserRole -- through auth.IsValidRole.
+	// Enum: owner | admin | developer | writer | reader
 	Role             string
 	Internal         bool
 	SharedMailbox    bool
