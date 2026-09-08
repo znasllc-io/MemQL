@@ -219,7 +219,12 @@ same terminal, after SUCCESS. The Install stop states it up front when local mod
 asked for, rather than leaving it to the Checks stop's repair. Once a runtime is reported
 the Checks stop offers **Pull the recommended models** (the existing
 `fleetPullRecommended` act, refusals shown in surface) and draws the pulls live from the
-`modelPullsForWorker` feed until a model is advertised.
+`modelPullsForWorker` feed until a model is advertised. The engine's half of that act
+has shipped since epic memql#5103; the COCKPIT's half -- the `ModelPullStart` /
+`Progress` / `End` arm on its stream loop, over its own `inference.Pull` -- had not,
+because its pin predates the wire (its loop says so in prose). It ships in the cockpit
+PR beside the Pong, so until that release a pull from the OS is refused with "does not
+support model pulls", in surface, and the second command still works.
 
 ### D14 -- The round trip: ask it something
 
