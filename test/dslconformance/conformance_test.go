@@ -476,6 +476,17 @@ var idBearingFieldExemptions = map[string]string{
 	"identity/identity.accountId": "nested under payload.credentials.account_token @variant; canonicalizeRelationshipFields walks top-level fields only, so a concept-level @relationship(field=\"accountId\") is a structural no-op -- and leaving the credential row a graph leaf is the conservative direction here (memql#3322)",
 	// --- deliberate short-form storage by write-side normalization ---
 	"forge/requestEvent.requestId": "bare-by-contract (#1859): recordRequestEvent/recordMentoredEvent store shortId(args.requestId) so the audit trail unifies whether the caller passes a canonical (automation) or short (tool) id; an @relationship would re-canonicalize on insert and re-split the trail (conf_1859_test asserts zero events under the canonical id)",
+	// --- a MODEL TAG that names a row without being one (epic memql#5146) ---
+	// `modelId` is the RUNTIME's own id -- `qwen3.5:9b`, `hf.co/owner/repo:Q4_K_M` --
+	// and it is deliberately not a node id: a tag carries ':' and '/', so the
+	// v1:models:modelProfile row that describes it lives at a SLUG of this value
+	// while the field itself stays byte-identical to what a machine advertises as
+	// `model:<id>`. That byte-identity is the whole point -- the router selects on
+	// the exact string, and a catalog hit is a string equality rather than a fuzzy
+	// match -- so canonicalizing this field against modelProfile would rewrite it
+	// into the slug and make every join and every selection miss.
+	"platform/modelMeasurement.modelId": "a runtime's own model tag, not a node id: the modelProfile row lives at a SLUG of it, and canonicalizing would break the byte-identity with the `model:<id>` label the router selects on (epic memql#5146)",
+	"platform/modelEvidence.modelId":    "a runtime's own model tag, not a node id; same reason as modelMeasurement.modelId (epic memql#5146)",
 }
 
 // idBearingReferencesConcept detects the id-bearing-FK heuristic: a `v1:ns:concept`

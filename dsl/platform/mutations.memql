@@ -1933,3 +1933,128 @@ mutate embedderBinding activateEmbedderBinding {
     activatedAt:  args.activatedAt
   }
 }
+
+// ---- Measurement and evidence writes (epic memql#5146) ----
+//
+// All three are @serverOnly, and for one reason with three faces.
+//
+// A measurement is a NUMBER THE ROUTER RANKS ON. A client-reachable write here
+// is a primitive for making a model look good: name your own machine, name your
+// own model, claim 0.99 structured validity, and the fleet routes structured
+// work to it. The figures may only come from a probe the engine started and a
+// machine the engine asked.
+//
+// An evidence row is the same argument over a longer window, and its decision
+// field decides whether a person is asked again.
+
+/// Record one probe's figures. @serverOnly: the figures are what the router ranks on, so a
+/// client-reachable write would be a primitive for making a model look good by claiming so.
+///
+/// actor.userId scoping is NOT the fix, and this is the subtle part: the caller IS the machine's
+/// owner here, so a self-scoped filter would admit exactly this call. Scoping answers "whose row is
+/// it", and the hazard is not whose -- it is that a legitimate owner could write any figures they
+/// like about their own machine and have the fleet route structured work to it on the strength of
+/// them. Only the server knows what the probe actually reported, so only the server may write it.
+///
+/// ownerUserId is STAMPED FROM THE ACTOR and never taken from args -- the concept declares it
+/// @serverSet. The probe's report arrives on an agent replica, which runs this under
+/// auth.ContextWithUserActor for the registration's owner: the borrowed-authority shape every other
+/// write about somebody's machine already uses, and the reason a worker's own principal cannot
+/// write here directly.
+@actor
+@serverOnly
+mutate modelMeasurement recordModelMeasurement {
+  args {
+    measurementId        string!
+    machineId            string!
+    modelId              string!
+    suiteVersion         string!
+    measuredAt           string!
+    /// Each figure is { measured: true, median, spreadLow, spreadHigh, n } XOR
+    /// { measured: false, absentReason, absentDetail }. Rendered by
+    /// component/worker/probe.Figure.Row(), which is the one place that decides
+    /// the shape and the one place that refuses a malformed one.
+    structuredValidity   object
+    toolCallCorrectness  object
+    throughputTps        object
+    ttftMs               object
+    probeError           string
+  }
+  insert {
+    id: args.measurementId
+    ownerUserId: actor.userId
+    args.machineId
+    args.modelId
+    args.suiteVersion
+    args.measuredAt
+    structuredValidity: args.structuredValidity ?? {}
+    toolCallCorrectness: args.toolCallCorrectness ?? {}
+    throughputTps: args.throughputTps ?? {}
+    ttftMs: args.ttftMs ?? {}
+    probeError: args.probeError ?? ""
+  }
+}
+
+/// Record one model's folded week. @serverOnly: the nightly fold is the only writer, and the counts
+/// are what a demotion proposal rests on.
+///
+/// actor.userId scoping is not the fix because there is nobody to scope to. The row is the
+/// deployment's own reconciliation state -- it declares @rowAuthz(clusterOwner) and carries no owner
+/// field at all, because the question it answers is how a MODEL behaved across the fleet rather than
+/// how it behaved for one person. A caller-scoped filter over a row with no owner matches nothing,
+/// which would leave the fold unable to write its own output.
+@actor
+@serverOnly
+mutate modelEvidence recordModelEvidence {
+  args {
+    evidenceId          string!
+    modelId             string!
+    level               string!
+    week                string!
+    calls               int!
+    structuredFailures  int
+    repairs             int
+    retries             int
+    parks               int
+    proposal            string
+    approvalId          string
+    ruleHash            string
+    foldedAt            string!
+  }
+  insert {
+    accept { modelId, level, week, calls, foldedAt }
+    stamp {
+      id: args.evidenceId
+      structuredFailures: args.structuredFailures ?? 0
+      repairs: args.repairs ?? 0
+      retries: args.retries ?? 0
+      parks: args.parks ?? 0
+      proposal: args.proposal ?? "none"
+      approvalId: args.approvalId ?? ""
+      ruleHash: args.ruleHash ?? ""
+    }
+  }
+}
+
+/// Record what a person decided about a proposal. @serverOnly for the reason above, plus one of its
+/// own: `declined` is what stops the same week's evidence re-proposing, so a client that could write
+/// it could silence a demotion nobody declined.
+///
+/// actor.userId scoping is not the fix for the same reason it is not on recordModelEvidence -- the
+/// row has no owner to scope to. The decision itself IS gated on a person: it is written from the
+/// approval path, where v1:work:approval already recorded who decided and when, and this row only
+/// mirrors the outcome so the next fold can read it without re-reading every approval.
+@actor
+@serverOnly
+mutate modelEvidence recordEvidenceDecision {
+  args {
+    evidenceId  string!
+    proposal    string!
+    decidedAt   string!
+  }
+  update {
+    id: args.evidenceId
+    args.proposal
+    foldedAt: args.decidedAt
+  }
+}

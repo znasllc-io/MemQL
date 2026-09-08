@@ -1067,6 +1067,26 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// the write to, and a client-reachable writer would let any signed-in
 		// caller claim any node's module is "configured".
 		{Path: "platform/mutations.memql", Name: "recordModuleReadiness"}: true,
+
+		// The probe's figures and the fold's evidence (epic memql#5146).
+		//
+		// recordModelMeasurement is the one where caller-scoping LOOKS like it
+		// would work and does not: the caller IS the machine's owner, so a
+		// self-scoped filter admits exactly this call. Scoping answers "whose
+		// row is it" and the hazard is not whose -- it is that a legitimate
+		// owner could write any figures they like about their own machine and
+		// have the fleet route structured work to it on the strength of them.
+		// Only the server knows what the probe actually reported.
+		//
+		// The other two have nobody to scope to at all: v1:platform:modelEvidence
+		// declares clusterOwner and carries no owner field, because the question
+		// is how a MODEL behaved across the fleet rather than how it behaved for
+		// one person. `declined` on the second is also what stops a week's
+		// evidence re-proposing, so a client that could write it could silence a
+		// demotion nobody declined.
+		{Path: "platform/mutations.memql", Name: "recordModelMeasurement"}: true,
+		{Path: "platform/mutations.memql", Name: "recordModelEvidence"}:    true,
+		{Path: "platform/mutations.memql", Name: "recordEvidenceDecision"}: true,
 	}
 	for k := range want {
 		if !set[k] {

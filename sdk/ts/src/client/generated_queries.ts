@@ -4157,6 +4157,52 @@ QueryClient.prototype.magicLinkRequestByTokenHash = function (this: QueryClient,
   return this.executeNamed("magicLinkRequestByTokenHash", buildMagicLinkRequestByTokenHash(args), opts);
 };
 
+/** Every measurement for one machine, newest first. The machine page's per-model figures.
+KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a person reading it wants every model it has been measured on -- including the ones they have forgotten they pulled. */
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForMachine"] in generated_concepts.ts).
+export interface MeasurementsForMachineArgs {
+  machineId: string;
+}
+
+export function buildMeasurementsForMachine(args: MeasurementsForMachineArgs): string {
+  const parts: string[] = [];
+  parts.push("machineId: " + renderMemQLValue(args.machineId));
+  return "query measurementsForMachine(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    measurementsForMachine(args: MeasurementsForMachineArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.measurementsForMachine = function (this: QueryClient, args: MeasurementsForMachineArgs = {} as MeasurementsForMachineArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("measurementsForMachine", buildMeasurementsForMachine(args), opts);
+};
+
+/** Every measurement of one model across the machines the caller can read, newest first.
+The fleet-wide half of the same question. A cluster owner sees every machine's figures for a model, which is the read that makes "this model is slow" answerable as "on which hardware". */
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForModel"] in generated_concepts.ts).
+export interface MeasurementsForModelArgs {
+  modelId: string;
+}
+
+export function buildMeasurementsForModel(args: MeasurementsForModelArgs): string {
+  const parts: string[] = [];
+  parts.push("modelId: " + renderMemQLValue(args.modelId));
+  return "query measurementsForModel(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    measurementsForModel(args: MeasurementsForModelArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.measurementsForModel = function (this: QueryClient, args: MeasurementsForModelArgs = {} as MeasurementsForModelArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("measurementsForModel", buildMeasurementsForModel(args), opts);
+};
+
 /** Drill-in read: fetch a memory's full content by id, gated to the caller. Owned: ownerUserId==actor.userId. Called by the Library Records lens when opening a memory artifact resolved from its sourceConceptRef. */
 // Bound concept: v1:library:memory (machine-readable: BoundConcepts["memoryById"] in generated_concepts.ts).
 export interface MemoryByIdArgs {
@@ -4223,6 +4269,33 @@ declare module "./query.js" {
 
 QueryClient.prototype.missingCapabilityByKindAndName = function (this: QueryClient, args: MissingCapabilityByKindAndNameArgs = {} as MissingCapabilityByKindAndNameArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("missingCapabilityByKindAndName", buildMissingCapabilityByKindAndName(args), opts);
+};
+
+/** One model's evidence at one level for one week -- the row a fold reads before deciding whether it has already proposed, and the row a decline writes back to.
+THE THREE ARGUMENTS ARE THE KEY. A fold that read only by model would re-propose at every level on the same evidence, and one that read only by week would collapse two models into one row. */
+// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["modelEvidenceForKey"] in generated_concepts.ts).
+export interface ModelEvidenceForKeyArgs {
+  modelId: string;
+  level: string;
+  week: string;
+}
+
+export function buildModelEvidenceForKey(args: ModelEvidenceForKeyArgs): string {
+  const parts: string[] = [];
+  parts.push("modelId: " + renderMemQLValue(args.modelId));
+  parts.push("level: " + renderMemQLValue(args.level));
+  parts.push("week: " + renderMemQLValue(args.week));
+  return "query modelEvidenceForKey(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    modelEvidenceForKey(args: ModelEvidenceForKeyArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.modelEvidenceForKey = function (this: QueryClient, args: ModelEvidenceForKeyArgs = {} as ModelEvidenceForKeyArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("modelEvidenceForKey", buildModelEvidenceForKey(args), opts);
 };
 
 /** One catalog entry by the runtime's own model id. The embedder binding reads `dimensions` through this (memql#5142): the vector width belongs to the provider, and for a fleet model the provider is a machine that does not know it. */
@@ -5630,6 +5703,29 @@ declare module "./query.js" {
 
 QueryClient.prototype.recentAuthActivity = function (this: QueryClient, args: RecentAuthActivityArgs = {} as RecentAuthActivityArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("recentAuthActivity", buildRecentAuthActivity(args), opts);
+};
+
+/** The most recent folded weeks, newest first. The routing evidence view.
+Cluster-owner only by the concept's tier: the question is how a MODEL behaved across the fleet, which is nobody's personal data and everybody's calls. */
+// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["recentModelEvidence"] in generated_concepts.ts).
+export interface RecentModelEvidenceArgs {
+  week?: string;
+}
+
+export function buildRecentModelEvidence(args: RecentModelEvidenceArgs): string {
+  const parts: string[] = [];
+  if (args.week !== undefined) parts.push("week: " + renderMemQLValue(args.week));
+  return "query recentModelEvidence(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    recentModelEvidence(args: RecentModelEvidenceArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.recentModelEvidence = function (this: QueryClient, args: RecentModelEvidenceArgs = {} as RecentModelEvidenceArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("recentModelEvidence", buildRecentModelEvidence(args), opts);
 };
 
 /** ENGINE: the most recent send jobs in any status, newest first. Cluster-owner gated, and it spans owners for the same reason drainableSendJobs does -- the question it answers is about the cluster, not about one operator. Backs one thing only: the boot-time check behind the unsubscribe-secret rotation warning (memql#3458), which needs to know whether this deployment has ever put a signed unsubscribe link in front of a recipient. The row carries no recipient data. */

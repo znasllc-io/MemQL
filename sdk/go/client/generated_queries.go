@@ -4175,6 +4175,52 @@ func MagicLinkRequestByTokenHashBuild(args MagicLinkRequestByTokenHashArgs) stri
 	return b.String()
 }
 
+// MeasurementsForMachine -- Every measurement for one machine, newest first. The machine page's per-model figures.
+// KEYED ON THE MACHINE rather than on the model, because the page is about one machine and a person reading it wants every model it has been measured on -- including the ones they have forgotten they pulled.
+//
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForMachine"] in generated_concepts.go).
+type MeasurementsForMachineArgs struct {
+	MachineId string
+}
+
+// MeasurementsForMachine calls the engine query measurementsForMachine.
+func (qc *QueryClient) MeasurementsForMachine(ctx context.Context, args MeasurementsForMachineArgs) (*Result, error) {
+	call := MeasurementsForMachineBuild(args)
+	return qc.executeNamed(ctx, "measurementsForMachine", call)
+}
+
+func MeasurementsForMachineBuild(args MeasurementsForMachineArgs) string {
+	var b strings.Builder
+	b.WriteString("query measurementsForMachine(")
+	b.WriteString("machineId: ")
+	b.WriteString(quoteMemQL(args.MachineId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// MeasurementsForModel -- Every measurement of one model across the machines the caller can read, newest first.
+// The fleet-wide half of the same question. A cluster owner sees every machine's figures for a model, which is the read that makes "this model is slow" answerable as "on which hardware".
+//
+// Bound concept: v1:platform:modelMeasurement (machine-readable: BoundConcepts["measurementsForModel"] in generated_concepts.go).
+type MeasurementsForModelArgs struct {
+	ModelId string
+}
+
+// MeasurementsForModel calls the engine query measurementsForModel.
+func (qc *QueryClient) MeasurementsForModel(ctx context.Context, args MeasurementsForModelArgs) (*Result, error) {
+	call := MeasurementsForModelBuild(args)
+	return qc.executeNamed(ctx, "measurementsForModel", call)
+}
+
+func MeasurementsForModelBuild(args MeasurementsForModelArgs) string {
+	var b strings.Builder
+	b.WriteString("query measurementsForModel(")
+	b.WriteString("modelId: ")
+	b.WriteString(quoteMemQL(args.ModelId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // MemoryById -- Drill-in read: fetch a memory's full content by id, gated to the caller. Owned: ownerUserId==actor.userId. Called by the Library Records lens when opening a memory artifact resolved from its sourceConceptRef.
 //
 // Bound concept: v1:library:memory (machine-readable: BoundConcepts["memoryById"] in generated_concepts.go).
@@ -4243,6 +4289,41 @@ func MissingCapabilityByKindAndNameBuild(args MissingCapabilityByKindAndNameArgs
 	}
 	b.WriteString("capability: ")
 	b.WriteString(quoteMemQL(args.Capability))
+	b.WriteString(")")
+	return b.String()
+}
+
+// ModelEvidenceForKey -- One model's evidence at one level for one week -- the row a fold reads before deciding whether it has already proposed, and the row a decline writes back to.
+// THE THREE ARGUMENTS ARE THE KEY. A fold that read only by model would re-propose at every level on the same evidence, and one that read only by week would collapse two models into one row.
+//
+// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["modelEvidenceForKey"] in generated_concepts.go).
+type ModelEvidenceForKeyArgs struct {
+	ModelId string
+	Level   string
+	Week    string
+}
+
+// ModelEvidenceForKey calls the engine query modelEvidenceForKey.
+func (qc *QueryClient) ModelEvidenceForKey(ctx context.Context, args ModelEvidenceForKeyArgs) (*Result, error) {
+	call := ModelEvidenceForKeyBuild(args)
+	return qc.executeNamed(ctx, "modelEvidenceForKey", call)
+}
+
+func ModelEvidenceForKeyBuild(args ModelEvidenceForKeyArgs) string {
+	var b strings.Builder
+	b.WriteString("query modelEvidenceForKey(")
+	b.WriteString("modelId: ")
+	b.WriteString(quoteMemQL(args.ModelId))
+	if b.Len() > 26 {
+		b.WriteString(", ")
+	}
+	b.WriteString("level: ")
+	b.WriteString(quoteMemQL(args.Level))
+	if b.Len() > 26 {
+		b.WriteString(", ")
+	}
+	b.WriteString("week: ")
+	b.WriteString(quoteMemQL(args.Week))
 	b.WriteString(")")
 	return b.String()
 }
@@ -5678,6 +5759,31 @@ func RecentAuthActivityBuild(args RecentAuthActivityArgs) string {
 		}
 		b.WriteString("actorUserId: ")
 		b.WriteString(quoteMemQL(args.ActorUserId))
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
+// RecentModelEvidence -- The most recent folded weeks, newest first. The routing evidence view.
+// Cluster-owner only by the concept's tier: the question is how a MODEL behaved across the fleet, which is nobody's personal data and everybody's calls.
+//
+// Bound concept: v1:platform:modelEvidence (machine-readable: BoundConcepts["recentModelEvidence"] in generated_concepts.go).
+type RecentModelEvidenceArgs struct {
+	Week string
+}
+
+// RecentModelEvidence calls the engine query recentModelEvidence.
+func (qc *QueryClient) RecentModelEvidence(ctx context.Context, args RecentModelEvidenceArgs) (*Result, error) {
+	call := RecentModelEvidenceBuild(args)
+	return qc.executeNamed(ctx, "recentModelEvidence", call)
+}
+
+func RecentModelEvidenceBuild(args RecentModelEvidenceArgs) string {
+	var b strings.Builder
+	b.WriteString("query recentModelEvidence(")
+	if args.Week != "" {
+		b.WriteString("week: ")
+		b.WriteString(quoteMemQL(args.Week))
 	}
 	b.WriteString(")")
 	return b.String()
