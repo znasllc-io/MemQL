@@ -194,3 +194,9 @@ builtin groupMemberRemove {
 builtin groupEnsureForAccount {
   accountId  string!
 }
+
+@executor("integration.groups.groupArchiveForAccount")
+@description("Archive every group tied to one account and remove their memberships -- the archiveAccountGroup cascade (epic memql#5165, D5). BOTH KINDS, not just the account-kind one: a custom group tied to an archived account grants access to a client that is gone, so leaving it active would mean the archive changed what the screens show and not what the people can reach. NOT @sdk -- the cascade is the engine's, and a caller-reachable version would let anyone empty every group of any account in one call. Returns {accountId, groupsArchived, membershipsRemoved}.")
+builtin groupArchiveForAccount {
+  accountId  string!
+}
