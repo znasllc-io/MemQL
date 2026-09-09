@@ -5,6 +5,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -99,5 +100,27 @@ func TestUnpinnedFleetRetainsNormalMachineOrder(t *testing.T) {
 	}
 	if res.ExecutionSurface != "fleet:aaa-alternate" || alternateCalls.Load() != 1 || remoteCalls.Load() != 0 {
 		t.Fatalf("unpinned routing changed: %+v", res)
+	}
+}
+
+func TestPinnedUnreachableReplicaDoesNotBlameUnrelatedOfflineMachine(t *testing.T) {
+	f, h, remoteCalls, alternateCalls := pinnedFleetHarness(t)
+	h.store.machines[0].LastSeenAt = fleetNow().Add(-time.Hour)
+	h.link.reachable = false
+	_, err := f.Call(authorityCtx(t, h.owner), memqlengine.FleetCallRequest{
+		ActingUserId: h.owner, RegistrationId: "laptop", ModelId: hopModel, Kind: memqlengine.FleetKindChat,
+	})
+	var refusal *memqlengine.FleetUnavailable
+	if !errors.As(err, &refusal) {
+		t.Fatalf("want unavailable, got %v", err)
+	}
+	if refusal.Total != 1 || len(refusal.Considered) != 0 || strings.Contains(err.Error(), "aaa-alternate") {
+		t.Fatalf("selected-machine failure blames unrelated fleet: %+v", refusal)
+	}
+	if !strings.Contains(err.Error(), ErrNoPeerForNode.Error()) {
+		t.Fatalf("lost selected target's failure: %v", err)
+	}
+	if remoteCalls.Load() != 0 || alternateCalls.Load() != 0 {
+		t.Fatal("an unreachable pinned replica dispatched elsewhere")
 	}
 }

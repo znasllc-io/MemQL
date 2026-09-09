@@ -3653,11 +3653,13 @@
         "eligible",
         "eligibleModelIds",
         "federationConfigured",
+        "fleetCatalogInstalled",
         "fleetInferenceInstalled",
         "localEligible",
         "localModelCount",
         "minimumContextWindow",
-        "runnableApps"
+        "runnableApps",
+        "streamingChatEligible"
       ],
       "required": [
         "appEligible",

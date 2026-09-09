@@ -60,6 +60,13 @@ const (
 	defaultReadLivenessFactor = 4
 )
 
+// peerStream is one transport attempt. Its outbox is never reused on reconnect.
+// Work with side effects must not escape into the next attempt after failure.
+type peerStream struct {
+	done   chan struct{}
+	sendCh chan *nodev1.NodeClientMessage
+}
+
 // peerConnection manages a single gRPC stream to a peer node.
 type peerConnection struct {
 	mu       sync.Mutex
@@ -67,6 +74,7 @@ type peerConnection struct {
 	address  string
 	conn     *grpc.ClientConn
 	stream   nodev1.NodeService_StreamClient
+	current  *peerStream
 	sendCh   chan *nodev1.NodeClientMessage
 	closed   bool
 	cancel   context.CancelFunc
@@ -394,6 +402,7 @@ func (pc *peerConnection) connectOnce(parentCtx context.Context, onMessage func(
 		pc.mu.Lock()
 		pc.conn = nil
 		pc.stream = nil
+		pc.endStreamLocked()
 		pc.mu.Unlock()
 		conn.Close()
 	}()
@@ -440,11 +449,25 @@ func (pc *peerConnection) connectOnce(parentCtx context.Context, onMessage func(
 		return err
 	}
 
+	// AI work is scoped to this attempt; the general mesh outbox remains
+	// reconnectable for its existing users.
+	attempt := &peerStream{done: make(chan struct{}), sendCh: make(chan *nodev1.NodeClientMessage, sendChCapacity)}
+	pc.mu.Lock()
+	if pc.closed {
+		pc.mu.Unlock()
+		return context.Canceled
+	}
+	pc.current = attempt
+	pc.mu.Unlock()
+
 	// Start send goroutine
 	sendDone := make(chan error, 1)
 	go func() {
-		sendDone <- pc.sendLoop(ctx, stream)
+		sendDone <- pc.sendLoop(ctx, stream, attempt.sendCh)
+		cancelAttempt()
 	}()
+
+	defer func() { cancelAttempt(); <-sendDone }()
 
 	// Start heartbeat ticker. Sends periodic NodeHeartbeat messages so the
 	// peer's PeerManager can track our liveness. Cancelled when the stream
@@ -561,11 +584,18 @@ func (pc *peerConnection) sendHeartbeatMessage() {
 }
 
 // sendLoop drains the send channel and writes to the stream.
-func (pc *peerConnection) sendLoop(ctx context.Context, stream nodev1.NodeService_StreamClient) error {
+func (pc *peerConnection) sendLoop(ctx context.Context, stream nodev1.NodeService_StreamClient, scoped <-chan *nodev1.NodeClientMessage) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case msg := <-scoped:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := stream.Send(msg); err != nil {
+				return err
+			}
 		case msg, ok := <-pc.sendCh:
 			if !ok {
 				return nil
@@ -603,6 +633,33 @@ func (pc *peerConnection) Send(msg *nodev1.NodeClientMessage) {
 	}
 }
 
+// SendOnStream queues work only on the current transport attempt and returns
+// its disconnect signal. expected pins a continuation to its opener's attempt;
+// nil starts new work. Failure never queues work for a future reconnect.
+func (pc *peerConnection) SendOnStream(msg *nodev1.NodeClientMessage, expected <-chan struct{}) (<-chan struct{}, error) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	attempt := pc.current
+	if pc.closed || attempt == nil || (expected != nil && expected != attempt.done) {
+		return nil, fmt.Errorf("peer transport unavailable")
+	}
+	select {
+	case attempt.sendCh <- msg:
+		return attempt.done, nil
+	default:
+		return nil, fmt.Errorf("peer transport outbox full")
+	}
+}
+
+// endStreamLocked notifies all requests bound to the failed attempt, including
+// on an explicit Close. The next reconnect receives a fresh queue and signal.
+func (pc *peerConnection) endStreamLocked() {
+	if pc.current != nil {
+		close(pc.current.done)
+		pc.current = nil
+	}
+}
+
 // Close shuts down the connection.
 func (pc *peerConnection) Close() {
 	pc.mu.Lock()
@@ -612,6 +669,7 @@ func (pc *peerConnection) Close() {
 		return
 	}
 	pc.closed = true
+	pc.endStreamLocked()
 
 	if pc.cancel != nil {
 		pc.cancel()

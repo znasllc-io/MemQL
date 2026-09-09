@@ -114,6 +114,7 @@ export interface DoorReading {
 export interface InferenceReading {
   read: boolean;
   eligible: boolean;
+  streamingChatEligible?: boolean;
   doorsOpen: string[];
   localEligible: boolean;
   localModelCount: number;
@@ -124,12 +125,14 @@ export interface InferenceReading {
   appSessionsInstalled: boolean;
   federationConfigured: boolean;
   fleetInferenceInstalled: boolean;
+  fleetCatalogInstalled: boolean;
   error: string;
 }
 
 export const UNREAD_INFERENCE: InferenceReading = {
   read: false,
   eligible: false,
+  streamingChatEligible: undefined,
   doorsOpen: [],
   localEligible: false,
   localModelCount: 0,
@@ -140,6 +143,7 @@ export const UNREAD_INFERENCE: InferenceReading = {
   appSessionsInstalled: false,
   federationConfigured: false,
   fleetInferenceInstalled: false,
+  fleetCatalogInstalled: false,
   error: "",
 };
 
@@ -176,6 +180,7 @@ export function inferenceFrom(row: Row | null | undefined, error: string): Infer
   return {
     read: true,
     eligible: bool(r, "eligible"),
+    streamingChatEligible: typeof r.streamingChatEligible === "boolean" ? r.streamingChatEligible : undefined,
     doorsOpen: strings(r, "doorsOpen"),
     localEligible: bool(r, "localEligible"),
     localModelCount: num(r, "localModelCount"),
@@ -186,6 +191,7 @@ export function inferenceFrom(row: Row | null | undefined, error: string): Infer
     appSessionsInstalled: bool(r, "appSessionsInstalled"),
     federationConfigured: bool(r, "federationConfigured"),
     fleetInferenceInstalled: bool(r, "fleetInferenceInstalled"),
+    fleetCatalogInstalled: bool(r, "fleetCatalogInstalled"),
     error,
   };
 }
@@ -211,14 +217,9 @@ function unreadSaid(status: InferenceReading, unableTo: string): string {
  * and saying "4 models" beside a shut door would read as a contradiction the
  * person has to resolve.
  *
- * THE NODE'S OWN CAPABILITY IS ASKED SECOND, BEFORE ANY COUNT.
- * `fleetInferenceInstalled` answers "can the node that replied place fleet
- * model calls at all", which the engine reports apart from the model count
- * for the reason its own field description gives: "your machines are asleep"
- * and "this node has no worker service" look identical on a page and have
- * entirely different fixes. Reading it as anything about a MACHINE -- an
- * earlier draft of this file said "a machine is set up to run models but has
- * not pulled one yet" -- is a claim the field does not carry.
+ * Catalog access is separate from dispatch: a BFF reads the inventory while
+ * an agent places calls. Missing inventory access means availability is
+ * unknown; it does not establish that pairing a machine cannot help.
  *
  * THE FLOOR IS NAMED, NOT IMPLIED. "None big enough for the work this cluster
  * does" is a paraphrase of a published number; an operator deciding which
@@ -248,12 +249,12 @@ function fleetDoor(status: InferenceReading): DoorReading {
       detail: "",
     };
   }
-  if (!status.fleetInferenceInstalled) {
+  if (!status.fleetCatalogInstalled) {
     return {
       ...base,
-      state: "shut",
+      state: "unknown",
       said:
-        "This cluster is not set up to reach models on your own machines, so pairing one would not open this door. That is a deployment setting rather than anything to fix here.",
+        "The fleet inventory cannot be read here, so model availability is unknown. Try reading again.",
       detail: "",
     };
   }

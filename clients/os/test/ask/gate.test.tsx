@@ -1,114 +1,48 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
-import { coreAt, readiness, withOs } from "../setup/harness";
+import { coreAt, withOs } from "../setup/harness";
 import { withSession } from "../cluster/harness";
 import { AskProvider, useAsk } from "../../src/ask/AskProvider";
 import { AskSheet } from "../../src/ask/AskSheet";
-import { AskUnconfigured } from "../../src/ask/AskUnconfigured";
-import type { AskTransport } from "../../src/ask/askController";
-import { MODULE_DESCRIPTIONS } from "../../src/system/modules";
-import type { Readiness } from "../../src/live/readiness";
+import { OS_REGISTRY } from "../../src/apps/registry";
+import { CHECKING_ASK, READY_ASK, type AskAvailability } from "../../src/ask/useAskReadiness";
 
 afterEach(cleanup);
+function OpenOnMount() { const { openAsk } = useAsk(); useEffect(() => openAsk(), [openAsk]); return null; }
+const Widget = OS_REGISTRY.widgets.find((w) => w.id === "ask")!.component;
 
-// THE ASK SHEET GATES LIKE THE ASK WIDGET (design record
-// 2026-09-07-core-gate-and-honest-install, D7).
-//
-// The widget gated on the `ai` module and the sheet did not, so the keyboard
-// shortcut sent a question on an unconfigured cluster and rendered the
-// engine's own error back at the person: "no streaming provider available".
-
-const SENTENCE = `${MODULE_DESCRIPTIONS.ai} An owner or developer can set it up in Settings.`;
-
-/** A transport that records whether anything was ever sent through it. */
-function spyTransport() {
-  const sent: string[] = [];
-  const transport = {
-    send: vi.fn(async (text: string) => {
-      sent.push(text);
-      return { text: "an answer" };
-    }),
-  } as unknown as AskTransport;
-  return { transport, sent };
-}
-
-/** Opens the sheet on mount, the way the keyboard shortcut does. */
-function OpenOnMount() {
-  const { openAsk } = useAsk();
-  useEffect(() => openAsk(null), [openAsk]);
-  return null;
-}
-
-function sheet(feed: Readiness, transport: AskTransport) {
-  // THE REAL SHELL PROVIDER around it: AskSheet reads `useMakeGoal`, which
-  // reads `useOs`, because handing a prompt off is a shell act -- one Ask,
-  // three entry points. A sheet mounted without it is not a case this surface
-  // has in production.
-  return withSession(
-    withOs(
-      <AskProvider transport={transport} voice={null}>
-        <OpenOnMount />
-        <AskSheet />
-      </AskProvider>,
-      "owner",
-    ),
-    { readiness: feed },
-  );
-}
-
-describe("the sentence an unconfigured Ask says", () => {
-  it("is the engine's module description plus the ask-an-owner line", () => {
-    render(<AskUnconfigured />);
-    expect(screen.getByText(SENTENCE)).toBeTruthy();
-  });
+it.each(["sheet", "widget"])("keeps %s input visible but blocks Send until the same authoritative reading permits it", (entry) => {
+  const ask = vi.fn(() => ({ cancel: vi.fn() }));
+  function tree(availability?: AskAvailability) {
+    return withSession(withOs(
+      <AskProvider transport={{ ask }} availability={availability}>
+        {entry === "sheet" ? <><OpenOnMount /><AskSheet /></> : <Widget />}
+      </AskProvider>, "owner"), { readiness: coreAt("unconfigured", "configured", "configured") });
+  }
+  const view = render(tree());
+  const input = screen.getByRole("textbox", { name: "Ask" });
+  fireEvent.change(input, { target: { value: "Keep my question" } });
+  expect(screen.getByText(CHECKING_ASK.message)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Open Fleet" })).toBeTruthy();
+  view.rerender(tree({ ...READY_ASK, state: "unavailable", message: "No chat model is available." }));
+  expect((screen.getByRole("textbox", { name: "Ask" }) as HTMLInputElement).value).toBe("Keep my question");
+  fireEvent.submit(input.closest("form")!); expect(ask).not.toHaveBeenCalled();
+  view.rerender(tree(READY_ASK));
+  fireEvent.click(screen.getByRole("button", { name: "Send" })); expect(ask).toHaveBeenCalledOnce();
 });
 
-describe("the sheet on a cluster with no inference door", () => {
-  it("says the same sentence the widget says, and offers no input", () => {
-    const { transport, sent } = spyTransport();
-    render(sheet(coreAt("unconfigured", "configured", "configured"), transport));
-    expect(screen.getByRole("dialog", { name: "Ask" })).toBeTruthy();
-    expect(screen.getByText(SENTENCE)).toBeTruthy();
-    // NEVER SENDS. There is nothing to type into, so there is no path from
-    // this sheet to the engine's "no streaming provider available".
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(sent).toHaveLength(0);
-  });
-
-  it("opens normally once a door is configured", () => {
-    const { transport } = spyTransport();
-    render(sheet(coreAt("configured", "configured", "configured"), transport));
-    expect(screen.queryByText(SENTENCE)).toBeNull();
-    expect(screen.getByRole("dialog", { name: "Ask" })).toBeTruthy();
-  });
-
-  it("opens normally while the feed is UNKNOWN", () => {
-    // A shell that does not yet know what is configured must not refuse a
-    // question it could answer -- gateFor answers "unknown" for an unloaded
-    // feed, and only "unconfigured" gates.
-    const { transport } = spyTransport();
-    render(sheet(readiness(false, []), transport));
-    expect(screen.queryByText(SENTENCE)).toBeNull();
-  });
-
-  it("says the sentence when ai is UNREPORTED, exactly as the widget does", () => {
-    // THE SHEET AND THE CORE GATE READ THIS ONE DIFFERENTLY, and both are
-    // right, because they are answering different questions.
-    //
-    // The GATE asks "should this person be held out of the whole OS", and a
-    // cluster nobody reported for is not a cluster with no door -- holding
-    // them would lock them out of the Cluster app they need in order to go and
-    // find out why nothing is reporting. So it opens the desk.
-    //
-    // The SHEET asks "can this question be answered", and it cannot: there is
-    // no evidence of a provider anywhere. It says so in the same words the Ask
-    // WIDGET says them in, which is D7's actual requirement -- both read
-    // `gateFor`, which folds `unreported` into `unconfigured`, so one Ask
-    // cannot answer two ways depending on which key you pressed.
-    const { transport } = spyTransport();
-    render(sheet(coreAt("unreported", "configured", "configured"), transport));
-    expect(screen.getByText(SENTENCE)).toBeTruthy();
-  });
+it("keeps the sheet draft when opening Fleet and returning to Ask", () => {
+  function OpenButton() { const { openAsk } = useAsk(); return <button onClick={() => openAsk()}>Return to Ask</button>; }
+  render(withSession(withOs(
+    <AskProvider transport={{ ask: vi.fn(() => ({ cancel: vi.fn() })) }}>
+      <OpenOnMount /><OpenButton /><AskSheet />
+    </AskProvider>, "owner")));
+  fireEvent.change(screen.getByRole("textbox", { name: "Ask" }), { target: { value: "Save this question while I connect a machine" } });
+  fireEvent.click(screen.getByRole("button", { name: "Open Fleet" }));
+  expect(screen.queryByRole("dialog", { name: "Ask" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Return to Ask" }));
+  expect((screen.getByRole("textbox", { name: "Ask" }) as HTMLInputElement).value).toBe("Save this question while I connect a machine");
 });

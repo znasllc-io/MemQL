@@ -321,7 +321,7 @@ const (
 
 // ProviderRegistry tracks configured providers and their availability.
 type ProviderRegistry struct {
-	mu              sync.RWMutex
+	mu     sync.RWMutex
 	byName map[string]*ProviderConfigEntry
 	// declared holds every provider NAME the DSL tree declares, including
 	// the @disabled ones that never become registry entries. The two sets
@@ -333,7 +333,8 @@ type ProviderRegistry struct {
 	// fleet is the local-model seam (epic memql#4676). Nil on every build
 	// with no worker service, which is an UNAVAILABLE fleet rather than a
 	// broken one -- see fleet_provider.go.
-	fleet FleetInference
+	fleet        FleetInference
+	fleetCatalog FleetCatalogReader
 	// apps is the subscription-app door seam (epic memql#5096). Nil for the
 	// same reason and with the same meaning: a node with no worker service
 	// has no app door, which is a state the chain walks past rather than an
@@ -1387,7 +1388,6 @@ func newAIProvider(cfg ProviderConfig) (AIProvider, error) {
 		return nil, fmt.Errorf("unsupported provider type %q", cfg.Type)
 	}
 }
-
 
 // ============================================================================
 // OpenAI Embedding Provider

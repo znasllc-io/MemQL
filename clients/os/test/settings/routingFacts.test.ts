@@ -96,13 +96,42 @@ describe("the order the doors are tried in", () => {
 });
 
 describe("the fleet door", () => {
+  it("reads a BFF catalog without requiring local dispatch", () => {
+    const reading = inferenceFrom({
+      fleetCatalogInstalled: true, fleetInferenceInstalled: false,
+      localEligible: false, localModelCount: 1, minimumContextWindow: 32768,
+    }, "");
+    const door = doorReadings(reading, noVendor)[0]!;
+    expect(door.state).toBe("half");
+    expect(door.said).toMatch(/32,768-token floor/);
+  });
+
+  it.each([false, undefined])("calls a missing catalog (%s) unknown, even when local dispatch exists", (catalog) => {
+    const reading = inferenceFrom({
+      fleetCatalogInstalled: catalog, fleetInferenceInstalled: true,
+      localEligible: false, localModelCount: 0,
+    }, "");
+    const door = doorReadings(reading, noVendor)[0]!;
+    expect(door.state).toBe("unknown");
+    expect(door.said).toMatch(/fleet inventory cannot be read/);
+    expect(door.said).not.toMatch(/deployment setting|pairing one would not/);
+  });
+
+  it("keeps the engine eligibility verdict authoritative when catalog metadata is absent", () => {
+    const reading = inferenceFrom({
+      localEligible: true, localModelCount: 1, eligibleModelIds: ["qwen3.8:27b"],
+      fleetInferenceInstalled: false, minimumContextWindow: 32768,
+    }, "");
+    expect(doorReadings(reading, noVendor)[0]!.state).toBe("open");
+  });
+
   it("is open when the engine says a local model qualifies", () => {
     const door = fleet({
       localEligible: true,
       localModelCount: 3,
       eligibleModelIds: ["qwen3-coder", "llama4"],
       minimumContextWindow: 32000,
-      fleetInferenceInstalled: true,
+      fleetCatalogInstalled: true,
     });
     expect(door.state).toBe("open");
     expect(door.said).toMatch(/2 of 3 models/);
@@ -118,31 +147,31 @@ describe("the fleet door", () => {
       localModelCount: 4,
       eligibleModelIds: [],
       minimumContextWindow: 32000,
-      fleetInferenceInstalled: true,
+      fleetCatalogInstalled: true,
     });
     expect(door.state).toBe("half");
     expect(door.state).not.toBe("open");
-    expect(firstOpenDoor(doorReadings(status({ localEligible: false, localModelCount: 4, fleetInferenceInstalled: true }), noVendor))).toBeNull();
+    expect(firstOpenDoor(doorReadings(status({ localEligible: false, localModelCount: 4, fleetCatalogInstalled: true }), noVendor))).toBeNull();
     // And it names the floor rather than paraphrasing it: an operator
     // deciding which model to pull needs the number they are pulling against.
     expect(door.said).toMatch(/32,000-token floor/);
   });
 
   it("is shut when nothing of yours is offering a model at all", () => {
-    const door = fleet({ localEligible: false, localModelCount: 0, fleetInferenceInstalled: true });
+    const door = fleet({ localEligible: false, localModelCount: 0, fleetCatalogInstalled: true });
     expect(door.state).toBe("shut");
     expect(door.said).toMatch(/No machine you own is offering a model/);
   });
 
-  it("tells a node that cannot place fleet calls apart from a fleet with nothing on it", () => {
+  it("tells unreadable inventory apart from an empty fleet", () => {
     // Same picture, entirely different fixes -- one is on somebody's laptop
     // and the other is on the cluster.
-    const noService = fleet({ localEligible: false, localModelCount: 0, fleetInferenceInstalled: false });
-    const noModels = fleet({ localEligible: false, localModelCount: 0, fleetInferenceInstalled: true });
-    expect(noService.state).toBe("shut");
+    const noService = fleet({ localEligible: false, localModelCount: 0, fleetCatalogInstalled: false });
+    const noModels = fleet({ localEligible: false, localModelCount: 0, fleetCatalogInstalled: true });
+    expect(noService.state).toBe("unknown");
     expect(noModels.state).toBe("shut");
     expect(noService.said).not.toBe(noModels.said);
-    expect(noService.said).toMatch(/not set up to reach models on your own machines/);
+    expect(noService.said).toMatch(/fleet inventory cannot be read/);
   });
 
   it("is unknown when the status was never read, and carries the reason it has", () => {
@@ -228,7 +257,7 @@ describe("which door takes the next call", () => {
   });
 
   it("reaches a vendor only when both free doors are shut", () => {
-    const doors = doorReadings(status({ fleetInferenceInstalled: true }), anthropicOnly);
+    const doors = doorReadings(status({ fleetCatalogInstalled: true }), anthropicOnly);
     expect(firstOpenDoor(doors)?.id).toBe("anthropic");
   });
 
@@ -243,7 +272,7 @@ describe("the four levels", () => {
   });
 
   it("says every level PARKS when no door is open", () => {
-    const levels = levelReadings(doorReadings(status({ fleetInferenceInstalled: true }), noVendor));
+    const levels = levelReadings(doorReadings(status({ fleetCatalogInstalled: true }), noVendor));
     for (const level of levels) {
       expect(level.door).toBeNull();
       expect(level.sentence).toMatch(/No door is open/);
@@ -253,7 +282,7 @@ describe("the four levels", () => {
   });
 
   it("says a level is BILLED when only a vendor is open, and names both free ways out", () => {
-    const levels = levelReadings(doorReadings(status({ fleetInferenceInstalled: true }), anthropicOnly));
+    const levels = levelReadings(doorReadings(status({ fleetCatalogInstalled: true }), anthropicOnly));
     const strong = levels.find((l) => l.id === "strong")!;
     expect(strong.door?.id).toBe("anthropic");
     expect(strong.door?.metered).toBe(true);
@@ -287,7 +316,7 @@ describe("the four levels", () => {
     // slowing it down -- the one level whose failure is silent and permanent.
     expect(EMBEDDINGS_NEVER_DEGRADES).toMatch(/different vector space/);
 
-    const levels = levelReadings(doorReadings(status({ fleetInferenceInstalled: true }), noVendor));
+    const levels = levelReadings(doorReadings(status({ fleetCatalogInstalled: true }), noVendor));
     const embeddings = levels.find((l) => l.id === "embeddings")!;
     const fast = levels.find((l) => l.id === "fast")!;
     expect(embeddings.sentence).toMatch(/waits rather than being written wrong/);

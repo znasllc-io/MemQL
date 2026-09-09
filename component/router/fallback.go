@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
 )
 
@@ -19,9 +20,10 @@ import (
 // method returns. It is safe to retry only before content or tool output. Raw
 // runtime errors and errors after output never replay a started generation.
 type fallbackStreamWithTools struct {
-	router *Router
-	chain  []string
-	req    ResolveRequest
+	router   *Router
+	chain    []string
+	req      ResolveRequest
+	resolved Resolved
 }
 
 func (f *fallbackStreamWithTools) CallChatStreamWithTools(
@@ -40,6 +42,7 @@ func (f *fallbackStreamWithTools) CallChatStreamWithTools(
 		if !ok {
 			continue
 		}
+		resolved = resolved.withDecisionFrom(f.resolved)
 		inner := client.(common.ChatStreamWithToolsProvider)
 
 		// If the previous attempt failed pre-flight, that failure was
@@ -153,9 +156,10 @@ func (f *fallbackStreamWithTools) retryUnstartedStream(
 // observedWithTools that records the terminal CallRecord. There is no
 // mid-stream concept here -- the call either returns a result or an error.
 type fallbackWithTools struct {
-	router *Router
-	chain  []string
-	req    ResolveRequest
+	router   *Router
+	chain    []string
+	req      ResolveRequest
+	resolved Resolved
 }
 
 func (f *fallbackWithTools) CallChatWithTools(
@@ -171,6 +175,7 @@ func (f *fallbackWithTools) CallChatWithTools(
 		if !ok {
 			continue
 		}
+		resolved = resolved.withDecisionFrom(f.resolved)
 		inner := client.(common.ToolCallingChatAIProvider)
 
 		if lastErr != nil {
@@ -200,9 +205,10 @@ func (f *fallbackWithTools) CallChatWithTools(
 // fallbackChat mirrors fallbackStreamWithTools for the non-streaming
 // synchronous ChatAIProvider path.
 type fallbackChat struct {
-	router *Router
-	chain  []string
-	req    ResolveRequest
+	router   *Router
+	chain    []string
+	req      ResolveRequest
+	resolved Resolved
 }
 
 func (f *fallbackChat) CallChat(ctx context.Context, messages []common.ChatMessage) (string, error) {
@@ -214,6 +220,7 @@ func (f *fallbackChat) CallChat(ctx context.Context, messages []common.ChatMessa
 		if !ok {
 			continue
 		}
+		resolved = resolved.withDecisionFrom(f.resolved)
 		inner := client.(common.ChatAIProvider)
 
 		if lastErr != nil {
@@ -266,9 +273,8 @@ func fallbackRecord(req ResolveRequest, failedResolved Resolved, err error) Call
 		ErrorMessage:      TruncateError(errOrString(err), 500),
 		FallbackFromModel: failedResolved.Model,
 
-		// The decision is the same one for every row this resolution
-		// produces: the fallback attempt is part of what the rule decided,
-		// not a decision of its own.
+		// Every attempt keeps the rule/level decision that chose this chain;
+		// its resolved metadata names the provider and door actually tried.
 		PolicyName:         failedResolved.PolicyName,
 		Level:              string(failedResolved.Decision.Level),
 		RequestedLevel:     string(failedResolved.Decision.RequestedLevel),
@@ -301,4 +307,25 @@ type chainUnavailableError struct{}
 
 func (*chainUnavailableError) Error() string {
 	return "router: no provider in the resolution chain is currently available for this modality"
+}
+
+// A fresh provider lookup supplies this attempt's client, model and pricing;
+// it cannot recreate the rule decision that produced the fallback chain.
+// Preserve that decision for every observer and retry record, while naming
+// the door of the provider actually attempted (which may differ on fallback).
+func (resolved Resolved) withDecisionFrom(selection Resolved) Resolved {
+	resolved.PolicyName = selection.PolicyName
+	resolved.Decision = selection.Decision
+	resolved.Decision.Door = doorFor(resolved.ProviderName)
+	if resolved.ProviderName != selection.ProviderName {
+		// Each call can walk the same wrapper concurrently. Copy before
+		// appending so neither another call nor the caller's resolution changes.
+		resolved.Decision.Considered = append([]airoute.ConsideredEntry(nil), selection.Decision.Considered...)
+		resolved.Decision.Considered = append(resolved.Decision.Considered, airoute.ConsideredEntry{
+			Entry: resolved.ProviderName, Door: resolved.Decision.Door, Reason: "selected from fallback chain",
+		})
+		// The original machine's owner is not evidence about a new attempt.
+		resolved.Decision.MachineOwnerUserId = ""
+	}
+	return resolved
 }

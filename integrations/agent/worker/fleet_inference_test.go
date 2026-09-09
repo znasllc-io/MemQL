@@ -11,12 +11,13 @@ import (
 
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 	workerservice "github.com/znasllc-io/memql/component/worker"
+	fleetcatalog "github.com/znasllc-io/memql/component/worker/fleetcatalog"
 	"github.com/znasllc-io/memql/core/common"
 )
 
 func catalogOf(t *testing.T, machines []Candidate) []memqlengine.FleetModel {
 	t.Helper()
-	return projectCatalog(machines, fleetNow())
+	return fleetcatalog.Project(machines, fleetNow())
 }
 
 func findModel(models []memqlengine.FleetModel, id string) (memqlengine.FleetModel, bool) {

@@ -190,14 +190,17 @@ describe("Ask (spec K bullet 5)", () => {
     expect(within(widget).getByRole("textbox", { name: "Ask" })).toBeTruthy();
   });
 
-  it("streams an answer for a text question", async () => {
+  it("keeps a text question while Send is blocked without a cluster connection", () => {
     renderShell();
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     const sheet = screen.getByRole("dialog", { name: "Ask" });
     const input = within(sheet).getByRole("textbox", { name: "Ask" });
     fireEvent.change(input, { target: { value: "what is this cluster" } });
     fireEvent.click(within(sheet).getByRole("button", { name: "Send" }));
-    expect(await within(sheet).findByText(/Ask is not connected/, undefined, { timeout: 4000 })).toBeTruthy();
+    expect((within(sheet).getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((input as HTMLInputElement).value).toBe("what is this cluster");
+    expect(within(sheet).getByText(/Not connected to the cluster/)).toBeTruthy();
+    expect(within(sheet).getByRole("button", { name: "Open Fleet" })).toBeTruthy();
   });
 
   // The harness passes askVoice={null} (jsdom has no audio stack), which is

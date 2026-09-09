@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowUp, Mic } from "lucide-react";
 
 import type { AskHandle, AskTransport } from "./askController";
+import { CHECKING_ASK, type AskAvailability } from "./useAskReadiness";
 import type { MakeGoalState } from "./useMakeGoal";
 import { useReducedMotion, useVoice } from "./useVoice";
 import type { VoicePorts, VoiceProblem, VoiceState } from "./voiceSession";
@@ -84,8 +85,16 @@ export function AskSurface({
   variant,
   autoFocus = false,
   makeGoal = null,
+  availability = CHECKING_ASK,
+  onOpenFleet,
+  draft: providedDraft,
+  onDraftChange,
 }: {
   transport: AskTransport;
+  availability?: AskAvailability;
+  onOpenFleet?: () => void;
+  draft?: string;
+  onDraftChange?: (draft: string) => void;
   /** Absent = this window has no voice wiring; the control says so. */
   voicePorts?: VoicePorts | null;
   settings?: AskSettings;
@@ -102,9 +111,14 @@ export function AskSurface({
    */
   makeGoal?: MakeGoalState | null;
 }) {
-  const [draft, setDraft] = useState("");
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = providedDraft ?? localDraft;
+  const setDraft = onDraftChange ?? setLocalDraft;
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
-  const handleRef = useRef<AskHandle | null>(null);
+  const activeRef = useRef<{ handle: AskHandle | null; stop: (message: string) => void; abandon: () => void } | null>(null);
+  const readinessId = useId();
+  const ready = availability.state === "ready";
+  const busy = exchanges.some((e) => e.state === "streaming");
   const nextIdRef = useRef(1);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -115,8 +129,7 @@ export function AskSurface({
     onTranscript: (text) => setDraft(text),
     onUtterance: (text) => {
       if (settings.commit === "send") {
-        setDraft("");
-        send(text);
+        setDraft(send(text) ? "" : text);
       } else {
         setDraft(text);
         inputRef.current?.focus();
@@ -129,8 +142,12 @@ export function AskSurface({
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
-    return () => handleRef.current?.cancel();
+    return () => activeRef.current?.abandon();
   }, [autoFocus]);
+
+  useEffect(() => {
+    if (availability.state === "disconnected") activeRef.current?.stop(availability.message);
+  }, [availability.state, availability.message]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
@@ -201,17 +218,36 @@ export function AskSurface({
     };
   }, [controls, variant, settings.spaceToTalk]);
 
-  function send(prompt: string) {
-    const id = nextIdRef.current;
-    nextIdRef.current += 1;
-    setExchanges((prev) => [...prev, { id, prompt, answer: "", state: "streaming" }]);
+  function send(prompt: string): boolean {
+    if (!ready || activeRef.current || !prompt.trim()) return false;
+    const id = nextIdRef.current++;
+    let terminal = false;
+    let answer = "";
     const patch = (p: Partial<Exchange>) =>
       setExchanges((prev) => prev.map((e) => (e.id === id ? { ...e, ...p } : e)));
-    handleRef.current = transport.ask(prompt, context, {
-      delta: (text) => setExchanges((prev) => prev.map((e) => (e.id === id ? { ...e, answer: e.answer + text } : e))),
-      done: () => patch({ state: "done" }),
-      error: (message) => patch({ state: "error", error: message }),
-    });
+    const finish = (error?: string) => {
+      if (terminal) return;
+      terminal = true;
+      if (activeRef.current === active) activeRef.current = null;
+      patch(error ? { state: "error", error } : { state: "done" });
+    };
+    const active = {
+      handle: null as AskHandle | null,
+      stop: (message: string) => { finish(message); active.handle?.cancel(); },
+      abandon: () => { terminal = true; active.handle?.cancel(); },
+    };
+    activeRef.current = active;
+    setExchanges((prev) => [...prev, { id, prompt, answer: "", state: "streaming" }]);
+    try {
+      active.handle = transport.ask(prompt, context, {
+        delta: (text) => { if (!terminal) { answer += text; patch({ answer }); } },
+        done: () => finish(answer.trim() ? undefined : "The cluster finished without an answer. Try again."),
+        error: (message) => finish(message || "The cluster did not answer. Try again."),
+      });
+    } catch (error) {
+      finish(error instanceof Error ? error.message : "The cluster did not answer. Try again.");
+    }
+    return true;
   }
 
   function onSubmit(event: FormEvent) {
@@ -225,8 +261,7 @@ export function AskSurface({
     }
     const prompt = draft.trim();
     if (!prompt) return;
-    setDraft("");
-    send(prompt);
+    if (send(prompt)) setDraft("");
   }
 
   const wired = voicePorts !== null;
@@ -245,13 +280,21 @@ export function AskSurface({
           <div key={e.id} className="os-ask-exchange" data-state={e.state}>
             <p className="os-ask-prompt">{e.prompt}</p>
             {e.answer ? <p className="os-ask-answer">{e.answer}</p> : null}
-            {e.state === "error" ? (
-              <p className="os-ask-error">
-                {e.error ?? "Something went wrong."}{" "}
-                <button type="button" className="os-link" onClick={() => send(e.prompt)}>
-                  Retry
-                </button>
+            {e.state === "streaming" ? (
+              <p className="os-caption" role="status">
+                {e.answer ? "Replying…" : "Waiting for an answer. A model may take a few minutes to load."}{" "}
+                <button type="button" className="os-link" onClick={() => activeRef.current?.stop("Stopped. You can retry when you are ready.")}>Stop reply</button>
               </p>
+            ) : null}
+            {e.state === "error" ? (
+              <div className="os-ask-error">
+                <p role="alert">{askErrorSummary(e.error ?? "The cluster did not answer.")}</p>
+                {e.error && askErrorSummary(e.error) !== e.error ? (
+                  <details><summary>Error details</summary><p style={{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{e.error}</p></details>
+                ) : null}
+                <button type="button" className="os-link" disabled={!ready || busy} onClick={() => send(e.prompt)}>Retry</button>{" "}
+                {onOpenFleet ? <button type="button" className="os-link" onClick={onOpenFleet}>Open Fleet</button> : null}
+              </div>
             ) : null}
             {/* OFFERED ONCE THE ANSWER HAS LANDED, and not while it is
                 streaming: half an answer is not enough to decide whether you
@@ -277,6 +320,13 @@ export function AskSurface({
         <p className="os-ask-error" role="alert">
           {makeGoal.error}
         </p>
+      ) : null}
+      {!ready ? (
+        <div className="os-caption os-ask-micnote">
+          <p id={readinessId} role="status">{availability.message}</p>
+          {onOpenFleet ? <button type="button" className="os-link" onClick={onOpenFleet}>Open Fleet</button> : null}{" "}
+          {availability.state !== "checking" && availability.state !== "disconnected" ? <button type="button" className="os-link" onClick={availability.refresh}>Check again</button> : null}
+        </div>
       ) : null}
       <form className="os-ask-input" onSubmit={onSubmit}>
         <button
@@ -350,7 +400,8 @@ export function AskSurface({
           type="submit"
           className="os-ask-send"
           aria-label={live ? "Finish" : "Send"}
-          disabled={!live && !draft.trim()}
+          aria-describedby={!ready ? readinessId : undefined}
+          disabled={!live && (!ready || busy || !draft.trim())}
         >
           <ArrowUp size={15} aria-hidden />
         </button>
@@ -393,4 +444,12 @@ export function voiceNote(
 function isTypingTarget(el: Element | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+}
+
+/** Keep diagnostic context available without making the conversation a log viewer. */
+function askErrorSummary(message: string): string {
+  if (message.length > 240 || message.includes("every_door_shut") || message.includes("\n")) {
+    return "The cluster could not complete this reply. Retry, or check the available models in Fleet.";
+  }
+  return message;
 }

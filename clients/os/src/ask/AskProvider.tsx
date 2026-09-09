@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { CHECKING_ASK, type AskAvailability } from "./useAskReadiness";
 import type { AskTransport } from "./askController";
 import type { VoicePorts } from "./voiceSession";
 import {
@@ -27,10 +28,13 @@ export interface AskSheetState {
 
 interface AskContextValue {
   transport: AskTransport;
+  availability: AskAvailability;
   voice: VoicePorts | null;
   settings: AskSettings;
   updateSettings: (patch: Partial<AskSettings>) => void;
   sheet: AskSheetState;
+  sheetDraft: string;
+  setSheetDraft: (draft: string) => void;
   openAsk: (context?: string | null) => void;
   closeAsk: () => void;
 }
@@ -46,16 +50,19 @@ export function useAsk(): AskContextValue {
 export function AskProvider({
   transport,
   voice = null,
+  availability = CHECKING_ASK,
   settingsStore,
   children,
 }: {
   transport: AskTransport;
+  availability?: AskAvailability;
   voice?: VoicePorts | null;
   settingsStore?: AskSettingsStore;
   children: ReactNode;
 }) {
   const storeRef = useRef<AskSettingsStore | null>(null);
   if (!storeRef.current) storeRef.current = settingsStore ?? new LocalAskSettingsStore();
+  const [sheetDraft, setSheetDraft] = useState("");
   const [sheet, setSheet] = useState<AskSheetState>({ open: false, context: null });
   const [settings, setSettings] = useState<AskSettings>(() => storeRef.current!.load());
 
@@ -70,8 +77,8 @@ export function AskProvider({
   }, []);
 
   const value = useMemo(
-    () => ({ transport, voice, settings, updateSettings, sheet, openAsk, closeAsk }),
-    [transport, voice, settings, updateSettings, sheet, openAsk, closeAsk],
+    () => ({ transport, availability, voice, settings, updateSettings, sheet, sheetDraft, setSheetDraft, openAsk, closeAsk }),
+    [transport, availability, voice, settings, updateSettings, sheet, sheetDraft, setSheetDraft, openAsk, closeAsk],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

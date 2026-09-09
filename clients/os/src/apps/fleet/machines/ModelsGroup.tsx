@@ -345,7 +345,7 @@ function RecommendedBlock({
   // thing is said once.
   if (!set.reported || set.entries.length === 0) return null;
 
-  const pullable = set.entries.filter((e) => e.pullable);
+  const pullableCount = new Set(set.entries.filter((e) => e.pullable).map((e) => e.modelId)).size;
 
   return (
     <div className="os-fleet-recommended">
@@ -368,7 +368,7 @@ function RecommendedBlock({
         </p>
       ) : null}
 
-      {isOwner && pullable.length > 0 && !blocked ? (
+      {isOwner && pullableCount > 0 && !blocked ? (
         <div className="os-fleet-recommended-act">
           <Button
             tone="primary"
@@ -382,9 +382,9 @@ function RecommendedBlock({
             Pull recommended set
           </Button>
           <p className="os-caption">
-            {pullable.length === 1
+            {pullableCount === 1
               ? "One model, pulled in the background."
-              : `${pullable.length} models, pulled one after another in the background.`}{" "}
+              : `${pullableCount} models, pulled one after another in the background.`}{" "}
             Leaving this page does not stop them.
           </p>
         </div>

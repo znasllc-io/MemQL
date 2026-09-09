@@ -66,6 +66,8 @@ source "${SCRIPT_DIR}/../lib/ports.sh"
 # wait asks it to tell a node type that was retired from one that is simply not
 # started yet -- see retired_engine_deployments.
 source "${SCRIPT_DIR}/../lib/engine_build_args.sh"
+# shellcheck source=../lib/local_traefik.sh
+source "${SCRIPT_DIR}/../lib/local_traefik.sh"
 
 cap_init "k3d.up" "Bootstrap a local k3d cluster running ArgoCD pointed at the local overlay."
 cap_spec_param "cluster"        "k3d cluster name"
@@ -374,23 +376,6 @@ function create_cluster() {
         "${port_args[@]}" \
         --wait \
         --timeout "120s" >&2
-
-    # Allow Ingress backends of type ExternalName in the k3s-bundled traefik
-    # (off by default): the local front door routes a product's host-side
-    # dev server (e.g. its SPA on host.k3d.internal) through the same
-    # TLS-terminating ingress as the in-cluster services.
-    kubectl apply -f - >&2 <<'HELMCFG'
-apiVersion: helm.cattle.io/v1
-kind: HelmChartConfig
-metadata:
-  name: traefik
-  namespace: kube-system
-spec:
-  valuesContent: |-
-    providers:
-      kubernetesIngress:
-        allowExternalNameServices: true
-HELMCFG
 
     info "Cluster '${CLUSTER_NAME}' created."
     CLUSTER_CREATED=true
@@ -1403,6 +1388,9 @@ function main() {
 
     check_prerequisites
     create_cluster
+    # Outside create_cluster: an existing installation needs the same repair.
+    info "Reconciling local ingress for long-lived streams."
+    ensure_local_traefik "$CLUSTER_NAME" || cap_fail 5 "could not configure local ingress for streaming requests"
     install_argocd
 
     if [[ -z "$skip_secrets" ]]; then

@@ -85,16 +85,21 @@ func New(providers *memql.ProviderRegistry, policies *memql.PolicyRegistry, rule
 // error the wrapper automatically advances down the fallback chain,
 // recording each failed attempt with outcome="fallback_used".
 func (r *Router) ResolveStreamWithTools(req ResolveRequest) (common.ChatStreamWithToolsProvider, Resolved, error) {
-	chain, resolved, err := r.resolveChain(req, modalityStreamTools)
+	return r.resolveStreamWithTools(context.Background(), req)
+}
+
+func (r *Router) resolveStreamWithTools(ctx context.Context, req ResolveRequest) (common.ChatStreamWithToolsProvider, Resolved, error) {
+	chain, resolved, err := r.resolveChain(ctx, req, modalityStreamTools)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
 	return &fallbackStreamWithTools{
-		router: r,
-		chain:  chain,
-		req:    req,
+		router:   r,
+		chain:    chain,
+		req:      req,
+		resolved: resolved,
 	}, resolved, nil
 }
 
@@ -108,16 +113,21 @@ func (r *Router) ResolveStreamWithTools(req ResolveRequest) (common.ChatStreamWi
 // error advances down the chain, recording each failed attempt as
 // outcome="fallback_used".
 func (r *Router) ResolveWithTools(req ResolveRequest) (common.ToolCallingChatAIProvider, Resolved, error) {
-	chain, resolved, err := r.resolveChain(req, modalityTools)
+	return r.resolveWithTools(context.Background(), req)
+}
+
+func (r *Router) resolveWithTools(ctx context.Context, req ResolveRequest) (common.ToolCallingChatAIProvider, Resolved, error) {
+	chain, resolved, err := r.resolveChain(ctx, req, modalityTools)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
 	return &fallbackWithTools{
-		router: r,
-		chain:  chain,
-		req:    req,
+		router:   r,
+		chain:    chain,
+		req:      req,
+		resolved: resolved,
 	}, resolved, nil
 }
 
@@ -125,16 +135,21 @@ func (r *Router) ResolveWithTools(req ResolveRequest) (common.ToolCallingChatAIP
 // (suggest endpoints, voice-path InvokeAI turns) and returns the wrapped
 // provider. Fallback chain semantics mirror ResolveStreamWithTools.
 func (r *Router) ResolveChat(req ResolveRequest) (common.ChatAIProvider, Resolved, error) {
-	chain, resolved, err := r.resolveChain(req, modalityChat)
+	return r.resolveChat(context.Background(), req)
+}
+
+func (r *Router) resolveChat(ctx context.Context, req ResolveRequest) (common.ChatAIProvider, Resolved, error) {
+	chain, resolved, err := r.resolveChain(ctx, req, modalityChat)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
 	return &fallbackChat{
-		router: r,
-		chain:  chain,
-		req:    req,
+		router:   r,
+		chain:    chain,
+		req:      req,
+		resolved: resolved,
 	}, resolved, nil
 }
 
@@ -146,7 +161,7 @@ func (r *Router) ResolveChat(req ResolveRequest) (common.ChatAIProvider, Resolve
 // without a ledger row to write would be an empty layer. The RESOLUTION is
 // still recorded in full on Resolved.Decision.
 func (r *Router) ResolveStructured(req ResolveRequest) (common.ChatStructuredProvider, Resolved, error) {
-	client, resolved, err := r.resolveDirect(req, modalityStructured)
+	client, resolved, err := r.resolveDirect(context.Background(), req, modalityStructured)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
@@ -156,7 +171,7 @@ func (r *Router) ResolveStructured(req ResolveRequest) (common.ChatStructuredPro
 // ResolveVision picks a provider for a vision call -- an image or a document
 // handed to a model that can look at it.
 func (r *Router) ResolveVision(req ResolveRequest) (common.VisionAIProvider, Resolved, error) {
-	client, resolved, err := r.resolveDirect(req, modalityVision)
+	client, resolved, err := r.resolveDirect(context.Background(), req, modalityVision)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
@@ -171,7 +186,7 @@ func (r *Router) ResolveVision(req ResolveRequest) (common.VisionAIProvider, Res
 // to. The shipped `embeddingsPark` rule is what enforces that, not this
 // function -- which is the point of levels being data.
 func (r *Router) ResolveEmbedding(req ResolveRequest) (memql.EmbeddingAIProvider, Resolved, error) {
-	client, resolved, err := r.resolveDirect(req, modalityEmbedding)
+	client, resolved, err := r.resolveDirect(context.Background(), req, modalityEmbedding)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
@@ -185,12 +200,15 @@ func (r *Router) ResolveEmbedding(req ResolveRequest) (memql.EmbeddingAIProvider
 // candidate that did not implement it -- but the entry is looked up once more
 // here rather than threaded out of the walk, because the walk returns the
 // chain the wrapper would use and this surface has no wrapper to give it to.
-func (r *Router) resolveDirect(req ResolveRequest, mod providerModality) (any, Resolved, error) {
-	chain, resolved, err := r.resolveChain(req, mod)
+func (r *Router) resolveDirect(ctx context.Context, req ResolveRequest, mod providerModality) (any, Resolved, error) {
+	chain, resolved, err := r.resolveChain(ctx, req, mod)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
-	client, _, ok := r.providerLookup(context.Background(), req, resolved.ProviderName, mod)
+	client, _, ok := r.providerLookup(ctx, req, resolved.ProviderName, mod)
+	if ctx.Err() != nil {
+		return nil, Resolved{}, ctx.Err()
+	}
 	if !ok {
 		// The entry resolved a moment ago and does not now. A machine slept,
 		// or a credential expired between the two lookups. It is a refusal
@@ -208,6 +226,7 @@ type providerModality int
 const (
 	modalityStreamTools providerModality = iota
 	modalityChat
+	modalityStreamChat
 	// modalityTools is the non-streaming request/response tool-calling
 	// surface (common.ToolCallingChatAIProvider) used by the background
 	// execution lane (memql#896). Both the streaming providers
@@ -233,6 +252,8 @@ const (
 // modalityName is what the report calls a modality an entry does not serve.
 func modalityName(mod providerModality) string {
 	switch mod {
+	case modalityStreamChat:
+		return "streaming chat turns"
 	case modalityStreamTools:
 		return "streaming tool-calling turns"
 	case modalityTools:
@@ -257,6 +278,8 @@ func modalityName(mod providerModality) string {
 func servesModality(client any, mod providerModality) (bool, string) {
 	var ok bool
 	switch mod {
+	case modalityStreamChat:
+		_, ok = client.(common.ChatStreamProvider)
 	case modalityStreamTools:
 		_, ok = client.(common.ChatStreamWithToolsProvider)
 	case modalityTools:
@@ -304,8 +327,10 @@ type chainWinner struct {
 //     `embeddings` never degrades at all.
 //  5. CLOUD CONSENT is the last thing checked, after every door is shut,
 //     because it is a person's decision about a situation they were shown.
-func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]string, Resolved, error) {
-	ctx := context.Background()
+func (r *Router) resolveChain(ctx context.Context, req ResolveRequest, mod providerModality) ([]string, Resolved, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, Resolved{}, err
+	}
 	report := &doorReporter{}
 
 	// NO RULES MEANS NO ROUTING. See New: the only alternative to refusing is
@@ -335,7 +360,7 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 		if winner != nil {
 			return chainAndResolved(r.resolvedFrom(winner, mod, "", report, decision))
 		}
-		resolved, err := r.consentOrRefusal(req, mod, report, "", decision)
+		resolved, err := r.consentOrRefusal(ctx, req, mod, report, "", decision)
 		if err != nil {
 			return nil, Resolved{}, err
 		}
@@ -448,7 +473,7 @@ func (r *Router) resolveChain(req ResolveRequest, mod providerModality) ([]strin
 		decision.Policy = lastRule.Policy
 		policyName = lastRule.Policy
 	}
-	resolved, err := r.consentOrRefusal(req, mod, report, policyName, decision)
+	resolved, err := r.consentOrRefusal(ctx, req, mod, report, policyName, decision)
 	if err != nil {
 		return nil, Resolved{}, err
 	}
@@ -550,6 +575,9 @@ func (r *Router) walkChain(
 		}
 
 		candidates, err := r.expandEntry(ctx, req, rawEntry, report)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -565,6 +593,9 @@ func (r *Router) walkChain(
 			// silent paid call for a user whose machine was awake the whole
 			// time.
 			entry, ok := r.providers.EntryForUser(ctx, req.UserId, cand.Name)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if !ok {
 				report.note(cand.Name, "no provider by that name is registered")
 				continue
@@ -574,7 +605,10 @@ func (r *Router) walkChain(
 				if err := entry.Err(); err != nil {
 					reason = err.Error()
 				}
-				report.noteLocal(cand.Name, reason, r.consideredFor(req.UserId, cand.Name))
+				report.noteLocal(cand.Name, reason, r.consideredFor(ctx, req.UserId, cand.Name))
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
 				continue
 			}
 			// The context floor is checked HERE only for a federation record.
@@ -671,7 +705,7 @@ func (r *Router) resolvedFrom(
 		Vendor:       vendorFromType(winner.entry.Config.Type),
 		Model:        winner.entry.Config.Model,
 		Pricing:      winner.entry.Config.Pricing(),
-		Streaming:    mod == modalityStreamTools,
+		Streaming:    mod == modalityStreamTools || mod == modalityStreamChat,
 		PolicyName:   policyName,
 		Chain:        winner.remaining,
 		Decision:     decision,
@@ -693,14 +727,18 @@ func (r *Router) resolvedFrom(
 // carries explicit consent for THIS call. The surface that set it showed the
 // refusal first and got a yes; nothing here can set it.
 func (r *Router) consentOrRefusal(
+	ctx context.Context,
 	req ResolveRequest,
 	mod providerModality,
 	report *doorReporter,
 	policyName string,
 	decision airoute.Decision,
 ) (Resolved, error) {
+	if err := ctx.Err(); err != nil {
+		return Resolved{}, err
+	}
 	if req.CloudConsent {
-		if client, resolved, ok := r.consentedCloudFallback(mod); ok {
+		if client, resolved, ok := r.consentedCloudFallback(ctx, req, mod); ok {
 			r.logger.Info("router: every door was shut and the user consented to a paid provider for this call",
 				"provider", resolved.ProviderName, "policy", policyName)
 			_ = client
@@ -749,7 +787,7 @@ func (r *Router) providerLookup(ctx context.Context, req ResolveRequest, name st
 		Vendor:       vendorFromType(entry.Config.Type),
 		Model:        entry.Config.Model,
 		Pricing:      entry.Config.Pricing(),
-		Streaming:    mod == modalityStreamTools,
+		Streaming:    mod == modalityStreamTools || mod == modalityStreamChat,
 		Entry:        entry,
 	}
 	if ok, _ := servesModality(entry.Client, mod); !ok {
@@ -971,7 +1009,7 @@ const consentedCloudPolicy = "federationStrongest"
 // when it is not. The fallback is not a default -- nothing reaches it without an
 // explicit human yes on this call -- which is the whole difference between it
 // and what was deleted.
-func (r *Router) consentedCloudFallback(mod providerModality) (any, Resolved, bool) {
+func (r *Router) consentedCloudFallback(ctx context.Context, req ResolveRequest, mod providerModality) (any, Resolved, bool) {
 	if r == nil || r.providers == nil {
 		return nil, Resolved{}, false
 	}
@@ -982,7 +1020,7 @@ func (r *Router) consentedCloudFallback(mod providerModality) (any, Resolved, bo
 			// was asked for.
 			continue
 		}
-		if client, resolved, found := r.providerLookup(context.Background(), ResolveRequest{}, name, mod); found {
+		if client, resolved, found := r.providerLookup(ctx, req, name, mod); found {
 			return client, resolved, true
 		}
 	}
@@ -1029,18 +1067,18 @@ func (r *Router) Providers() *memql.ProviderRegistry {
 // such a report -- a vendor entry's unavailability is about a credential, not
 // about a set of machines, and inventing a considered-list for it would put
 // the same word in front of two different kinds of failure.
-func (r *Router) consideredFor(userId, name string) map[string]string {
+func (r *Router) consideredFor(ctx context.Context, userId, name string) map[string]string {
 	if r == nil || r.providers == nil {
 		return nil
 	}
 	if modelId, ok := memql.IsFleetReference(name); ok {
-		if refusal := r.providers.FleetRefusal(context.Background(), userId, modelId); refusal != nil {
+		if refusal := r.providers.FleetRefusal(ctx, userId, modelId); refusal != nil {
 			return refusal.Considered
 		}
 		return nil
 	}
 	if appId, ok := memql.IsAppReference(name); ok {
-		if refusal := r.providers.AppRefusal(context.Background(), userId, appId); refusal != nil {
+		if refusal := r.providers.AppRefusal(ctx, userId, appId); refusal != nil {
 			return refusal.Considered
 		}
 	}

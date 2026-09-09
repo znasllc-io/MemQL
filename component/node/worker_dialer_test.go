@@ -1,10 +1,14 @@
 package node
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
+	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
+	memqlengine "github.com/znasllc-io/memql/component/memql"
 	nodev1 "github.com/znasllc-io/memql/component/node/gen"
 )
 
@@ -328,4 +332,74 @@ func TestPeerManager_AttachDetachConnection(t *testing.T) {
 
 	// Detaching a missing node must not panic.
 	pm.DetachConnection("ghost")
+}
+
+// With the per-pod addresses emitted by the manifests, an agent must retain
+// every sibling target while excluding itself. A shared Service address would
+// make both replicas look like self and leave no cross-replica route.
+func TestWorkerDialerDistinctReplicaAddressesRetainSibling(t *testing.T) {
+	replicas := []WorkerTarget{
+		{NodeType: NodeTypeAgent, NodeId: "agent-a", Address: "10.42.0.10:50055"},
+		{NodeType: NodeTypeAgent, NodeId: "agent-b", Address: "10.42.0.11:50055"},
+	}
+	for i, self := range replicas {
+		identity := &Identity{ID: self.NodeId, Type: self.NodeType, Address: self.Address}
+		wd := NewWorkerDialer(identity, NewPeerManager(identity, testLogger()), nil, nil, replicas, testLogger())
+		wd.SetDialTypes(NodeTypeAgent)
+		got, err := wd.buildDesiredSet(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		other := replicas[1-i]
+		if len(got) != 1 || got[targetKey(other)] != other {
+			t.Fatalf("%s desired peers = %+v; want only sibling %+v", self.NodeId, got, other)
+		}
+	}
+}
+
+type discoveryReply struct {
+	result *memqlengine.ExecuteResult
+	err    error
+}
+
+func (d discoveryReply) Execute(context.Context, string) (*memqlengine.ExecuteResult, error) {
+	return d.result, d.err
+}
+
+func TestWorkerDialerFailedDiscoveryRetainsLiveConnection(t *testing.T) {
+	for _, why := range []string{"read error", "nil result", "missing bundle", "successful empty"} {
+		t.Run(why, func(t *testing.T) {
+			identity := testIdentity()
+			pm := NewPeerManager(identity, testLogger())
+			target := WorkerTarget{NodeType: NodeTypeAgent, NodeId: "live-sibling", Address: "sibling:50055"}
+			wd := NewWorkerDialer(identity, pm, nil, nil, []WorkerTarget{target}, testLogger())
+			// Only DB discovery supplies this existing connection, not a static seed.
+			wd.seeds = nil
+			response := discoveryReply{}
+			switch why {
+			case "read error":
+				response.err = errors.New("transient database failure")
+			case "missing bundle":
+				response.result = &memqlengine.ExecuteResult{}
+			case "successful empty":
+				response.result = &memqlengine.ExecuteResult{Bundle: &memqlv1.GraphBundle{}}
+			}
+			wd.engine = response
+			conn := newPeerConnection(identity, target.NodeId, target.Address, testLogger())
+			t.Cleanup(conn.Close)
+			canceled := false
+			entry := &dialEntry{target: target, nodeId: target.NodeId, conn: conn, cancel: func() { canceled = true }}
+			wd.conns[targetKey(target)] = entry
+			pm.RegisterMonitored(&nodev1.PeerInfo{NodeId: target.NodeId, NodeType: "agent", Address: target.Address})
+			pm.AttachConnection(target.NodeId, conn)
+			wd.reconcile(context.Background())
+			if why == "successful empty" {
+				if !canceled || len(wd.conns) != 0 {
+					t.Fatal("a successful empty topology must retire its connections")
+				}
+			} else if canceled || wd.conns[targetKey(target)] != entry || pm.Get(target.NodeId).Connection != conn {
+				t.Fatal("an unsuccessful discovery closed a healthy peer and its in-flight requests")
+			}
+		})
+	}
 }

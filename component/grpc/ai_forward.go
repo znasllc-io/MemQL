@@ -54,8 +54,10 @@ type AiForwardRouter struct {
 // transcription's Chunk / End envelopes) can Send to the same peer
 // without re-running selectPeer.
 type inflightEntry struct {
-	respCh chan *memqlv1.MemqlServerMessage
-	peer   *node.PeerEntry
+	respCh     chan *memqlv1.MemqlServerMessage
+	peer       *node.PeerEntry
+	done       chan struct{}
+	streamDone <-chan struct{}
 }
 
 // NewAiForwardRouter constructs an AiForwardRouter. It's a BFF-only
@@ -117,25 +119,9 @@ func (r *AiForwardRouter) Forward(
 		r.mu.Unlock()
 		return nil, fmt.Errorf("duplicate in-flight request_id %q", requestId)
 	}
-	r.inflight[requestId] = &inflightEntry{respCh: respCh, peer: peer}
+	entry := &inflightEntry{respCh: respCh, peer: peer, done: make(chan struct{})}
+	r.inflight[requestId] = entry
 	r.mu.Unlock()
-
-	// Context watchdog: on cancel, remove the inflight entry and close
-	// the response channel so the caller unblocks.
-	go func() {
-		<-ctx.Done()
-		r.cleanupInflight(requestId)
-		// Best-effort cancel notification to the peer. The worker will
-		// stop producing chunks for this request_id.
-		if peer.Connection != nil {
-			peer.Connection.Send(&nodev1.NodeClientMessage{
-				MessageId: id.NewShortId(),
-				Payload: &nodev1.NodeClientMessage_AiForwardCancel{
-					AiForwardCancel: &nodev1.AiForwardCancel{RequestId: requestId},
-				},
-			})
-		}
-	}()
 
 	// Dispatch the request.
 	fwd := &nodev1.AiForwardRequest{
@@ -153,7 +139,37 @@ func (r *AiForwardRouter) Forward(
 		r.cleanupInflight(requestId)
 		return nil, fmt.Errorf("selected peer %s has no active connection", peer.Info.GetNodeId())
 	}
-	peer.Connection.Send(msg)
+	streamDone, err := peer.Connection.SendOnStream(msg, nil)
+	if err != nil {
+		r.cleanupInflight(requestId)
+		return nil, fmt.Errorf("selected peer %s: %w", peer.Info.GetNodeId(), err)
+	}
+	r.mu.Lock()
+	entry.streamDone = streamDone
+	r.mu.Unlock()
+	// A completed request must stop its watcher even while the browser session
+	// remains open. A lost attempt fails only the requests sent on that attempt.
+	go func() {
+		select {
+		case <-entry.done:
+		case <-streamDone:
+			r.failInflight(requestId, entry, "AI peer connection lost before a response completed; please try again")
+		case <-ctx.Done():
+			r.mu.Lock()
+			active := r.inflight[requestId] == entry
+			if active {
+				r.cleanupInflightLocked(requestId)
+			}
+			r.mu.Unlock()
+			if !active {
+				return
+			}
+			_, _ = peer.Connection.SendOnStream(&nodev1.NodeClientMessage{
+				MessageId: id.NewShortId(),
+				Payload:   &nodev1.NodeClientMessage_AiForwardCancel{AiForwardCancel: &nodev1.AiForwardCancel{RequestId: requestId}},
+			}, streamDone)
+		}
+	}()
 
 	r.logger.Debug("ai forward dispatched",
 		"request_id", requestId,
@@ -173,50 +189,74 @@ func (r *AiForwardRouter) Dispatch(resp *nodev1.AiForwardResponse) {
 		return
 	}
 	requestId := resp.GetRequestId()
-	r.mu.Lock()
-	entry, ok := r.inflight[requestId]
-	r.mu.Unlock()
-	if !ok {
-		// Late response (e.g. worker is slow and we already cancelled)
-		// or orphaned response for an unknown request. Drop silently;
-		// log at debug so it shows up if we're chasing something.
-		r.logger.Debug("ai forward response has no active receiver", "request_id", requestId)
-		return
-	}
-
+	var serverMsg *memqlv1.MemqlServerMessage
 	if len(resp.GetMemqlServerMsg()) > 0 {
-		var serverMsg memqlv1.MemqlServerMessage
-		if err := proto.Unmarshal(resp.GetMemqlServerMsg(), &serverMsg); err != nil {
-			r.logger.Warn("ai forward response unmarshal failed",
-				"request_id", requestId, "error", err)
-		} else {
-			select {
-			case entry.respCh <- &serverMsg:
-			default:
-				// Channel full. Log and drop; indicates the caller is
-				// slower than the worker.
-				r.logger.Warn("ai forward response channel full, dropping",
-					"request_id", requestId)
-			}
+		serverMsg = &memqlv1.MemqlServerMessage{}
+		if err := proto.Unmarshal(resp.GetMemqlServerMsg(), serverMsg); err != nil {
+			r.logger.Warn("ai forward response unmarshal failed", "request_id", requestId, "error", err)
+			serverMsg = nil
 		}
 	}
-
+	// Sending and closing share this lock; a disconnect can race the last response.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.inflight[requestId]
+	if entry == nil {
+		return
+	}
+	if serverMsg != nil {
+		r.enqueueResponseLocked(entry, serverMsg, resp.GetDone())
+	}
 	if resp.GetDone() {
-		r.cleanupInflight(requestId)
+		r.cleanupInflightLocked(requestId)
 	}
 }
 
-// cleanupInflight removes the request from the inflight table and
-// closes its response channel so the caller unblocks.
+func (r *AiForwardRouter) enqueueResponseLocked(entry *inflightEntry, msg *memqlv1.MemqlServerMessage, terminal bool) {
+	select {
+	case entry.respCh <- msg:
+	default:
+		if terminal {
+			// A terminal error/result must remain observable even behind a slow client.
+			// Discard one buffered delta to make room; never block the peer receive loop.
+			select {
+			case <-entry.respCh:
+			default:
+			}
+			entry.respCh <- msg
+		} else {
+			r.logger.Warn("ai forward response channel full, dropping delta")
+		}
+	}
+}
+
+func (r *AiForwardRouter) failInflight(requestId string, expected *inflightEntry, message string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.inflight[requestId] != expected {
+		return
+	}
+	msg := &memqlv1.MemqlServerMessage{MessageId: id.NewShortId(), CorrelateTo: requestId,
+		Payload: &memqlv1.MemqlServerMessage_QueryError{QueryError: &memqlv1.QueryErrorMsg{RequestId: requestId,
+			Error: &memqlv1.QueryError{Code: codes.Unavailable.String(), Message: message}}}}
+	r.enqueueResponseLocked(expected, msg, true)
+	r.cleanupInflightLocked(requestId)
+}
+
+// cleanupInflight removes the request and closes its response channel.
 func (r *AiForwardRouter) cleanupInflight(requestId string) {
 	r.mu.Lock()
-	entry, ok := r.inflight[requestId]
-	if ok {
+	defer r.mu.Unlock()
+	r.cleanupInflightLocked(requestId)
+}
+
+func (r *AiForwardRouter) cleanupInflightLocked(requestId string) {
+	if entry := r.inflight[requestId]; entry != nil {
 		delete(r.inflight, requestId)
-	}
-	r.mu.Unlock()
-	if ok {
 		close(entry.respCh)
+		if entry.done != nil {
+			close(entry.done)
+		}
 	}
 }
 
@@ -242,11 +282,15 @@ func (r *AiForwardRouter) ForwardContinuation(
 
 	r.mu.Lock()
 	entry, ok := r.inflight[requestId]
+	var streamDone <-chan struct{}
+	if ok {
+		streamDone = entry.streamDone
+	}
 	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("no open forward stream for request_id %q", requestId)
 	}
-	if entry.peer == nil || entry.peer.Connection == nil {
+	if entry.peer == nil || entry.peer.Connection == nil || streamDone == nil {
 		return fmt.Errorf("peer for request_id %q has no active connection", requestId)
 	}
 
@@ -255,7 +299,7 @@ func (r *AiForwardRouter) ForwardContinuation(
 		return fmt.Errorf("marshal envelope: %w", err)
 	}
 
-	entry.peer.Connection.Send(&nodev1.NodeClientMessage{
+	_, err = entry.peer.Connection.SendOnStream(&nodev1.NodeClientMessage{
 		MessageId: id.NewShortId(),
 		Payload: &nodev1.NodeClientMessage_AiForwardRequest{
 			AiForwardRequest: &nodev1.AiForwardRequest{
@@ -270,7 +314,10 @@ func (r *AiForwardRouter) ForwardContinuation(
 				Continuation: true,
 			},
 		},
-	})
+	}, streamDone)
+	if err != nil {
+		return err
+	}
 
 	r.logger.Debug("ai forward continuation dispatched",
 		"request_id", requestId,
@@ -295,7 +342,7 @@ func (r *AiForwardRouter) HasInflight(requestId string) bool {
 // selectPeer picks a healthy peer of the given type. Prefers HEALTHY
 // over DEGRADED; errors if no peer is available.
 func (r *AiForwardRouter) selectPeer(targetType node.NodeType) (*node.PeerEntry, error) {
-	peers := r.peerMgr.ByType(targetType)
+	peers := r.peerMgr.SnapshotByType(targetType)
 	if len(peers) == 0 {
 		return nil, fmt.Errorf("no %s node available", targetType)
 	}
@@ -905,7 +952,7 @@ func (r *AiForwardRouter) hasDispatchablePeer(targetType node.NodeType) bool {
 	if r == nil || r.peerMgr == nil {
 		return false
 	}
-	for _, p := range r.peerMgr.ByType(targetType) {
+	for _, p := range r.peerMgr.SnapshotByType(targetType) {
 		if p != nil && p.Info != nil && p.Connection != nil {
 			return true
 		}
@@ -953,10 +1000,12 @@ func (s *streamSession) relayForwardedResponses(
 	requestId string,
 	respCh <-chan *memqlv1.MemqlServerMessage,
 ) {
+	terminal := false
 	for msg := range respCh {
 		if msg == nil {
 			continue
 		}
+		terminal = terminal || isTerminalServerPayload(msg.Payload)
 		// Rewrite CorrelateTo so the client matches against its
 		// original envelope's message_id, not the worker's view.
 		msg.CorrelateTo = s.safeCorrelate(correlate)
@@ -977,9 +1026,8 @@ func (s *streamSession) relayForwardedResponses(
 	}
 	// Channel closed without a terminal response. Surface a clear error
 	// so the client's QueryError-listener unblocks instead of hanging.
-	if _ = requestId; false {
-		// kept for symmetry; no-op (we rely on the forwarder's cleanup
-		// to close the channel either on done=true or on ctx cancel).
+	if !terminal && s.stream.Context().Err() == nil {
+		_ = s.sendQueryError(requestId, correlate, codes.Unavailable, "AI peer response ended before completion; please try again")
 	}
 }
 

@@ -9,15 +9,15 @@ import (
 // The two attribute keys meetsFloor reads out of a `model:<id>` label value,
 // pinned to the one place that WRITES and parses them.
 //
-// integrations/agent/worker sits behind `//go:build agent` and in a module this
-// one may not import, so this gate reads the FILE rather than the symbols --
+// The shared fleet catalog depends on the engine, which imports readiness,
+// so this gate reads the FILE rather than introducing an import cycle --
 // the arrangement os_parity_test.go beside it uses for the shell's fold, and
 // component/worker/online_client_parity_test.go uses for the Fleet page. It
 // fails naming the file a reader has to go and open.
-const modelRoutingPath = "../../../integrations/agent/worker/model_routing.go"
+const modelRoutingPath = "../../worker/fleetcatalog/model.go"
 
 // The declaration this gate reads. `attrContext = "ctx"` inside a const block,
-// which is how model_routing.go spells it; the NAME and the LITERAL are what
+// which is how the shared model parser spells it; the NAME and the LITERAL are what
 // this is about, so the pattern is deliberately loose about the whitespace and
 // strict about nothing else.
 var attrKeyPattern = regexp.MustCompile(`(?m)^\s*attr(Context|Structured)\s*=\s*"([^"]*)"`)
@@ -37,7 +37,7 @@ func TestModelAttributeKeysMatchTheRouter(t *testing.T) {
 	if len(found) != 2 {
 		t.Fatalf("%s no longer declares attrContext and attrStructured as plain string literals "+
 			"(found %v). This gate reads them by regexp rather than by import, because that file is "+
-			"agent-tagged and in a module this package may not import, so the shape is load-bearing.",
+			"part of the engine-dependent catalog, so the shape is load-bearing.",
 			modelRoutingPath, found)
 	}
 	if found["Context"] != attrContextKey || found["Structured"] != attrStructuredKey {

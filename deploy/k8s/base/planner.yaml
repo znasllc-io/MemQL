@@ -116,7 +116,12 @@ spec:
             - { name: MEMQL_AI_ANTHROPIC_IDENTITY_TOKEN_FILE, value: "/var/run/secrets/anthropic.com/token" }
             - { name: MEMQL_AI_OPENAI_IDENTITY_TOKEN_FILE, value: "/var/run/secrets/openai.com/token" }
             - { name: MEMQL_NODE_TYPE, value: "planner" }
-            - { name: MEMQL_NODE_ADDRESS, value: "planner:50056" }
+            # Advertise this replica, so forwards reach its worker streams.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - { name: MEMQL_NODE_ADDRESS, value: "$(POD_IP):50056" }
             # Unique per-pod mesh identity (#1042). Overrides the shared genesis
             # MEMQL_NODE_ID=bff-local (set-if-absent) so PeerManager keys each
             # node distinctly and cross-node event forwarding works.

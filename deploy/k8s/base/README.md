@@ -20,28 +20,21 @@ follows the current primary across a failover.
 > Tiger is gone (memql#3848); the connection model is unchanged, and the
 > endpoint behind it is now ours.
 
-## Mesh = cluster DNS
+## Mesh advertisements identify a replica
 
-Each node's `Service` is named after its node-type short name (`bff`,
-`agent`, `planner`, `identity`, `workbench`) in
-**whichever namespace the overlay places it in**. Same-namespace cluster DNS
-resolves the mesh values (`bff:50058`, `agent:50055`, ...), so
-`MEMQL_NODE_ADDRESS` / `MEMQL_WORKER_PEERS` are the same in the local k3d
-cluster and on AKS.
+Each node advertises `MEMQL_NODE_ADDRESS` as its own pod IP and NodeService
+listening port. Kubernetes supplies `POD_IP` through the Downward API before
+expanding `$(POD_IP)` in the address. This works in local k3d and AKS and lets a
+forward reach the exact replica holding a worker stream. A shared Service
+address cannot identify that replica; it also makes sibling agents look like
+the dialer's own address, leaving them without connections to one another.
 
-**That bare-name addressing is what lets one base serve any namespace**
-(memql#3766). Nothing here names a namespace in a string it owns, so
-kustomize's namespace transformer -- which rewrites `metadata.namespace` on
-every resource and `metadata.name` on `namespace.yaml` -- is the whole of the
-change needed to place the mesh in a different namespace (e.g. a per-tenant
-overlay, `deploy/k8s/components/tenant`). There is exactly one cloud
-installation today (`overlays/cloud`, ns `memql`, `deploy/argocd/apps/memql.yaml`;
-epic memql#3943 retired the staging/production split), but the bare-name
-addressing means a second, fully independent installation -- its own
-namespace, its own mesh, no cross-talk -- costs nothing more than a second
-overlay. Adding a fully-qualified `<svc>.memql.svc.cluster.local` anywhere in
-this base would break that, by pinning one installation's node to another's
-Service.
+Services retain their node-type names (`bff`, `agent`, `planner`, `identity`,
+`workbench`) for bootstrap targets such as `MEMQL_WORKER_PEERS` and parent
+discovery. Bare same-namespace Service names keep the base independent of the
+namespace selected by an overlay. The catalog of node advertisements then
+provides the per-pod addresses for direct replica connections. Do not put a
+fixed namespace into either address form.
 
 **#1399 exception -- the parent dial target is `bff-active`, not `bff`.**
 Under the live Argo Rollouts blue/green cutover the unscoped `bff` Service
@@ -55,10 +48,10 @@ topology, only the dial-target value differs per environment.
 
 | Node | Image | NodeService port | NODE_ADDRESS | PARENT | WORKER_PEERS |
 |------|-------|------------------|--------------|--------|--------------|
-| agent | memql:0.9.0 | 50055 | agent:50055 | bff-active:50058 | workbench=workbench:50060 |
-| planner | memql:0.9.0 | 50056 | planner:50056 | bff-active:50058 | -- |
-| workbench | memql:0.9.0 | 50060 | workbench:50060 | bff-active:50058 | -- |
-| identity | memql:0.9.0 | 50061 | identity:50061 | -- | -- |
+| agent | memql:0.9.0 | 50055 | $(POD_IP):50055 | bff-active:50058 | workbench=workbench:50060 |
+| planner | memql:0.9.0 | 50056 | $(POD_IP):50056 | bff-active:50058 | -- |
+| workbench | memql:0.9.0 | 50060 | $(POD_IP):50060 | bff-active:50058 | -- |
+| identity | memql:0.9.0 | 50061 | $(POD_IP):50061 | -- | -- |
 
 Every ClusterIP Service exposes the node's NodeService port (5005x) + `8085`
 (http) + `50051` (grpc). `bff` also gets a `LoadBalancer` Service

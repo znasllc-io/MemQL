@@ -268,3 +268,37 @@ func TestFleetProjectionValidatesActiveParametersBeforeMergingSources(t *testing
 		})
 	}
 }
+
+// A catalog reader is a separate capability from local worker dispatch.
+func TestInferenceStatusReportsCatalogReadCapability(t *testing.T) {
+	e := engineWithFleet([]FleetModel{capable("qwen3.8:27b")})
+	nodes, err := e.evaluateInferenceStatusExpression(userCtx("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := decodePayload(t, nodes[0].Payload)
+	if status["fleetCatalogInstalled"] != true {
+		t.Fatalf("fleet catalog availability missing: %v", status)
+	}
+}
+
+func TestReadOnlyFleetCatalogOpensLocalDoorWithoutClaimingDispatch(t *testing.T) {
+	r := newProviderRegistry()
+	r.SetFleetCatalog(&stubFleet{models: []FleetModel{capable("qwen3.8:27b")}})
+	e := &MemQLEngine{providers: r}
+	nodes, err := e.evaluateInferenceStatusExpression(userCtx("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := decodePayload(t, nodes[0].Payload)
+	if status["fleetCatalogInstalled"] != true || status["fleetInferenceInstalled"] != false || status["localEligible"] != true {
+		t.Fatalf("read-only status = %v", status)
+	}
+	models, err := e.evaluateFleetModelsExpression(userCtx("alice"))
+	if err != nil || len(models) != 1 {
+		t.Fatalf("catalog = %v, %v", models, err)
+	}
+	if r.fleet != nil {
+		t.Fatal("installing a catalog must not install any model-call implementation")
+	}
+}
