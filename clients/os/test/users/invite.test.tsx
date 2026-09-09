@@ -213,3 +213,94 @@ describe("the Invite rail", () => {
     view.unmount();
   });
 });
+
+// CAN A DEVELOPER ACTUALLY CLICK ADMIN? (memql#5236)
+//
+// The engine learned that a developer may invite an admin, and this app kept
+// refusing it: rule 5 in assign.ts ran on both seams, pickers.tsx feeds
+// `rungRefusal` straight to `disabled`, so the rung was drawn dashed and could
+// not be clicked. The fix was live and unreachable, and nothing failed.
+//
+// assign.test.ts pins the RULE. This pins the SURFACE -- the real rail, the
+// real ladder, the real picker, rendered under jsdom through this suite's own
+// harness. It is the check that would have caught the shipped bug, and the one
+// that was skipped: the browser could not reach it (CoreGate gates the desktop
+// on inference, which a local k3d cluster cannot configure) and that was
+// mistaken for the check being unavailable. It was available here all along.
+describe("the rungs a developer is offered", () => {
+  // developer holds create-on-admission and only READ on principal; admin
+  // holds all four. That pair is the whole subject: rank says developer is
+  // above admin, the grants say neither contains the other.
+  const RUNGS = [
+    roleRow({ slug: "viewer", name: "Viewer", rank: 50, aliases: ["reader"] }),
+    roleRow({ slug: "user", name: "Member", rank: 100, aliases: ["writer"] }),
+    roleRow({ slug: "admin", name: "Admin", rank: 200 }),
+    roleRow({ slug: "developer", name: "Developer", rank: 300 }),
+    roleRow({ slug: "owner", name: "Owner", rank: 400 }),
+  ];
+  const RUNG_GRANTS = [
+    grantRow("owner", "read", "principal"),
+    grantRow("owner", "create", "principal"),
+    grantRow("owner", "update", "principal"),
+    grantRow("owner", "delete", "principal"),
+    grantRow("owner", "create", "admission"),
+    grantRow("admin", "read", "principal"),
+    grantRow("admin", "create", "principal"),
+    grantRow("admin", "update", "principal"),
+    grantRow("admin", "delete", "principal"),
+    grantRow("admin", "create", "admission"),
+    grantRow("developer", "read", "principal"),
+    grantRow("developer", "create", "admission"),
+  ];
+
+  function rungSeed() {
+    return fakeConnection({ activeRoles: RUNGS, activeCapabilities: RUNG_GRANTS });
+  }
+
+  // BY SLUG, NOT BY ACCESSIBLE NAME. Each rung carries a RankMark whose
+  // aria-label names the ACTOR's role as well as the rung's
+  // (clients/os/src/kit/RankMark.tsx), so `getByRole("button", {name:/Admin/})`
+  // matches every rung on the ladder when an admin is looking at it. The slug
+  // span is the one text unique to its own rung.
+  function rung(slug: string): HTMLButtonElement {
+    const ladder = screen.getByRole("list", { name: /The role this invitation grants/ });
+    for (const line of Array.from(ladder.querySelectorAll("li.os-role-rung"))) {
+      const badge = line.querySelector(".os-role-slug");
+      if ((badge?.textContent ?? "").trim() === slug) {
+        const button = line.querySelector("button");
+        if (button === null) throw new Error(`rung ${slug} has no button`);
+        return button as HTMLButtonElement;
+      }
+    }
+    throw new Error(`no rung with slug ${slug} on the ladder`);
+  }
+
+  it("offers admin to a developer, and the button is clickable", async () => {
+    await openInvite(rungSeed(), "developer");
+    const admin = rung("admin");
+    expect(admin.disabled, "the admin rung must be clickable for a developer").toBe(false);
+    expect(admin.title ?? "", "an offered rung carries no refusal sentence").toBe("");
+  });
+
+  it("still refuses owner to a developer -- the rank cap is untouched", async () => {
+    await openInvite(rungSeed(), "developer");
+    const owner = rung("owner");
+    expect(owner.disabled).toBe(true);
+    expect(owner.title).toContain("at or above your own");
+  });
+
+  it("still refuses a peer admin to an admin", async () => {
+    await openInvite(rungSeed(), "admin");
+    expect(rung("admin").disabled).toBe(true);
+  });
+
+  it("a developer picking admin can send the invitation", async () => {
+    const connection = rungSeed();
+    await openInvite(connection, "developer");
+    await type("Email address", "colleague@example.test");
+    await click(rung("admin"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Send invitation" })).toBeTruthy(),
+    );
+  });
+});

@@ -143,6 +143,7 @@ export function PersonPage({
   }, [held, groups]);
 
   const assignContext: AssignContext = {
+    kind: "reRole",
     callerRole: viewerRole,
     callerRank: viewerRung?.rank ?? 0,
     callerIsOwner: (viewerRung?.slug ?? "") === "owner",

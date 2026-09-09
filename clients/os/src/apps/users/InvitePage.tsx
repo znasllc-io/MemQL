@@ -98,6 +98,7 @@ export function InvitePage({
   }, [draft.groupIds, groups]);
 
   const assignContext: AssignContext = {
+    kind: "invitation",
     callerRole: viewerRole,
     callerRank: viewerRung?.rank ?? 0,
     callerIsOwner: (viewerRung?.slug ?? "") === "owner",
