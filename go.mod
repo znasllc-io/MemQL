@@ -103,7 +103,7 @@ require (
 	github.com/znasllc-io/memql/component/automations v0.0.0
 	github.com/znasllc-io/memql/component/bus v0.0.0
 	github.com/znasllc-io/memql/component/bus/gen v0.0.0 // indirect
-	github.com/znasllc-io/memql/component/compose v0.0.0 // indirect
+	github.com/znasllc-io/memql/component/compose v0.0.0
 	github.com/znasllc-io/memql/component/config v0.0.0
 	github.com/znasllc-io/memql/component/database v0.0.0
 	github.com/znasllc-io/memql/component/deploycontrol v0.0.0

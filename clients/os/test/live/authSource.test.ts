@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { installSharedWebLocks } from "./webLocks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { probeSession } from "../../src/auth/identityClient";
 import { identitySource } from "../../src/auth/source";
 import { runBufferedDownload } from "../../src/apps/files/actions/download";
+
+beforeEach(installSharedWebLocks);
 
 const CONFIG = {
   identityUrl: "https://identity.example.test",
@@ -45,7 +49,7 @@ describe("identitySource HTTP credential freshness", () => {
     const refresh = vi.fn(() => new Promise<Response>((resolve) => { release = resolve; }));
     const source = identitySource(CONFIG, refresh);
     const pending = [source.bearer(), source.bearer(), source.refresh()];
-    expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     release(credential("shared"));
     expect(await Promise.all(pending)).toEqual(["shared", "shared", "shared"]);
     expect(await source.bearer()).toBe("shared");
@@ -60,5 +64,44 @@ describe("identitySource HTTP credential freshness", () => {
     expect(await source.bearer()).toBe("expired");
     vi.advanceTimersByTime(61_000);
     expect(await source.bearer()).toBeNull();
+  });
+});
+
+
+describe("identity refresh across independent tabs", () => {
+  it("serializes cookie-setting responses across two sources and the sign-in probe", async () => {
+    let cookie = "original";
+    let current = cookie;
+    const presented: string[] = [];
+    const fetchRefresh = async () => {
+      const sent = cookie;
+      presented.push(sent);
+      const accepted = sent === current;
+      const ordinal = presented.length;
+      // Independent servers can all read the same predecessor before writing.
+      await Promise.resolve();
+      if (!accepted) return new Response("invalid_grant", { status: 401 });
+      const issued = `successor-${ordinal}`;
+      current = issued;
+      // The first response is slow. Without a shared browser lock, later
+      // responses overtake it and/or present its already-retired cookie.
+      await new Promise((resolve) => setTimeout(resolve, ordinal === 1 ? 30 : 1));
+      cookie = issued;
+      return credential(issued);
+    };
+    const firstTab = identitySource(CONFIG, fetchRefresh);
+    const secondTab = identitySource(CONFIG, fetchRefresh);
+    const results = await Promise.all([firstTab.bearer(), secondTab.bearer(), probeSession(CONFIG, fetchRefresh)]);
+    expect(results).toEqual(["successor-1", "successor-2", { signedIn: true }]);
+    expect(presented).toEqual(["original", "successor-1", "successor-2"]);
+    expect(cookie).toBe(current);
+  });
+
+  it("refuses refresh when the browser cannot coordinate tabs", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const fetchRefresh = vi.fn();
+    await expect(identitySource(CONFIG, fetchRefresh).bearer()).rejects.toThrow(/Web Locks/);
+    await expect(probeSession(CONFIG, fetchRefresh)).rejects.toThrow(/Web Locks/);
+    expect(fetchRefresh).not.toHaveBeenCalled();
   });
 });

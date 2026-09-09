@@ -83,6 +83,11 @@ state. Resuming the run reveals the composition's progress again.
 HTTP credential reads respect the identity service's relative token lifetime
 and share one pending refresh with SDK rotation. A failed rotation during a
 rollout cannot leave subsequent downloads using an expired cached credential.
+All OS refresh-cookie requests, including the session probe, also share an
+origin-wide Web Lock until their response headers have applied the new cookie.
+This prevents separate OS tabs from rotating the same predecessor concurrently
+without sharing credentials through storage or broadcast messages. Sign-in
+requires that browser capability; the lock and fetch share a bounded timeout.
 An agent's parent connector creates a fresh transport after peer removal and
 detaches the previous BFF identity when the service reconnects to a different
 replica. A stale peer's removal cannot close its replacement stream. This keeps

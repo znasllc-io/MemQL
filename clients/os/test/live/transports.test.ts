@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { installSharedWebLocks } from "./webLocks";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { SdkAskTransport, type AskStreamFn } from "../../src/ask/sdkTransport";
 import { artifactsUploadPath, EdgeUploadProvider } from "../../src/items/edgeUpload";
 import { refreshAccessCredential } from "../../src/auth/identityClient";
 import { bridgePathFor } from "../../src/live/connection";
 import type { Dispatcher } from "@znasllc-io/memql-sdk-core/client";
+
+beforeEach(installSharedWebLocks);
 
 const CONFIG = {
   identityUrl: "https://identity.example.test",

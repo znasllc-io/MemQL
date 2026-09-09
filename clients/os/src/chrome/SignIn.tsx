@@ -1,3 +1,4 @@
+import { canCoordinateIdentityRefresh } from "../auth/identityClient";
 import { Mark } from "./Mark";
 
 export function SignIn({
@@ -7,17 +8,20 @@ export function SignIn({
   status: "signed-out" | "unavailable";
   onSignIn: () => void;
 }) {
+  const supportedBrowser = canCoordinateIdentityRefresh();
   return (
     <div className="os-signin" data-os-signin data-status={status}>
       <div className="os-signin-card">
         <Mark className="os-mark os-mark-lg" />
         <h1>MemQL OS</h1>
         <p>
-          {status === "unavailable"
+          {!supportedBrowser
+            ? "Update your browser to keep sign-in in sync across tabs. MemQL OS requires Web Locks support."
+            : status === "unavailable"
             ? "This cluster has not published a sign-in configuration."
             : "Sign in with the same passkey or magic link you use for the portal."}
         </p>
-        {status === "signed-out" ? (
+        {supportedBrowser && status === "signed-out" ? (
           <button type="button" className="os-primary" data-sign-in onClick={onSignIn}>
             Sign in
           </button>

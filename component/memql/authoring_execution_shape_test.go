@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/znasllc-io/memql/component/auth"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	langparser "github.com/znasllc-io/memql/component/language/parser"
 )
 
 func TestRunScopedAuthoredQueryResolvesSiblingShape(t *testing.T) {
@@ -36,7 +37,7 @@ query todo executionTodos {
 			defined, err := AuthorSessionBundle(reg, owner, source, "")
 			require.NoError(t, err, "bundle validation: %+v", defined.Diagnostics)
 			runCtx := ContextWithAuthoredExecution(ctx, owner, reg)
-			result, err := e.Execute(runCtx, fmt.Sprintf("query executionTodos(todoId: %q)", todoID))
+			result, err := e.Execute(runCtx, fmt.Sprintf("query executionTodos(todoId: %s)", langparser.QuoteString(todoID)))
 			require.NoError(t, err, "agent execution must resolve the shape in the same private bundle")
 			row := singleShapeRow(t, result.OutputPayload())
 			require.Equal(t, "Private shaped result", row["title"])
@@ -119,7 +120,7 @@ query todo executionCoreShape {
   shape %s
 }`, tc.reference), "")
 			require.NoError(t, err, "bundle validation: %+v", defined.Diagnostics)
-			result, err := e.Execute(ContextWithAuthoredExecution(ctx, owner, reg), fmt.Sprintf("query executionCoreShape(todoId: %q)", todoID))
+			result, err := e.Execute(ContextWithAuthoredExecution(ctx, owner, reg), fmt.Sprintf("query executionCoreShape(todoId: %s)", langparser.QuoteString(todoID)))
 			require.NoError(t, err)
 			row := singleShapeRow(t, result.OutputPayload())
 			require.Equal(t, "Core shape wins", row["title"], "the private id-only shape must not replace the qualified core shape")

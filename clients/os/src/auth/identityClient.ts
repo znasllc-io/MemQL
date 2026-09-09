@@ -32,16 +32,34 @@ export function authorizeUrl(
   return url.toString();
 }
 
+export function canCoordinateIdentityRefresh(): boolean {
+  return typeof navigator !== "undefined" && typeof navigator.locks?.request === "function";
+}
+
+/** Refresh cookies are shared by tabs. Hold the origin-wide lock through
+ * the response headers, when the browser has applied Set-Cookie, so another
+ * document never rotates the predecessor concurrently. No credential enters
+ * local storage or a broadcast channel. */
+async function fetchIdentityRefresh(config: OsRuntimeConfig, fetchImpl: IdentityFetch): Promise<Response> {
+  if (!canCoordinateIdentityRefresh()) {
+    return Promise.reject(new Error("This browser needs Web Locks support to keep sign-in in sync across tabs. Update your browser and try again."));
+  }
+  const signal = AbortSignal.timeout(15_000);
+  return navigator.locks.request("memql:identity:refresh", { mode: "exclusive", signal }, () =>
+    fetchImpl(apiUrl(config, "/auth/refresh"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal,
+    }));
+}
+
 export async function probeSession(
   config: OsRuntimeConfig,
   fetchImpl: IdentityFetch = fetch,
 ): Promise<{ signedIn: boolean }> {
-  const response = await fetchImpl(apiUrl(config, "/auth/refresh"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  const response = await fetchIdentityRefresh(config, fetchImpl);
   return { signedIn: response.ok };
 }
 
@@ -57,12 +75,7 @@ export async function refreshAccessCredential(
   config: OsRuntimeConfig,
   fetchImpl: IdentityFetch = fetch,
 ): Promise<{ bearer: string; expiresInSeconds: number } | null> {
-  const response = await fetchImpl(apiUrl(config, "/auth/refresh"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  const response = await fetchIdentityRefresh(config, fetchImpl);
   if (!response.ok) return null;
   try {
     const payload = (await response.json()) as { access_token?: unknown; expires_in?: unknown };

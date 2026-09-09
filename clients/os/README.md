@@ -5,6 +5,11 @@ front-door site, memql#4705). A real desktop over the cluster
 (memql#4710): desks, windows, dock, files, widgets, Ask.
 Design: `docs/superpowers/specs/2026-08-26-memql-os-desktop-shell-design.md`.
 
+Sign-in requires a secure browser context with the Web Locks API. The OS
+serializes refresh-cookie responses across its tabs, including the initial
+session probe. Browsers without that capability refuse sign-in rather than
+race cookie rotation; credentials stay in memory and HttpOnly cookies.
+
 - **Desks** hold at most two auto-placed windows (solo centered, two-up
   split, swap/throw by drag); a third app spills onto a new desk. Windows
   minimize to the dock, full-screen, close; apps navigate sections inside
