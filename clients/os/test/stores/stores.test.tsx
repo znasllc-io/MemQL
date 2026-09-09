@@ -36,7 +36,7 @@ function mount(
     sectionId = "stores",
     store = memStoresStore(),
     navigate = vi.fn(),
-  }: { sectionId?: string; store?: StoresSettingsStore; navigate?: ReturnType<typeof vi.fn> } = {},
+  }: { sectionId?: string; store?: StoresSettingsStore; navigate?: (sectionId: string) => void } = {},
 ) {
   h.connection = connection;
   const view = render(
