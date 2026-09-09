@@ -198,7 +198,7 @@ describe("the checks", () => {
     const wayland = machine({
       platformInfo: { os: "linux", arch: "amd64", hostname: "box" },
       buildTag: "computeruse",
-      capabilityDescriptor: { platform: "linux", displayServer: "wayland", computerUseAvailable: false },
+      capabilityDescriptor: { platform: "linux", displayServer: "wayland", computerUseAvailable: true },
     });
     const display = checksFor(LINUX_CU, wayland, 0, NOW).find((c) => c.id === "display")!;
     expect(display.state).toBe("skipped");
@@ -210,6 +210,31 @@ describe("the checks", () => {
       capabilityDescriptor: { platform: "linux", displayServer: "x11", computerUseAvailable: true },
     });
     expect(checksFor(LINUX_CU, x11, 0, NOW).find((c) => c.id === "display")?.state).toBe("done");
+  });
+
+  it("does not mistake a missing display for Wayland or advertise an unregistered desktop", () => {
+    const noDisplay = machine({
+      platformInfo: { os: "linux" }, capabilities: ["HEADLESS"],
+      capabilityDescriptor: { displayServer: "none", computerUseAvailable: true },
+      permissions: { x11_display: false },
+    });
+    const missing = checksFor(LINUX_CU, noDisplay, 0, NOW).find((c) => c.id === "display")!;
+    expect(missing.answer).toMatch(/No display/);
+    expect(missing.answer).not.toContain("Wayland");
+    const unregistered = { ...noDisplay, displayServer: "x11", permissions: { ...noDisplay.permissions, x11Display: true } };
+    const check = checksFor(LINUX_CU, unregistered, 0, NOW).find((c) => c.id === "display")!;
+    expect(check.state).not.toBe("done");
+    expect(check.answer).toMatch(/not registered.*computer use/i);
+  });
+
+  it("keeps the display check unknown when the optional descriptor was not reported", () => {
+    const unreported = machine({
+      platformInfo: { os: "linux" }, buildTag: "computeruse", capabilities: ["HEADLESS", "COMPUTERUSE"],
+    });
+    const check = checksFor(LINUX_CU, unreported, 0, NOW).find((c) => c.id === "display")!;
+    expect(check.state).toBe("unknown");
+    expect(check.answer).toMatch(/not reported/i);
+    expect(check.answer).not.toContain("Install");
   });
 
   it("asks for the runtime repair when local models were asked for and none is reported", () => {

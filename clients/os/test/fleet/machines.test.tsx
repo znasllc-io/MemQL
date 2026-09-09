@@ -69,6 +69,38 @@ beforeEach(() => {
 });
 
 describe("the machines directory", () => {
+  it.each([
+    { name: "Wayland with the computer-use build", server: "wayland", caps: ["HEADLESS", "MODEL"], build: true, os: "linux", permissions: {}, answer: /Wayland.*X11/ },
+    { name: "supported X11", server: "x11", caps: ["HEADLESS", "COMPUTERUSE"], build: true, os: "linux", permissions: { x11_display: true }, answer: /^Available.*X11/ },
+    { name: "displayless session", server: "none", caps: ["HEADLESS"], build: true, os: "linux", permissions: { x11_display: false }, answer: /No display.*X11/ },
+    { name: "unregistered desktop capability", server: "x11", caps: ["HEADLESS", "MODEL"], build: true, os: "linux", permissions: { x11_display: true }, answer: /not registered.*computer use/i },
+    { name: "headless installation", server: "none", caps: ["HEADLESS"], build: false, os: "linux", permissions: {}, answer: /computer-use support.*not reported.*Install/i },
+    { name: "unusable X11 display", server: "x11", caps: ["HEADLESS", "COMPUTERUSE"], build: true, os: "linux", permissions: { x11_display: false }, answer: /X11 display.*not available/i },
+    { name: "macOS Accessibility denied", server: "quartz", caps: ["HEADLESS", "COMPUTERUSE"], build: true, os: "darwin", permissions: { accessibility: false, screen_recording: true }, answer: /Accessibility.*not granted/i },
+    { name: "macOS Screen Recording denied", server: "quartz", caps: ["HEADLESS", "COMPUTERUSE"], build: true, os: "darwin", permissions: { accessibility: true, screen_recording: false }, answer: /Screen Recording.*not granted/i },
+    { name: "macOS permissions unknown", server: "quartz", caps: ["HEADLESS", "COMPUTERUSE"], build: true, os: "darwin", permissions: {}, answer: /permissions.*not reported/i },
+    { name: "macOS permissions granted", server: "quartz", caps: ["HEADLESS", "COMPUTERUSE"], build: true, os: "darwin", permissions: { accessibility: true, screen_recording: true }, answer: /^Available.*Accessibility.*Screen Recording/ },
+  ])("reports usable computer use for $name", async ({ server, caps, build, os, permissions, answer }) => {
+    mount(fakeConnection({ myWorkersWithStatus: [machineRow({
+      id: "desktop-status", displayName: "Desktop status", capabilities: caps,
+      platformInfo: { os, arch: "amd64", hostname: "desktop" },
+      capabilityDescriptor: { displayServer: server, computerUseAvailable: build }, permissions,
+    })] }));
+    await click(await screen.findByText("Desktop status"));
+    expect(screen.getByText("Computer use").nextElementSibling?.textContent).toMatch(answer);
+  });
+
+  it("keeps computer-use availability unknown when the optional desktop descriptor is absent", async () => {
+    mount(fakeConnection({ myWorkersWithStatus: [machineRow({
+      id: "desktop-unreported", displayName: "Desktop unreported", buildTag: "computeruse",
+      capabilities: ["HEADLESS", "COMPUTERUSE"], platformInfo: { os: "linux" },
+    })] }));
+    await click(await screen.findByText("Desktop unreported"));
+    const answer = screen.getByText("Computer use").nextElementSibling?.textContent;
+    expect(answer).toMatch(/not reported.*unknown/i);
+    expect(answer).not.toContain("Install");
+  });
+
   it("seeds from the cluster and lists the caller's machines", async () => {
     // THE REGRESSION GUARD for the foundation's un-retained collection: a
     // LiveCollection that is subscribed but never retained never seeds, so

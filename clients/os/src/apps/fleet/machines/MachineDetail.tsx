@@ -6,7 +6,7 @@ import { formatFreshness, formatMoment } from "../../../kit/format";
 import { uninstallCommand, type InstallPlatform } from "../addMachine/install";
 import { roundTripFigure } from "../addMachine/flow";
 import { isWorkerOnline } from "../online";
-import { hasRoundTrip, machineName, type MachineRow } from "../rows";
+import { computerUseStatus, hasRoundTrip, machineName, type MachineRow } from "../rows";
 import { HardwareGroup } from "./HardwareGroup";
 import { LabelEditor } from "./LabelEditor";
 import { ModelsGroup } from "./ModelsGroup";
@@ -63,7 +63,7 @@ export function MachineDetail({
         <Fact label="Cockpit version" value={machine.version} mono />
         <Fact label="Build" value={machine.buildTag} mono />
         <Fact label="Display server" value={machine.displayServer} mono />
-        <Fact label="Computer use" value={machine.computerUseAvailable ? "available" : "not available"} />
+        <Fact label="Computer use" value={computerUseStatus(machine).answer} />
         <Fact label="Registration id" value={machine.id} mono />
       </Facts>
 

@@ -1,7 +1,7 @@
 import type { StopState } from "../../../kit/Rail";
 import { formatFreshness } from "../../../kit/format";
 import { isWorkerOnline, ONLINE_WINDOW_SECONDS } from "../online";
-import { hasRoundTrip, isRevoked, machineName, type MachineRow } from "../rows";
+import { computerUseStatus, hasRoundTrip, isRevoked, machineName, type MachineRow } from "../rows";
 import { machineModelsFrom, type ModelPull } from "../machines/models";
 import {
   INSTALL_PLATFORM_LABEL,
@@ -300,25 +300,12 @@ function permissionsCheck(machine: MachineRow, draft: Draft): Check {
 }
 
 function displayCheck(machine: MachineRow): Check {
-  const server = machine.displayServer.trim();
-  const x11 = machine.permissions.present ? machine.permissions.x11Display : null;
-  if (server === "wayland" || (x11 === false && server !== "x11")) {
-    return {
-      id: "display",
-      name: "Display",
-      state: "skipped",
-      answer:
-        "Wayland session: the machine registered without mouse and keyboard. Computer use needs an X11 session; everything else works.",
-    };
-  }
-  if (server === "x11" || x11 === true || machine.capabilities.includes("COMPUTERUSE")) {
-    return { id: "display", name: "Display", state: "done", answer: "X11 display -- computer use available." };
-  }
+  const status = computerUseStatus(machine);
   return {
     id: "display",
     name: "Display",
-    state: "unknown",
-    answer: "Not reported -- this cockpit predates the display report. Nothing is wrong.",
+    state: status.state === "available" ? "done" : status.state === "unknown" ? "unknown" : "skipped",
+    answer: status.answer,
   };
 }
 
