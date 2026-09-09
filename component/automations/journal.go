@@ -152,10 +152,10 @@ var stepIdUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 // `v1:work:step:run-1-layer0-sales` names the run and the step, while
 // `v1:work:step:<64 hex>` names nothing. The rule the composition must not
 // break is the one identifiers.md is actually about -- no concept name in
-// the shortId, and no other row's canonical id glued in -- and neither the
-// run id nor a step key is either.
+// the shortId, and no other row's canonical id glued in. Rehydrated runs
+// can carry canonical IDs, so extract the run's shortId before composing.
 func workStepId(runId, stepKey string) string {
-	return runId + "-" + stepIdUnsafe.ReplaceAllString(stepKey, "-")
+	return memql.BareShortId(runId) + "-" + stepIdUnsafe.ReplaceAllString(stepKey, "-")
 }
 
 // stepKindFor derives the spec's step kind from the automation step type.
