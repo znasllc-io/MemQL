@@ -271,8 +271,8 @@ func TestConceptLeafNamesTheArchiveObject(t *testing.T) {
 // TestInListIsParameterized. A row id is a VALUE, and a value never belongs in
 // the statement text.
 func TestInListIsParameterized(t *testing.T) {
-	args, placeholders := inList([]string{"a", "b", "c"}, 2)
-	if placeholders != "$2, $3, $4" {
+	args, placeholders := inList([]string{"a", "b", "c"})
+	if placeholders != "?, ?, ?" {
 		t.Errorf("placeholders = %q", placeholders)
 	}
 	if len(args) != 3 || args[0] != "a" || args[2] != "c" {
