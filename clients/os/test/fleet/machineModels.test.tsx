@@ -44,6 +44,20 @@ async function mount(
 }
 
 describe("the Models group", () => {
+  it.each(["qwen3.5:9b", "qwen3.8:27b", "qwen3.8:27b-q8_0"])("offers the owner a chat check for %s alongside the default embedder", async (modelId) => {
+    await mount({ ["model:" + modelId]: "tools=1,ctx=32768", "model:qwen3-embedding:0.6b": "embeddings=1" });
+    expect(screen.getByRole("button", { name: "Ask it something" })).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Sends.*to ${modelId.replaceAll(".", "\\.")}`))).toBeTruthy();
+  });
+
+  it("does not offer a targeted chat check for embeddings or someone else's machine", async () => {
+    await mount({ "model:qwen3-embedding:0.6b": "embeddings=1" });
+    expect(screen.queryByRole("button", { name: "Ask it something" })).toBeNull();
+    cleanup();
+    await mount({ "model:qwen3.8:27b": "tools=1" }, { owner: "another-owner" });
+    expect(screen.queryByRole("button", { name: "Ask it something" })).toBeNull();
+  });
+
   it("lists what the machine advertises, with its size and quantization", async () => {
     await mount({
       "runtime:ollama": "1",

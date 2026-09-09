@@ -43,6 +43,27 @@ func find(set []Recommendation, level string) (Recommendation, bool) {
 	return Recommendation{}, false
 }
 
+func TestRecommendedSetPrefersHigherPrecisionWhenItFits(t *testing.T) {
+	// Quantization changes storage, not the model's parameter count. The
+	// catalog must choose the eight-bit variant on larger machines without
+	// inflating its parameter count to influence ordering.
+	rows := []map[string]any{
+		{"modelId": "qwen3.8:27b", "params": int64(27_300_000_000), "quant": "Q4_K_M", "contextWindow": 262144, "runtime": "ollama", "minMachineClass": "24", "recommendedFor": []any{"strong"}},
+		{"modelId": "qwen3.8:27b-q8_0", "params": int64(27_300_000_000), "quant": "Q8_0", "contextWindow": 262144, "runtime": "ollama", "minMachineClass": "64", "recommendedFor": []any{"strong"}},
+	}
+	for _, reverse := range []bool{false, true} {
+		if reverse {
+			rows[0], rows[1] = rows[1], rows[0]
+		}
+		for class, want := range map[string]string{"24": "qwen3.8:27b", "32": "qwen3.8:27b", "64": "qwen3.8:27b-q8_0", "128": "qwen3.8:27b-q8_0"} {
+			got, ok := find(RecommendedSet(class, macStudio("ollama"), "darwin", catalogProfilesFromRows(rows)), "strong")
+			if !ok || !got.Pullable() || got.Profile.ModelId != want {
+				t.Errorf("class %s: got %+v, want %s", class, got, want)
+			}
+		}
+	}
+}
+
 func TestRecommendedSetIsOnePerLevelStrongestFirst(t *testing.T) {
 	// One entry per level, and within a level the strongest model wins. The
 	// second key is parameters descending, which is orderModels' own -- so the

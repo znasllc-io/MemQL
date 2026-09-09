@@ -515,6 +515,7 @@ export interface AiChatPayload {
   messages: AiChatMessageWire[];
   provider?: string;
   stream?: boolean;
+  fleetRegistrationId?: string;
 }
 
 export interface AiSuggestPayload {

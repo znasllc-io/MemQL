@@ -88,6 +88,13 @@ and over an unbounded mirror of the Ollama library (the owner asked for the best
 
 ### D2 -- The curated set, by category, as of 2026-09-07
 
+> **The per-class set was re-cut on 2026-09-08** by
+> `2026-09-08-linux-native-runtime-and-class-defaults-design.md` (D5-D7): the
+> 24 GB class is its own rung rather than a repeat of the 16 GB set, every
+> class's picks fit resident together at a working context, and the ids were
+> re-verified against the library that day. The category table below stands
+> as the 2026-09-07 reading.
+
 Seeded in `dsl/models/seeds.memql`, verified against the Ollama library pages and vendor
 documentation on 2026-09-07. The implementing session re-verifies each id and size
 before seeding, since tags move.

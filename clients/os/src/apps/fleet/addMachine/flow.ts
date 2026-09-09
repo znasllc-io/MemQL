@@ -4,9 +4,8 @@ import { isWorkerOnline, ONLINE_WINDOW_SECONDS } from "../online";
 import { hasRoundTrip, isRevoked, machineName, type MachineRow } from "../rows";
 import { machineModelsFrom, type ModelPull } from "../machines/models";
 import {
-  INFERENCE_SETUP_COMMAND,
   INSTALL_PLATFORM_LABEL,
-  PERMISSIONS_SETUP_COMMAND,
+  setupCommand,
   type InstallPlatform,
 } from "./install";
 
@@ -40,9 +39,10 @@ export interface Draft {
   platform: InstallPlatform;
   computerUse: boolean;
   inference: boolean;
+  userLocal?: boolean;
 }
 
-export const EMPTY_DRAFT: Draft = { name: "", platform: "mac", computerUse: false, inference: false };
+export const EMPTY_DRAFT: Draft = { name: "", platform: "mac", computerUse: false, inference: false, userLocal: false };
 
 /** What the mint returned: the plain token, shown once, and the identity the
  *  machine will authenticate as -- which is how its registration is matched. */
@@ -169,6 +169,9 @@ const WORKER_LOG = "~/.memql/state/worker.log";
  *  running, if any. Read from the `modelPullsForWorker` feed by the hook. */
 export interface PullFacts {
   live: ModelPull | null;
+  failed?: ModelPull | null;
+  feedError?: string;
+  loading?: boolean;
 }
 
 const NO_PULLS: PullFacts = { live: null };
@@ -181,9 +184,9 @@ export function checksFor(
   pulls: PullFacts = NO_PULLS,
 ): Check[] {
   const checks: Check[] = [connectionCheck(machine, beats, now), buildCheck(draft, machine)];
-  if (draft.computerUse && draft.platform === "mac") checks.push(permissionsCheck(machine));
+  if (draft.computerUse && draft.platform === "mac") checks.push(permissionsCheck(machine, draft));
   if (draft.computerUse && draft.platform === "linux") checks.push(displayCheck(machine));
-  if (draft.inference) checks.push(...inferenceChecks(machine, pulls));
+  if (draft.inference) checks.push(...inferenceChecks(machine, pulls, draft));
   return checks;
 }
 
@@ -264,7 +267,7 @@ function buildCheck(draft: Draft, machine: MachineRow): Check {
   return { id: "build", name: "Build", state: "done", answer: `Headless build${version}.` };
 }
 
-function permissionsCheck(machine: MachineRow): Check {
+function permissionsCheck(machine: MachineRow, draft: Draft): Check {
   const p = machine.permissions;
   if (!p.present) {
     return {
@@ -292,7 +295,7 @@ function permissionsCheck(machine: MachineRow): Check {
     state: "open",
     answer: `${missing.join(" and ")} not granted yet.`,
     repair: `On the machine, allow memql under System Settings -> Privacy & Security -> ${missing.join(" and ")}, then run this in a terminal so the worker re-checks and re-registers. This waits for it.`,
-    command: PERMISSIONS_SETUP_COMMAND,
+    command: setupCommand(draft.userLocal),
   };
 }
 
@@ -319,7 +322,7 @@ function displayCheck(machine: MachineRow): Check {
   };
 }
 
-function inferenceChecks(machine: MachineRow, pulls: PullFacts): Check[] {
+function inferenceChecks(machine: MachineRow, pulls: PullFacts, draft: Draft): Check[] {
   const models = machineModelsFrom(machine.reportedLabels);
   const runtimes = machine.hardware.runtimes.map((r) => r.name).filter((n) => n !== "");
   const runtimeNames = runtimes.join(", ");
@@ -337,11 +340,38 @@ function inferenceChecks(machine: MachineRow, pulls: PullFacts): Check[] {
           state: "open",
           answer: "No runtime reported.",
           repair:
-            "The one-liner cannot install a runtime on its own -- it needs a person to approve the install commands. Run this in the same terminal on the machine; it sets up the runtime, pulls a starting model and tells the worker. This waits for it.",
-          command: INFERENCE_SETUP_COMMAND,
+            "Run this in a terminal on the machine. It checks the hardware, shows the runtime installation commands for approval and downloads the recommended models. These checks update automatically.",
+          command: setupCommand(draft.userLocal, true),
         };
   let modelsCheck: Check;
-  if (models.length > 0) {
+  if (pulls.live !== null) {
+    const line = pulls.live.statusLine.trim();
+    modelsCheck = {
+      id: "models",
+      name: "Models",
+      state: "current",
+      answer: `Pulling ${pulls.live.model}${line === "" ? "" : ` -- ${line}`}. The machine reports it here when ready.`,
+    };
+  } else if (pulls.feedError) {
+    modelsCheck = {
+      id: "models", name: "Models", state: "stopped",
+      answer: `Download progress is unavailable: ${pulls.feedError}`,
+      repair: "Check the connection to the cluster. Downloads may still be running; you can check setup on the machine.",
+      command: setupCommand(draft.userLocal, true),
+    };
+  } else if (pulls.loading) {
+    modelsCheck = { id: "models", name: "Models", state: "current", answer: "Checking model downloads…" };
+  } else if (pulls.failed && !models.some((model) => model.modelId === pulls.failed?.model)) {
+    const latest = pulls.failed;
+    const reason = latest.errorMessage.trim() || latest.statusLine.trim();
+    modelsCheck = {
+      id: "models", name: "Models", state: "stopped",
+      answer: `Download ${latest.status}: ${latest.model}${reason === "" ? "." : ` — ${reason}`}`,
+      repair: "Models already downloaded remain available. Resolve the problem and retry the recommended downloads, or run setup on the machine.",
+      command: setupCommand(draft.userLocal, true),
+      act: "pullRecommended",
+    };
+  } else if (models.length > 0) {
     modelsCheck = {
       id: "models",
       name: "Models",
@@ -351,18 +381,6 @@ function inferenceChecks(machine: MachineRow, pulls: PullFacts): Check[] {
     };
   } else if (runtime.state !== "done") {
     modelsCheck = { id: "models", name: "Models", state: "ahead", answer: "After the runtime." };
-  } else if (pulls.live !== null) {
-    // A PULL IN FLIGHT IS THE MACHINE MOVING. The line is the runtime's own
-    // status, verbatim, because that is what a person reads when a pull
-    // stalls -- and the model re-advertises when it is done, so this settles
-    // from the feed rather than from the pull's end.
-    const line = pulls.live.statusLine.trim();
-    modelsCheck = {
-      id: "models",
-      name: "Models",
-      state: "current",
-      answer: `Pulling ${pulls.live.model}${line === "" ? "" : ` -- ${line}`}. The machine re-advertises when it is done.`,
-    };
   } else {
     // THE RUNTIME IS THERE AND NOTHING IS ON IT. Two ways forward, and both
     // are offered: the OS can ask the machine to pull the recommended set
@@ -375,7 +393,7 @@ function inferenceChecks(machine: MachineRow, pulls: PullFacts): Check[] {
       answer: "No models yet.",
       repair:
         "Pull the set the catalog recommends for this machine from here, or run the setup command on the machine, which pulls a starting model itself.",
-      command: INFERENCE_SETUP_COMMAND,
+      command: setupCommand(draft.userLocal, true),
       act: "pullRecommended",
     };
   }
@@ -646,7 +664,9 @@ export function serviceSentence(platform: InstallPlatform): string {
 export function installSteps(draft: Draft): string[] {
   const steps = [
     "Open a terminal on the machine you are adding.",
-    "Paste the command and press Enter. It downloads the cockpit and asks for your account password, because it installs the memql command under /usr/local/bin. Add --user-local to the line to skip the password; the install is then only as safe as your account.",
+    draft.userLocal
+      ? "Paste the command and press Enter. It installs MemQL Cockpit in ~/.memql/bin for your account, without an administrator password."
+      : "Paste the command and press Enter. It installs MemQL Cockpit in /usr/local/bin and asks for your account password to protect the installed command.",
   ];
   if (draft.computerUse && draft.platform === "mac") {
     steps.push(
@@ -658,11 +678,11 @@ export function installSteps(draft: Draft): string[] {
       "On a Wayland session the worker registers without mouse and keyboard; computer use needs an X11 session. Everything else works either way.",
     );
   }
+  steps.push(`Leave the terminal open until it prints SUCCESS. ${serviceSentence(draft.platform)}`);
   if (draft.inference) {
     steps.push(
-      "The installer then checks the hardware, sets up a model runtime and pulls a starting model in the same terminal -- several gigabytes, so it takes a while. If it cannot install the runtime on its own it prints the command to run yourself.",
+      "After SUCCESS, run the local models setup command below. It checks the hardware, asks you to approve the runtime installation and downloads the recommended models — several gigabytes, so allow time for this step.",
     );
   }
-  steps.push(`Leave the terminal open until it prints SUCCESS. ${serviceSentence(draft.platform)}`);
   return steps;
 }

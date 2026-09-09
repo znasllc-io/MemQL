@@ -23,7 +23,7 @@ import { Button, Caption, Notice } from "../../../kit";
 
 const QUESTION = "Reply with exactly one word: hello.";
 
-export function AskIt({ modelId, machineLabel }: { modelId: string; machineLabel: string }) {
+export function AskIt({ modelId, machineLabel, registrationId }: { modelId: string; machineLabel: string; registrationId: string }) {
   const connection = useOsConnection();
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<{ text: string; ms: number; provider: string } | null>(null);
@@ -38,7 +38,10 @@ export function AskIt({ modelId, machineLabel }: { modelId: string; machineLabel
     setAnswer(null);
     const started = performance.now();
     try {
-      const result = await aiChat(connection.dispatcher, [{ role: "user", content: QUESTION }], { provider });
+      const result = await aiChat(connection.dispatcher, [{ role: "user", content: QUESTION }], {
+        provider,
+        fleetRegistrationId: registrationId,
+      });
       const ms = Math.round(performance.now() - started);
       setAnswer({ text: result.message.content.trim(), ms, provider });
     } catch (err: unknown) {
@@ -55,7 +58,7 @@ export function AskIt({ modelId, machineLabel }: { modelId: string; machineLabel
           Ask it something
         </Button>
         <Caption>
-          Sends "{QUESTION}" through the router, pinned to {modelId} on {machineLabel}.
+          Sends "{QUESTION}" to {modelId} on {machineLabel}. The first reply can take longer while the model loads.
         </Caption>
       </div>
       {answer === null ? null : (
@@ -70,7 +73,7 @@ export function AskIt({ modelId, machineLabel }: { modelId: string; machineLabel
         <Notice
           tone="error"
           sentence="The model did not answer."
-          next="The router's own reason is below. A model that is advertised and cannot be reached is the fleet door shut with the light on -- the worker log on the machine says why."
+          next="Check that the machine is online and its model runtime is running, then try again. More detail is available in ~/.memql/state/worker.log on the machine."
           detail={error}
         />
       )}

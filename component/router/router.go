@@ -190,7 +190,7 @@ func (r *Router) resolveDirect(req ResolveRequest, mod providerModality) (any, R
 	if err != nil {
 		return nil, Resolved{}, err
 	}
-	client, _, ok := r.providerLookup(context.Background(), req.UserId, resolved.ProviderName, mod)
+	client, _, ok := r.providerLookup(context.Background(), req, resolved.ProviderName, mod)
 	if !ok {
 		// The entry resolved a moment ago and does not now. A machine slept,
 		// or a credential expired between the two lookups. It is a refusal
@@ -739,8 +739,8 @@ func (r *Router) refusalWith(
 // metadata + interface check for the requested modality. Returns
 // (nil, zero, false) when the provider is unregistered, unavailable,
 // or doesn't implement the interface.
-func (r *Router) providerLookup(ctx context.Context, userId, name string, mod providerModality) (any, Resolved, bool) {
-	entry, ok := r.providers.EntryForUser(ctx, userId, name)
+func (r *Router) providerLookup(ctx context.Context, req ResolveRequest, name string, mod providerModality) (any, Resolved, bool) {
+	entry, ok := r.providers.EntryForUser(ctx, req.UserId, name)
 	if !ok || !entry.Available || entry.Client == nil {
 		return nil, Resolved{}, false
 	}
@@ -755,7 +755,13 @@ func (r *Router) providerLookup(ctx context.Context, userId, name string, mod pr
 	if ok, _ := servesModality(entry.Client, mod); !ok {
 		return nil, Resolved{}, false
 	}
-	return entry.Client, resolved, true
+	var client any = entry.Client
+	// Bind the floor on every lookup, including fallback attempts and direct
+	// structured/vision resolutions. The provider returns an independent client.
+	if scoped, ok := client.(interface{ WithMinContextTokens(int) any }); ok {
+		client = scoped.WithMinContextTokens(req.Needs.MinContextTokens)
+	}
+	return client, resolved, true
 }
 
 // buildRouterCallArgs assembles the recordRouterCall arg map for one
@@ -976,7 +982,7 @@ func (r *Router) consentedCloudFallback(mod providerModality) (any, Resolved, bo
 			// was asked for.
 			continue
 		}
-		if client, resolved, found := r.providerLookup(context.Background(), "", name, mod); found {
+		if client, resolved, found := r.providerLookup(context.Background(), ResolveRequest{}, name, mod); found {
 			return client, resolved, true
 		}
 	}

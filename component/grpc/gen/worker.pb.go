@@ -3476,8 +3476,12 @@ type ModelCallParams struct {
 	Stop            []string               `protobuf:"bytes,6,rep,name=stop,proto3" json:"stop,omitempty"`
 	// seed is a determinism request; runtimes that cannot honour it
 	// ignore it rather than failing.
-	Seed          int64 `protobuf:"varint,7,opt,name=seed,proto3" json:"seed,omitempty"`
-	SeedSet       bool  `protobuf:"varint,8,opt,name=seed_set,json=seedSet,proto3" json:"seed_set,omitempty"`
+	Seed    int64 `protobuf:"varint,7,opt,name=seed,proto3" json:"seed,omitempty"`
+	SeedSet bool  `protobuf:"varint,8,opt,name=seed_set,json=seedSet,proto3" json:"seed_set,omitempty"`
+	// Working context requested for this call, including output headroom.
+	// Zero leaves the runtime default; a positive value must reach the runtime
+	// so it does not silently truncate a prompt admitted by the router.
+	ContextTokens int64 `protobuf:"varint,9,opt,name=context_tokens,json=contextTokens,proto3" json:"context_tokens,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3566,6 +3570,13 @@ func (x *ModelCallParams) GetSeedSet() bool {
 		return x.SeedSet
 	}
 	return false
+}
+
+func (x *ModelCallParams) GetContextTokens() int64 {
+	if x != nil {
+		return x.ContextTokens
+	}
+	return 0
 }
 
 // ModelCallLimits are the envelope-owned deadlines.
@@ -5491,7 +5502,7 @@ const file_worker_proto_rawDesc = "" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12I\n" +
 	"\n" +
 	"tool_calls\x18\x05 \x03(\v2*.znasllc.memql.worker.v1.ModelCallToolCallR\ttoolCalls\x12?\n" +
-	"\x06images\x18\x06 \x03(\v2'.znasllc.memql.worker.v1.ModelCallImageR\x06images\"\xfc\x01\n" +
+	"\x06images\x18\x06 \x03(\v2'.znasllc.memql.worker.v1.ModelCallImageR\x06images\"\xa3\x02\n" +
 	"\x0fModelCallParams\x12 \n" +
 	"\vtemperature\x18\x01 \x01(\x01R\vtemperature\x12'\n" +
 	"\x0ftemperature_set\x18\x02 \x01(\bR\x0etemperatureSet\x12\x13\n" +
@@ -5500,7 +5511,8 @@ const file_worker_proto_rawDesc = "" +
 	"\x11max_output_tokens\x18\x05 \x01(\x03R\x0fmaxOutputTokens\x12\x12\n" +
 	"\x04stop\x18\x06 \x03(\tR\x04stop\x12\x12\n" +
 	"\x04seed\x18\a \x01(\x03R\x04seed\x12\x19\n" +
-	"\bseed_set\x18\b \x01(\bR\aseedSet\"\x99\x01\n" +
+	"\bseed_set\x18\b \x01(\bR\aseedSet\x12%\n" +
+	"\x0econtext_tokens\x18\t \x01(\x03R\rcontextTokens\"\x99\x01\n" +
 	"\x0fModelCallLimits\x12'\n" +
 	"\x0ftimeout_seconds\x18\x01 \x01(\x03R\x0etimeoutSeconds\x120\n" +
 	"\x14idle_timeout_seconds\x18\x02 \x01(\x03R\x12idleTimeoutSeconds\x12+\n" +

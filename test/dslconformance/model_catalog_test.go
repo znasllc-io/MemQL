@@ -3,9 +3,11 @@ package dslconformance
 import (
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
+	memqlengine "github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/dslfs"
 	"github.com/znasllc-io/memql/dsl"
 )
@@ -66,6 +68,10 @@ type seededProfile struct {
 	flags           []string
 	recommendedFor  []string
 	offeredOn       []string
+	quant           string
+	contextWindow   int
+	params          int64
+	memoryNeedBytes int64
 }
 
 // loadSeededProfiles reads dsl/models/seeds.memql out of the embedded tree and
@@ -132,6 +138,14 @@ func loadSeededProfiles(t *testing.T) []seededProfile {
 				cur.minMachineClass = unquote(value)
 			case "dimensions":
 				cur.dimensions = value
+			case "quant":
+				cur.quant = unquote(value)
+			case "contextWindow":
+				cur.contextWindow, _ = strconv.Atoi(value)
+			case "params":
+				cur.params, _ = strconv.ParseInt(value, 10, 64)
+			case "memoryNeedBytes":
+				cur.memoryNeedBytes, _ = strconv.ParseInt(value, 10, 64)
 			case "flags":
 				cur.flags = unquoteList(value)
 			case "recommendedFor":
@@ -421,4 +435,129 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// residentBudgetShare is how much of a class a recommended set may occupy
+// when every one of its models is loaded at once: nine tenths, the rest
+// being the runtime's own overhead and the KV cache growth a long call
+// brings.
+const residentBudgetShare = 0.9
+
+// recommendedInstalledSet exercises the engine against the embedded catalog. A
+// second implementation of its ordering would let the gate pass while the
+// actual recommended set selects a different model.
+func recommendedInstalledSet(profiles []seededProfile, class, platform string, runtimes []string) map[string]seededProfile {
+	var catalog []memqlengine.CatalogProfile
+	byID := map[string]seededProfile{}
+	for _, p := range profiles {
+		catalog = append(catalog, memqlengine.CatalogProfile{
+			ModelId: p.modelID, Category: p.category, Runtime: p.runtime,
+			MinMachineClass: p.minMachineClass, RecommendedFor: p.recommendedFor,
+			OfferedOn: p.offeredOn, Params: p.params, Quant: p.quant, ContextWindow: p.contextWindow,
+		})
+		byID[p.modelID] = p
+	}
+	hardware := memqlengine.MachineHardware{
+		MemoryBytes: 128 << 30,
+	}
+	for _, runtime := range runtimes {
+		hardware.Runtimes = append(hardware.Runtimes, memqlengine.MachineRuntime{Name: runtime, Version: "1"})
+	}
+	set := map[string]seededProfile{}
+	for _, r := range memqlengine.RecommendedSet(class, hardware, platform, catalog) {
+		if r.Pullable() {
+			set[r.Level] = byID[r.Profile.ModelId]
+		}
+	}
+	return set
+}
+
+func TestRecommendedCatalogMatchesTheClassTable(t *testing.T) {
+	profiles := loadSeededProfiles(t)
+	for _, runtimes := range [][]string{{"ollama"}, {"ollama", "mlx", "whispercpp", "nemo", "kokoro", "mflux", "comfyui"}} {
+		for _, platform := range []string{"linux", "macos"} {
+			for class, textModel := range map[string]string{
+				"16": "qwen3.5:9b", "24": "qwen3.8:27b", "32": "qwen3.8:27b",
+				"64": "qwen3.8:27b-q8_0", "128": "qwen3.8:27b-q8_0",
+			} {
+				set := recommendedInstalledSet(profiles, class, platform, runtimes)
+				for _, level := range catalogLevels {
+					want := textModel
+					if level == "embeddings" {
+						want = "qwen3-embedding:0.6b"
+					}
+					if got := set[level].modelID; got != want {
+						t.Errorf("%s class %s %s: got %q, want %q", platform, class, level, got, want)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestActiveEmbedderReservationCoversMeasuredRuntime(t *testing.T) {
+	// RTX 4090, Ollama 0.33.3, num_ctx=8192, q8_0 KV, 2026-09-08:
+	// /api/ps reported this GPU allocation after a successful 1024-dimension
+	// embedding. It includes compute buffers, which a weights+KV estimate
+	// omitted. This floor is a measurement, independent of the chosen margin.
+	const measuredGPUBytes int64 = 2_416_873_308
+	for _, p := range loadSeededProfiles(t) {
+		if p.modelID != "qwen3-embedding:0.6b" {
+			continue
+		}
+		if p.memoryNeedBytes < measuredGPUBytes {
+			t.Fatalf("active embedder reserves %d bytes, below the measured 8K runtime allocation of %d bytes including compute buffers", p.memoryNeedBytes, measuredGPUBytes)
+		}
+		return
+	}
+	t.Fatal("active embedder is missing from the embedded catalog")
+}
+
+// TestEveryClassRecommendedSetFitsResident is the 2026-09-08 record's D6 as
+// a gate: the models a class recommends across its four levels fit LOADED
+// TOGETHER inside nine tenths of the class, on both platforms.
+//
+// Ollama evicts and reloads when a set does not fit, and a seventeen-gigabyte
+// reload every time a call's level flips is seconds of latency that read as
+// the platform being slow. The failure this catches is the quiet one: a
+// curation that adds a strong pick to a class without noticing that the fast
+// and reasoning picks already fill it. The sum is over DISTINCT ids, since
+// one model serving two levels is loaded once.
+//
+// memoryNeedBytes is the resident figure at a working context, not the
+// download size, and a zero on a recommended Ollama entry fails here too:
+// a zero would make this gate pass over nothing.
+func TestEveryClassRecommendedSetFitsResident(t *testing.T) {
+	profiles := loadSeededProfiles(t)
+	for _, runtimes := range [][]string{{"ollama"}, {"ollama", "mlx", "whispercpp", "nemo", "kokoro", "mflux", "comfyui"}} {
+		for _, platform := range []string{"linux", "macos"} {
+			for _, class := range machineClasses {
+				gb, err := strconv.Atoi(class)
+				if err != nil {
+					t.Fatalf("machine class %q is not a number", class)
+				}
+				budget := int64(float64(gb) * float64(1<<30) * residentBudgetShare)
+				set := recommendedInstalledSet(profiles, class, platform, runtimes)
+				distinct := map[string]int64{}
+				var names []string
+				for level, p := range set {
+					if p.memoryNeedBytes <= 0 {
+						t.Errorf("%s/%s GB: the %s pick %s states no memoryNeedBytes, which would make this gate vacuous", platform, class, level, p.modelID)
+					}
+					if _, seen := distinct[p.modelID]; !seen {
+						names = append(names, p.modelID)
+					}
+					distinct[p.modelID] = p.memoryNeedBytes
+				}
+				var total int64
+				for _, b := range distinct {
+					total += b
+				}
+				if total > budget {
+					t.Errorf("%s/%s GB: the recommended set %v needs %.1f GB resident together; the class holds %.1f GB at %.0f%% -- it would thrash between models",
+						platform, class, names, float64(total)/1e9, float64(budget)/1e9, residentBudgetShare*100)
+				}
+			}
+		}
+	}
 }

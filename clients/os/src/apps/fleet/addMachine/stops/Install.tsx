@@ -2,7 +2,7 @@ import { Caption, CopyField, Notice, Subhead } from "../../../../kit";
 import { installSteps, type Draft } from "../flow";
 import {
   CLUSTER_URL_PLACEHOLDER,
-  INFERENCE_SETUP_COMMAND,
+  setupCommand,
   INSTALL_PLATFORM_LABEL,
   installCommand,
   workerClusterUrl,
@@ -54,15 +54,15 @@ export function InstallStop({
     token,
     computerUse: draft.computerUse,
     inference: draft.inference,
+    userLocal: draft.userLocal,
   });
 
   return (
     <div className="os-stop-body os-fleet-addstop">
       <Notice tone="warn">
         <p className="os-notice-line" role="alert">
-          The token below lives only in this window. It is not shown again -- the cluster keeps
-          only its hash, so there is nowhere to look it up. If it is lost, mint another one and
-          revoke this machine.
+          Keep this page open until the machine connects. The token is shown only once.
+          If you lose it, cancel this setup and create a new token.
         </p>
       </Notice>
 
@@ -89,19 +89,16 @@ export function InstallStop({
       {draft.inference ? (
         <>
           <Subhead>Then, for local models</Subhead>
-          <CopyField value={INFERENCE_SETUP_COMMAND} label="the local models setup command" id="fleet-add-inference" />
+          <CopyField value={setupCommand(draft.userLocal, true)} label="the local models setup command" id="fleet-add-inference" />
           <Caption>
             Run it in the same terminal once the installer prints SUCCESS. It checks the hardware,
-            installs a model runtime after showing you the commands, pulls a starting model and tells
-            the worker. The Checks stop notices on its own when the models appear.
+            shows the runtime installation commands for approval and downloads the recommended
+            models.{draft.platform === "linux" ? " On Linux, the default runtime runs as a service for your account; Docker is optional." : ""}
+            {" "}The checks below update automatically as models become available.
           </Caption>
         </>
       ) : null}
 
-      <Caption>
-        The installer and the worker ship from the memql-cockpit repository -- the worker is a run
-        mode of the memql command that repo builds. The full walkthrough is in the workers runbook.
-      </Caption>
     </div>
   );
 }

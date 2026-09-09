@@ -263,6 +263,7 @@ func catalogProfilesFromRows(rows []map[string]any) []CatalogProfile {
 			Category:        mapString(row, "category"),
 			Runtime:         mapString(row, "runtime"),
 			Family:          mapString(row, "family"),
+			Quant:           mapString(row, "quant"),
 			MinMachineClass: mapString(row, "minMachineClass"),
 			RecommendedFor:  stringListField(row, "recommendedFor"),
 			OfferedOn:       stringListField(row, "offeredOn"),

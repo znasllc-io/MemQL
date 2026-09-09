@@ -137,6 +137,8 @@ type ModelAttributes struct {
 	// eligible for everything it advertised, it simply does not WIN by
 	// silence (design D5).
 	Params int64
+	// ActiveParams is the per-token parameter count for a mixture; zero means unreported.
+	ActiveParams int64
 	// Quant is the quantization level the runtime reported (Q4_K_M, F16).
 	// Carried for the operator; nothing selects on it.
 	Quant string
@@ -168,13 +170,14 @@ type ModelAttributes struct {
 
 // Attribute keys in the label value.
 const (
-	attrContext    = "ctx"
-	attrStructured = "structured"
-	attrEmbeddings = "embeddings"
-	attrTools      = "tools"
-	attrParams     = "params"
-	attrQuant      = "quant"
-	attrMax        = "max"
+	attrContext      = "ctx"
+	attrStructured   = "structured"
+	attrEmbeddings   = "embeddings"
+	attrTools        = "tools"
+	attrParams       = "params"
+	attrActiveParams = "activeparams"
+	attrQuant        = "quant"
+	attrMax          = "max"
 
 	// The four modality keys (epic memql#5137, D4). Lowercase with no
 	// separator, matching what the cockpit emits -- `audioin`, not `audioIn`
@@ -216,6 +219,10 @@ func ParseModelAttributes(value string) ModelAttributes {
 		case attrParams:
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 				a.Params = n
+			}
+		case attrActiveParams:
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				a.ActiveParams = n
 			}
 		case attrQuant:
 			// Carried verbatim, and bounded: it is an operator-facing
@@ -271,6 +278,9 @@ func (a ModelAttributes) String() string {
 	}
 	if a.Params > 0 {
 		parts = append(parts, fmt.Sprintf("%s=%d", attrParams, a.Params))
+	}
+	if a.ActiveParams > 0 {
+		parts = append(parts, fmt.Sprintf("%s=%d", attrActiveParams, a.ActiveParams))
 	}
 	if a.Quant != "" {
 		parts = append(parts, attrQuant+"="+a.Quant)

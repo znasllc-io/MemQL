@@ -20,6 +20,77 @@
   ],
   "cases": [
     {
+      "name": "Q8 upgrade wins over retained Q4 at equal size and context",
+      "preference": [],
+      "models": [
+        {"modelId": "qwen3.8:27b", "params": 27300000000, "contextWindow": 131072, "quant": "Q4_K_M"},
+        {"modelId": "qwen3.8:27b-q8_0", "params": 27300000000, "contextWindow": 131072, "quant": "Q8_0"}
+      ],
+      "want": ["qwen3.8:27b-q8_0", "qwen3.8:27b"]
+    },
+    {
+      "name": "explicit Q4 preference still wins over Q8 precision",
+      "preference": ["qwen3.8:27b"],
+      "models": [
+        {"modelId": "qwen3.8:27b", "params": 27300000000, "contextWindow": 131072, "quant": "Q4_K_M"},
+        {"modelId": "qwen3.8:27b-q8_0", "params": 27300000000, "contextWindow": 131072, "quant": "Q8_0"}
+      ],
+      "want": ["qwen3.8:27b", "qwen3.8:27b-q8_0"]
+    },
+    {
+      "name": "context window priority precedes quantization precision",
+      "preference": [],
+      "models": [
+        {"modelId": "qwen3.8:27b", "params": 27300000000, "contextWindow": 131072, "quant": "Q4_K_M"},
+        {"modelId": "qwen3.8:27b-q8_0", "params": 27300000000, "contextWindow": 8192, "quant": "Q8_0"}
+      ],
+      "want": ["qwen3.8:27b", "qwen3.8:27b-q8_0"]
+    },
+    {
+      "name": "known precision formats normalize and unknown formats rank last",
+      "preference": [],
+      "models": [
+        {"modelId": "unknown", "params": 27300000000, "contextWindow": 131072, "quant": "mystery"},
+        {"modelId": "q4", "params": 27300000000, "contextWindow": 131072, "quant": "Q4_K_M"},
+        {"modelId": "f16", "params": 27300000000, "contextWindow": 131072, "quant": "F16"},
+        {"modelId": "q8", "params": 27300000000, "contextWindow": 131072, "quant": " q8_0 "},
+        {"modelId": "f32", "params": 27300000000, "contextWindow": 131072, "quant": "FP32"},
+        {"modelId": "q5", "params": 27300000000, "contextWindow": 131072, "quant": "Q5_0"},
+        {"modelId": "bf16", "params": 27300000000, "contextWindow": 131072, "quant": "BF16"},
+        {"modelId": "fp8", "params": 27300000000, "contextWindow": 131072, "quant": "FP8"},
+        {"modelId": "mxfp4", "params": 27300000000, "contextWindow": 131072, "quant": "MXFP4"},
+        {"modelId": "4bit", "params": 27300000000, "contextWindow": 131072, "quant": "4bit"}
+      ],
+      "want": ["f32", "bf16", "f16", "fp8", "q8", "q5", "4bit", "mxfp4", "q4", "unknown"]
+    },
+    {
+      "name": "active parameters rank a mixture below the stronger dense model",
+      "preference": [],
+      "models": [
+        {"modelId": "mixture35", "params": 35000000000, "activeParams": 3000000000, "contextWindow": 131072},
+        {"modelId": "dense27", "params": 27000000000, "contextWindow": 131072}
+      ],
+      "want": ["dense27", "mixture35"]
+    },
+    {
+      "name": "invalid active count cannot inflate total",
+      "preference": [],
+      "models": [
+        {"modelId": "bad", "params": 9000000000, "activeParams": 99000000000, "contextWindow": 131072},
+        {"modelId": "dense27", "params": 27000000000, "contextWindow": 131072}
+      ],
+      "want": ["dense27", "bad"]
+    },
+    {
+      "name": "explicit preference still precedes active parameter heuristic",
+      "preference": ["mixture35"],
+      "models": [
+        {"modelId": "mixture35", "params": 35000000000, "activeParams": 3000000000, "contextWindow": 131072},
+        {"modelId": "dense27", "params": 27000000000, "contextWindow": 131072}
+      ],
+      "want": ["mixture35", "dense27"]
+    },
+    {
       "name": "parameters first, whatever the window says",
       "preference": [],
       "models": [

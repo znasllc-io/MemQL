@@ -141,6 +141,26 @@ test("aiChat -- throws on QueryError reply", async () => {
   await assert.rejects(promise, /aiChat: boom/);
 });
 
+test("chat modes carry an optional selected-machine pin verbatim", async () => {
+  for (const stream of [false, true]) {
+    for (const fleetRegistrationId of [undefined, "new-pop-os-machine"]) {
+      const mock = new MockDispatcher();
+      const opts = { provider: "fleet:qwen3.8:27b", fleetRegistrationId };
+      const messages = [{ role: "user", content: "hello" }];
+      const promise = stream
+        ? aiChatStream(mock.asDispatcher(), messages, opts).result
+        : aiChat(mock.asDispatcher(), messages, opts);
+      const sent = mock.lastSent() as unknown as { aiChat: Record<string, unknown> };
+      assert.equal(sent.aiChat.fleetRegistrationId, fleetRegistrationId);
+      assert.equal(Object.hasOwn(sent.aiChat, "fleetRegistrationId"), fleetRegistrationId !== undefined);
+      const reply = { aiChatResult: { requestId: mock.lastRequestId(), message: { role: "assistant", content: "hello" } } };
+      if (stream) mock.streamFrame(mock.lastRequestId(), reply);
+      else mock.reply(reply);
+      await promise;
+    }
+  }
+});
+
 test("aiChat -- rejects empty messages array", async () => {
   const mock = new MockDispatcher();
   await assert.rejects(

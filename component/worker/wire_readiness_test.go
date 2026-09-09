@@ -47,6 +47,13 @@ func roundTrip[T proto.Message](t *testing.T, in T, out T) T {
 	return out
 }
 
+func TestModelCallParamsCarriesWorkingContext(t *testing.T) {
+	params := roundTrip(t, &memqlv1.ModelCallParams{ContextTokens: 32768}, &memqlv1.ModelCallParams{})
+	if params.GetContextTokens() != 32768 {
+		t.Fatalf("working context lost over the wire: %+v", params)
+	}
+}
+
 func TestModelCallStartCarriesToolsWithTheirSchemaIntact(t *testing.T) {
 	// A schema with an integer bound and a deliberate key order. Both are
 	// what a Struct round trip would destroy: the bound becomes a float and

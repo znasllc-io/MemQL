@@ -28,12 +28,34 @@ export interface RankedModel {
   modelId: string;
   /** Parameter count, or 0 when no machine reported one. */
   params: number;
+  /** Per-token parameter count for mixtures; absent/zero means unreported. */
+  activeParams?: number;
+  /** Runtime quantization; recognized precision breaks equal-size/window ties. */
+  quant?: string;
   /** Largest context window any machine behind it advertises, in tokens. */
   contextWindow: number;
   structuredOutput: boolean;
   embeddings: boolean;
   tools: boolean;
   online: boolean;
+}
+
+function effectiveParams(m: RankedModel): number {
+  const active = m.activeParams ?? 0;
+  return active > 0 && (m.params <= 0 || active <= m.params) ? active : m.params;
+}
+
+// Same recognized formats as component/memql.quantPrecision. Unknown formats
+// make no precision claim; the shared ordering fixture checks both copies.
+function quantPrecision(quant: string | undefined): number {
+  switch (quant?.trim().toUpperCase()) {
+    case "F32": case "FP32": return 32;
+    case "F16": case "FP16": case "BF16": return 16;
+    case "Q8_0": case "FP8": return 8;
+    case "Q5_0": return 5;
+    case "Q4_K_M": case "MXFP4": case "4BIT": return 4;
+    default: return 0;
+  }
 }
 
 /** What a particular kind of turn needs of a model. */
@@ -47,7 +69,8 @@ export interface ModelNeeds {
  * Rank a catalog strongest-first.
  *
  * The order is: the owner's explicit preference for the ids it names, then
- * PARAMETERS descending, then CONTEXT WINDOW descending, then model id.
+ * ACTIVE PARAMETERS (total when unreported) descending, then CONTEXT WINDOW
+ * descending, then quantization precision descending, then model id.
  *
  * MISSING SIZE SORTS LAST, NEVER FIRST, and that direction is the whole of the
  * rule. A model that does not say how big it is must not win by silence: a
@@ -73,11 +96,15 @@ export function orderModels<T extends RankedModel>(models: readonly T[], prefere
     if (ra !== rb) return ra - rb;
     // Unknown size last, in both directions: it is not "zero parameters", it
     // is "the machine did not say".
-    const aKnown = a.params > 0;
-    const bKnown = b.params > 0;
+    const aParams = effectiveParams(a);
+    const bParams = effectiveParams(b);
+    const aKnown = aParams > 0;
+    const bKnown = bParams > 0;
     if (aKnown !== bKnown) return aKnown ? -1 : 1;
-    if (a.params !== b.params) return b.params - a.params;
+    if (aParams !== bParams) return bParams - aParams;
     if (a.contextWindow !== b.contextWindow) return b.contextWindow - a.contextWindow;
+    const precision = quantPrecision(b.quant) - quantPrecision(a.quant);
+    if (precision !== 0) return precision;
     return a.modelId < b.modelId ? -1 : a.modelId > b.modelId ? 1 : 0;
   });
 }

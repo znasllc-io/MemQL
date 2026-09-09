@@ -79,6 +79,8 @@ export interface InstallCommandInput {
    * legitimate machine.
    */
   inference: boolean;
+  /** Install into this account's ~/.memql/bin instead of /usr/local/bin. */
+  userLocal?: boolean;
 }
 
 // installCommand composes the runbook's one-liner.
@@ -110,7 +112,8 @@ export function installCommand(input: InstallCommandInput): string {
   // them and load-bearing to a person comparing what the OS printed with what
   // the runbook prints.
   const inference = input.inference ? " --inference" : "";
-  return `curl -fsSL ${script} | bash -s -- --token ${input.token} --cluster ${cluster}${computeruse}${inference}`;
+  const location = input.userLocal ? " --user-local" : "";
+  return `curl -fsSL ${script} | bash -s -- --token ${input.token} --cluster ${cluster}${computeruse}${inference}${location}`;
 }
 
 // uninstallCommand composes the uninstaller's one-liner (design record
@@ -141,7 +144,9 @@ export function uninstallCommand(
 /** The second command a local-models machine needs on a fresh install: the
  *  one-liner runs without a terminal to ask on, so it cannot approve a runtime
  *  install, and prints this for the person to run next (D13). */
-export const INFERENCE_SETUP_COMMAND = "memql worker setup --inference";
-
-/** The re-check after a macOS permission grant (D5). */
-export const PERMISSIONS_SETUP_COMMAND = "memql worker setup";
+export function setupCommand(userLocal = false, inference = false): string {
+  // Do not rely on PATH: it may still resolve an older system installation,
+  // and a fresh account does not have ~/.memql/bin on its PATH at all.
+  const binary = userLocal ? '"$HOME/.memql/bin/memql"' : "/usr/local/bin/memql";
+  return `${binary} worker setup${inference ? " --inference" : ""}`;
+}

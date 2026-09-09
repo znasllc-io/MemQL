@@ -45,14 +45,16 @@ the router interface-checks it. You do not write it anywhere.
 
 ### Policy
 
-A policy is an ordered chain of places to look. Three ship, and every one of them
-reaches paid inference last:
+A policy is an ordered chain of places to look. The general chains reach paid
+inference last; the embeddings chain names only the bound embedder:
 
 | Policy | Chain |
 |---|---|
+| `fastLocalFirst` | `fleet:fastest`, `app:*`, `federation:cheapest` |
 | `localFirst` | `fleet:strongest`, `app:*`, `federation:cheapest` |
 | `localOnly` | `fleet:strongest` |
 | `federationStrongest` | `fleet:strongest`, `app:*`, `federation:strongest` |
+| `embeddingsBinding` | `embedder:active` |
 
 The order inside a chain is three kinds of cost, increasing:
 
@@ -83,6 +85,26 @@ policy:localFirst           another policy, expanded at load
 
 `fleet:*` is retired. It said "any", which is not what it did; write
 `fleet:strongest`.
+
+`fleet:strongest` keeps measured structured validity first, then the owner's
+explicit model preference. Its size heuristic ranks active parameters per token
+descending, using total parameters when the runtime has not reported an active
+count; context window, recognized quantization precision, and model id break ties.
+For otherwise equal variants, Q8 wins over Q4 retained after an upgrade; an explicit
+Q4 preference still wins over this tie-break. A 27B dense model therefore ranks
+ahead of a 35B mixture with 3B active parameters when neither has a measurement
+or an explicit preference. Total parameters remain available for memory planning.
+
+`fleet:fastest` ranks the same effective parameter count ascending and excludes
+models below 3B effective parameters, including unknown sizes. This floor is a
+routing heuristic, not a quality benchmark. With 27B and 9B dense models available,
+ordinary fast calls choose 9B and strong calls choose 27B. A 0.8B model remains
+available through an explicit `fleet:<modelId>` pin. The floor applies to every
+candidate expanded from the fast selector, including fallback candidates.
+
+Fast ordering currently uses size, not measured throughput: token rates, audio
+real-time factors and image timings are different units and are not compared.
+Fast selection does not consult the owner's strongest-model preference.
 
 **`federation:cheapest` sorts a record with no cost figures LAST**, and the
 decision record says so. Sorting it first would make a price nobody filled in the
@@ -164,16 +186,18 @@ actually served.
 
 ## The shipped rules
 
-Six, all `@locked`.
+Eight, all `@locked`.
 
 | Rule | Condition | Level | Policy | Exhausted |
 |---|---|---|---|---|
 | `default` | none -- matches everything | -- | `localFirst` | degrade |
+| `fastLane` | `level="fast"` | -- | `fastLocalFirst` | degrade |
 | `backgroundLane` | `tag="background"` | -- | `localFirst` | degrade |
 | `backgroundEscalation` | `tag="backgroundEscalation"` | `strong` | `localFirst` | degrade |
 | `operatorReasoning` | `prompt="agentReply", role="operator"` | `reasoning` | `localFirst` | degrade |
 | `reasoningParks` | `level="reasoning"` | -- | `federationStrongest` | **park** |
 | `embeddingsBound` | `level="embeddings"` | -- | `embeddingsBinding` | **park** |
+| `compilerLocalOnly` | `prompt="compileRule"` | -- | `localOnly` | **park** |
 
 `operatorReasoning` degrades while `reasoningParks` parks, and the difference is
 worth learning. A person is waiting on an agent reply and would rather have a

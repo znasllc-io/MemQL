@@ -64,6 +64,7 @@ type CatalogProfile struct {
 	Category        string
 	Runtime         string
 	Family          string
+	Quant           string
 	MinMachineClass string
 	RecommendedFor  []string
 	OfferedOn       []string
@@ -224,7 +225,7 @@ func blockedReason(class string, h MachineHardware, os string, p CatalogProfile)
 //
 // BY FIXABILITY FIRST -- pullable, then a missing runtime, then a class floor,
 // then the wrong platform -- and only then by strength: parameters descending,
-// context window descending, model id.
+// context window descending, quantization precision descending, model id.
 //
 // The first key does two jobs. It makes the "one per level" rule honest, since
 // an unpullable entry must never displace a pullable one; and when NOTHING at a
@@ -233,10 +234,10 @@ func blockedReason(class string, h MachineHardware, os string, p CatalogProfile)
 // refinement: ordering blocked entries by strength shows "needs a 64 GB
 // machine" to somebody whose only real problem is that Ollama is not installed.
 //
-// The strength keys are orderModels' own, deliberately, so the recommended set
-// and the router agree about which of two models is stronger rather than each
-// having an opinion. UNKNOWN PARAMETERS SORT LAST in both, for orderModels'
-// reason: a profile that does not say how big it is must not win by silence.
+// Recommendations curate what to install, while routing chooses among models
+// already available. Higher precision breaks a size/context tie here so the
+// same model's Q8 variant wins over Q4 when its hardware floor is met.
+// Unknown parameters and unknown precision sort last in their respective keys.
 //
 // The sort is STABLE and its last key is the model id, so two replicas reading
 // one catalog produce the same set in the same order with no shared state.
@@ -255,8 +256,30 @@ func sortRecommendations(entries []Recommendation) {
 		if a.Profile.ContextWindow != b.Profile.ContextWindow {
 			return a.Profile.ContextWindow > b.Profile.ContextWindow
 		}
+		if aq, bq := quantPrecision(a.Profile.Quant), quantPrecision(b.Profile.Quant); aq != bq {
+			return aq > bq
+		}
 		return a.Profile.ModelId < b.Profile.ModelId
 	})
+}
+
+// quantPrecision ranks the formats present in the curated catalog. Unrecognized
+// formats carry no precision claim; model id remains the deterministic tie-break.
+func quantPrecision(quant string) int {
+	switch strings.ToUpper(strings.TrimSpace(quant)) {
+	case "F32", "FP32":
+		return 32
+	case "F16", "FP16", "BF16":
+		return 16
+	case "Q8_0", "FP8":
+		return 8
+	case "Q5_0":
+		return 5
+	case "Q4_K_M", "MXFP4", "4BIT":
+		return 4
+	default:
+		return 0
+	}
 }
 
 // offeredOn reports whether a profile is offered on this operating system.

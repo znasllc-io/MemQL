@@ -48,6 +48,16 @@ rule default { }
 @locked
 rule backgroundLane { }
 
+/// Fast work uses the smallest eligible model above the fleet quality floor.
+/// It outranks the ordinary background lane; explicit escalation, operator
+/// reasoning, the embedding binding and local-only compilation still win.
+@when(level="fast")
+@policy("fastLocalFirst")
+@precedence(45)
+@onUnavailable("degrade")
+@locked
+rule fastLane { }
+
 /// The one stronger continuation the background lane swaps to when the cheap
 /// tier is stuck on a turn -- repeated rounds where every tool call errored,
 /// which usually means the model is mishandling the tool rather than that the

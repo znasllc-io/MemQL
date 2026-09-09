@@ -56,13 +56,22 @@ same rule is on every account's reserved `api.` host, so a cockpit may dial
 either.
 
 Two flags are optional and independent. `--computeruse` installs the build that
-can drive the mouse and keyboard; `--inference` carries on into
-`memql worker setup --inference` in the same terminal, which checks the
-hardware floor, sets up a model runtime and pulls a starting model. Either,
+can drive the mouse and keyboard; `--inference` requests local-model setup,
+which checks the hardware floor, sets up a model runtime and pulls the
+recommended models. A fresh runtime needs interactive approval: after the
+piped installer prints SUCCESS, run the setup command it prints. Either,
 both or neither is a legitimate machine, and the pairing panel has a checkbox
 for each. `--inference` downloads several gigabytes, which is why it is off
 unless asked for -- see
 [Local models on the fleet](local-models.md#door-1--run-a-local-model-the-default).
+
+The default installation protects the Cockpit command under `/usr/local/bin`
+and asks for your administrator password. Choose **Install for my account
+only** in Fleet, or add `--user-local`, to install under `~/.memql/bin` without
+that password. For this location, run `"$HOME/.memql/bin/memql" worker setup
+--inference`; for a system installation, use `/usr/local/bin/memql worker setup
+--inference`. The explicit path avoids accidentally running another installed
+version. Fleet's setup and cancellation commands follow the selected location.
 
 ### macOS
 
@@ -449,8 +458,8 @@ record `docs/superpowers/specs/2026-09-08-cockpit-install-wizard-design.md`):
 four stops on the same rail the compose flow and the first-run card use, and
 one action bar carrying the state and the acts legal from it.
 
-1. **This machine** -- a name, the operating system, and two choices: the
-   computer-use build and local models. Mint is the bar's forward act and is
+1. **This machine** -- a name, the operating system, the installation location,
+   and the computer-use and local-model choices. Mint is the bar's forward act and is
    absent until there is a name; Cancel leaves with nothing created.
 2. **Install** -- the plain `mql_wkr_...` token, shown ONCE (only its SHA-256
    hash persists; it is never written to browser storage or a URL, and it goes
@@ -458,8 +467,8 @@ one action bar carrying the state and the acts legal from it.
    token and `https://api.<domain>` filled in, and the manual steps in the
    order they happen on the machine: a terminal, the paste, the password
    prompt, on macOS the two permission dialogs, the download. When local
-   models were asked for, the second command -- `memql worker setup
-   --inference`, run once the installer prints SUCCESS -- is stated up front,
+   models were asked for, the second command -- the installed binary's
+   `worker setup --inference`, run once the installer prints SUCCESS -- is stated up front,
    because the one-liner cannot approve a runtime install unattended. Every
    value is a field whose only control is the copy icon at its end.
 3. **Connect** -- the cluster listens. Success is the registration whose
@@ -479,9 +488,13 @@ one action bar carrying the state and the acts legal from it.
    Wayland session is skipped with the installer's own sentence, never failed;
    when local models were asked for, the runtime (else the setup command) and
    the models -- **Pull the recommended models** once a runtime is reported,
-   the pulls drawn live, and **Ask it something** once a model is served: one
-   chat pinned to `fleet:<modelId>` through the router, answered on the same
-   stream the cockpit holds open, with the time it took.
+   the pulls drawn live, and **Ask it something** once a text model is served:
+   one chat pinned to both `fleet:<modelId>` and this machine's registration,
+   answered on the stream the cockpit holds open, with the time it took.
+   Embedding-only machines explain why they cannot run this chat check.
+   Failed downloads show the runtime's reason and a retry; a successful
+   sibling download does not hide a failure, and a successful retry or manual
+   setup clears it when the repaired model becomes available.
 
 Cancel is reachable while there is something to cancel. After a mint it asks
 which of two things: **keep the token** (an install already running will still
@@ -489,7 +502,8 @@ finish and the machine appears in Machines by itself) or **revoke it**
 (`RevokeWorkerTokenMsg` on the minted identity, because a credential nobody
 will use should not stay live), with the uninstall line beside the question
 for a person who already ran the install. Once the machine has connected there
-is nothing to cancel: the acts are **Open <machine>** and **Done**, and Done is
+is nothing to cancel: **Back to Machines** returns to the list, and the bar's
+acts are **Open <machine>** and **Done**. Done is
 primary only when every check has settled. The flow's state is held by the
 Fleet app, so leaving for Routing and coming back finds it where it was.
 
@@ -503,7 +517,8 @@ the right shape for a machine that can redeem a short code interactively.
 history) and shows the uninstall one-liner for its platform --
 `scripts/install/uninstall-{mac,linux}.sh` in the cockpit repository, which
 stops and removes the service, the binary and `worker.yaml`, and keeps the
-logs unless `--purge` is passed.
+logs unless `--purge` is passed. Select the installation location on this page
+so the uninstaller targets the system command or the account-only command.
 
 ### 5.6 The cross-node forward (memql#4352)
 

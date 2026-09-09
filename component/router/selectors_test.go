@@ -95,7 +95,8 @@ func TestSelectorFastest_FewestParametersWhenNothingIsMeasured(t *testing.T) {
 	if resolved.ProviderName != "fleet:small" {
 		t.Fatalf("resolved %q, want the smallest model", resolved.ProviderName)
 	}
-	want := []string{"fleet:small", "fleet:big", "fleet:silent"}
+	// Missing size cannot demonstrate the fast quality floor.
+	want := []string{"fleet:small", "fleet:big"}
 	if got := resolved.Chain; !equalStrings(got, want) {
 		t.Fatalf("chain = %v, want %v", got, want)
 	}

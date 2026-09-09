@@ -5,8 +5,8 @@
 
 // A POLICY SAYS WHERE TO LOOK; A RULE SAYS WHICH CALLS IT IS FOR.
 // The rules are in dsl/rules/rules.memql. Nothing in this file decides which
-// calls it serves, and that separation is why there are three policies here
-// rather than the six a call-site-names-its-own-policy world needed.
+// calls it serves; rules select these reusable chains
+// without duplicating a chain at every call site.
 //
 // THE ORDER INSIDE A CHAIN IS THREE KINDS OF COST, INCREASING:
 //
@@ -35,8 +35,8 @@
 // only that.
 
 /// The default chain: local strongest, then a signed-in app on the person's own
-/// machine, then the cheapest federated model that qualifies. Named by every
-/// shipped rule except reasoningParks.
+/// machine, then the cheapest federated model that qualifies. Used by ordinary
+/// calls outside the fast, reasoning and embedding lanes.
 ///
 /// `federation:cheapest` orders by input plus output cost per million ascending
 /// among the records that can serve the call. A vendor record with no cost
@@ -46,6 +46,14 @@
 @fallback("app:*")
 @fallback("federation:cheapest")
 policy localFirst { }
+
+/// Fast calls prefer the smallest eligible local model above the selector's
+/// quality floor, then an app, then the cheapest qualifying federated model.
+/// The floor applies to the whole local chain, including fallback candidates.
+@primary("fleet:fastest")
+@fallback("app:*")
+@fallback("federation:cheapest")
+policy fastLocalFirst { }
 
 /// Local only, with no fallback authored on purpose. When the fleet cannot
 /// serve the call the rule's onUnavailable decides, and every door being shut

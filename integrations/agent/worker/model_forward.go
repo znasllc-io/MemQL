@@ -467,6 +467,7 @@ func modelCallRequestFromProto(localId string, start *memqlv1.ModelCallStart, ti
 			TopP:            p.GetTopP(),
 			TopPSet:         p.GetTopPSet(),
 			MaxOutputTokens: p.GetMaxOutputTokens(),
+			ContextTokens:   p.GetContextTokens(),
 			Stop:            p.GetStop(),
 			Seed:            p.GetSeed(),
 			SeedSet:         p.GetSeedSet(),

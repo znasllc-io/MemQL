@@ -17,6 +17,7 @@ import (
 	"github.com/znasllc-io/memql/component/work"
 	"github.com/znasllc-io/memql/core/airoute"
 	"github.com/znasllc-io/memql/core/common"
+	"github.com/znasllc-io/memql/core/id"
 )
 
 // The AI handlers reach a model through the ENGINE'S RESOLVER and nowhere else
@@ -227,6 +228,10 @@ func (s *streamSession) handleAiChat(envelope *memqlv1.MemqlClientMessage, msg *
 	if len(msg.GetMessages()) == 0 {
 		return s.sendQueryError(requestId, envelope.GetMessageId(), codes.InvalidArgument, "messages array is required and must not be empty")
 	}
+	ctx, err := chatCallContext(s.stream.Context(), msg.GetProvider(), msg.GetFleetRegistrationId())
+	if err != nil {
+		return s.sendQueryError(requestId, envelope.GetMessageId(), codes.InvalidArgument, err.Error())
+	}
 
 	// Convert proto messages to common.ChatMessage
 	messages := make([]common.ChatMessage, 0, len(msg.GetMessages()))
@@ -241,16 +246,38 @@ func (s *streamSession) handleAiChat(envelope *memqlv1.MemqlClientMessage, msg *
 	correlate := envelope.GetMessageId()
 
 	if msg.GetStream() {
-		go s.handleAiChatStream(requestId, correlate, messages, msg.GetProvider())
+		go s.handleAiChatStream(ctx, requestId, correlate, messages, msg.GetProvider())
 		return nil
 	}
 
-	go s.handleAiChatNonStream(requestId, correlate, messages, msg.GetProvider())
+	go s.handleAiChatNonStream(ctx, requestId, correlate, messages, msg.GetProvider())
 	return nil
 }
 
-func (s *streamSession) handleAiChatNonStream(requestId, correlate string, messages []common.ChatMessage, providerName string) {
-	ctx := s.stream.Context()
+// chatCallContext binds the pin on the RECEIVING replica, after the complete
+// AiChat envelope has crossed the BFF hop. The stream context stays unchanged.
+func chatCallContext(ctx context.Context, provider, registrationId string) (context.Context, error) {
+	registrationId = strings.TrimSpace(registrationId)
+	if registrationId != "" {
+		_, fleet := memqlengine.IsFleetReference(provider)
+		_, selector := memqlengine.IsFleetSelector(provider)
+		if !fleet || selector || memqlengine.IsFleetWildcard(provider) {
+			return nil, errors.New("a selected machine requires an explicit fleet:<modelId> provider")
+		}
+		const concept = "v1:worker:registration"
+		if err := id.ValidateShortId(concept, registrationId); err != nil {
+			return nil, errors.New("invalid fleet registration id")
+		}
+		_, shortId, err := id.ParseNodeId(registrationId)
+		if err != nil || shortId == "" {
+			return nil, errors.New("invalid fleet registration id")
+		}
+		registrationId = id.BuildNodeId(concept, shortId)
+	}
+	return common.ContextWithFleetRegistration(ctx, registrationId), nil
+}
+
+func (s *streamSession) handleAiChatNonStream(ctx context.Context, requestId, correlate string, messages []common.ChatMessage, providerName string) {
 	chatProvider, _, err := memqlengine.ResolveAITyped[common.ChatAIProvider](
 		ctx, s.service.engine, chatResolveRequest(messages, providerName))
 	if err != nil {
@@ -260,7 +287,7 @@ func (s *streamSession) handleAiChatNonStream(requestId, correlate string, messa
 
 	result, err := chatProvider.CallChat(ctx, messages)
 	if err != nil {
-		s.sendAiError(requestId, correlate, "chat completion failed", err)
+		s.sendAiModelError(requestId, correlate, "chat completion failed", err)
 		return
 	}
 
@@ -277,8 +304,7 @@ func (s *streamSession) handleAiChatNonStream(requestId, correlate string, messa
 	})
 }
 
-func (s *streamSession) handleAiChatStream(requestId, correlate string, messages []common.ChatMessage, providerName string) {
-	ctx := s.stream.Context()
+func (s *streamSession) handleAiChatStream(ctx context.Context, requestId, correlate string, messages []common.ChatMessage, providerName string) {
 	streamProvider, _, err := memqlengine.ResolveAITyped[common.ChatStreamProvider](
 		ctx, s.service.engine, chatStreamResolveRequest(messages, providerName))
 	if err != nil {
@@ -288,7 +314,7 @@ func (s *streamSession) handleAiChatStream(requestId, correlate string, messages
 
 	chunks, err := streamProvider.CallChatStream(ctx, messages)
 	if err != nil {
-		s.sendAiError(requestId, correlate, "chat stream failed", err)
+		s.sendAiModelError(requestId, correlate, "chat stream failed", err)
 		return
 	}
 
@@ -308,7 +334,7 @@ func (s *streamSession) handleAiChatStream(requestId, correlate string, messages
 
 	for chunk := range chunks {
 		if chunk.Error != nil {
-			s.sendAiError(requestId, correlate, "chat stream error", chunk.Error)
+			s.sendAiModelError(requestId, correlate, "chat stream error", chunk.Error)
 			return
 		}
 

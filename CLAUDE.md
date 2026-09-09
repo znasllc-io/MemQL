@@ -124,8 +124,8 @@ without one is normal.
 |-----------|---------|-----------|
 | `dsl/<ns>/*.memql` | Automations, queries, mutations, specs, tools, prompts, shapes per namespace | — |
 | `dsl/providers/providers.memql` | AI provider configurations | — |
-| `dsl/policies/policies.memql` | AI provider-selection chains (three, all paid-last) | — |
-| `dsl/rules/rules.memql` | The rules that map a call's metadata to a policy (six, all `@locked`) | — |
+| `dsl/policies/policies.memql` | AI provider-selection chains (five, paid-last when a paid fallback exists) | — |
+| `dsl/rules/rules.memql` | The rules that map a call's metadata to a policy (eight, all `@locked`) | — |
 | `integrations/` | External service integrations + DSL capabilities (Go) | [→](integrations/CLAUDE.md) |
 | `clients/` | Surfaces built ON the platform (SPAs, landing pages, apps) | [→](clients/README.md) |
 | `clients/os/` | MemQL OS -- the desktop shell, served at `os.<domain>`. **Read its README before adding an app or a live surface**: the live-collection contract (a collection does nothing until `retain()`), which concepts are actually broadcast, and the arrival-cue rule (a heartbeat is not news) are all rules a new surface gets wrong by default | [→](clients/os/README.md) |

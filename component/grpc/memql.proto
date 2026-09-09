@@ -903,6 +903,10 @@ message AiChatMsg {
   repeated AiChatMessage messages = 2;
   string provider = 3;
   bool stream = 4;
+  // Optional strict pin to one of the caller's own fleet machines. Clients
+  // send the bare registration id and an explicit fleet:<modelId> provider.
+  // An unavailable or unauthorized target refuses; no other machine serves it.
+  string fleet_registration_id = 5;
 }
 
 message AiChatMessage {

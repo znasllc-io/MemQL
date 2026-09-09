@@ -19,8 +19,9 @@ import (
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 )
 
-// CapabilityHeadless and CapabilityComputerUse are the two predefined
-// capability names. HEADLESS is mandatory; COMPUTERUSE is optional.
+// CapabilityHeadless and CapabilityComputerUse name the host and desktop
+// capabilities. HEADLESS is mandatory; COMPUTERUSE is optional, as is the
+// inference capability ModelCapability defined in modelcall.go.
 const (
 	CapabilityHeadless    = "HEADLESS"
 	CapabilityComputerUse = "COMPUTERUSE"
@@ -1045,10 +1046,10 @@ func (s *streamSession) handlePong(pong *memqlv1.Pong) {
 // -----------------------------------------------------------------------------
 
 // validateRegister checks the Register payload and decodes the
-// optional structured capability descriptor. The HEADLESS/COMPUTERUSE
-// capability-string contract is unchanged: HEADLESS is mandatory,
-// COMPUTERUSE is the only other admitted string, and scope checks keep
-// keying off those two names. The descriptor is additive metadata.
+// optional structured capability descriptor. HEADLESS is mandatory;
+// COMPUTERUSE and MODEL are optional capabilities. Inference-enabled Cockpit
+// workers advertise MODEL, so refusing it rejects the entire registration,
+// including that machine's other capabilities. The descriptor is metadata.
 func validateRegister(r *memqlv1.Register) (*CapabilityDescriptor, error) {
 	caps := r.GetCapabilities()
 	if len(caps) == 0 {
@@ -1059,7 +1060,7 @@ func validateRegister(r *memqlv1.Register) (*CapabilityDescriptor, error) {
 		if c == CapabilityHeadless {
 			hasHeadless = true
 		}
-		if c != CapabilityHeadless && c != CapabilityComputerUse {
+		if c != CapabilityHeadless && c != CapabilityComputerUse && c != ModelCapability {
 			return nil, fmt.Errorf("register: unknown capability %q", c)
 		}
 	}
@@ -1412,6 +1413,7 @@ func (s *streamSession) openModelCall(ctx context.Context, req ModelCallRequest)
 			TopP:            req.Params.TopP,
 			TopPSet:         req.Params.TopPSet,
 			MaxOutputTokens: req.Params.MaxOutputTokens,
+			ContextTokens:   req.Params.ContextTokens,
 			Stop:            req.Params.Stop,
 			Seed:            req.Params.Seed,
 			SeedSet:         req.Params.SeedSet,

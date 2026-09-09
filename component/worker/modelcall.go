@@ -201,6 +201,7 @@ type ModelCallParams struct {
 	TopP            float64
 	TopPSet         bool
 	MaxOutputTokens int64
+	ContextTokens   int64
 	Stop            []string
 	Seed            int64
 	SeedSet         bool

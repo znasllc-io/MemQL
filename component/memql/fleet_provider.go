@@ -174,15 +174,15 @@ type FleetModel struct {
 	// Params is the model's parameter count, as the runtime reported it
 	// (Ollama's `details.parameter_size`, e.g. "8B" -> 8_000_000_000).
 	//
-	// It is an ORDERING signal, never a capability gate: `Satisfies` does
-	// not read it, so a model that never said how big it is stays eligible
-	// for every turn it advertised the capabilities for. It simply does not
-	// WIN by silence -- unknown size sorts last.
+	// Used for ordering, and as the fallback when ActiveParams is unknown.
+	// The automatic fastest selector imposes a size floor; concrete model
+	// pins retain the capabilities the machine advertised.
 	Params int64
+	// ActiveParams is the per-token parameter count for a mixture; zero means unreported.
+	ActiveParams int64
 	// Quant is the quantization level the runtime reported (Q4_K_M, F16).
-	// Carried for the operator, not for selection: two quantizations of one
-	// model are the same model to a caller, and ordering by a string nobody
-	// agreed on would be an arbitrary preference wearing a technical name.
+	// Recognized precision breaks strongest ties after effective parameters
+	// and context, so a retained Q4 does not displace an upgraded Q8 variant.
 	Quant            string
 	StructuredOutput bool
 	Embeddings       bool
@@ -252,9 +252,14 @@ type FleetCallRequest struct {
 	// does not mean "any machine". The two paths are separate all the way
 	// down (memql#4678).
 	ActingUserId string
-	ModelId      string
-	Kind         string
-	Messages     []common.ChatMessage
+	// RegistrationId strictly limits dispatch to one of ActingUserId's own
+	// machines. Empty retains normal fleet routing, including shared machines.
+	RegistrationId string
+	ModelId        string
+	Kind           string
+	Messages       []common.ChatMessage
+	// ContextTokens is the requested runtime window, also a machine eligibility floor.
+	ContextTokens int
 	// Schema is set for a structured call; its presence is also what makes
 	// the call require a structured-output-capable model.
 	Schema *common.StructuredSchema
@@ -288,6 +293,7 @@ type FleetCallRequest struct {
 func (r FleetCallRequest) Needs() FleetNeeds {
 	return FleetNeeds{
 		StructuredOutput: r.Schema != nil,
+		MinContextWindow: r.ContextTokens,
 		Embeddings:       r.Kind == FleetKindEmbedding,
 		Tools:            len(r.Tools) > 0,
 		// The four modality needs come from the KIND, which is the only thing
@@ -427,7 +433,8 @@ func IsFleetWildcard(name string) bool {
 // orderModels ranks a catalog strongest-first (design D5).
 //
 // The order is: the caller's explicit preference for the ids it names, then
-// PARAMETERS descending, then CONTEXT WINDOW descending, then model id.
+// ACTIVE PARAMETERS (total when unreported) descending, then CONTEXT WINDOW
+// descending, then quantization precision descending, then model id.
 //
 // MISSING ATTRIBUTES SORT LAST, NEVER FIRST, and that direction is the whole
 // of the rule. A model that does not say how big it is must not win by
@@ -487,14 +494,17 @@ func orderModels(models []FleetModel, preference []string) []FleetModel {
 		}
 		// Unknown size last, in both directions: it is not "zero
 		// parameters", it is "the machine did not say".
-		if (a.Params > 0) != (b.Params > 0) {
-			return a.Params > 0
+		if (a.EffectiveParams() > 0) != (b.EffectiveParams() > 0) {
+			return a.EffectiveParams() > 0
 		}
-		if a.Params != b.Params {
-			return a.Params > b.Params
+		if a.EffectiveParams() != b.EffectiveParams() {
+			return a.EffectiveParams() > b.EffectiveParams()
 		}
 		if a.ContextWindow != b.ContextWindow {
 			return a.ContextWindow > b.ContextWindow
+		}
+		if aq, bq := quantPrecision(a.Quant), quantPrecision(b.Quant); aq != bq {
+			return aq > bq
 		}
 		return a.ModelId < b.ModelId
 	})
@@ -504,9 +514,10 @@ func orderModels(models []FleetModel, preference []string) []FleetModel {
 // orderModelsFastest ranks a catalog fastest-first.
 //
 // The order is: MEASURED THROUGHPUT when there is any, then FEWEST
-// PARAMETERS, then model id. There is no measured throughput this epic --
-// nothing on the wire reports tokens per second per model -- so the first key
-// is a hook with a nil body and a name, deliberately left visible rather than
+// EFFECTIVE PARAMETERS (active when reported, otherwise total), then model id.
+// There is no comparable measured throughput available here --
+// modality-specific throughput figures use different units, so the first key
+// remains a hook with a nil body and a name, deliberately left visible rather than
 // written as a proxy: a number computed from parameters and called throughput
 // would read on the decision record exactly like a measurement.
 //
@@ -544,11 +555,11 @@ func orderModelsFastest(models []FleetModel) []FleetModel {
 			return ta > tb
 		}
 		// Unknown size last, in both directions.
-		if (a.Params > 0) != (b.Params > 0) {
-			return a.Params > 0
+		if (a.EffectiveParams() > 0) != (b.EffectiveParams() > 0) {
+			return a.EffectiveParams() > 0
 		}
-		if a.Params != b.Params {
-			return a.Params < b.Params
+		if a.EffectiveParams() != b.EffectiveParams() {
+			return a.EffectiveParams() < b.EffectiveParams()
 		}
 		return a.ModelId < b.ModelId
 	})
@@ -627,10 +638,33 @@ func (r *ProviderRegistry) FleetCandidatesFor(ctx context.Context, actingUserId,
 	}
 	out := make([]FleetCandidate, 0, len(ordered))
 	for _, m := range ordered {
-		ok, why := m.eligibleFor(needs)
+		ok, why := m.eligibleForSelector(selector, needs)
 		out = append(out, FleetCandidate{ModelId: m.ModelId, Eligible: ok, Reason: why})
 	}
 	return out, nil
+}
+
+// FleetFastMinParams is a conservative size floor for automatic fast selection.
+// It excludes sub-billion toy models without depending on the model catalog or
+// this call's serving machine class. This is a routing heuristic, not a quality
+// benchmark. A concrete fleet:<id> reference remains the explicit escape hatch.
+const FleetFastMinParams int64 = 3_000_000_000
+
+// EffectiveParams preserves total weight size for capacity planning while using
+// the per-token count for mixture ranking. Invalid active counts do not inflate
+// a model beyond its total. Dense or unreported models use their total count.
+func (m FleetModel) EffectiveParams() int64 {
+	if m.ActiveParams > 0 && (m.Params <= 0 || m.ActiveParams <= m.Params) {
+		return m.ActiveParams
+	}
+	return m.Params
+}
+
+func (m FleetModel) eligibleForSelector(selector string, needs FleetNeeds) (bool, string) {
+	if selector == FleetSelectorFastest && m.EffectiveParams() < FleetFastMinParams {
+		return false, fmt.Sprintf("effective parameters %d are under the fast quality floor %d; pin fleet:%s to override", m.EffectiveParams(), FleetFastMinParams, m.ModelId)
+	}
+	return m.eligibleFor(needs)
 }
 
 // eligibleFor reports whether a model can serve a call with these needs, and
@@ -778,8 +812,9 @@ type fleetProvider struct {
 	// selector is FleetSelectorStrongest or FleetSelectorFastest for a
 	// provider whose concrete model is chosen per call rather than at entry
 	// time, and empty for one pinned to a model id.
-	selector   string
-	attributes FleetModel
+	selector         string
+	attributes       FleetModel
+	minContextTokens int
 	// lastMu guards the surface bookkeeping the ledger reads back after a
 	// call. It is per-entry rather than per-call because the provider
 	// interfaces return a string and have nowhere to carry it.
@@ -831,9 +866,21 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 		return FleetCallResult{}, fmt.Errorf("%w: this node has no fleet inference installed", ErrFleetUnavailable)
 	}
 	req.ModelId = p.modelId
+	if registrationId := common.FleetRegistrationFromContext(ctx); registrationId != "" {
+		req.RegistrationId = registrationId
+	}
 	req.ActingUserId = p.actingUserId
 	if strings.TrimSpace(req.ActingUserId) == "" {
 		req.ActingUserId = actingUserFromContext(ctx)
+	}
+
+	req.ContextTokens = max(req.ContextTokens, p.minContextTokens)
+	if req.Kind == FleetKindChat || req.Kind == FleetKindVision {
+		working, err := fleetWorkingContext(req)
+		if err != nil {
+			return FleetCallResult{}, err
+		}
+		req.ContextTokens = max(req.ContextTokens, working)
 	}
 
 	if p.selector != "" {
@@ -902,7 +949,7 @@ func (p *fleetProvider) resolveSelector(ctx context.Context, f FleetInference, r
 	needs := req.Needs()
 	considered := map[string]string{}
 	for _, m := range ordered {
-		if ok, why := m.eligibleFor(needs); ok {
+		if ok, why := m.eligibleForSelector(p.selector, needs); ok {
 			return m.ModelId, nil
 		} else {
 			considered[m.ModelId] = why

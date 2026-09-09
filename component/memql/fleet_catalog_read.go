@@ -124,6 +124,7 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 			"audioOut":         m.AudioOut,
 			"imageGen":         m.ImageGen,
 			"params":           m.Params,
+			"activeParams":     m.ActiveParams,
 			"quant":            m.Quant,
 			// The measured figures, in the discriminated shape the measurement
 			// row stores (epic memql#5146). ABSENT AS A REASON, never as a
@@ -293,6 +294,11 @@ func (e *MemQLEngine) fleetCatalogForCaller(ctx context.Context) ([]FleetModel, 
 
 	add := func(models []FleetModel) {
 		for _, m := range models {
+			// A larger total from the other source must not rehabilitate
+			// an active count that was invalid in its original report.
+			if m.Params > 0 && m.ActiveParams > m.Params {
+				m.ActiveParams = 0
+			}
 			entry, ok := byModel[m.ModelId]
 			if !ok {
 				copied := m
@@ -313,6 +319,9 @@ func (e *MemQLEngine) fleetCatalogForCaller(ctx context.Context) ([]FleetModel, 
 			entry.ImageGen = entry.ImageGen || m.ImageGen
 			if m.Params > entry.Params {
 				entry.Params = m.Params
+			}
+			if m.ActiveParams > entry.ActiveParams {
+				entry.ActiveParams = m.ActiveParams
 			}
 			if entry.Quant == "" {
 				entry.Quant = m.Quant

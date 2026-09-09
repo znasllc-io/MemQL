@@ -89,10 +89,10 @@ export function AddMachinePage({
       <div className="os-deploy-scroll">
         <Panel label="Add a machine">
           <Head title="Add a machine">
-            {/* THE BACK ARROW ASKS THE SAME QUESTION CANCEL DOES (D6). After a
-                mint a credential exists, and leaving by the arrow must not be
-                the one exit that skips the question. */}
-            <Button tone="quiet" onClick={flow.cancel} ariaLabel="Back to Machines">
+            {/* Until registration, Back asks the same credential question as
+                Cancel. A connected machine has completed that step, so Back
+                finishes the flow and returns to the list. */}
+            <Button tone="quiet" onClick={() => phase === "connected" ? run("done") : flow.cancel()} ariaLabel="Back to Machines">
               <ArrowLeft size={13} aria-hidden /> Machines
             </Button>
           </Head>
@@ -115,7 +115,7 @@ export function AddMachinePage({
                 about to be revoked; a registration that never happens has no
                 machine page to get the line from. */}
             <Caption>If you already ran the install on the machine, this removes it again:</Caption>
-            <CopyField value={uninstallCommand(flow.draft.platform)} label="the uninstall command" />
+            <CopyField value={uninstallCommand(flow.draft.platform, { userLocal: flow.draft.userLocal })} label="the uninstall command" />
           </div>
         )}
       </ActionBar>

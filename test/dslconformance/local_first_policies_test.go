@@ -46,6 +46,7 @@ import (
 // silently fall behind the tree.
 var shippedPolicies = []string{
 	"localFirst",
+	"fastLocalFirst",
 	"localOnly",
 	"federationStrongest",
 	"embeddingsBinding",
@@ -56,6 +57,7 @@ var shippedPolicies = []string{
 // other is a failure rather than a silent re-route.
 var shippedRules = map[string]string{
 	"default":              "localFirst",
+	"fastLane":             "fastLocalFirst",
 	"backgroundLane":       "localFirst",
 	"backgroundEscalation": "localFirst",
 	"operatorReasoning":    "localFirst",
@@ -246,13 +248,17 @@ func TestEveryShippedPolicyStartsAtTheCheapestDoor(t *testing.T) {
 		if len(chain) == 1 && chain[0] == embedderActiveRef {
 			continue
 		}
-		if chain[0] != fleetStrongestRef {
+		wantLocal := fleetStrongestRef
+		if name == "fastLocalFirst" {
+			wantLocal = "fleet:fastest"
+		}
+		if chain[0] != wantLocal {
 			t.Errorf("policy %q starts at %q, not %q.\n"+
 				"Every shipped chain reaches the person's own hardware first -- that is what makes\n"+
 				"paid-last structural rather than a rule somebody remembers. If a chain genuinely\n"+
 				"needs a vendor first, that is a CUSTOM policy named by a custom rule at a higher\n"+
 				"precedence, where it is explicit and lands on every decision record.",
-				name, chain[0], fleetStrongestRef)
+				name, chain[0], wantLocal)
 		}
 		seenApp, seenFederation := false, false
 		for _, entry := range chain {
@@ -348,10 +354,10 @@ func TestEveryShippedRuleNamesAShippedPolicy(t *testing.T) {
 	}
 }
 
-// TestTheShippedRuleSetIsExactlyTheSix pins the set BY NAME and BY POLICY. A
+// TestTheShippedRuleSetMatchesTheDeclaredPolicies pins the set BY NAME and BY POLICY. A
 // rule added to the corpus is a routing decision every cluster inherits, so it
 // is a deliberate edit here as well as there.
-func TestTheShippedRuleSetIsExactlyTheSix(t *testing.T) {
+func TestTheShippedRuleSetMatchesTheDeclaredPolicies(t *testing.T) {
 	rules := ruleRecords(t)
 	for name, wantPolicy := range shippedRules {
 		rec, ok := rules[name]

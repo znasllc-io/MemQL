@@ -151,6 +151,11 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 		runtimes := m.Runtimes()
 		for _, modelId := range m.ModelsOffered() {
 			attrs, _ := m.ModelAttributesFor(modelId)
+			// Validate against this machine's total before another machine's
+			// larger total can make an impossible active count appear valid.
+			if attrs.Params > 0 && attrs.ActiveParams > attrs.Params {
+				attrs.ActiveParams = 0
+			}
 			entry, ok := byModel[modelId]
 			if !ok {
 				entry = &memqlengine.FleetModel{ModelId: modelId}
@@ -176,6 +181,9 @@ func projectCatalog(machines []Candidate, now time.Time) []memqlengine.FleetMode
 			// runs at full size.
 			if attrs.Params > entry.Params {
 				entry.Params = attrs.Params
+			}
+			if attrs.ActiveParams > entry.ActiveParams {
+				entry.ActiveParams = attrs.ActiveParams
 			}
 			// The quantization is the FIRST non-empty one reported, and it
 			// is operator-facing only. Two machines running different
@@ -227,6 +235,7 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 	want := req.Needs()
 	needs := ModelNeeds{
 		StructuredOutput: want.StructuredOutput,
+		MinContextWindow: want.MinContextWindow,
 		Embeddings:       want.Embeddings,
 		Tools:            want.Tools,
 	}
@@ -246,7 +255,27 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 		plan RoutePlan
 		err  error
 	)
-	if strings.TrimSpace(req.ActingUserId) == "" {
+	if strings.TrimSpace(req.RegistrationId) != "" {
+		// A machine pin narrows the ordinary owner-scoped plan. It cannot
+		// authorize a foreign/shared machine or bypass model/context/policy
+		// eligibility, and it must never fall through to another candidate.
+		plan, err = f.router.PlanModel(ctx, req.ActingUserId, req.ModelId, needs)
+		if err == nil {
+			selected := make([]Candidate, 0, 1)
+			for _, candidate := range plan.Candidates {
+				if sameSubject(candidate.RegistrationId, req.RegistrationId) {
+					selected = append(selected, candidate)
+				}
+			}
+			plan.Candidates = selected
+			if len(selected) == 0 {
+				return memqlengine.FleetCallResult{}, &memqlengine.FleetUnavailable{
+					ModelId: req.ModelId, Total: 1,
+					Considered: map[string]string{"selected machine": "unavailable or not eligible for this call; check that it is yours, online, and offers the model with the required context"},
+				}
+			}
+		}
+	} else if strings.TrimSpace(req.ActingUserId) == "" {
 		plan, err = f.router.PlanSharedModel(ctx, req.ModelId, needs)
 	} else {
 		// The caller's OWN machines first, then the ones shared with the
@@ -313,7 +342,7 @@ func (f *FleetInference) buildStart(req memqlengine.FleetCallRequest) *memqlv1.M
 		// operations: every one of them (conductor, planner, suggest) parses
 		// what comes back, and a sampled answer to a structured prompt is a
 		// parse failure with no cause a reader can see.
-		Params: &memqlv1.ModelCallParams{TemperatureSet: true, Temperature: 0},
+		Params: &memqlv1.ModelCallParams{TemperatureSet: true, Temperature: 0, ContextTokens: int64(req.ContextTokens)},
 	}
 	if start.Kind == "" {
 		start.Kind = workerservice.ModelCallKindChat

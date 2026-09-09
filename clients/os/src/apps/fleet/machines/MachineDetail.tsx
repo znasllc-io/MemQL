@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { CallHistory } from "../routing/CallHistory";
-import { Button, Caption, Chip, Chips, CopyField, Fact, Facts, Notice, Panel, Subhead } from "../../../kit";
+import { Button, Caption, Chip, Chips, ChoiceStack, CopyField, Fact, Facts, Notice, Panel, Subhead } from "../../../kit";
 import { formatFreshness, formatMoment } from "../../../kit/format";
 import { uninstallCommand, type InstallPlatform } from "../addMachine/install";
 import { roundTripFigure } from "../addMachine/flow";
@@ -294,8 +294,33 @@ function RemoveControl({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
+  const [userLocal, setUserLocal] = useState(false);
+  useEffect(() => setUserLocal(false), [machine.id]);
   const label = machineName(machine);
-  const uninstall = uninstallCommand(platformOf(machine));
+  const uninstall = uninstallCommand(platformOf(machine), { userLocal });
+  // The registration does not report its installation path. Ask rather than
+  // inferring it from the version or the machine's operating system.
+  const uninstallControls = (
+    <>
+      <Caption>Choose where Cockpit was installed on this machine, then run the matching command on it:</Caption>
+      <ChoiceStack
+        name={`fleet-uninstall-location-${machine.id}`}
+        label="Cockpit installation location"
+        voice="prose"
+        value={userLocal ? "user" : "system"}
+        onChange={(next) => setUserLocal(next === "user")}
+        options={[
+          { value: "system", label: "System installation", description: "Installed in /usr/local/bin using an account password." },
+          { value: "user", label: "My account only", description: "Installed without a password in ~/.memql/bin." },
+        ]}
+      />
+      <CopyField value={uninstall} label="the uninstall command" />
+      <Caption>
+        It stops the service, removes the binary and the token file, and keeps the logs; add
+        --purge to remove those too.
+      </Caption>
+    </>
+  );
 
   if (machine.revokedAt) {
     return (
@@ -305,12 +330,7 @@ function RemoveControl({
           {machine.revokeReason ? ` -- ${machine.revokeReason}` : ""}. The registration row is kept
           as audit history and its credential can never be used again.
         </p>
-        <Caption>To take the cockpit off the machine as well, run this on it:</Caption>
-        <CopyField value={uninstall} label="the uninstall command" />
-        <Caption>
-          It stops the service, removes the binary and the token file, and keeps the logs; add
-          --purge to remove those too.
-        </Caption>
+        {uninstallControls}
       </div>
     );
   }
@@ -336,12 +356,7 @@ function RemoveControl({
         longer take calls. The registration stays as audit history; pairing it again means minting
         a new token.
       </p>
-      <Caption>Then, on the machine itself, this takes the cockpit off it:</Caption>
-      <CopyField value={uninstall} label="the uninstall command" />
-      <Caption>
-        It stops the service, removes the binary and the token file, and keeps the logs; add
-        --purge to remove those too.
-      </Caption>
+      {uninstallControls}
       <label className="os-sr-only" htmlFor={`fleet-revoke-reason-${machine.id}`}>
         Reason (optional)
       </label>
