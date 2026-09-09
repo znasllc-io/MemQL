@@ -507,6 +507,7 @@ func (a *App) cluster() {
 	// wired here in app/ (same pattern as BeginDrain -> server.SetDraining).
 	if peerMgr != nil {
 		a.nodeLifecycle = peerMgr.Lifecycle()
+		selfStatus := a.wireNodeSelfStatus(nodeIdentity, a.nodeLifecycle)
 		a.nodeLifecycle.SetObserver(func(_, newState node.LifecycleState) {
 			if newState == node.LifecycleDraining || newState == node.LifecycleStopped {
 				server.SetDraining(true)
@@ -515,6 +516,7 @@ func (a *App) cluster() {
 				"node_id", nodeIdentity.ID,
 				"state", newState.String(),
 			)
+			selfStatus.SyncLifecycle()
 		})
 
 		// Operator maintenance trigger (memql#1270): bring up the
@@ -542,7 +544,7 @@ func (a *App) cluster() {
 		// cluster-wide absence. It drives topology freshness to
 		// seconds by retiring (a) nodes whose deployment is superseded/failed/
 		// rolled_back (supersededDeployments, immediate) and (b) nodes
-		// continuously absent from the live mesh past a short grace window --
+		// directly discoverable roles absent from the live mesh past grace --
 		// the crash/OOM/forced-replace case the gossip status writer misses and
 		// the 30-min prune (pruneStaleClusterNodes) only mops up lazily.
 		// The prune stays as the backstop; both write the same idempotent
@@ -1055,4 +1057,14 @@ func firstNonEmptyStr(vals ...string) string {
 // the records that actually gate a deploy.
 func deployProvider() string {
 	return strings.TrimSpace(os.Getenv("MEMQL_DEPLOY_PROVIDER"))
+}
+
+// wireNodeSelfStatus gives every role, including edge/identity fallback
+// bootstraps, an authoritative stored heartbeat independent of gossip.
+func (a *App) wireNodeSelfStatus(identity *node.Identity, lifecycle *node.NodeLifecycle) *node.SelfStatusWriter {
+	writer := node.NewSelfStatusWriter(identity, lifecycle, a.engine, a.Logger)
+	if writer != nil {
+		a.Dependencies = append(a.Dependencies, writer)
+	}
+	return writer
 }

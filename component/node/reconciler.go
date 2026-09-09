@@ -27,17 +27,16 @@ import (
 // every few seconds and retiring nodes that are demonstrably gone:
 //
 //  1. Mesh membership (liveness fast-reap). The live set is this node plus
-//     every healthy peer the PeerManager currently knows (its own monitored
-//     peers + gossiped siblings). A registered, non-stopped v1:cluster:node
+//     every healthy peer the PeerManager currently knows. Only roles covered
+//     by BFF direct discovery qualify; gossip-only siblings do not. A registered, non-stopped v1:cluster:node
 //     that is ABSENT from that live set -- continuously, for a short grace
 //     window -- is marked health="stopped". This catches the crashed-pod case
 //     the gossip StatusChangeHandler misses (it only authors transitions for
 //     directly-monitored peers; an unmonitored sibling that dies is merely
 //     reaped from the in-memory table, never marked down in the DB). Using the
 //     in-memory mesh as the liveness source -- rather than a DB lastSeen
-//     freshness heartbeat -- means NO extra periodic writes to the (append-
-//     only) node table: the only writes this loop makes are the actual
-//     terminal transitions.
+//     freshness heartbeat -- keeps this loop limited to terminal transitions.
+//     SelfStatusWriter separately refreshes each process for the slow sweep.
 //
 //  2. Deployment status (orphan reap). Nodes whose deploymentId belongs to a
 //     deployment the deploy driver has marked superseded / failed /
@@ -341,6 +340,13 @@ func (r *TopologyReconciler) reconcile(ctx context.Context) {
 			}
 		}
 
+		// Only directly discoverable roles have complete liveness coverage on
+		// BFF. Gossip-only siblings can expire locally while still serving.
+		if !isDialableType(NodeType(strings.ToLower(strings.TrimSpace(n.nodeType)))) {
+			delete(r.absentSince, n.id)
+			continue
+		}
+
 		// Liveness reap: absent from the live mesh set for >= grace.
 		if _, alive := live[n.id]; alive {
 			delete(r.absentSince, n.id)
@@ -477,8 +483,8 @@ func (r *TopologyReconciler) loadSupersededDeploymentIds(ctx context.Context) ma
 // liveMeshSet is the set of node ids considered alive: this node plus every
 // peer the PeerManager currently knows whose advertised health is not
 // offline/stopped. Gossiped siblings are included, so the leader's view spans
-// the whole mesh -- a node missing from it is genuinely absent, not merely
-// unmonitored-by-this-replica.
+// directly discoverable roles. Gossip-only roles are not candidates for
+// mesh-absence retirement; an expired introduction does not prove departure.
 func (r *TopologyReconciler) liveMeshSet() map[string]struct{} {
 	live := map[string]struct{}{}
 	if id := r.selfID(); id != "" {
