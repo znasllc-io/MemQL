@@ -18,6 +18,7 @@ import (
 	"github.com/znasllc-io/memql/component/automations"
 	"github.com/znasllc-io/memql/component/database/dbtest"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	langparser "github.com/znasllc-io/memql/component/language/parser"
 	"github.com/znasllc-io/memql/component/memql"
 )
 
@@ -61,7 +62,7 @@ func TestPruneStaleClusterNodesPreservesFreshHeartbeats(t *testing.T) {
 	_, err = eng.Execute(ctx, `query staleClusterNodes()`)
 	require.NoError(t, err)
 	for _, call := range []string{
-		fmt.Sprintf(`query staleClusterNodes(olderThan: %q)`, now.Add(-30*time.Minute).Format(time.RFC3339Nano)),
+		fmt.Sprintf(`query staleClusterNodes(olderThan: %s)`, langparser.QuoteString(now.Add(-30*time.Minute).Format(time.RFC3339Nano))),
 		`logic pruneStaleClusterNodes(event: {})`,
 	} {
 		t.Run(call, func(t *testing.T) {
