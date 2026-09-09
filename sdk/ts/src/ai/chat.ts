@@ -27,6 +27,9 @@ export interface AiChatResult {
 
 export interface AiChatOptions {
   provider?: string;
+  /** Strict pin to one owned machine, using its bare registration id.
+   * Requires a concrete fleet:<modelId> provider; never falls back to another machine. */
+  fleetRegistrationId?: string;
   signal?: AbortSignal;
 }
 
@@ -68,6 +71,7 @@ export async function aiChat(
         requestId,
         messages: messages.map(toWireMessage),
         ...(opts.provider ? { provider: opts.provider } : {}),
+        ...(opts.fleetRegistrationId ? { fleetRegistrationId: opts.fleetRegistrationId } : {}),
         // Always non-streaming on this surface; callers wanting
         // deltas use aiChatStream.
       },
@@ -177,6 +181,7 @@ export function aiChatStream(
           messages: messages.map(toWireMessage),
           stream: true,
           ...(opts.provider ? { provider: opts.provider } : {}),
+          ...(opts.fleetRegistrationId ? { fleetRegistrationId: opts.fleetRegistrationId } : {}),
         },
       });
     } catch (err) {

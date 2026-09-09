@@ -7,6 +7,7 @@ import { useNow } from "../../../kit/useNow";
 import { machineFromRow, type MachineRow } from "../rows";
 import { useMachineWrites } from "../machines/useMachineWrites";
 import { useModelPulls } from "../machines/useModelPulls";
+import { machineModelsFrom } from "../machines/models";
 import {
   EMPTY_DRAFT,
   barFor,
@@ -171,6 +172,17 @@ export function useAddMachineFlow(): AddMachineFlow {
   // as the machine moving, and settles from the labels when the model is
   // re-advertised rather than from the pull's own end.
   const pulls = useModelPulls(machine?.id ?? "");
+  const failedPull = useMemo(() => {
+    // The feed is newest first. A later download of another model cannot
+    // clear a failure; only a newer attempt of the same model supersedes it.
+    const seen = new Set<string>();
+    const advertised = new Set(machineModelsFrom(machine?.reportedLabels ?? {}).map((model) => model.modelId));
+    return pulls.pulls.find((pull) => {
+      if (seen.has(pull.model)) return false;
+      seen.add(pull.model);
+      return !advertised.has(pull.model) && (pull.status === "failed" || pull.status === "cancelled");
+    }) ?? null;
+  }, [pulls.pulls, machine?.reportedLabels]);
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState("");
   const pullRecommended = useCallback(async () => {
@@ -307,8 +319,13 @@ export function useAddMachineFlow(): AddMachineFlow {
   );
 
   const checks = useMemo(
-    () => (machine === null ? [] : checksFor(draft, machine, beats, now, { live: pulls.live })),
-    [draft, machine, beats, now, pulls.live],
+    () => (machine === null ? [] : checksFor(draft, machine, beats, now, {
+      live: pulls.live,
+      failed: failedPull,
+      feedError: pulls.feedError,
+      loading: pulls.loading,
+    })),
+    [draft, machine, beats, now, pulls.live, failedPull, pulls.feedError, pulls.loading],
   );
   const stops = useMemo(() => stopsFor(facts, checks), [facts, checks]);
   const bar = useMemo(() => barFor(facts, checks), [facts, checks]);

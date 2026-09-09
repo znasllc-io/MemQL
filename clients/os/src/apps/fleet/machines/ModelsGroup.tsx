@@ -60,6 +60,7 @@ export function ModelsGroup({ machine }: { machine: MachineRow }) {
   const inference = useMachineInference(machine.id);
 
   const models = useMemo(() => machineModelsFrom(machine.reportedLabels), [machine.reportedLabels]);
+  const chatModel = models.find((model) => !model.embeddings);
   // THE INVENTORY WINS OVER THE LABELS, and the screenshot is what showed why.
   // Since epic memql#5146 a machine reports its runtimes in two places -- the
   // hardware inventory, with versions, and the `runtime:` labels derived from
@@ -95,10 +96,9 @@ export function ModelsGroup({ machine }: { machine: MachineRow }) {
 
       {/* THE ROUND TRIP (design record 2026-09-08-cockpit-install-wizard,
           D14): a machine serving a model is proved by using it, and this is
-          the one act on the page that does. Offered to whoever can read the
-          page -- the router admits the call as the caller -- and only once a
-          model is advertised, because there is nothing to ask before then. */}
-      {models[0] === undefined ? null : <AskIt modelId={models[0].modelId} machineLabel={machineName(machine)} />}
+          the one act on the page that does. Targeted calls are owner-only;
+          embedding models cannot answer the chat check. */}
+      {isOwner && chatModel ? <AskIt modelId={chatModel.modelId} registrationId={machine.id} machineLabel={machineName(machine)} /> : null}
 
       {models.length > 0 ? (
         <ul className="os-fleet-machinemodel-list">

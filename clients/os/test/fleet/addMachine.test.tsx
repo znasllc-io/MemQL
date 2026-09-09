@@ -217,7 +217,7 @@ describe("minting", () => {
     expect(token.value).toBe(TOKEN);
     expect(token.readOnly).toBe(true);
     expect(screen.getByRole("button", { name: "Copy the worker token" })).toBeTruthy();
-    expect(screen.getByText(/It is not shown again/)).toBeTruthy();
+    expect(screen.getByText(/The token is shown only once/)).toBeTruthy();
   });
 
   it("NEVER writes the token to browser storage or a URL", async () => {
@@ -264,7 +264,7 @@ describe("minting", () => {
     mount(fakeConnection());
     await describeAndMint("box", { inference: true });
     expect((screen.getByLabelText("the local models setup command") as HTMLInputElement).value).toBe(
-      "memql worker setup --inference",
+      "/usr/local/bin/memql worker setup --inference",
     );
     expect(screen.getByText(/once the installer prints SUCCESS/)).toBeTruthy();
   });
@@ -372,7 +372,7 @@ describe("the checks", () => {
     await settle();
     expect(screen.getByText("Screen Recording not granted yet.")).toBeTruthy();
     expect(screen.getByText(/System Settings -> Privacy & Security -> Screen Recording/)).toBeTruthy();
-    expect((screen.getByLabelText("the macos permissions command") as HTMLInputElement).value).toBe("memql worker setup");
+    expect((screen.getByLabelText("the macos permissions command") as HTMLInputElement).value).toBe("/usr/local/bin/memql worker setup");
 
     emit(
       connection,
@@ -416,7 +416,7 @@ describe("the checks", () => {
     await click(screen.getByRole("button", { name: "Ask it something" }));
     await settle();
     expect(h.chat).toHaveBeenCalledTimes(1);
-    expect(h.chat.mock.calls[0]?.[2]).toEqual({ provider: "fleet:llama3.1:8b" });
+    expect(h.chat.mock.calls[0]?.[2]).toEqual({ provider: "fleet:llama3.1:8b", fleetRegistrationId: "v1:worker:registration:mini" });
     expect(screen.getByText("hello")).toBeTruthy();
     expect(screen.getByText(/through fleet:llama3.1:8b/)).toBeTruthy();
   });

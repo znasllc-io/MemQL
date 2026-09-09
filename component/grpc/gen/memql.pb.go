@@ -4369,13 +4369,17 @@ func (x *ToolResultContent) GetUri() string {
 }
 
 type AiChatMsg struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Messages      []*AiChatMessage       `protobuf:"bytes,2,rep,name=messages,proto3" json:"messages,omitempty"`
-	Provider      string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
-	Stream        bool                   `protobuf:"varint,4,opt,name=stream,proto3" json:"stream,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Messages  []*AiChatMessage       `protobuf:"bytes,2,rep,name=messages,proto3" json:"messages,omitempty"`
+	Provider  string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	Stream    bool                   `protobuf:"varint,4,opt,name=stream,proto3" json:"stream,omitempty"`
+	// Optional strict pin to one of the caller's own fleet machines. Clients
+	// send the bare registration id and an explicit fleet:<modelId> provider.
+	// An unavailable or unauthorized target refuses; no other machine serves it.
+	FleetRegistrationId string `protobuf:"bytes,5,opt,name=fleet_registration_id,json=fleetRegistrationId,proto3" json:"fleet_registration_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AiChatMsg) Reset() {
@@ -4434,6 +4438,13 @@ func (x *AiChatMsg) GetStream() bool {
 		return x.Stream
 	}
 	return false
+}
+
+func (x *AiChatMsg) GetFleetRegistrationId() string {
+	if x != nil {
+		return x.FleetRegistrationId
+	}
+	return ""
 }
 
 type AiChatMessage struct {
@@ -17581,13 +17592,14 @@ const file_memql_proto_rawDesc = "" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
 	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\tR\x04data\x12\x10\n" +
-	"\x03uri\x18\x05 \x01(\tR\x03uri\"\x9b\x01\n" +
+	"\x03uri\x18\x05 \x01(\tR\x03uri\"\xcf\x01\n" +
 	"\tAiChatMsg\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12;\n" +
 	"\bmessages\x18\x02 \x03(\v2\x1f.znasllc.memql.v1.AiChatMessageR\bmessages\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x16\n" +
-	"\x06stream\x18\x04 \x01(\bR\x06stream\"Q\n" +
+	"\x06stream\x18\x04 \x01(\bR\x06stream\x122\n" +
+	"\x15fleet_registration_id\x18\x05 \x01(\tR\x13fleetRegistrationId\"Q\n" +
 	"\rAiChatMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x12\n" +

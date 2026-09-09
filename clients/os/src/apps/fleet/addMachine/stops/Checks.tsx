@@ -37,7 +37,7 @@ export function ChecksStop({
   onPullRecommended: () => void;
 }) {
   const label = machineName(machine);
-  const firstModel = machineModelsFrom(machine.reportedLabels)[0]?.modelId ?? "";
+  const chatModel = machineModelsFrom(machine.reportedLabels).find((model) => !model.embeddings)?.modelId ?? "";
 
   const stops: Stop[] = checks.map((check) => ({
     id: check.id,
@@ -56,7 +56,8 @@ export function ChecksStop({
   function bodyFor(check: Check) {
     const hasRepair = check.repair !== undefined;
     const hasAct = check.act !== undefined;
-    if (!hasRepair && !hasAct) return undefined;
+    const hasPullError = check.id === "models" && pullError !== "";
+    if (!hasRepair && !hasAct && !hasPullError) return undefined;
     return (
       <div className="os-stop-body os-fleet-repair">
         {check.act === "pullRecommended" ? (
@@ -67,11 +68,11 @@ export function ChecksStop({
             <Caption>Onto {label}, in the order the catalog recommends for its class. Several gigabytes.</Caption>
           </div>
         ) : null}
-        {check.act === "pullRecommended" && pullError !== "" ? (
+        {hasPullError ? (
           <Notice
             tone="error"
-            sentence="The pull was not started."
-            next="Nothing was written. The cluster's own reason is below; the setup command on the machine still works."
+            sentence="The recommended pulls did not all start."
+            next="Some models may already be downloading. Check their progress before retrying; the cluster's reason is below."
             detail={pullError}
           />
         ) : null}
@@ -79,7 +80,11 @@ export function ChecksStop({
         {check.command === undefined ? null : (
           <CopyField value={check.command} label={`the ${check.name.toLowerCase()} command`} />
         )}
-        {check.act === "askIt" && firstModel !== "" ? <AskIt modelId={firstModel} machineLabel={label} /> : null}
+        {check.act === "askIt" ? (
+          chatModel !== "" ? <AskIt modelId={chatModel} machineLabel={label} registrationId={machine.id} /> : (
+            <Caption>Only embedding models are available. Add a text model to try the chat check.</Caption>
+          )
+        ) : null}
       </div>
     );
   }

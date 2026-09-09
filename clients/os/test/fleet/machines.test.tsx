@@ -193,6 +193,22 @@ describe("the machines directory", () => {
     expect(Number.isNaN(Date.parse(args.revokedAt))).toBe(false);
   });
 
+  it.each([false, true])("offers the correct uninstall location when revoked=%s", async (revoked) => {
+    const row = revoked ? REVOKED : LIVE;
+    const connection = fakeConnection({ myWorkersWithStatus: [row] });
+    mount(connection, revoked);
+    await click(await screen.findByText(revoked ? "Old laptop" : "Studio mini"));
+    if (!revoked) await click(screen.getByRole("button", { name: "Remove this machine" }));
+
+    const command = () => (screen.getByLabelText("the uninstall command") as HTMLInputElement).value;
+    expect(command()).not.toContain("--user-local");
+    await click(screen.getByRole("radio", { name: /My account only/ }));
+    expect(command()).toContain("--user-local");
+    await click(screen.getByRole("radio", { name: /System installation/ }));
+    expect(command()).not.toContain("--user-local");
+    expect(connection.query.revokeWorker).not.toHaveBeenCalled();
+  });
+
   it("renders the reported local apps, marking only the runnable ones", async () => {
     const connection = fakeConnection({
       myWorkersWithStatus: [

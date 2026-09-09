@@ -46,7 +46,7 @@ export function MachineStop({
           id="fleet-add-name"
           label="What is this machine called"
           value={draft.name}
-          placeholder="studio-mac-mini"
+          placeholder={draft.platform === "linux" ? "pop-os-desktop" : "studio-mac-mini"}
           onChange={(name) => onDraft({ name })}
           onEnter={onMint}
         />
@@ -65,14 +65,22 @@ export function MachineStop({
         options={PLATFORMS}
       />
 
+      <Check checked={draft.userLocal ?? false} onChange={(userLocal) => onDraft({ userLocal })}>
+        Install for my account only, without a password, in ~/.memql/bin. Leave this off to
+        install a protected system command in /usr/local/bin using your account password.
+      </Check>
+
       <Check checked={draft.computerUse} onChange={(computerUse) => onDraft({ computerUse })}>
-        Install the computer-use build (mouse, keyboard, screenshots). It asks for Accessibility
-        and Screen Recording the first time it runs.
+        Install the computer-use build (mouse, keyboard, screenshots).{" "}
+        {draft.platform === "mac"
+          ? "macOS asks for Accessibility and Screen Recording the first time it runs."
+          : "Mouse and keyboard control require an X11 desktop session. Local models and other tools also work on Wayland."}
       </Check>
 
       <Check checked={draft.inference} onChange={(inference) => onDraft({ inference })}>
-        This machine will run local models. The installer checks the hardware, sets up a runtime
-        and pulls a starting model in the same terminal -- several gigabytes, so it takes a while.
+        This machine will run local models. After installation, run a second command to check
+        the hardware, approve the runtime setup and download the recommended models. Allow
+        several gigabytes of disk space and time for the download.
       </Check>
 
       {connected ? null : (

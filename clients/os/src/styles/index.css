@@ -13308,6 +13308,7 @@ a.os-button {
 /* ---- the stops' bodies ---- */
 .os-fleet-addstop {
   gap: 10px;
+  max-width: 78ch;
 }
 .os-fleet-addstop .os-subhead {
   margin: 4px 0 0;

@@ -252,9 +252,12 @@ type FleetCallRequest struct {
 	// does not mean "any machine". The two paths are separate all the way
 	// down (memql#4678).
 	ActingUserId string
-	ModelId      string
-	Kind         string
-	Messages     []common.ChatMessage
+	// RegistrationId strictly limits dispatch to one of ActingUserId's own
+	// machines. Empty retains normal fleet routing, including shared machines.
+	RegistrationId string
+	ModelId        string
+	Kind           string
+	Messages       []common.ChatMessage
 	// ContextTokens is the requested runtime window, also a machine eligibility floor.
 	ContextTokens int
 	// Schema is set for a structured call; its presence is also what makes
@@ -863,6 +866,9 @@ func (p *fleetProvider) call(ctx context.Context, req FleetCallRequest) (FleetCa
 		return FleetCallResult{}, fmt.Errorf("%w: this node has no fleet inference installed", ErrFleetUnavailable)
 	}
 	req.ModelId = p.modelId
+	if registrationId := common.FleetRegistrationFromContext(ctx); registrationId != "" {
+		req.RegistrationId = registrationId
+	}
 	req.ActingUserId = p.actingUserId
 	if strings.TrimSpace(req.ActingUserId) == "" {
 		req.ActingUserId = actingUserFromContext(ctx)

@@ -255,7 +255,27 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 		plan RoutePlan
 		err  error
 	)
-	if strings.TrimSpace(req.ActingUserId) == "" {
+	if strings.TrimSpace(req.RegistrationId) != "" {
+		// A machine pin narrows the ordinary owner-scoped plan. It cannot
+		// authorize a foreign/shared machine or bypass model/context/policy
+		// eligibility, and it must never fall through to another candidate.
+		plan, err = f.router.PlanModel(ctx, req.ActingUserId, req.ModelId, needs)
+		if err == nil {
+			selected := make([]Candidate, 0, 1)
+			for _, candidate := range plan.Candidates {
+				if sameSubject(candidate.RegistrationId, req.RegistrationId) {
+					selected = append(selected, candidate)
+				}
+			}
+			plan.Candidates = selected
+			if len(selected) == 0 {
+				return memqlengine.FleetCallResult{}, &memqlengine.FleetUnavailable{
+					ModelId: req.ModelId, Total: 1,
+					Considered: map[string]string{"selected machine": "unavailable or not eligible for this call; check that it is yours, online, and offers the model with the required context"},
+				}
+			}
+		}
+	} else if strings.TrimSpace(req.ActingUserId) == "" {
 		plan, err = f.router.PlanSharedModel(ctx, req.ModelId, needs)
 	} else {
 		// The caller's OWN machines first, then the ones shared with the

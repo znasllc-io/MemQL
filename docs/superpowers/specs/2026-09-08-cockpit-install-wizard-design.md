@@ -328,3 +328,28 @@ broadcasts; the installers' sudo prompt, `--user-local`, the LaunchAgent / syste
 `setup_inference`'s exit-3 message; the Wayland gate; the kit rail's state set and
 `nextOpen`; the ActionBar's `children` confirmation; the three intent producers. All read
 on 2026-09-08.
+
+## 10. Pop!_OS walkthrough corrections (2026-09-09)
+
+The first-machine walkthrough retains the four-stop flow and shared brand/kit.
+Linux copy names the X11 requirement for mouse and keyboard control and the
+second interactive runtime setup command. Installation location is an explicit
+choice: the default protected system command or account-only `--user-local`.
+Setup uses the selected absolute binary path, including quoted `$HOME` for
+account-only installs, and cancellation/removal uses the corresponding flag.
+Form content stays within a readable 78ch measure at wide window sizes.
+
+Download progress remains visible while any requested model is pulling. The
+latest attempt for each model determines failure, so another model's success
+cannot hide it; a repaired model's advertisement clears an old terminal failure.
+Feed failures and partial-start errors are visible, and retry remains available.
+Back after registration finishes the wizard and returns to Machines.
+
+The chat proof selects a non-embedding model and carries an optional
+`AiChatMsg.fleet_registration_id` alongside a concrete `fleet:<modelId>` provider.
+The receiving engine resolves the bare ID, checks ownership, and restricts every
+attempt to that registration, including a worker connected on another replica.
+It refuses an unavailable target rather than letting a sibling answer. The
+machine detail's chat proof uses the same owner-only contract. No worker wire
+change is needed: the existing forwarded call already carries the selected
+registration and authenticated caller.

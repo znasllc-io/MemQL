@@ -178,7 +178,7 @@ describe("the checks", () => {
     expect(perms.state).toBe("open");
     expect(perms.answer).toBe("Screen Recording not granted yet.");
     expect(perms.repair).toContain("System Settings -> Privacy & Security -> Screen Recording");
-    expect(perms.command).toBe("memql worker setup");
+    expect(perms.command).toBe("/usr/local/bin/memql worker setup");
   });
 
   it("settles the permissions once both are granted, and is unknown for a cockpit that never reported", () => {
@@ -216,7 +216,7 @@ describe("the checks", () => {
     const checks = checksFor(MAC_INF, machine(), 0, NOW);
     const runtime = checks.find((c) => c.id === "runtime")!;
     expect(runtime.state).toBe("open");
-    expect(runtime.command).toBe("memql worker setup --inference");
+    expect(runtime.command).toBe("/usr/local/bin/memql worker setup --inference");
     // The models line is not reachable until there is a runtime.
     expect(checks.find((c) => c.id === "models")?.state).toBe("ahead");
   });
@@ -227,7 +227,7 @@ describe("the checks", () => {
     expect(idle.find((c) => c.id === "runtime")).toMatchObject({ state: "done", answer: "Found: ollama." });
     // Nothing on the runtime and nothing in flight: the person's turn, with
     // the OS's own act beside the command.
-    expect(idle.find((c) => c.id === "models")).toMatchObject({ state: "open", act: "pullRecommended", command: "memql worker setup --inference" });
+    expect(idle.find((c) => c.id === "models")).toMatchObject({ state: "open", act: "pullRecommended", command: "/usr/local/bin/memql worker setup --inference" });
 
     const pulling = checksFor(MAC_INF, withRuntime, 0, NOW, {
       live: { pullId: "p1", workerId: "m1", model: "llama3.1:8b", status: "running", statusLine: "pulling 8eeb52dfb3bb", layer: "", completedBytes: 1, totalBytes: 2, readvertised: false, errorMessage: "", requestedAt: "", updatedAt: "", endedAt: "" },
@@ -402,8 +402,8 @@ describe("the manual steps", () => {
     const inf = installSteps({ ...LINUX_CU, inference: true });
     expect(inf).toHaveLength(5);
     expect(inf[2]).toMatch(/Wayland/);
-    expect(inf[3]).toMatch(/several gigabytes/);
-    expect(inf[4]).toContain("systemd");
+    expect(inf[3]).toContain("systemd");
+    expect(inf[4]).toMatch(/several gigabytes/);
   });
 
   it("states the service as a fact of the command, per platform", () => {
