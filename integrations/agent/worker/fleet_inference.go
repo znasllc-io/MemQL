@@ -210,8 +210,8 @@ func (f *FleetInference) Call(ctx context.Context, req memqlengine.FleetCallRequ
 	}
 }
 
-// buildStart renders the wire envelope once, so every candidate is offered the
-// same call.
+// buildStart renders the call once. Each selected candidate receives its own
+// bounded context allocation in attempt; messages and the required floor stay unchanged.
 func (f *FleetInference) buildStart(req memqlengine.FleetCallRequest) *memqlv1.ModelCallStart {
 	start := &memqlv1.ModelCallStart{
 		RequestId:      id.NewShortId(),
@@ -303,6 +303,11 @@ func (f *FleetInference) attempt(
 	cand Candidate,
 	start *memqlv1.ModelCallStart,
 ) (memqlengine.FleetCallResult, ForwardOutcome, error) {
+	allocated, err := contextStartForCandidate(req, cand, start)
+	if err != nil {
+		return memqlengine.FleetCallResult{}, ForwardRefusedBeforeStart, err
+	}
+	start = allocated
 	if f.isLocal(cand) {
 		return f.attemptLocal(ctx, req, cand, start)
 	}
