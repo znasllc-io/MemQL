@@ -69,6 +69,8 @@ export interface MachineRow {
    *  when the machine's build predates the descriptor -- a fact worth
    *  rendering as "not reported" rather than as "none". */
   displayServer: string;
+  /** The descriptor's build-tag flag, not proof of a usable desktop.
+   *  Render computerUseStatus when describing whether control is available. */
   computerUseAvailable: boolean;
   reportedLabels: LabelMap;
   operatorLabels: LabelMap;
@@ -157,6 +159,53 @@ export function permissionsFrom(raw: unknown): MachinePermissions {
     x11Display: obj["x11_display"] === true,
     detail: typeof obj["detail"] === "string" ? obj["detail"] : "",
   };
+}
+
+/** Read the desktop facts together: a computer-use binary can run on
+ *  Wayland, without a display, or without the required macOS permissions. */
+export function computerUseStatus(machine: MachineRow): {
+  state: "available" | "unavailable" | "unknown";
+  answer: string;
+} {
+  const display = machine.displayServer.trim().toLowerCase();
+  // An absent optional descriptor projects to an empty display and false
+  // support flag. That is missing evidence, not an installation diagnosis.
+  if (display === "") {
+    return { state: "unknown", answer: "Desktop session not reported. Computer-use availability is unknown." };
+  }
+  if (display === "wayland") {
+    return { state: "unavailable", answer: "Unavailable on Wayland. Computer use requires an X11 session." };
+  }
+  if (!machine.computerUseAvailable) {
+    return { state: "unavailable", answer: "Unavailable — Computer-use support is not reported. Install the computer-use version of Cockpit." };
+  }
+  if (display === "none") {
+    return { state: "unavailable", answer: "Unavailable — No display reported. Sign in to a desktop session (X11 on Linux)." };
+  }
+  if (!machine.capabilities.includes("COMPUTERUSE")) {
+    return { state: "unavailable", answer: "Unavailable — This machine has not registered for computer use." };
+  }
+  if (display !== "x11" && display !== "quartz") {
+    return { state: "unknown", answer: "Desktop session not reported. Computer-use availability is unknown." };
+  }
+  const permissions = machine.permissions;
+  if (display === "quartz" || machine.os === "darwin") {
+    if (!permissions.present) {
+      return { state: "unknown", answer: "macOS permissions not reported. Computer-use availability is unknown." };
+    }
+    const missing = [
+      ...(permissions.accessibility ? [] : ["Accessibility"]),
+      ...(permissions.screenRecording ? [] : ["Screen Recording"]),
+    ];
+    if (missing.length > 0) {
+      return { state: "unavailable", answer: `Unavailable — ${missing.join(" and ")} not granted. Allow access in macOS Privacy & Security.` };
+    }
+    return { state: "available", answer: "Available — Accessibility and Screen Recording granted." };
+  }
+  if (permissions.present && !permissions.x11Display) {
+    return { state: "unavailable", answer: "Unavailable — The X11 display is not available to the worker." };
+  }
+  return { state: "available", answer: "Available — X11 desktop reported." };
 }
 
 /** One local app on a machine. */
