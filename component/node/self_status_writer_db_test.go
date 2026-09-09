@@ -14,6 +14,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/znasllc-io/memql/component/database/dbtest"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	langparser "github.com/znasllc-io/memql/component/language/parser"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 )
 
@@ -58,7 +59,7 @@ func TestSelfStatusWriterProtectsSteadyHealthyNodeFromThirtyMinutePrune(t *testi
 		require.NoError(t, writer.refresh(ctx))
 		at = at.Add(time.Minute)
 	}
-	result, err := engine.Execute(ctx, fmt.Sprintf(`query staleClusterNodes(olderThan: %q)`, now.Add(-30*time.Minute).Format(time.RFC3339)))
+	result, err := engine.Execute(ctx, fmt.Sprintf(`query staleClusterNodes(olderThan: %s)`, langparser.QuoteString(now.Add(-30*time.Minute).Format(time.RFC3339))))
 	require.NoError(t, err)
 	require.NotNil(t, result.Bundle)
 	foundOld := false
