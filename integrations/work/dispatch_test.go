@@ -133,12 +133,16 @@ func TestDispatchYieldsToAPeerThatWonTheClaim(t *testing.T) {
 // timer is due -- THAT write is the event that dispatches it. Dispatching on
 // `waiting` itself would run a run that is deliberately paused on a person.
 func TestRunEventFiltering(t *testing.T) {
+	ordinary := runEvent("ordinary", "running", "seedSelfAccount", "")
+	delete(ordinary.Payload["payload"].(map[string]any), "goalId")
+	ordinary.Payload["payload"].(map[string]any)["triggerEvent"] = map[string]any{"topic": "system.startup"}
 	cases := []struct {
 		name       string
 		ev         events.Event
 		wantClaims int
 	}{
 		{"running with a template dispatches", runEvent("r1", "running", "demo", "u1"), 1},
+		{"ordinary scheduler journal does not dispatch again", ordinary, 0},
 		{"compiling does not", runEvent("r2", "compiling", "", "u1"), 0},
 		{"waiting does not", runEvent("r3", "waiting", "demo", "u1"), 0},
 		{"succeeded does not", runEvent("r4", "succeeded", "demo", "u1"), 0},
@@ -224,5 +228,32 @@ func TestClaimLeaseOutlivesTheAbandonWindow(t *testing.T) {
 	abandon := time.Duration(DefaultAbandonedAfterSeconds) * time.Second
 	if runClaimTTL <= abandon {
 		t.Fatalf("runClaimTTL (%s) must exceed the abandoned window (%s), or a live-but-slow claimant is stolen from and its run executes twice", runClaimTTL, abandon)
+	}
+}
+
+func TestCanDispatchStoredRunRecovery(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name, goal, status, requested, kind string
+		recovery                            bool
+		delay                               time.Duration
+		want                                bool
+	}{
+		{"ordinary event", "", "running", "running", "", false, 0, false},
+		{"ordinary recovery", "", "running", "running", "", true, 0, true},
+		{"compiled event", "g", "running", "running", "", false, 0, true},
+		{"stale terminal", "g", "succeeded", "running", "", true, 0, false},
+		{"due inference recovery", "", "waiting", "waiting", "inferenceUnavailable", true, -time.Second, true},
+		{"future inference recovery", "", "waiting", "waiting", "inferenceUnavailable", true, time.Hour, false},
+		{"stale event into inference", "g", "waiting", "running", "inferenceUnavailable", false, -time.Second, false},
+		{"approval wait", "g", "waiting", "waiting", "approval", true, -time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := DispatchRequest{Status: tc.requested, Recovery: tc.recovery}
+			waiting := map[string]any{"approvalKind": tc.kind, "resumeAt": now.Add(tc.delay).UTC().Format(time.RFC3339Nano)}
+			if got := req.CanDispatchStoredRun(tc.goal, tc.status, waiting, now); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
 	}
 }

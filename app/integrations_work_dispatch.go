@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/znasllc-io/memql/component/automations"
 	"github.com/znasllc-io/memql/component/events"
@@ -131,6 +132,13 @@ func (d *workRunDispatcher) Dispatch(ctx context.Context, req workspine.Dispatch
 		return
 	}
 
+	// A delayed running event may now name a terminal run. Ordinary
+	// scheduler journals must never be adopted as compiled work either:
+	// that duplicates their effects and discards their original event/trust.
+	if !req.CanDispatchStoredRun(journal.GoalId, journal.Status, journal.WaitingOn, time.Now()) {
+		return
+	}
+
 	auto, err := d.resolve(journal.AutomationName)
 	if err != nil {
 		// A run naming an automation this node cannot resolve is a DEAD run,
@@ -143,12 +151,13 @@ func (d *workRunDispatcher) Dispatch(ctx context.Context, req workspine.Dispatch
 	}
 
 	if journal.FailedStep == "" && len(journal.Steps) == 0 {
-		// A FRESH run: compiled, never executed. Adopt the row and run from
-		// the first step.
+		// A run without step intents or receipts starts at the first step.
+		// Ordinary recovery restores its saved trigger; goals bind variables.
 		exec, execErr := d.exec.ExecuteAdopted(ctx, auto, automations.RunAdoption{
 			RunId:       req.RunId,
 			TriggeredBy: "compiled",
 			Variables:   d.variables(req, journal),
+			Journal:     journal,
 		})
 		d.report(ctx, req, exec, execErr)
 		return
