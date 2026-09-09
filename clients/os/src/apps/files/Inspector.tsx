@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, CornerUpRight, Download, FilePlus2, RotateCcw, Sparkles, X } from "lucide-react";
+import { Archive, CornerUpRight, Download, FilePlus2, RotateCcw, X } from "lucide-react";
 
 import { useAuthSource } from "../../auth/context";
 import { useSession } from "../../chrome/access";
+import { Mark } from "../../chrome/Mark";
 import { useOs } from "../../chrome/state";
 import { canOpen } from "../../system/registry";
 import { openInVsCode, VSCODE_NO_ANSWER_MESSAGE } from "../../items/vscode";
@@ -398,7 +399,7 @@ export function Inspector({
           onClick={() => onAsk(`app:files/browse file:${name}`)}
           ariaLabel={`Ask about ${name}`}
         >
-          <Sparkles size={13} aria-hidden /> Ask
+          <Mark size={13} aria-hidden /> Ask
         </Button>
         <Button onClick={onClose} ariaLabel="Close details">
           <X size={14} aria-hidden />

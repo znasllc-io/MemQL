@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
+import { Mark } from "../../chrome/Mark";
 import { ActionBar, type Act } from "../../kit/ActionBar";
 import {
   Button,
@@ -229,7 +230,7 @@ export function PersonPage({
       <Head title={name} meta={person.primaryEmail}>
         <BackToPeople onBack={onBack} />
         <Button tone="quiet" onClick={() => askContext(`app:users person:${person.primaryEmail || person.id}`)} ariaLabel={`Ask about ${name}`}>
-          <Sparkles size={13} aria-hidden /> Ask
+          <Mark size={13} aria-hidden /> Ask
         </Button>
       </Head>
 

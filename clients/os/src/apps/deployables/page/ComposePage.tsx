@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
+import { Mark } from "../../../chrome/Mark";
 import { Button, Caption, Head, Notice, Panel, useLiveView } from "../../../kit";
 import { ActionBar, type Act } from "../../../kit/ActionBar";
 import { useAccountOptions } from "../../accounts/tie";
@@ -618,7 +619,7 @@ export function ComposePage(props: ComposePageProps) {
                 }
                 ariaLabel="Ask about this deployable"
               >
-                <Sparkles size={13} aria-hidden /> Ask
+                <Mark size={13} aria-hidden /> Ask
               </Button>
             ) : null}
           </Head>

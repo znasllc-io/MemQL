@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Concepts } from "@znasllc-io/memql-sdk-core/client";
-import { ArrowLeft, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 
+import { Mark } from "../../chrome/Mark";
 import { Button, Caption, Chips, Fact, Facts, Head, Notice, Panel, Subhead } from "../../kit";
 import { ActionBar, type Act } from "../../kit/ActionBar";
 import { Measure } from "../../kit/Measure";
@@ -107,7 +108,7 @@ export function StorePage({
                 onClick={() => onAsk(`app:stores store:${store.storeId}`)}
                 ariaLabel={`Ask about ${name}`}
               >
-                <Sparkles size={13} aria-hidden /> Ask
+                <Mark size={13} aria-hidden /> Ask
               </Button>
             ) : null}
           </Head>

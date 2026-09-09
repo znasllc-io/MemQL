@@ -1,5 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
-import { Maximize2, Minimize2, Minus, Settings2, Sparkles, X } from "lucide-react";
+import { Maximize2, Minimize2, Minus, Settings2, X } from "lucide-react";
 
 import { useAsk } from "../ask/AskProvider";
 import { ProvenanceDot } from "../kit";
@@ -21,6 +21,7 @@ import {
 import { roleAdmits } from "../system/roles";
 import type { OsWindow } from "../system/windows";
 import { useSession } from "./access";
+import { Mark } from "./Mark";
 import { useOs } from "./state";
 import { WindowErrorBoundary } from "./WindowErrorBoundary";
 
@@ -122,7 +123,7 @@ export function WindowFrame({
             aria-label={`Ask about ${manifest.name}`}
             onClick={() => openAsk(contextTag)}
           >
-            <Sparkles size={14} aria-hidden />
+            <Mark size={14} aria-hidden />
           </button>
           {manifest.settingsSection ? (
             <button
