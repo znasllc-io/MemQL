@@ -1,4 +1,4 @@
-package memql_test
+package fleetcatalog_test
 
 import (
 	"context"

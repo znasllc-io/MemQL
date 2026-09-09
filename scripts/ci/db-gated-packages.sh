@@ -154,6 +154,7 @@ readonly DB_GATED_TREES=(
 	"component/logstore"
 	"component/packages"
 	"component/sitetraffic"
+	"component/worker/fleetcatalog"
 	"integrations/embedding"
 	"integrations/shopify"
 	"integrations/work"
