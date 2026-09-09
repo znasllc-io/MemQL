@@ -206,6 +206,14 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		// stamps internal origin, which is what @serverOnly admits.
 		{Path: "rbac/mutations.memql", Name: "createRole"}:       true,
 		{Path: "rbac/mutations.memql", Name: "createCapability"}: true,
+
+		// The release-curated model catalog is global reference data with no
+		// owner field. An actor.userId filter cannot authorize changing release
+		// curation. Only the internal system seed path writes these rows;
+		// clients use modelProfileAdd/Remove for non-curated operator entries.
+		// The curated-row write guard independently refuses non-system actors.
+		{Path: "models/mutations.memql", Name: "createModelProfile"}: true,
+
 		// epic memql#5165. The boot backfill's sweep set. It runs from the
 		// seed materializer at startup under the system actor -- the same
 		// position usersForSeedSweep is in -- so actor.userId names nobody,

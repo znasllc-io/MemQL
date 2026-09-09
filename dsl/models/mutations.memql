@@ -1,16 +1,62 @@
-// models/mutations.memql -- the operator's half of the catalog (epic memql#5137, D1).
+// models/mutations.memql -- catalog boot writes and operator entries (epic memql#5137, D1).
 //
-// THE WRITE FLOOR IS developer, WHICH IS RANK >= 300 -- {developer, owner}, and
+// THE OPERATOR WRITE FLOOR IS developer, RANK >= 300 -- {developer, owner}, and
 // deliberately NOT admin. D1 says "owner or developer". The ladder puts
 // developer (300) above admin (200) because they are different power axes:
 // admin manages people, developer authors what the cluster runs. A catalog
 // entry is a thing the cluster runs, so it is the engineering axis.
 //
-// THESE TWO WRITE OPERATOR ENTRIES ONLY. `curated` is stamped false and is not
-// in accept{}: a caller cannot mint a row that survives the next boot's
+// modelProfileAdd AND modelProfileRemove WRITE OPERATOR ENTRIES ONLY.
+// `curated` is stamped false and is not in accept{}: a caller cannot mint
+// a row that survives the next boot's
 // re-seed, because a row that claimed to be curated and was not would be
 // silently replaced by the SeedMaterializer and the operator would watch their
 // edit disappear with no error anywhere.
+
+/// Materialize a release-curated model profile on boot, including catalog revisions.
+///
+/// The SeedMaterializer invokes create<Concept> and maps the seed body's id to modelProfileId.
+/// Every seed field is accepted so recommendations, budgets and metadata survive materialization.
+/// SERVER-ONLY: these are global reference rows with no owner to scope by. An actor.userId filter
+/// cannot express permission to change release curation; clients use modelProfileAdd and
+/// modelProfileRemove for their operator entries. The materializer supplies internal origin and
+/// the system actor; the curated-row write guard independently refuses non-system changes.
+@serverOnly
+mutate modelProfile createModelProfile {
+  args {
+    modelProfileId   string!
+    modelId          string!
+    category         enum("text", "reasoning", "omni", "vision", "audioIn", "audioOut", "imageGen", "videoGen", "embeddings")!
+    runtime          enum("ollama", "mlx", "whispercpp", "nemo", "kokoro", "mflux", "comfyui")!
+    minMachineClass  enum("16", "24", "32", "64", "128")!
+    family           string
+    params           int
+    quant            string
+    sizeBytes        int
+    memoryNeedBytes  int
+    contextWindow    int
+    flags            []string
+    dimensions       int
+    license          string
+    source           string
+    recommendedFor   []string
+    offeredOn        []string
+    notes            string
+    measured         object
+    active           bool
+    curated          bool
+    unavailable      bool
+  }
+  insert {
+    accept { modelId, category, runtime, minMachineClass, family, params, quant, sizeBytes, memoryNeedBytes, contextWindow, flags, dimensions, license, source, recommendedFor, offeredOn, notes, measured }
+    stamp {
+      id:          args.modelProfileId
+      active:      args.active ?? true
+      curated:     args.curated ?? true
+      unavailable: args.unavailable ?? false
+    }
+  }
+}
 
 /// Add a model to the catalog by id. The operator's entry, marked `curated: false`.
 ///
