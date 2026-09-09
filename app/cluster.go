@@ -535,9 +535,11 @@ func (a *App) cluster() {
 		}
 
 		// Active topology reconciliation / fast reaper (epic memql#1871,
-		// memql#1874). Every mesh replica starts the loop; a Postgres advisory
+		// memql#1874). BFF replicas start the loop; a Postgres advisory
 		// lock elects ONE cluster-wide leader that reconciles, so two replicas
-		// never double-retire the same node. It drives topology freshness to
+		// never double-retire the same node. Only BFF owns the unrestricted
+		// worker fan-out; identity and worker peer graphs cannot establish
+		// cluster-wide absence. It drives topology freshness to
 		// seconds by retiring (a) nodes whose deployment is superseded/failed/
 		// rolled_back (supersededDeployments, immediate) and (b) nodes
 		// continuously absent from the live mesh past a short grace window --
@@ -555,9 +557,11 @@ func (a *App) cluster() {
 			// DIRECT (non-pooled) endpoint -- a transaction-mode pooler would
 			// recycle the backend out from under the held lock. Falls back to
 			// the main pool when DIRECT_DSN is unset.
-			a.Dependencies = append(a.Dependencies, node.NewTopologyReconciler(
+			if reconciler := node.NewTopologyReconciler(
 				nodeIdentity, peerMgr, a.engine, a.directDBGetter(), a.Logger,
-			))
+			); reconciler != nil {
+				a.Dependencies = append(a.Dependencies, reconciler)
+			}
 		}
 	}
 

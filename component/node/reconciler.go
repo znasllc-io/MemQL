@@ -12,10 +12,10 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/znasllc-io/memql/core/component"
 	"github.com/znasllc-io/memql/component/auth"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/common"
+	"github.com/znasllc-io/memql/core/component"
 )
 
 // TopologyReconciler is the active topology reconciliation loop / fast reaper
@@ -45,10 +45,12 @@ import (
 //     IMMEDIATELY -- no grace -- so a superseded deployment's pods clear from
 //     topology within seconds of promotion completing.
 //
-// Multi-node posture: every mesh replica runs this loop, but a Postgres
+// Multi-node posture: every BFF replica runs this loop, but a Postgres
 // session-level advisory lock (the CronLeader pattern, #561) elects ONE
 // cluster-wide leader that actually reconciles -- so two replicas never
-// double-retire the same node. Failover is automatic: if the leader pod dies
+// double-retire the same node. Only BFF owns the unrestricted worker fan-out;
+// identity and worker roles have narrower peer views that cannot prove a node
+// globally absent. Failover is automatic: if the leader BFF pod dies
 // its lock connection drops and Postgres releases the lease, and the next
 // poll on a surviving replica re-acquires it.
 //
@@ -129,7 +131,10 @@ const (
 	reconcileGraceEnv    = "MEMQL_NODE_RECONCILE_GRACE_SECONDS"
 )
 
-// NewTopologyReconciler builds the reconciler. A nil engine, nil peerMgr, or
+// NewTopologyReconciler builds a reconciler only for BFF, whose peer view owns
+// the unrestricted worker fan-out. Other roles return nil and must not contend
+// for the global lease: missing peers in their narrower graphs are not absent
+// from the cluster. A nil engine, nil peerMgr, or
 // nil dbGetter degrades to a no-op loop (it still starts as a Dependency but
 // reconciles nothing) so non-mesh / DB-less binaries and tests are tolerated.
 // Interval + grace come from the env knobs with sane defaults.
@@ -140,6 +145,9 @@ func NewTopologyReconciler(
 	dbGetter func() *bun.DB,
 	logger *slog.Logger,
 ) *TopologyReconciler {
+	if self == nil || self.Type != NodeTypeBFF {
+		return nil
+	}
 	comp, _ := component.New(TopologyReconcilerComponentName)
 	// Convert the concrete *PeerManager to the interface only when non-nil so a
 	// nil peerMgr leaves r.peers a true nil interface (not a typed-nil), which
