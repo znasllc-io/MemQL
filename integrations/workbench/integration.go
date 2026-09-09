@@ -1198,7 +1198,7 @@ func (i *Integration) handleTeardownDirectory(ctx context.Context, args map[stri
 
 // genOutputIdEngine is the content-id engine used to derive deterministic
 // generatedOutput ids. Safe for concurrent use.
-var genOutputIdEngine = id.New()
+var genOutputIdEngine = id.NewUntracked()
 
 // deriveGeneratedOutputId mints a deterministic v1:library:generatedOutput
 // id from (source, ownerUserId, stableKey). Deterministic by design:

@@ -22,7 +22,7 @@ import (
 
 // genOutputIdEngine is the content-id engine used to derive deterministic
 // generatedOutput ids. Safe for concurrent use.
-var genOutputIdEngine = id.New()
+var genOutputIdEngine = id.NewUntracked()
 
 // deriveGeneratedOutputId mints a deterministic v1:library:generatedOutput
 // id from the producing (source, ownerUserId, stableKey). Deterministic by

@@ -9,7 +9,7 @@ import (
 )
 
 // fingerprintEngine is the shared engine for automation fingerprinting.
-var fingerprintEngine = id.New()
+var fingerprintEngine = id.NewUntracked()
 
 // StepDeterministicFingerprint computes a content-addressed ID from the
 // deterministic aspects of a step execution.

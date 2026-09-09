@@ -11,7 +11,7 @@ import (
 
 // idEngine is the shared content-addressing engine. One per process: it
 // memoises, and every mirror row id in a backfill runs through it.
-var idEngine = id.New()
+var idEngine = id.NewUntracked()
 
 // mapper.go -- one fetched object becomes one row and its children.
 //
