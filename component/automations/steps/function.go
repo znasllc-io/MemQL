@@ -216,7 +216,7 @@ func renderFunctionArgs(args map[string]any) string {
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%s", key, renderMemQLValue(args[key])))
+		parts = append(parts, fmt.Sprintf("%s: %s", key, renderMemQLValue(args[key])))
 	}
 	return strings.Join(parts, ", ")
 }
