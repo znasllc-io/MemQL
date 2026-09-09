@@ -2,7 +2,6 @@ package memql
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -231,20 +230,6 @@ func evaluateModules(ctx context.Context, r readinessResolvers, mods []envregist
 	return out
 }
 
-// integrationReport is the slice of integration.<name>.status's payload the
-// evaluator reads. The report's own fields, nothing invented.
-type integrationReport struct {
-	Name     string `json:"name"`
-	State    string `json:"state"`
-	Settings []struct {
-		Source string `json:"source"`
-	} `json:"settings"`
-	Credentials []struct {
-		Present bool   `json:"present"`
-		Source  string `json:"source"`
-	} `json:"credentials"`
-}
-
 // readinessResolvers wires the evaluator to this node: the environment, the
 // two row tiers, the plug-in registry, the provider registry and the
 // in-process capability map.
@@ -285,35 +270,9 @@ func (e *MemQLEngine) readinessResolvers() readinessResolvers {
 				return "", false, true, err
 			}
 			for _, n := range nodes {
-				var envelope struct {
-					Integrations []integrationReport `json:"integrations"`
-				}
-				if err := json.Unmarshal(n.Payload, &envelope); err != nil {
-					continue
-				}
-				for _, rep := range envelope.Integrations {
-					if rep.Name != name {
-						continue
-					}
-					// Only the requested integration's declared self-report
-					// answers setup. Unknown state is not missing configuration.
-					switch rep.State {
-					case "configured", "unhealthy", "needs_configuration":
-					default:
-						return "", false, true, errors.New("readiness: integration status has no recognized state")
-					}
-					touched := false
-					for _, s := range rep.Settings {
-						if s.Source != "" && s.Source != readinessSourceUnset {
-							touched = true
-						}
-					}
-					for _, c := range rep.Credentials {
-						if c.Present {
-							touched = true
-						}
-					}
-					return rep.State, touched, true, nil
+				state, touched, err := readiness.IntegrationStatus(n.Payload, name)
+				if err == nil {
+					return state, touched, true, nil
 				}
 			}
 			// Malformed or missing reports cannot establish whether setup

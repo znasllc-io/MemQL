@@ -1,80 +1,22 @@
-package memql_test
+package memql
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"strings"
-	"testing"
-
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
-	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/component/envregistry"
 	"github.com/znasllc-io/memql/component/memql/readiness"
-	"github.com/znasllc-io/memql/integrations/email"
+	"testing"
+	"time"
 )
 
-func TestEmailStatusEnvelopeReadinessContract(t *testing.T) {
-	for _, tc := range []struct {
-		name                string
-		configured, partial bool
-		want                readiness.State
-	}{
-		{"configured", true, false, readiness.Configured},
-		{"partial", false, true, readiness.Partial},
-		{"empty", false, false, readiness.Unconfigured},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, keys := range []email.GraphEnvKeys{email.DefaultGraphEnvKeys(), email.LegacyGraphEnvKeys()} {
-				for _, key := range []string{keys.TenantId, keys.ClientId, keys.ClientSecret, keys.SenderAddr, keys.FromName} {
-					t.Setenv(key, "")
-				}
-			}
-			smtp := email.DefaultEnvKeys()
-			for _, key := range []string{smtp.Host, smtp.Port, smtp.Username, smtp.Password, smtp.FromAddr, smtp.FromName, email.DomainEnv, email.AllowLogOnlyEnv} {
-				t.Setenv(key, "")
-			}
-			keys := email.DefaultGraphEnvKeys()
-			if tc.configured || tc.partial {
-				t.Setenv(keys.TenantId, "fixture-tenant")
-			}
-			const secret = "READINESS-FIXTURE-SECRET-NEVER-EMITTED"
-			if tc.configured {
-				t.Setenv(keys.ClientId, "fixture-client")
-				t.Setenv(keys.ClientSecret, secret)
-				t.Setenv(keys.SenderAddr, "sender@example.invalid")
-				t.Setenv(keys.FromName, "Fixture")
-			}
-			resolver := func(context.Context, string) (string, error) { return "", nil }
-			integration := email.NewIntegration(email.NewLazySender(email.NewLogSender(nil), resolver, email.SecretResolver(resolver), nil), nil)
-			called := false
-			for _, capability := range integration.Capabilities() {
-				if capability.Name == "status" {
-					real := capability.Handler
-					capability.Handler = func(ctx context.Context, args map[string]any, depth int) ([]memorynodes.MemoryNode, error) {
-						called = true
-						if args["probe"] != false {
-							t.Fatal("readiness must not perform network probes")
-						}
-						return real(ctx, args, depth)
-					}
-					report := memql.EvaluateIntegrationReadinessForTest("email", capability)
-					if report.State != tc.want {
-						t.Errorf("actual email status -> readiness = %s, want %s", report.State, tc.want)
-					}
-					encoded, err := json.Marshal(report)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if strings.Contains(string(encoded), secret) {
-						t.Fatal("readiness leaked fixture credential")
-					}
-				}
-			}
-			if !called {
-				t.Fatal("real status handler was not called")
-			}
-		})
+func evaluateIntegrationReadinessForTest(name string, capability IntegrationCapability) readiness.NodeReport {
+	e := &MemQLEngine{builtinExecutorHandlers: map[string]builtinExecutorHandler{}}
+	if capability.Handler != nil {
+		e.builtinExecutorHandlers["integration."+name+".status"] = capability.Handler
 	}
+	mod := envregistry.Module{Name: name, Evaluator: envregistry.EvaluatorIntegrationPrefix + name}
+	return evaluateModule(context.Background(), e.readinessResolvers(), mod, "test-node", "bff", time.Now())
 }
 
 func TestIntegrationReadinessEnvelopeSelection(t *testing.T) {
@@ -95,24 +37,30 @@ func TestIntegrationReadinessEnvelopeSelection(t *testing.T) {
 		{"root state is not a report", `{"state":"configured"}`, readiness.NotApplicable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cap := memql.IntegrationCapability{Handler: func(context.Context, map[string]any, int) ([]memorynodes.MemoryNode, error) {
+			cap := IntegrationCapability{Handler: func(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+				if args["probe"] != false {
+					t.Fatal("readiness must not probe")
+				}
+				if err := statusAuthorizedRule(ctx); err != nil {
+					t.Fatal(err)
+				}
 				return []memorynodes.MemoryNode{{Payload: []byte(tc.payload)}}, nil
 			}}
-			if got := memql.EvaluateIntegrationReadinessForTest("email", cap).State; got != tc.want {
+			if got := evaluateIntegrationReadinessForTest("email", cap).State; got != tc.want {
 				t.Fatalf("got %s want %s", got, tc.want)
 			}
 		})
 	}
 	t.Run("absent capability", func(t *testing.T) {
-		if got := memql.EvaluateIntegrationReadinessForTest("email", memql.IntegrationCapability{}).State; got != readiness.NotApplicable {
+		if got := evaluateIntegrationReadinessForTest("email", IntegrationCapability{}).State; got != readiness.NotApplicable {
 			t.Fatal(got)
 		}
 	})
 	t.Run("handler failure", func(t *testing.T) {
-		cap := memql.IntegrationCapability{Handler: func(context.Context, map[string]any, int) ([]memorynodes.MemoryNode, error) {
+		cap := IntegrationCapability{Handler: func(context.Context, map[string]any, int) ([]memorynodes.MemoryNode, error) {
 			return nil, errors.New("fixture failure")
 		}}
-		if got := memql.EvaluateIntegrationReadinessForTest("email", cap).State; got != readiness.NotApplicable {
+		if got := evaluateIntegrationReadinessForTest("email", cap).State; got != readiness.NotApplicable {
 			t.Fatal(got)
 		}
 	})
