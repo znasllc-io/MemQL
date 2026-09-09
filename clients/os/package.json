@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "preview": "vite preview",
     "clean": "rm -rf dist node_modules/.vite"

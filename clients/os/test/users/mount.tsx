@@ -32,4 +32,4 @@ export async function click(target: Element | null): Promise<void> {
   });
 }
 
-export const noop: (...args: never[]) => void = vi.fn();
+export const noop = vi.fn();

@@ -100,20 +100,13 @@ export interface FakeSeed {
   byId?: Record<string, Row>;
 }
 
-// Explicit so tsc -b (composite) does not chase vitest 5 Mock internals (TS2742).
-export type FakeConnection = {
-  query: Record<string, ReturnType<typeof vi.fn>>;
-  subscriptions: FakeSubscriptions;
-  dispatcher: { sendAndWait: ReturnType<typeof vi.fn> };
-};
-
-export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
+export function fakeConnection(seed: FakeSeed = {}) {
   const rollup = (rows: Row[] | Error | undefined) =>
     vi.fn(async () => {
       if (rows instanceof Error) throw rows;
       return rowsResult(rows ?? []);
     });
-  return ({
+  return {
     query: {
       clientAccountsAll: vi.fn(async () => rowsResult(seed.clientAccountsAll ?? [])),
       // The account front-door feed (epic memql#5168). Seeded like every other
@@ -176,9 +169,10 @@ export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
     },
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },
-  } as FakeConnection);
+  };
 }
 
+export type FakeConnection = ReturnType<typeof fakeConnection>;
 
 export function withSession(
   children: ReactNode,
