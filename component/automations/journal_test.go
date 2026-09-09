@@ -521,3 +521,37 @@ type stubDoorRefusal struct {
 func (s *stubDoorRefusal) Error() string                    { return s.code + ": no door is open" }
 func (s *stubDoorRefusal) RefusalCode() string              { return s.code }
 func (s *stubDoorRefusal) ReportedDoors() []work.DoorReport { return s.doors }
+
+// Rehydrated executions carry canonical run IDs. Intent, receipt, skipped
+// steps and retry must still address the same bare step ID as a fresh run.
+func TestJournal_CanonicalRunIDKeepsStableStepIDs(t *testing.T) {
+	for _, runID := range []string{"run-1", "v1:work:run:run-1"} {
+		t.Run(runID, func(t *testing.T) {
+			rec := &recordingJournalExecutor{}
+			j := newWorkJournal(rec, nil)
+			exec := NewExecution("demo", "test")
+			exec.ID = runID
+			step := &Step{ID: "layer0.sales", Type: StepTypeQuery, Query: &QueryStepConfig{Query: "q"}}
+			j.stepRunning(context.Background(), exec, step, 0, 1)
+			j.stepFinished(context.Background(), exec, step, &StepResult{StepId: step.ID, Status: "completed", Result: "done", CompletedAt: time.Now()}, "")
+			j.stepSkipped(context.Background(), exec, step, 0)
+			j.stepRunning(context.Background(), exec, step, 0, 2)
+			var writes int
+			for _, call := range rec.calls {
+				name, args := argsOf(t, call)
+				if name == "createWorkStep" || name == "updateWorkStep" {
+					writes++
+					if got := args["stepId"]; got != "run-1-layer0-sales" {
+						t.Errorf("%s stepId = %v, want bare run-1-layer0-sales", name, got)
+					}
+				}
+				if got, present := args["runId"]; present && got != runID {
+					t.Errorf("run reference changed: got %v, want %s", got, runID)
+				}
+			}
+			if writes != 4 {
+				t.Fatalf("got %d step writes, want intent, receipt, skip and retry", writes)
+			}
+		})
+	}
+}
