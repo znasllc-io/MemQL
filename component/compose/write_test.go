@@ -394,7 +394,7 @@ func TestHTMLEscapesEveryContextItWritesInto(t *testing.T) {
 	// NOTHING ESCAPES ITS CONTEXT. A raw `<script>` in the body or an
 	// unescaped quote closing an attribute are the two failures this
 	// whole refactor is about.
-	for _, leak := range []string{"<script>", `content="He said "ship`, `<title>A "quoted"`} {
+	for _, leak := range []string{"<script>", "alert(1)", `content="He said "ship`, `<title>A "quoted"`} {
 		if strings.Contains(out, leak) {
 			t.Fatalf("%q reached the output unescaped:\n%s", leak, out)
 		}
@@ -403,7 +403,7 @@ func TestHTMLEscapesEveryContextItWritesInto(t *testing.T) {
 	// THE REACHABLE POSITIVE: the values are PRESENT, escaped, rather
 	// than dropped. A renderer that emitted nothing would pass the
 	// assertions above.
-	for _, want := range []string{"&lt;script&gt;", "&#34;quoted&#34;", "meant", "MemQL Materializer"} {
+	for _, want := range []string{"A  paragraph.", "&#34;quoted&#34;", "meant", "MemQL Materializer"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in the escaped output:\n%s", want, out)
 		}

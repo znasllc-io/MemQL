@@ -53,6 +53,10 @@ provider, model and usage must reach provenance, including fleet usage and
 journal-served results. Tabular output supplies cells for CSV and JSON; document
 output supplies a title and body. Every executing node gets the same required
 composer and object-storage dependencies.
+HTML files render Markdown and composed HTML fragments as document structure.
+The rendered body passes through an explicit element allowlist that removes
+active content, attributes and external resources; title and provenance remain
+escaped by the page template.
 
 Planner inference forwards to the agent replica holding the worker stream. The
 owner and shared fleet status queries bypass result caching: a cached heartbeat
