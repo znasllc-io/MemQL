@@ -33,6 +33,7 @@ import (
 
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	"github.com/znasllc-io/memql/component/identity"
+	"github.com/znasllc-io/memql/component/identity/webauthn"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 )
 
@@ -322,9 +323,10 @@ func newPasskeyTestServer(t *testing.T, engine *passkeyStubEngine) *Server {
 	iss, err := identity.NewJWTIssuer(km, cfg)
 	require.NoError(t, err)
 	return &Server{
-		Cfg:    cfg,
-		Issuer: iss,
-		Store:  &identity.Store{Engine: engine},
+		ChallengeBackend: webauthn.NewMemoryChallengeBackend(),
+		Cfg:              cfg,
+		Issuer:           iss,
+		Store:            &identity.Store{Engine: engine},
 	}
 }
 

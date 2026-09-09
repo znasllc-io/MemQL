@@ -2,10 +2,11 @@ package webauthn
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"strings"
-	"sync"
 	"time"
 
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
@@ -59,13 +60,9 @@ type ChallengeEntry struct {
 
 // ChallengeStore holds in-flight ceremonies, keyed by an opaque handle.
 //
-// In-memory and therefore PER-REPLICA, the same scope caveat the
-// magic-link limiter carries (abuse/ratelimit.go). That is correct for
-// the identity service as deployed -- a WebAuthn ceremony is two
-// requests seconds apart and the identity node is not load-balanced
-// across replicas mid-ceremony -- and it is stated here rather than
-// discovered later: if identity ever runs multi-replica behind a
-// round-robin, this store is the thing that has to move to the graph.
+// HTTP ceremonies use shared Postgres persistence: begin and finish can
+// reach different replicas. The storage key binds the handle to the trusted
+// RP ID and configured origin, so another front door cannot consume it.
 //
 // The properties that matter, and where each is enforced:
 //
@@ -79,8 +76,8 @@ type ChallengeEntry struct {
 //   - Bound: the entry carries the user the challenge was minted for and
 //     the ceremony it belongs to, and Take checks the ceremony tag.
 type ChallengeStore struct {
-	mu      sync.Mutex
-	entries map[string]*ChallengeEntry
+	backend ChallengeBackend
+	scope   string
 	ttl     time.Duration
 	now     func() time.Time
 }
@@ -95,7 +92,7 @@ func NewChallengeStore(ttl time.Duration, now func() time.Time) *ChallengeStore 
 		now = time.Now
 	}
 	return &ChallengeStore{
-		entries: map[string]*ChallengeEntry{},
+		backend: NewMemoryChallengeBackend(),
 		ttl:     ttl,
 		now:     now,
 	}
@@ -123,15 +120,15 @@ func (s *ChallengeStore) Put(userId, ceremony string, session *gowebauthn.Sessio
 	now := s.now().UTC()
 	expiresAt := now.Add(s.ttl)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sweepLocked(now)
-	s.entries[handle] = &ChallengeEntry{
+	entry := &ChallengeEntry{
 		UserId:    strings.TrimSpace(userId),
 		Ceremony:  ceremony,
 		Session:   session,
 		OAuth:     oauth,
 		ExpiresAt: expiresAt,
+	}
+	if err := s.backend.Put(s.key(handle), entry, now); err != nil {
+		return "", time.Time{}, err
 	}
 	return handle, expiresAt, nil
 }
@@ -148,12 +145,11 @@ func (s *ChallengeStore) Take(handle, ceremony string) (*ChallengeEntry, error) 
 	if handle == "" {
 		return nil, ErrChallengeNotFound
 	}
-	s.mu.Lock()
-	entry, ok := s.entries[handle]
-	delete(s.entries, handle)
-	s.mu.Unlock()
-
-	if !ok || entry == nil {
+	entry, err := s.backend.Take(s.key(handle))
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
 		return nil, ErrChallengeNotFound
 	}
 	if entry.Ceremony != ceremony {
@@ -169,21 +165,7 @@ func (s *ChallengeStore) Take(handle, ceremony string) (*ChallengeEntry, error) 
 	return entry, nil
 }
 
-// Len reports how many challenges are in flight. Test + diagnostics
-// affordance; nothing in the request path reads it.
-func (s *ChallengeStore) Len() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.entries)
-}
-
-// sweepLocked drops expired entries. Called from Put so an abandoned
-// ceremony (the common case -- the user closes the browser sheet) cannot
-// accumulate indefinitely without a background goroutine.
-func (s *ChallengeStore) sweepLocked(now time.Time) {
-	for handle, entry := range s.entries {
-		if entry == nil || !now.Before(entry.ExpiresAt) {
-			delete(s.entries, handle)
-		}
-	}
+func (s *ChallengeStore) key(handle string) string {
+	digest := sha256.Sum256([]byte(s.scope + "\x00" + handle))
+	return hex.EncodeToString(digest[:])
 }

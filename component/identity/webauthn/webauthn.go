@@ -89,6 +89,10 @@ type Config struct {
 	// ChallengeTTL overrides DefaultChallengeTTL.
 	ChallengeTTL time.Duration
 
+	// ChallengeBackend shares ceremony state. Nil selects an isolated
+	// in-memory backend; HTTP servers explicitly provide shared persistence.
+	ChallengeBackend ChallengeBackend
+
 	// Now is the clock, injectable for tests. Defaults to time.Now.
 	Now func() time.Time
 }
@@ -177,11 +181,16 @@ func newCeremony(rpID, origin string, cfg Config) (*Ceremony, error) {
 	if ttl <= 0 {
 		ttl = DefaultChallengeTTL
 	}
+	challenges := NewChallengeStore(ttl, cfg.Now)
+	challenges.scope = rpID + "\x00" + origin
+	if cfg.ChallengeBackend != nil {
+		challenges.backend = cfg.ChallengeBackend
+	}
 	return &Ceremony{
 		rp:         rp,
 		rpID:       rpID,
 		origin:     origin,
-		challenges: NewChallengeStore(ttl, cfg.Now),
+		challenges: challenges,
 	}, nil
 }
 

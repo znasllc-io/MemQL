@@ -291,9 +291,10 @@ func (s *Server) handleWebAuthnLoginBegin(w http.ResponseWriter, r *http.Request
 
 	challenge, err := ceremony.BeginLogin(oauth)
 	if err != nil {
-		s.auditPasskey(r, "passkey_login_challenge_denied", "", "", identity.AuditOutcomeFailure, "begin_failed", nil)
-		writeJSON(w, http.StatusInternalServerError, WebAuthnLoginBeginResponse{
-			ErrorCode: "begin_failed", Error: err.Error()})
+		status, code := passkeyBeginErrorCode(err)
+		s.auditPasskey(r, "passkey_login_challenge_denied", "", "", identity.AuditOutcomeFailure, code, nil)
+		writeJSON(w, status, WebAuthnLoginBeginResponse{
+			ErrorCode: code, Error: s.passkeyErrorMessage(err)})
 		return
 	}
 
@@ -373,7 +374,7 @@ func (s *Server) handleWebAuthnLoginFinish(w http.ResponseWriter, r *http.Reques
 			action = "passkey_sign_count_regression"
 		}
 		s.auditPasskey(r, action, "", "", outcome, code, nil)
-		writeJSON(w, status, WebAuthnLoginFinishResponse{ErrorCode: code, Error: err.Error()})
+		writeJSON(w, status, WebAuthnLoginFinishResponse{ErrorCode: code, Error: s.passkeyErrorMessage(err)})
 		return
 	}
 
@@ -662,6 +663,8 @@ func newPasskeyAuthCode() (plain, hash string, err error) {
 // which is where it is useful.
 func passkeyLoginErrorCode(err error) (int, string) {
 	switch {
+	case errors.Is(err, webauthn.ErrChallengeStorage):
+		return http.StatusServiceUnavailable, "challenge_unavailable"
 	case errors.Is(err, webauthn.ErrChallengeNotFound):
 		return http.StatusBadRequest, "challenge_not_found"
 	case errors.Is(err, webauthn.ErrChallengeExpired):

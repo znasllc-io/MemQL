@@ -109,7 +109,19 @@ func (a *App) integrationsIdentity() {
 	// rotator, email sender, and HTTP server. The Service's HTTP
 	// mounter is set to the constructed *Server so RegisterRoutes
 	// picks up the auth flow when transportIdentity runs.
-	store := &identity.Store{Engine: a.engine, Logger: a.Logger}
+	store := &identity.Store{
+		Engine: a.engine,
+		Logger: a.Logger,
+		// Shared passkey challenges and single-use identity gates resolve
+		// the live connection on every operation, including after recovery.
+		DirectDB: func() *sql.DB {
+			bdb := a.directDBGetter()()
+			if bdb == nil {
+				return nil
+			}
+			return bdb.DB
+		},
+	}
 	// The arrival seams' group placement (epic memql#5165, section G). Built
 	// here because it is the meeting point of two packages that must not
 	// import each other: component/identity does not depend on
