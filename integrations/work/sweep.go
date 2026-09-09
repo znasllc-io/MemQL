@@ -604,18 +604,20 @@ func (i *Integration) foldSummaries(ctx context.Context, expired map[string][]ma
 // withhold a row from the cluster's own recovery, and the two sweeps are the
 // recovery. Row-level authorization is applied instead, per row as fetched
 // (selectAdmitted below), which is the question that IS answerable here.
+// These statements execute through Bun, whose formatter consumes ? arguments.
+// PostgreSQL $n placeholders would reach the driver without their parameters.
 const runsInFlightSQL = `
 WITH latest AS (
     SELECT DISTINCT ON (id) id, "createdAt", payload
     FROM "MemoryNodes"
-    WHERE concept = $1
+    WHERE concept = ?
     ORDER BY id, "createdAt" DESC
 )
 SELECT id, "createdAt", payload
 FROM latest
 WHERE COALESCE(payload->>'status', '') NOT IN ('succeeded', 'failed', 'cancelled', 'abandoned')
 ORDER BY "createdAt" ASC
-LIMIT $2
+LIMIT ?
 `
 
 func (i *Integration) runsInFlight(ctx context.Context) ([]map[string]any, error) {
@@ -637,14 +639,14 @@ const expiredJournalRowsSQL = `
 WITH latest AS (
     SELECT DISTINCT ON (id) id, "createdAt", payload
     FROM "MemoryNodes"
-    WHERE concept = $1
+    WHERE concept = ?
     ORDER BY id, "createdAt" DESC
 )
 SELECT id, "createdAt", payload
 FROM latest
-WHERE "createdAt" < $2
+WHERE "createdAt" < ?
 ORDER BY "createdAt" ASC
-LIMIT $3
+LIMIT ?
 `
 
 func (i *Integration) expiredJournalRows(ctx context.Context, concept string, boundary time.Time) ([]map[string]any, error) {
@@ -744,9 +746,9 @@ func (i *Integration) deleteJournalRows(ctx context.Context, byConcept map[strin
 			if len(batch) == 0 {
 				continue
 			}
-			args, placeholders := inList(batch, 2)
+			args, placeholders := inList(batch)
 			res, err := db.ExecContext(ctx,
-				`DELETE FROM "MemoryNodes" WHERE concept = $1 AND id IN (`+placeholders+`)`,
+				`DELETE FROM "MemoryNodes" WHERE concept = ? AND id IN (`+placeholders+`)`,
 				append([]any{concept}, args...)...)
 			if err != nil {
 				return total, fmt.Errorf("work: delete %s: %w", concept, err)
@@ -754,7 +756,7 @@ func (i *Integration) deleteJournalRows(ctx context.Context, byConcept map[strin
 			n, _ := res.RowsAffected()
 			total += int(n)
 
-			vargs, vplaceholders := inList(batch, 1)
+			vargs, vplaceholders := inList(batch)
 			if _, err := db.ExecContext(ctx,
 				`DELETE FROM node_vectors WHERE id IN (`+vplaceholders+`)`, vargs...); err != nil {
 				// The row is gone and its vector is not. Loud, and not
@@ -850,18 +852,16 @@ func chunk(ids []string, size int) [][]string {
 	return out
 }
 
-// inList builds ($n, $n+1, ...) placeholders starting at `from`, with the
-// matching args. Parameterized rather than interpolated: a row id is a value,
-// and a value never belongs in the statement text.
-func inList(ids []string, from int) ([]any, string) {
+// inList builds Bun placeholders and their matching arguments. Values stay
+// in the argument list so Bun applies the dialect's escaping to each ID.
+func inList(ids []string) ([]any, string) {
 	args := make([]any, 0, len(ids))
 	var b strings.Builder
 	for n, idv := range ids {
 		if n > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("$")
-		b.WriteString(strconv.Itoa(from + n))
+		b.WriteString("?")
 		args = append(args, idv)
 	}
 	return args, b.String()
