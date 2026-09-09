@@ -508,8 +508,7 @@ func ComposeCancelBuild(args ComposeCancelArgs) string {
 	return b.String()
 }
 
-// ComposeMaterialize -- Materialize: compose the named sources into a file of the chosen format and file it in the Library. Opens a v1:compose:composition, a v1:work:goal with requestedVia="materializer" and that goal's first run, then dispatches the five-step template -- gather, compose, render, stamp, file. Returns {compositionId, goalId, runId}.
-// ONE OF THOSE FIVE STEPS REACHES A MODEL, and on a catalog exact match not even that: a re-run with the same template and the same source SHAPE is a GoalSignature hit, which is the whole claim the work spine makes and the reason a second quarter's report costs nothing.
+// ComposeMaterialize -- Start a Materializer work run using the known materializeFile template. The composition and immutable source snapshot are saved before dispatch. Returns {compositionId, goalId, runId}; progress and the eventual outputFileId arrive on the composition row.
 type ComposeMaterializeArgs struct {
 	// What to call it, and the filename stem of the output. Sanitised server-side the way an upload's name is.
 	Name string
@@ -519,7 +518,7 @@ type ComposeMaterializeArgs struct {
 	Format string
 	// What to compose from: a list of {kind, ref, label} where kind is concept_row | library_file | query. A `query` source is a SELECTION and is resolved at run time under your own actor, which is what makes it re-runnable; the other two name one row each.
 	Sources []map[string]any
-	// A draft to start from, when the person has already written one. Empty means the compose step writes it from the sources. Supplying one does NOT skip the reasoning step -- it seeds it, and a composition that needed no thought is one the catalog answered.
+	// A draft to start from, when the person has already written one. Empty means the compose step writes it from the sources. Supplying one seeds the configured composer. With no composer available, the supplied draft can be rendered directly.
 	Draft string
 	// v1:compose:template to render through. Resolved under your own actor, so a template you cannot read is refused rather than rendered through.
 	TemplateId string

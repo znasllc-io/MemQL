@@ -6,18 +6,13 @@
 // field lands in every browser that ever opened the list without anybody
 // deciding it should.
 //
-// TWO SHAPES PER LIST-BEARING CONCEPT, and the split is what makes the
-// Materialized view one read rather than a page walk. The `Card` shape is
-// what a row in a list needs; the `Full` shape is what an open composition
-// needs. `sources` and `modelsUsed` are the reason: they are lists whose
-// length is the interesting fact on a row and whose CONTENTS are only
-// interesting once somebody has opened the thing. A card carrying them
-// would put every source ref of every composition in the instance into a
-// browser that is drawing forty one-line rows.
+// The Materializer's retained feed supplies both its list and its open
+// Composer, so it uses Full: sources and model contributions must remain
+// visible after a reload. Card is for secondary lookups whose callers only
+// need identity and state, such as the Files output-to-composition join.
 
-/// The Materialized list's row: what was made, in what shape, and whether the file it produced
-/// carries its own provenance. Deliberately WITHOUT `sources` and `modelsUsed` -- their length is
-/// the row's fact and their contents are the open composition's.
+/// A composition summary for secondary lookups: identity, output and state. The Materializer's
+/// shared list-and-detail feed uses compositionFull so reloading retains its provenance.
 @row
 shape composition compositionCard {
   row.id
@@ -104,4 +99,31 @@ shape recipe composeRecipeFull {
   lastRunAt
   runCount
   archived
+}
+
+/// Persisted identities and result needed to adopt a materialization on a different replica.
+@row
+shape composition compositionExecution {
+  row.id
+  ownerUserId
+  name
+  status
+  goalId
+  runId
+  outputFileId
+  format
+  sha256
+  modelsUsed
+  provenanceEmbedded
+  provenanceNote
+  deployableKind
+}
+
+/// Owner-only request and source snapshot, read when execution resumes on another replica.
+@row
+shape compositionInput compositionInputFull {
+  row.id
+  ownerUserId
+  compositionId
+  request
 }

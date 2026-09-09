@@ -749,34 +749,6 @@ func workerHasConfigured(ctx context.Context, engine *memql.MemQLEngine, ownerUs
 	return false, nil
 }
 
-// outputPayloadRows normalises a shape() query's OutputPayload into
-// a []map[string]any slice. shape() can land as a slice of maps, a
-// slice of `any` whose elements are maps, or a bare map (single-row
-// projections). Returns nil when the payload doesn't carry rows.
-// Mirrors app/computer_use_status_agent.go's helper of the same name
-// -- duplicated here so the worker integration stays self-contained
-// (no agent-build cross-import on the BFF side).
-func outputPayloadRows(payload any) []map[string]any {
-	if payload == nil {
-		return nil
-	}
-	switch v := payload.(type) {
-	case []map[string]any:
-		return v
-	case []any:
-		out := make([]map[string]any, 0, len(v))
-		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				out = append(out, m)
-			}
-		}
-		return out
-	case map[string]any:
-		return []map[string]any{v}
-	}
-	return nil
-}
-
 // withUserActor stamps a synthetic TokenInfo on ctx so engine
 // mutations attribute their createdBy column to the named user.
 // The agent-tool dispatch path doesn't carry the user's JWT

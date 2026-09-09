@@ -13,20 +13,10 @@ import (
 	"github.com/znasllc-io/memql/integrations/planner"
 )
 
-// integrations_work_compile.go -- joins the two halves of epic A2's compile
-// (memql#4966).
-//
-// integrations/work declares `Compiler` as a seam and integrations/planner
-// implements it, and until this call is made NOTHING JOINS THEM: createGoal
-// opens the goal and its first run, finds no compiler, and returns
-// compileDispatched:false, leaving the run in `compiling` forever. From
-// outside that is indistinguishable from a goal that was accepted and then
-// ignored -- and the wait-and-abandon sweep deliberately does not touch a run
-// in `compiling`, so nothing else would move it either.
-//
-// It runs on the PLANNER node only, which is what section H of the design
-// record says: "The planner node keeps compile, the reactive loop and the
-// sweeps; the agent node runs steps."
+// The planner owns compilation. Intake can happen on any node: persisted
+// compiling-run events are already broadcast across the mesh, and this
+// subscriber arbitrates them with a PostgreSQL claim before invoking the
+// authoring pipeline. The planner's sweep recovers events missed at startup.
 
 func (a *App) wireWorkCompiler() {
 	if a.plannerIntegration == nil {
@@ -58,6 +48,12 @@ func (a *App) wireWorkCompiler() {
 		return
 	}
 	work.SetCompiler(compiler)
+	for _, topic := range []string{
+		"graph.node.created.v1:work:run",
+		"graph.node.updated.v1:work:run",
+	} {
+		a.eventBus.Subscribe(topic, work.HandleRunEvent, events.WithSubscriberName("work:compile"))
+	}
 	a.Logger.Info("work compile wired to the planner's authoring pipeline", "component", "work")
 
 	// The OTHER direction, wired in the same breath (memql#5000): the

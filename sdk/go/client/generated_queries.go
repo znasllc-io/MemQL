@@ -819,7 +819,7 @@ func AllSafetyClassificationsBuild(args AllSafetyClassificationsArgs) string {
 	return "query allSafetyClassifications()"
 }
 
-// AllWorkersWithStatus -- Every machine in the cluster, for a cluster owner; optionally narrowed to one owner. Backs /fleet/machines' operator view, which adds an owner column.
+// AllWorkersWithStatus -- Every machine in the cluster, for a cluster owner; optionally narrowed to one owner. Backs /fleet/machines' operator view, which adds an owner column. Shared inference uses this same read, so heartbeat eligibility must not use cached status.
 //
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["allWorkersWithStatus"] in generated_concepts.go).
 type AllWorkersWithStatusArgs struct {
@@ -1428,6 +1428,28 @@ func (qc *QueryClient) AuthoringBundlesForOwner(ctx context.Context, args Author
 func AuthoringBundlesForOwnerBuild(args AuthoringBundlesForOwnerArgs) string {
 	_ = args
 	return "query authoringBundlesForOwner()"
+}
+
+// AuthoringConstructById -- One owned authored construct by its stored identity. Work execution uses the run's template reference, then verifies its bundle and recompiles the complete closure on the executing node.
+//
+// Bound concept: v1:authoring:construct (machine-readable: BoundConcepts["authoringConstructById"] in generated_concepts.go).
+type AuthoringConstructByIdArgs struct {
+	ConstructId string
+}
+
+// AuthoringConstructById calls the engine query authoringConstructById.
+func (qc *QueryClient) AuthoringConstructById(ctx context.Context, args AuthoringConstructByIdArgs) (*Result, error) {
+	call := AuthoringConstructByIdBuild(args)
+	return qc.executeNamed(ctx, "authoringConstructById", call)
+}
+
+func AuthoringConstructByIdBuild(args AuthoringConstructByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query authoringConstructById(")
+	b.WriteString("constructId: ")
+	b.WriteString(quoteMemQL(args.ConstructId))
+	b.WriteString(")")
+	return b.String()
 }
 
 // AuthoringConstructsForBundle -- All authored constructs belonging to a bundle, scoped to the caller. Backs the gate runners (compile/bind the whole closure) + the runtime register/unregister path.
@@ -2367,6 +2389,28 @@ func CompositionByIdBuild(args CompositionByIdArgs) string {
 	return b.String()
 }
 
+// CompositionExecutionById -- Execution identities and output metadata. The executor checks the owner and work run before loading the separately stored, owner-only input snapshot.
+//
+// Bound concept: v1:compose:composition (machine-readable: BoundConcepts["compositionExecutionById"] in generated_concepts.go).
+type CompositionExecutionByIdArgs struct {
+	CompositionId string
+}
+
+// CompositionExecutionById calls the engine query compositionExecutionById.
+func (qc *QueryClient) CompositionExecutionById(ctx context.Context, args CompositionExecutionByIdArgs) (*Result, error) {
+	call := CompositionExecutionByIdBuild(args)
+	return qc.executeNamed(ctx, "compositionExecutionById", call)
+}
+
+func CompositionExecutionByIdBuild(args CompositionExecutionByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query compositionExecutionById(")
+	b.WriteString("compositionId: ")
+	b.WriteString(quoteMemQL(args.CompositionId))
+	b.WriteString(")")
+	return b.String()
+}
+
 // CompositionForOutputFile -- The composition that produced one Library file, if one did. Backs the Files app's inspector line ("Made in the Materializer from 3 sources") and its Open in Materializer act -- the one direction of the seam agreed with the Files-places epic, which never edits a composition.
 //
 // Bound concept: v1:compose:composition (machine-readable: BoundConcepts["compositionForOutputFile"] in generated_concepts.go).
@@ -2385,6 +2429,28 @@ func CompositionForOutputFileBuild(args CompositionForOutputFileArgs) string {
 	b.WriteString("query compositionForOutputFile(")
 	b.WriteString("fileId: ")
 	b.WriteString(quoteMemQL(args.FileId))
+	b.WriteString(")")
+	return b.String()
+}
+
+// CompositionInputById -- The input snapshot captured under this owner. Account membership and cluster ownership grant no access: source payloads may have been private even when the resulting composition is shared.
+//
+// Bound concept: v1:compose:compositionInput (machine-readable: BoundConcepts["compositionInputById"] in generated_concepts.go).
+type CompositionInputByIdArgs struct {
+	CompositionId string
+}
+
+// CompositionInputById calls the engine query compositionInputById.
+func (qc *QueryClient) CompositionInputById(ctx context.Context, args CompositionInputByIdArgs) (*Result, error) {
+	call := CompositionInputByIdBuild(args)
+	return qc.executeNamed(ctx, "compositionInputById", call)
+}
+
+func CompositionInputByIdBuild(args CompositionInputByIdArgs) string {
+	var b strings.Builder
+	b.WriteString("query compositionInputById(")
+	b.WriteString("compositionId: ")
+	b.WriteString(quoteMemQL(args.CompositionId))
 	b.WriteString(")")
 	return b.String()
 }
@@ -4162,10 +4228,13 @@ func LibraryFileVersionsForFileBuild(args LibraryFileVersionsForFileArgs) string
 	return b.String()
 }
 
-// LibraryFilesForOwner -- List the caller's Library files, newest first, gated by ownerUserId==actor.userId. The file-level read behind the Artifacts page's upload and training surfaces -- the artifact index is what the list renders, and this is what answers questions the index does not carry (analysis status, embedding coverage, which domains a file was trained into).
+// LibraryFilesForOwner -- List the caller's Library files, newest first, gated by ownerUserId==actor.userId. The file-level read behind the Artifacts page's upload and training surfaces -- the artifact index is what the list renders, and this is what answers questions the index does not carry (analysis status, embedding coverage, which domains a file was trained into). Optional run and status filters also provide an immediate owned file receipt for work turns.
 //
 // Bound concept: v1:library:file (machine-readable: BoundConcepts["libraryFilesForOwner"] in generated_concepts.go).
 type LibraryFilesForOwnerArgs struct {
+	RunId   string
+	StepKey string
+	Status  string
 }
 
 // LibraryFilesForOwner calls the engine query libraryFilesForOwner.
@@ -4175,8 +4244,28 @@ func (qc *QueryClient) LibraryFilesForOwner(ctx context.Context, args LibraryFil
 }
 
 func LibraryFilesForOwnerBuild(args LibraryFilesForOwnerArgs) string {
-	_ = args
-	return "query libraryFilesForOwner()"
+	var b strings.Builder
+	b.WriteString("query libraryFilesForOwner(")
+	if args.RunId != "" {
+		b.WriteString("runId: ")
+		b.WriteString(quoteMemQL(args.RunId))
+	}
+	if args.StepKey != "" {
+		if b.Len() > 27 {
+			b.WriteString(", ")
+		}
+		b.WriteString("stepKey: ")
+		b.WriteString(quoteMemQL(args.StepKey))
+	}
+	if args.Status != "" {
+		if b.Len() > 27 {
+			b.WriteString(", ")
+		}
+		b.WriteString("status: ")
+		b.WriteString(quoteMemQL(args.Status))
+	}
+	b.WriteString(")")
+	return b.String()
 }
 
 // LibraryFolderById -- Fetch one folder by id, gated to the caller. Owned: ownerUserId==actor.userId is the load-bearing guard. Backs the desk-folder popover's name refresh and the Files app's breadcrumb resolve; archived rows ARE returned here -- a caller asking about a specific id deserves the honest answer, and the archived field says which kind it got.
@@ -4789,7 +4878,7 @@ func MyRoutingPoliciesBuild(args MyRoutingPoliciesArgs) string {
 }
 
 // MyWorkersWithStatus -- The caller's own machines, with everything the router orders and filters on.
-// ONE QUERY FOR TWO READERS, and that is the point. The design had a separate `workersForOwnerWithStatus(ownerUserId)` for the router, @serverOnly because a caller-supplied owner id is not a caller check. It is not needed: the router has no caller of its own -- it dispatches on behalf of the session's owner -- and therefore already runs under auth.ContextWithUserActor for that owner. Reading `actor.userId` is then both simpler and strictly safer than accepting an argument: there is no id to supply, so there is nothing to enumerate, and no @serverOnly annotation to keep honest.
+// ONE QUERY FOR TWO READERS, and that is the point. The design had a separate `workersForOwnerWithStatus(ownerUserId)` for the router, @serverOnly because a caller-supplied owner id is not a caller check. It is not needed: the router has no caller of its own -- it dispatches on behalf of the session's owner -- and therefore already runs under auth.ContextWithUserActor for that owner. Reading `actor.userId` is then both simpler and strictly safer than accepting an argument: there is no id to supply, so there is nothing to enumerate, and no @serverOnly annotation to keep honest. Read heartbeats live: the default 60-second cache outlives the 30-second online window, and a heartbeat written by another replica must keep its machine eligible immediately.
 //
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["myWorkersWithStatus"] in generated_concepts.go).
 type MyWorkersWithStatusArgs struct {

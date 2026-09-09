@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Row } from "@znasllc-io/memql-sdk-core/client";
+import { useOs } from "../../src/chrome/state";
+import { withOs } from "../setup/harness";
 
 const h = vi.hoisted(() => ({ connection: null as unknown }));
 
@@ -47,11 +49,26 @@ function mount(connection: Conn, sectionId = "composer", settings: Record<string
 describe("the composer", () => {
   it("says what it is waiting for rather than offering a control that would be refused", async () => {
     mount(fakeConnection());
-    // AN ILLEGAL ACT IS ABSENT, NEVER DISABLED -- so with nothing picked
-    // there is no Materialize button at all, and the bar carries the
-    // explanation instead.
-    expect(await screen.findByText(/Pick at least one source/)).toBeTruthy();
+    // With no source, statement or draft, the bar explains what is needed.
+    expect(await screen.findByText(/Describe what to make/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Materialize" })).toBeNull();
+  });
+
+  it.each([
+    ["What do you want made?", "statement", "Write a sample inventory."],
+    ["Draft", "draft", "Inventory: apples 3, pears 5."],
+  ])("materializes from %s without requiring a graph source", async (label, field, value) => {
+    const conn = fakeConnection({ materializeReply: { compositionId: "content-only" } as unknown as Row });
+    mount(conn);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Inventory" } });
+    fireEvent.change(screen.getByLabelText(label), { target: { value: "   " } });
+    expect(screen.queryByRole("button", { name: "Materialize" })).toBeNull();
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.click(await screen.findByRole("button", { name: "Materialize" }));
+    await waitFor(() => expect(conn.query.composeMaterialize).toHaveBeenCalledOnce());
+    const args = conn.query.composeMaterialize.mock.calls[0]?.[0] ?? {};
+    expect(args).toMatchObject({ name: "Inventory", [field]: value });
+    expect(args).not.toHaveProperty("sources");
   });
 
   it("offers the marked concepts first and says which are not marked", async () => {
@@ -174,6 +191,28 @@ describe("the composer", () => {
 });
 
 describe("the provenance chain", () => {
+  it("opens Files with the backing file identity from the ready output", async () => {
+    h.connection = fakeConnection({ compositions: [compositionRow({ id: "c-output", outputFileId: "f-output" })] });
+    function Destination() {
+      const { state } = useOs();
+      const destination = Object.values(state.shell.windows).find((window) => window.appId === "files");
+      return <output data-testid="file-destination">{JSON.stringify(destination)}</output>;
+    }
+    render(withSession(withOs(<>
+      <MaterializerApp
+        sectionId="composer"
+        navigate={() => {}}
+        askContext={() => {}}
+        intent={{ id: "open", payload: { compositionId: "c-output" } }}
+        store={memoryStore()}
+      />
+      <Destination />
+    </>, "owner")));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Q3 report in Files" }));
+    await waitFor(() => expect(JSON.parse(screen.getByTestId("file-destination").textContent ?? "{}"))
+      .toMatchObject({ appId: "files", sectionId: "browse", intent: { payload: { fileId: "f-output" } } }));
+  });
+
   // OPENED THROUGH THE INTENT rather than by clicking the list row,
   // because `navigate` is a spy here: a click correctly asks the shell to
   // move the window and the shell is what re-renders it on a different
@@ -467,9 +506,60 @@ describe("the open intent", () => {
         />,
       ),
     );
-    await screen.findByText(/Pick at least one source/);
+    await screen.findByText(/Describe what to make/);
     // An unrelated opener must not move somebody's window, and must not
     // have its instruction eaten.
     expect(consumeIntent).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("a composition whose executing node stopped", () => {
+  const RUN = "v1:work:run";
+  const run = (over: Record<string, unknown> = {}): Row => ({
+    id: "r-interrupted", ownerUserId: "me", goalId: "g-interrupted", status: "running",
+    createdAt: "2026-09-09T17:16:44Z", nodeId: "agent-that-stopped", ...over,
+  } as Row);
+  const composition = (over: Record<string, unknown> = {}) => compositionRow({
+    id: "c-interrupted", name: "Interrupted document", ownerUserId: "me",
+    goalId: "g-interrupted", runId: "r-interrupted", status: "composing", outputFileId: "", ...over,
+  });
+
+  it("updates the retained list from another replica's run event and follows a resume", async () => {
+    const conn = fakeConnection({ compositions: [composition()], runs: [run()] });
+    mount(conn, "materialized");
+    await screen.findByText("Composing");
+    conn.subscriptions.emit(RUN, run({ status: "abandoned", createdAt: "2026-09-09T17:20:00Z",
+      errorMessage: "The cluster lost the executing node. Resume from Nexus.", nodeId: "sweep-on-other-replica" }));
+    expect(await screen.findByText("Failed")).toBeTruthy();
+    expect(screen.getByText("Interrupted document").closest("[data-arrival]")?.getAttribute("data-arrival")).toBeTruthy();
+    conn.subscriptions.emit(RUN, run({ status: "running", createdAt: "2026-09-09T17:21:00Z" }));
+    expect(await screen.findByText("Composing")).toBeTruthy();
+    expect(conn.query.composeCancel).not.toHaveBeenCalled();
+  });
+
+  it.each(["failed", "cancelled", "abandoned"])("reads an already %s run when opening the composer", async (status) => {
+    const conn = fakeConnection({ compositions: [composition()], runs: [run({ status,
+      errorMessage: "The node stopped before the file was written." })] });
+    h.connection = conn;
+    render(withSession(<MaterializerApp sectionId="composer" navigate={vi.fn()} askContext={() => {}}
+      intent={{ id: "interrupted", payload: { compositionId: "c-interrupted" } }} store={memoryStore()} />));
+    expect(await screen.findByRole("button", { name: "Start over from this" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    if (status !== "cancelled") expect(screen.getAllByText(/The node stopped before the file was written/).length).toBeGreaterThan(0);
+    expect(conn.query.workRunForOwner).toHaveBeenCalledWith({ runId: "r-interrupted" }, expect.anything());
+  });
+
+  it.each([
+    { status: "ready", outputFileId: "file-completed", expected: "Ready" },
+    { runId: "r-new-attempt", expected: "Composing" },
+    { ownerUserId: "someone-else", expected: "Composing" },
+    { goalId: "g-other", expected: "Composing" },
+  ])("preserves a completed or unrelated composition: %j", async ({ expected, ...over }) => {
+    const conn = fakeConnection({ compositions: [composition(over)], runs: [run({ status: "abandoned" })] });
+    mount(conn, "materialized");
+    expect(await screen.findByText(expected)).toBeTruthy();
+    conn.subscriptions.emit(RUN, run({ status: "failed", createdAt: "2026-09-09T17:20:00Z" }));
+    await waitFor(() => expect(screen.queryByText("Failed")).toBeNull());
   });
 });

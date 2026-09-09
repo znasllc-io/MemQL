@@ -49,12 +49,14 @@ export async function probeSession(
  * Refresh the access token through the HttpOnly cookie (memql#4719). The
  * credential rides the BODY and the cookie, never a query parameter. Null =
  * no session (or no parsable token) -- the caller treats that as signed out.
- * The identity service's field is `access_token` (OAuth shape).
+ * Keep the OAuth `expires_in` lifetime so HTTP consumers can renew even when
+ * the SDK stopped rotating during an outage. It is relative, so browser/server
+ * clock skew cannot turn credential reads into a refresh loop.
  */
-export async function refreshAccessToken(
+export async function refreshAccessCredential(
   config: OsRuntimeConfig,
   fetchImpl: IdentityFetch = fetch,
-): Promise<string | null> {
+): Promise<{ bearer: string; expiresInSeconds: number } | null> {
   const response = await fetchImpl(apiUrl(config, "/auth/refresh"), {
     method: "POST",
     credentials: "include",
@@ -63,10 +65,12 @@ export async function refreshAccessToken(
   });
   if (!response.ok) return null;
   try {
-    const payload = (await response.json()) as { access_token?: unknown };
-    return typeof payload.access_token === "string" && payload.access_token !== ""
-      ? payload.access_token
-      : null;
+    const payload = (await response.json()) as { access_token?: unknown; expires_in?: unknown };
+    if (
+      typeof payload.access_token !== "string" || payload.access_token === "" ||
+      typeof payload.expires_in !== "number" || !Number.isFinite(payload.expires_in) || payload.expires_in <= 0
+    ) return null;
+    return { bearer: payload.access_token, expiresInSeconds: payload.expires_in };
   } catch {
     return null;
   }

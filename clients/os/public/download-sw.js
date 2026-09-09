@@ -80,7 +80,8 @@ self.addEventListener("message", function (event) {
           controller.enqueue(m.chunk);
         } else if (m.type === "done") {
           controller.close();
-          downloads.delete(id);
+          // A small response can finish before the iframe navigates. Keep
+          // the closed stream until fetch claims it (or the expiry below).
         } else if (m.type === "abort") {
           controller.error(new Error("download aborted"));
           downloads.delete(id);
@@ -115,7 +116,9 @@ self.addEventListener("fetch", function (event) {
   var id = path.slice(marker + "__memql-dl/".length);
   var entry = downloads.get(id);
   if (!entry) return;
-  entry.claimed = true;
+  // The Response keeps the stream alive. Removing only this lookup makes
+  // the URL single-use without discarding bytes before the first request.
+  downloads.delete(id);
 
   var headers = {
     "Content-Type": "application/octet-stream",

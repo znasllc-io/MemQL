@@ -504,7 +504,7 @@ func (e *MemQLEngine) ExecuteAuthored(ctx context.Context, query, owner string, 
 	// construct -- or, on the gRPC stream, as soon as a session registry was
 	// lazily created. HasOwner answers a boolean without allocating.
 	if !authoredResolutionNeeded(owner, e.stagedAuthored, reg) {
-		return e.Execute(ctx, query)
+		return e.executeWith(ctx, query, e.functions, nil, false)
 	}
 	staged := e.stagedAuthored
 	overlay := e.buildAuthoredFunctionOverlay(owner, staged, reg)

@@ -48,7 +48,7 @@ automation invokeAgent {
   }
 
   step turn {
-    runAgentTurn (
+    builtin runAgentTurn (
       agentId: args.agentId,
       prompt: args.prompt,
       scopeId: args.scopeId ?? ""
@@ -76,8 +76,9 @@ automation produceArtifact {
   }
 
   step produce {
-    runAgentTurn (
+    builtin runAgentTurn (
       agentId: args.agentId,
+      requireFile: true,
       prompt: concat(
         "Produce the following deliverable and save it to the Library. Do not reply with the ",
         "content itself -- write it to a file and confirm what you saved.\n\nDeliverable: ",

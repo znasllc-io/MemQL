@@ -1018,11 +1018,15 @@ func (p *fleetProvider) CallChat(ctx context.Context, messages []common.ChatMess
 // has broken its own advertisement -- and failing is the right answer, because
 // the caller is about to parse the reply.
 func (p *fleetProvider) CallChatStructured(ctx context.Context, messages []common.ChatMessage, schema common.StructuredSchema) (string, error) {
+	text, _, err := p.CallChatStructuredWithUsage(ctx, messages, schema)
+	return text, err
+}
+
+// CallChatStructuredWithUsage keeps the runtime's measured usage on the work
+// journal and artifact provenance instead of dropping it at the fleet seam.
+func (p *fleetProvider) CallChatStructuredWithUsage(ctx context.Context, messages []common.ChatMessage, schema common.StructuredSchema) (string, common.ChatUsage, error) {
 	res, err := p.call(ctx, FleetCallRequest{Kind: FleetKindChat, Messages: messages, Schema: &schema})
-	if err != nil {
-		return "", err
-	}
-	return res.Content, nil
+	return res.Content, common.ChatUsage{InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens, Model: res.Usage.Model, Reported: res.Usage.Known}, err
 }
 
 // CallChatWithTools implements common.ToolCallingChatAIProvider -- the

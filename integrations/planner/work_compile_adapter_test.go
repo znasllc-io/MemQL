@@ -80,6 +80,15 @@ func TestWorkCompiler_AFailedCompileFailsTheRun(t *testing.T) {
 	}
 }
 
+func TestWorkCompiler_RefusesAnUnnamedCatalogTemplate(t *testing.T) {
+	eng := &countingCompileEngine{catalogue: []map[string]any{{"id": "c1", "name": "", "goalSignature": work.GoalSignature(adapterReq().Statement, []string{"day"})}}}
+	w := &recordingRunWriter{}
+	NewWorkCompiler(&PlannerAgentLoop{engine: eng}, w).Compile(context.Background(), adapterReq())
+	if len(w.fields) != 1 || w.fields[0]["status"] != "failed" {
+		t.Fatalf("run dispatched an unnamed template: %+v", w.fields)
+	}
+}
+
 // A successful compile records the template it chose. The run is opened
 // BEFORE the template is known -- that ordering is the design -- and without
 // this write the choice exists only in a log line.

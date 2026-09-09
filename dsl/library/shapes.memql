@@ -128,6 +128,8 @@ shape file libraryFileFull {
   folderId
   uploadedFromWorkerId
   uploadedFromWorkerName
+  producedByRunId
+  producedByStepKey
   uploadedFromPath
   linkState
   linkCheckedAt

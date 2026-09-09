@@ -19,6 +19,7 @@ const SCOPE = `${ORIGIN}/__memql-dl/`;
 
 interface Listeners {
   message?: (event: unknown) => void;
+  fetch?: (event: unknown) => void;
 }
 
 /** Load the worker against a fake `self` and return its registered listeners. */
@@ -31,6 +32,7 @@ function loadWorker(): Listeners {
   const fakeSelf = {
     addEventListener(type: string, fn: (event: unknown) => void) {
       if (type === "message") listeners.message = fn;
+      if (type === "fetch") listeners.fetch = fn;
     },
     skipWaiting() {},
     clients: { claim: () => Promise.resolve() },
@@ -50,7 +52,7 @@ function open(over: { origin?: string; sourceUrl?: string | null }) {
     postMessage(m: unknown) {
       replies.push(m);
     },
-    onmessage: null,
+    onmessage: null as null | ((event: { data: { type: string; chunk?: Uint8Array } }) => void),
   };
   const event: Record<string, unknown> = {
     data: { type: "memql-download-open", name: "report.pdf", size: 10 },
@@ -58,8 +60,39 @@ function open(over: { origin?: string; sourceUrl?: string | null }) {
     origin: over.origin,
   };
   if (over.sourceUrl !== null) event.source = { url: over.sourceUrl ?? `${ORIGIN}/index.html` };
-  return { event, replies };
+  return { event, replies, port };
 }
+
+describe("the download worker's stream handoff", () => {
+  it.each(["before", "after"])("serves all bytes when the body finishes %s navigation", async (when) => {
+    const worker = loadWorker();
+    const { event, replies, port } = open({ origin: ORIGIN });
+    worker.message!(event);
+    const url = (replies[0] as { url: string }).url;
+    const finish = () => {
+      port.onmessage!({ data: { type: "chunk", chunk: new TextEncoder().encode("inventory") } });
+      port.onmessage!({ data: { type: "done" } });
+    };
+    if (when === "before") finish();
+    let response: Response | undefined;
+    worker.fetch!({ request: { url }, respondWith: (value: Response) => { response = value; } });
+    if (when === "after") finish();
+    expect(response?.headers.get("Content-Disposition")).toContain("report.pdf");
+    expect(await response?.text()).toBe("inventory");
+  });
+
+  it("lets only one navigation claim a live stream", () => {
+    const worker = loadWorker();
+    const { event, replies } = open({ origin: ORIGIN });
+    worker.message!(event);
+    const url = (replies[0] as { url: string }).url;
+    const responses: Response[] = [];
+    const navigate = () => worker.fetch!({ request: { url }, respondWith: (value: Response) => responses.push(value) });
+    navigate();
+    navigate();
+    expect(responses).toHaveLength(1);
+  });
+});
 
 describe("the download worker's message handler", () => {
   it("answers a same-origin page -- the control that a fix has not broken downloads", () => {

@@ -110,11 +110,11 @@ func TestCreateGoalRefusesAnUnknownRequestedVia(t *testing.T) {
 // can reach a model on a goal's behalf, so a scope applied later leaves
 // exactly the runaway-compile calls uncounted.
 func TestCreateGoalDispatchesCompileWithTheBudgetScope(t *testing.T) {
-	i, _ := newTestIntegration(t)
+	_, i, _, _ := compileDB(t)
 	rec := &recordingCompiler{done: make(chan CompileRequest, 1)}
 	i.SetCompiler(rec)
 
-	nodes, err := i.handleCreateGoal(callerContext("u-alice"), map[string]any{"statement": "do it"}, 0)
+	nodes, err := i.handleCreateGoal(actorCtx("u-alice"), map[string]any{"statement": "do it"}, 0)
 	if err != nil {
 		t.Fatalf("createGoal: %v", err)
 	}
@@ -126,10 +126,10 @@ func TestCreateGoalDispatchesCompileWithTheBudgetScope(t *testing.T) {
 	if req.GoalId != reply["goalId"] || req.RunId != reply["runId"] {
 		t.Errorf("compile was handed {%s, %s}, the reply names {%v, %v}", req.GoalId, req.RunId, reply["goalId"], reply["runId"])
 	}
-	if req.OwnerUserId != "u-alice" {
+	if req.OwnerUserId != canonicalUser("u-alice") {
 		t.Errorf("compile was handed owner %q", req.OwnerUserId)
 	}
-	if rec.actor != "u-alice" {
+	if rec.actor != canonicalUser("u-alice") {
 		t.Errorf("compile ran under actor %q, want the goal owner's borrowed authority -- an owned read under any other actor answers zero rows", rec.actor)
 	}
 	// The scope assertion is in two halves, because the guard reads its

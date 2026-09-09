@@ -1,4 +1,4 @@
-//go:build agent
+//go:build agent || planner
 
 package worker
 
@@ -31,6 +31,16 @@ import (
 	"github.com/znasllc-io/memql/component/worker/probe"
 	"github.com/znasllc-io/memql/core/id"
 )
+
+// ModelProbeOutcome is the terminal answer of a forwarded probe.
+type ModelProbeOutcome struct {
+	Model        string
+	Ok           bool
+	SuiteVersion string
+	ErrorCode    string
+	ErrorMessage string
+	Figures      probe.Figures
+}
 
 // modelProbeForwardCall is one parked probe: where the answer goes, and where
 // the observations go while it waits.

@@ -269,6 +269,7 @@ type turnContext struct {
 	// The per-turn repeat-failure breaker (memql#1128) can't catch this
 	// because each iteration is a fresh plan/turn.
 	IsProduceArtifactExecution bool
+	IsWorkExecution            bool
 }
 
 // guardProduceArtifactRedelegation reports whether a tool call should be
@@ -278,6 +279,9 @@ type turnContext struct {
 // depth 1 -- a produceArtifact turn cannot spawn another produceArtifact plan
 // (memql#1133). Shared by the streaming + non-streaming tool loops.
 func guardProduceArtifactRedelegation(toolName string, turnCtx turnContext) string {
+	if toolName == produceArtifactToolName && turnCtx.IsWorkExecution {
+		return "This goal is already executing. Use composeFile to create the requested file in this run and wait for its outputFileId; do not delegate this work into another goal."
+	}
 	if toolName == produceArtifactToolName && turnCtx.IsProduceArtifactExecution {
 		return produceArtifactRedelegationError
 	}
@@ -312,6 +316,7 @@ func (r *Replier) runStreamingToolLoop(
 	textChunks := 0
 	var allToolCalls []common.ToolCall
 	iterations := 0
+	var terminalErr error
 	// terminalEnvelope captures the structured user-facing reply emitted
 	// via the sentinel respondToUser tool. When set, it replaces the
 	// turn's FinalText (envelope.Response) and contributes Citations.
@@ -406,7 +411,8 @@ StreamLoop:
 						"backoff", backoff.String(), "error", err)
 					select {
 					case <-ctx.Done():
-						return nil, ctx.Err()
+						terminalErr = ctx.Err()
+						break StreamLoop
 					case <-time.After(backoff):
 					}
 					continue
@@ -416,6 +422,7 @@ StreamLoop:
 				}
 				r.logger.Warn("agent streaming: continuation stream failed",
 					"iter", iter, "attempt", attempt, "error", err)
+				terminalErr = fmt.Errorf("start stream: %w", err)
 				break StreamLoop
 			}
 
@@ -429,13 +436,15 @@ StreamLoop:
 						"backoff", backoff.String(), "error", streamErr)
 					select {
 					case <-ctx.Done():
-						return nil, ctx.Err()
+						terminalErr = ctx.Err()
+						break StreamLoop
 					case <-time.After(backoff):
 					}
 					continue
 				}
 				r.logger.Warn("agent streaming: stream error",
 					"iter", iter, "attempt", attempt, "error", streamErr)
+				terminalErr = fmt.Errorf("stream: %w", streamErr)
 				break StreamLoop
 			}
 			// Success: exit the inner retry loop and proceed to
@@ -719,7 +728,11 @@ StreamLoop:
 		citations = terminalEnvelope.Citations
 	}
 
-	r.logger.Info("agent streaming: complete",
+	completion := "agent streaming: complete"
+	if terminalErr != nil {
+		completion = "agent streaming: stopped"
+	}
+	r.logger.Info(completion,
 		"textChunks", textChunks,
 		"textChars", len(finalText),
 		"toolCalls", len(allToolCalls),
@@ -735,7 +748,7 @@ StreamLoop:
 		ToolCalls:  allToolCalls,
 		Iterations: iterations,
 		Citations:  citations,
-	}, nil
+	}, terminalErr
 }
 
 // consumeStreamingTurn reads a single turn from the provider's channel,
@@ -813,9 +826,6 @@ loop:
 				err = chunk.Error
 				break loop
 			}
-			if chunk.Done {
-				break loop
-			}
 			// One-shot TTFT marker: log on the first chunk carrying
 			// either content or a tool-call fragment, on the first
 			// iteration only. That's the earliest upstream-alive signal
@@ -856,12 +866,19 @@ loop:
 				}
 				acc.args.WriteString(tcd.Arguments)
 			}
+			// Fleet providers carry assembled tool calls on the closing
+			// chunk. Consume its payload before ending the turn, or a
+			// successful generation silently skips every requested effect.
+			if chunk.Done {
+				break loop
+			}
 		case <-flushTicker.C:
 			flush()
 		case <-idleTimer.C:
 			err = fmt.Errorf("%s: no upstream chunks for %s", streamIdleSentinel, idleBudget)
 			break loop
 		case <-ctx.Done():
+			err = ctx.Err()
 			break loop
 		}
 	}

@@ -157,6 +157,27 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		// owner; the value comes off the row just read.
 		writeCtx := ownerActor(ctx, owner)
 		status := rowString(run, "status")
+		if status == runStatusCompiling {
+			// Events can be lost while planners are unavailable. Compilation
+			// uses the same durable claim for this recovery and eager delivery.
+			if i.dispatchCompile(writeCtx, CompileRequest{RunId: runId, OwnerUserId: owner}) {
+				res.Redispatched++
+				continue
+			}
+			// Another planner may have won since rowsInFlight took its
+			// snapshot. Judge its current heartbeat, never that old snapshot.
+			current, readErr := st.runForOwner(writeCtx, runId)
+			if readErr != nil || current == nil || rowString(current, "status") != runStatusCompiling {
+				continue
+			}
+			run = current
+			if argBool(run, "cancelRequested") {
+				if err := st.updateRun(writeCtx, runId, map[string]any{"status": runStatusCancelled, "finishedAt": rfc(now)}); err != nil {
+					i.log().Warn("work: could not cancel a compiling run", "run", runId, "error", err)
+				}
+				continue
+			}
+		}
 
 		if status == runStatusWaiting {
 			// A CLASSIFIED FAILURE'S ACT IS SERVED FIRST (epic memql#5127).
@@ -251,13 +272,29 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		// A takeover RESUMES rather than restarts: the seam loads the run's
 		// journal and resumes from the step that was in flight, so the steps
 		// that already ran are not re-executed.
-		if i.redispatchStale(writeCtx, run, runId, owner) {
+		if status != runStatusCompiling && i.redispatchStale(writeCtx, run, runId, owner) {
 			res.Redispatched++
 			continue
 		}
+		code := "run_abandoned"
+		if status == runStatusCompiling && rowString(run, "heartbeatAt") == "" {
+			// A planner can have won arbitration and still be writing its
+			// first heartbeat. Closing an unclaimed run participates in the
+			// same arbitration, so neither side can invalidate the other's
+			// read in that gap. An interrupted claim expires normally.
+			if !i.claimCompile(writeCtx, runId) {
+				continue
+			}
+			current, err := st.runForOwner(writeCtx, runId)
+			if err != nil || rowString(current, "status") != runStatusCompiling || rowString(current, "heartbeatAt") != "" {
+				continue
+			}
+			run = current
+			code = "compile_unclaimed"
+		}
 		if err := st.updateRun(writeCtx, runId, map[string]any{
 			"status":       runStatusAbandoned,
-			"errorCode":    "run_abandoned",
+			"errorCode":    code,
 			"errorMessage": abandonedMessage(run, last),
 			"finishedAt":   rfc(now),
 		}); err != nil {
@@ -266,7 +303,7 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 				"component", "work.sweep", "run", runId, "err", err)
 			continue
 		}
-		i.log().Info("work: closed a run whose node stopped answering",
+		i.log().Info("work: closed a stale run",
 			"component", "work.sweep", "run", runId,
 			"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"))
 		res.Abandoned++
@@ -339,6 +376,9 @@ func lastHeartbeat(run map[string]any) (time.Time, bool) {
 // cannot know. It does NOT say the run failed: the cluster lost the node, and
 // whether the work was about to succeed is not something this can see.
 func abandonedMessage(run map[string]any, last time.Time) string {
+	if rowString(run, "status") == runStatusCompiling && rowString(run, "heartbeatAt") == "" {
+		return "No planner claimed this run for compilation. Check that planner replicas are available and their compile subscriber can reach the graph and claim store."
+	}
 	where := ""
 	if node := rowString(run, "nodeId"); node != "" {
 		where = fmt.Sprintf(" (%s)", node)

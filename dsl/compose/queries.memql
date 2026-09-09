@@ -3,7 +3,7 @@
 // Reads over the compose namespace. Same-domain constructs are ambient, so
 // there is no `use compose.*` line here (#2617).
 //
-// EVERY READ SPELLS THE COMPOSITE TIER OUT as a top-level conjunct,
+// Public record reads spell the composite tier out as a top-level conjunct,
 // `(ownerUserId==actor.userId || actor.isClusterOwner==true)`.
 // TestRowAuthzEnforcementLandGate (component/memql) refuses a read over a
 // tiered concept that no top-level conjunct narrows, and it has no
@@ -31,7 +31,9 @@ query composition compositions {
   filter    (ownerUserId==actor.userId || actor.isClusterOwner==true) && when(args.status) { status==args.status } && when(args.format) { format==args.format }
   sort      "row.createdAt", "desc"
   paginate  50
-  shape     compositionCard
+  // The retained feed also supplies the open Composer. Provenance must
+  // survive reloads rather than appearing only after a live update.
+  shape     compositionFull
 }
 
 /// One composition in full, for the open Composer and the record panel. Gated to its owner, so a
@@ -115,4 +117,26 @@ query recipe composeRecipeById {
   }
   filter  row.id==args.recipeId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
   shape   composeRecipeFull
+}
+
+/// Execution identities and output metadata. The executor checks the owner and work run before
+/// loading the separately stored, owner-only input snapshot.
+@actor
+query composition compositionExecutionById {
+  args {
+    compositionId string!
+  }
+  filter row.id==args.compositionId && (ownerUserId==actor.userId || actor.isClusterOwner==true)
+  shape compositionExecution
+}
+
+/// The input snapshot captured under this owner. Account membership and cluster ownership grant
+/// no access: source payloads may have been private even when the resulting composition is shared.
+@actor
+query compositionInput compositionInputById {
+  args {
+    compositionId string!
+  }
+  filter row.id==args.compositionId && ownerUserId==actor.userId
+  shape compositionInputFull
 }

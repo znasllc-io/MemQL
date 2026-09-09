@@ -1,0 +1,11 @@
+/// Execute one Materializer request within its existing work run. The executor captures model
+/// calls and closes the run on success or failure; the saved composition supplies immutable input.
+@template
+automation materializeFile {
+  args {
+    compositionId string!
+  }
+  step compose {
+    builtin composeExecute ( compositionId: args.compositionId )
+  }
+}

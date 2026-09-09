@@ -34,7 +34,6 @@ import (
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
-	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/num"
 )
 
@@ -118,9 +117,9 @@ type Compiler interface {
 	Compile(ctx context.Context, req CompileRequest)
 }
 
-// CompileRequest is everything compile needs that createGoal already has in
-// hand. The owner rides along so the compiler can borrow the same authority
-// without re-reading the goal.
+// CompileRequest is reconstructed from the authoritative run and goal on
+// the planner. No caller-local run, actor, or budget context is assumed to
+// survive the graph event that crosses the node boundary.
 type CompileRequest struct {
 	GoalId      string
 	RunId       string
@@ -452,6 +451,9 @@ func (i *Integration) RecordCompileOutcome(ctx context.Context, ownerUserId, run
 	if strings.TrimSpace(runId) == "" {
 		return fmt.Errorf("work: RecordCompileOutcome needs a run id")
 	}
+	if err := i.stopCompileHeartbeat(ctx, runId); err != nil {
+		return err
+	}
 	// The run is the goal owner's, so the write borrows their authority --
 	// the owner arrives from a goal row the caller already read under their
 	// own actor, so it can never name somebody they could not act as.
@@ -667,22 +669,13 @@ func (i *Integration) OpenResponsibilityGoal(ctx context.Context, g Responsibili
 		TriggeredBy:    "responsibility:" + respId,
 		Mode:           modeLive,
 		Status:         runStatusCompiling,
-		NodeId:         selfNodeId(),
 		StartedAt:      now,
 		OwnerUserId:    owner,
 	}); err != nil {
 		return "", "", err
 	}
 
-	// The run rides the context, so the compile pass's model calls are
-	// journaled against it (memql#4999).
-	dispatchCtx := common.ContextWithRun(ctx, common.RunContext{
-		RunId:       runId,
-		GoalId:      goalId,
-		Mode:        common.RunModeLive,
-		OwnerUserId: owner,
-	})
-	if dispatched := i.dispatchCompile(dispatchCtx, CompileRequest{
+	if dispatched := i.dispatchCompile(ctx, CompileRequest{
 		GoalId:      goalId,
 		RunId:       runId,
 		OwnerUserId: owner,

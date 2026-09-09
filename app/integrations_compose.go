@@ -9,13 +9,12 @@ import (
 	composeint "github.com/znasllc-io/memql/integrations/compose"
 )
 
-// integrations_compose.go -- joins the Materializer's plug-in to the three
-// things it cannot reach through PluginContext (epic memql#4977).
+// integrations_compose.go joins the Materializer to its runtime collaborators.
 //
 // ===========================================================================
 // WITHOUT THIS CALL THE APP IS INSTALLED AND INERT
 // ===========================================================================
-// The plug-in registers itself from `init()`, so its five capabilities
+// The plug-in registers itself from `init()`, so its capabilities
 // resolve at boot and nothing fails loudly. What it has no way to obtain
 // from `PluginContext` is object storage, the concept registry and the
 // cluster's own domain -- and each absence degrades to a DIFFERENT wrong
@@ -26,6 +25,8 @@ import (
 //	              problem on a cluster that is configured
 //	no registry   the Sources column reports it cannot read the concept
 //	              registry, on a node that can
+//	no composer  a request without a supplied draft cannot produce content
+//	no work      accepted compositions have no executing work run
 //	no domain     every provenance record omits WHICH MemQL made the file,
 //	              which is the question somebody holding it later has
 //
@@ -45,17 +46,9 @@ import (
 // `engine.IntegrationByName` is how the work spine's compiler reaches its own
 // registered instance (app/safety_llm.go), and it is the same answer.
 //
-// ===========================================================================
-// THE GOAL OPENER IS NOT WIRED HERE, AND THAT IS DELIBERATE
-// ===========================================================================
-// A materialization IS a goal (design D6), and the obvious wiring is a Go
-// seam onto integrations/work. There is none to take: `createGoal` exists as
-// a capability handler, not as an exported method, and adding one would make
-// `integrations/compose` depend on `integrations/work` in Go for something
-// the DSL already exposes. So the integration opens its goal through the
-// `createGoal` BUILTIN over its own engine handle, under the caller's own
-// actor -- the same path a DSL author would take, with no new coupling and
-// no second spelling of `requestedVia`.
+// The work integration starts the fixed Materializer template and owns its
+// run lifecycle. The composer uses the executing node's router for the single
+// model step; both are installed on the registered integration instance.
 
 // wireComposeIntegration installs the Materializer's collaborators on the
 // registered plug-in. Idempotent and non-fatal: every setter degrades to a
@@ -71,12 +64,17 @@ func (a *App) wireComposeIntegration(uploader server.FileUploader, container str
 		return
 	}
 
+	if work := a.lookupWorkIntegration(); work != nil {
+		integ.SetGoalOpener(work)
+	}
+
 	// THE CONCEPT REGISTRY, which is what the `@composable` marks live on.
 	// Absent, `composableConcepts` reports `registryAvailable: false` and
 	// the Sources column says so -- deliberately distinguishable from
 	// "nothing is marked", because only one of the two is fixable.
 	if a.engine != nil {
 		integ.SetConceptSource(engineConceptSource{engine: a.engine})
+		integ.SetComposer(materializerComposer{engine: a.engine})
 	}
 
 	// THE INSTANCE'S OWN DOMAIN -- the "which MemQL made this" fact every
@@ -88,7 +86,7 @@ func (a *App) wireComposeIntegration(uploader server.FileUploader, container str
 		integ.SetInstance(domain)
 	}
 
-	// OBJECT STORAGE. The bff's own blob client and container, the same
+	// OBJECT STORAGE. This node's own blob client and container, the same
 	// pair the Library's upload route and the site-bundle publisher take,
 	// so "where materialized bytes live" and "where uploaded bytes live"
 	// cannot drift apart.

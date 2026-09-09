@@ -638,6 +638,11 @@ func (e *MemQLEngine) emitQueryExecutedEvent(startTime time.Time, result *Execut
 }
 
 func (e *MemQLEngine) Execute(ctx context.Context, query string) (*ExecuteResult, error) {
+	if scope, ok := ctx.Value(authoredExecutionKey{}).(authoredExecution); ok && scope.registry != nil && scope.registry.HasOwner(scope.owner) {
+		if access, present := auth.AccessFromContext(ctx); present && access.UserId != "" && access.UserId == scope.owner {
+			return e.ExecuteAuthored(ctx, query, scope.owner, scope.registry)
+		}
+	}
 	return e.executeWith(ctx, query, e.functions, nil, false)
 }
 
@@ -1078,7 +1083,7 @@ func (e *MemQLEngine) executeWith(ctx context.Context, query string, fns *Functi
 	fieldSignature := projectionSignature(plan.Fields, plan.ConceptFields, plan.Metadata)
 	// Resolve named shape reference to a compiled template.
 	if plan.ShapeTemplateName != "" && plan.ShapeTemplate == nil {
-		resolved, resolveErr := e.resolveNamedShape(plan.ShapeTemplateName)
+		resolved, resolveErr := e.resolveNamedShapeForContext(ctx, plan.ShapeTemplateName, plan.SourceFunction)
 		if resolveErr != nil {
 			return nil, resolveErr
 		}

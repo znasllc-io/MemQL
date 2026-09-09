@@ -732,7 +732,7 @@ func (i *Integration) writeArtifactIndex(ctx context.Context, q string) error {
 // index, and where does ownerUserId come from?" answerable by reading one file.
 func (i *Integration) writeFileArtifact(ctx context.Context, sourceRef string, file map[string]any, carry artifactCarryForward) error {
 	q := fmt.Sprintf(
-		`mutation createArtifact(sourceConceptRef: %s, ownerUserId: %s, lens: "artifact", kind: "file", source: %s, title: %s, summary: %s, format: %s, mimeType: %s, live: false, labels: %s, archived: %t, folderId: %s, producedByWorkerId: %s, producedByWorkerName: %s)`,
+		`mutation createArtifact(sourceConceptRef: %s, ownerUserId: %s, lens: "artifact", kind: "file", source: %s, title: %s, summary: %s, format: %s, mimeType: %s, live: false, labels: %s, archived: %t, folderId: %s, producedByWorkerId: %s, producedByWorkerName: %s, producedByRunId: %s)`,
 		langparser.QuoteString(sourceRef),
 		langparser.QuoteString(stringField(file, "ownerUserId")),
 		langparser.QuoteString(fileArtifactSource(stringField(file, "source"))),
@@ -750,6 +750,7 @@ func (i *Integration) writeFileArtifact(ctx context.Context, sourceRef string, f
 		// the verified source of the fact.
 		langparser.QuoteString(stringField(file, "uploadedFromWorkerId")),
 		langparser.QuoteString(stringField(file, "uploadedFromWorkerName")),
+		langparser.QuoteString(stringField(file, "producedByRunId")),
 	)
 	return i.writeArtifactIndex(ctx, q)
 }

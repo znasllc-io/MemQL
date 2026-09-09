@@ -83,6 +83,13 @@ const minSectionsForFanout = 2
 // non-sectionable goal omits it (or sets sectionable=false), in which case the
 // generator declines and the plan routes normally.
 type sectionableDecision struct {
+	// RequiresFile is the goal's semantic delivery contract, independent of
+	// sectionability. Nil is a malformed/omitted answer, never false.
+	RequiresFile *bool `json:"requiresFile"`
+	// FileName and FileFormat are required semantic output choices when the
+	// goal requests a saved file; the format is validated by the Materializer.
+	FileName   string `json:"fileName"`
+	FileFormat string `json:"fileFormat"`
 	// Sectionable is the model's verdict that the deliverable decomposes into
 	// independent, concurrently-producible sections.
 	Sectionable bool `json:"sectionable"`
@@ -207,17 +214,23 @@ func parseSectionableDecision(resp any) sectionableDecision {
 	}
 	raw = extractJSONObject(raw)
 	var env struct {
-		Sectionable bool          `json:"sectionable"`
-		Sections    []sectionSpec `json:"sections"`
-		Assembly    string        `json:"assembly"`
+		RequiresFile *bool         `json:"requiresFile"`
+		FileName     string        `json:"fileName"`
+		FileFormat   string        `json:"fileFormat"`
+		Sectionable  bool          `json:"sectionable"`
+		Sections     []sectionSpec `json:"sections"`
+		Assembly     string        `json:"assembly"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return sectionableDecision{}
 	}
 	return sectionableDecision{
-		Sectionable: env.Sectionable,
-		Sections:    env.Sections,
-		Assembly:    env.Assembly,
+		RequiresFile: env.RequiresFile,
+		FileName:     env.FileName,
+		FileFormat:   env.FileFormat,
+		Sectionable:  env.Sectionable,
+		Sections:     env.Sections,
+		Assembly:     env.Assembly,
 	}
 }
 

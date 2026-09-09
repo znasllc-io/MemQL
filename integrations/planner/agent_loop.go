@@ -98,6 +98,11 @@ func (l *PlannerAgentLoop) SetWorkGoals(g responsibilityGoals) {
 
 // systemActorContext stamps the planner's own system subject.
 func systemActorContext(ctx context.Context) context.Context {
+	// A persisted work run already carries a verified user assertion. Model
+	// attribution must keep that owner across the planner-to-agent hop.
+	if _, ok := auth.ForwardedAuthorityFromContext(ctx); ok {
+		return ctx
+	}
 	return auth.ContextWithToken(ctx, &auth.TokenInfo{
 		Subject: systemPlannerActor,
 		Claims: map[string]any{

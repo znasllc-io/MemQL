@@ -6,7 +6,6 @@ import (
 	"maps"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
-	"github.com/znasllc-io/memql/core/common"
 )
 
 // fork.go -- forkRun and replayRun (design record section D, "Replay has
@@ -182,6 +181,10 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 	runId := newRowId(runConcept)
 	now := i.clock().UTC()
 
+	status := runStatusCompiling
+	if name := rowString(source, "automationName"); name != "" && name != compilingAutomationName {
+		status = runStatusRunning
+	}
 	seed := runSeed{
 		RunId:  runId,
 		GoalId: goalId,
@@ -189,6 +192,8 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 		// compiled itself afresh would not be a replay of anything.
 		AutomationName:      rowString(source, "automationName"),
 		TemplateFingerprint: rowString(source, "templateFingerprint"),
+		TemplateConstructId: rowString(source, "templateConstructId"),
+		TemplateVersion:     rowString(source, "templateVersion"),
 		Input:               rowMap(source, "input"),
 		InputFingerprint:    rowString(source, "inputFingerprint"),
 		TriggeredBy:         d.TriggeredBy,
@@ -197,8 +202,7 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 		Variables:           mergedVariables(source, d.Variables),
 		ForkedFromRunId:     d.ForkedFromRunId,
 		ForkAtStepKey:       d.ForkAtStepKey,
-		Status:              runStatusCompiling,
-		NodeId:              selfNodeId(),
+		Status:              status,
 		StartedAt:           now,
 		OwnerUserId:         owner,
 	}
@@ -206,38 +210,12 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 		return "", err
 	}
 
-	// The derived run gets its OWN budget scope, and dispatchCompile is what
-	// stamps it -- from compileBudgetScopes(req), off the run and goal ids in
-	// the request built below. This used to re-derive the same two scopes
-	// here and assign the result to `_`, which read as though it did
-	// something and did not: sharing the source's budget would make a replay
-	// spend against a ceiling already accounted for, and the line that
-	// prevented it was dead.
-	//
-	// THE RUN CONTEXT IS WHAT THIS PATH DOES NEED TO STAMP (memql#4999), and
-	// it is what turns this row from a record of intent into a replay. The
-	// engine's model seam reads it, asks work.DecideServe, and serves the
-	// source run's journaled answers instead of calling a provider.
-	// context.WithoutCancel inside dispatchCompile preserves values, so it
-	// survives onto the detached goroutine.
-	ctx = common.ContextWithRun(ctx, common.RunContext{
-		RunId:  runId,
-		GoalId: goalId,
-		Mode:   d.Mode,
-		// strict is the only policy a derived run can carry today --
-		// createWorkRun does not accept replayPolicy, and handleReplayRun
-		// refuses a permissive request rather than recording it as strict.
-		ReplayPolicy: common.ReplayStrict,
-		SourceRunId:  d.ForkedFromRunId,
-		// The source's goal, so the cross-goal rule has something to compare.
-		// deriveRun copies goalId off the source row, so these agree by
-		// construction -- and asserting it here is what would catch the day
-		// they stop agreeing.
-		SourceGoalId:  goalId,
-		ForkAtStepKey: d.ForkAtStepKey,
-		StepOrder:     rowStringSlice(source, "stepOrder"),
-		OwnerUserId:   owner,
-	})
+	// A known template is inherited, not chosen again. Its running event
+	// reaches the agent, which reconstructs replay/fork context from this
+	// row and its source before executing the inherited automation.
+	if status == runStatusRunning {
+		return runId, nil
+	}
 
 	if dispatched := i.dispatchCompile(ctx, CompileRequest{
 		GoalId:      goalId,

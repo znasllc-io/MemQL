@@ -22,7 +22,7 @@ import (
 // ===========================================================================
 // RULE 1: EVERY COMPOSITION LIFECYCLE WRITE NEEDS INTERNAL ORIGIN
 // ===========================================================================
-// dsl/compose/mutations.memql declares createComposition,
+// dsl/compose/mutations.memql declares createComposition, createCompositionInput,
 // updateCompositionState and recordComposeRecipeRun @serverOnly.
 // auth.OriginFromContext defaults to OriginClient (the zero value) and the
 // function validator refuses a @serverOnly construct on any other origin
@@ -42,8 +42,8 @@ import (
 // ===========================================================================
 // RULE 2: EVERY READ AND EVERY OWNED WRITE NEEDS AN ACTOR THAT IS THE OWNER
 // ===========================================================================
-// Every compose concept declares @rowAuthz(owner="ownerUserId",
-// clusterOwner).
+// Every compose concept declares @rowAuthz(owner="ownerUserId"). Public
+// records also grant cluster-owner and account reads; input snapshots do not.
 //
 //   - The READ gate has NO internal-origin bypass and answers "no
 //     identity, no rows". An unstamped read returns ZERO ROWS AND NO
@@ -141,6 +141,14 @@ func (s *store) compositionById(ctx context.Context, id string) (map[string]any,
 	return one(s.query(ctx, "query "+call("compositionById", map[string]any{"compositionId": id})))
 }
 
+func (s *store) compositionExecutionById(ctx context.Context, id string) (map[string]any, error) {
+	return one(s.query(ctx, "query "+call("compositionExecutionById", map[string]any{"compositionId": id})))
+}
+
+func (s *store) compositionInputById(ctx context.Context, id string) (map[string]any, error) {
+	return one(s.query(ctx, "query "+call("compositionInputById", map[string]any{"compositionId": id})))
+}
+
 func (s *store) templateById(ctx context.Context, id string) (map[string]any, error) {
 	return one(s.query(ctx, "query "+call("composeTemplateById", map[string]any{"templateId": id})))
 }
@@ -158,23 +166,27 @@ func (s *store) libraryFileById(ctx context.Context, id string) (map[string]any,
 // ---------------------------------------------------------------------------
 
 func (s *store) createComposition(ctx context.Context, args map[string]any) error {
-	return s.writeInternal(ctx, "mutate "+call("createComposition", args))
+	return s.writeInternal(ctx, "mutation "+call("createComposition", args))
+}
+
+func (s *store) createCompositionInput(ctx context.Context, args map[string]any) error {
+	return s.writeInternal(ctx, "mutation "+call("createCompositionInput", args))
 }
 
 func (s *store) updateCompositionState(ctx context.Context, args map[string]any) error {
-	return s.writeInternal(ctx, "mutate "+call("updateCompositionState", args))
+	return s.writeInternal(ctx, "mutation "+call("updateCompositionState", args))
 }
 
 func (s *store) recordRecipeRun(ctx context.Context, args map[string]any) error {
-	return s.writeInternal(ctx, "mutate "+call("recordComposeRecipeRun", args))
+	return s.writeInternal(ctx, "mutation "+call("recordComposeRecipeRun", args))
 }
 
 func (s *store) createLibraryFile(ctx context.Context, args map[string]any) error {
-	return s.write(ctx, "mutate "+call("createLibraryFile", args))
+	return s.write(ctx, "mutation "+call("createLibraryFile", args))
 }
 
 func (s *store) setLibraryFileReady(ctx context.Context, fileId, summary string) error {
-	return s.write(ctx, "mutate "+call("setLibraryFileStatus", map[string]any{
+	return s.write(ctx, "mutation "+call("setLibraryFileStatus", map[string]any{
 		"fileId": fileId, "status": "ready", "summary": summary,
 	}))
 }

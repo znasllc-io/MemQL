@@ -55,6 +55,7 @@ import (
 	"github.com/znasllc-io/memql/component/events"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
+	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 )
 
@@ -72,9 +73,10 @@ type journalExecutor interface {
 }
 
 type workJournal struct {
-	exec   journalExecutor
-	logger *slog.Logger
-	nodeId string
+	exec           journalExecutor
+	logger         *slog.Logger
+	nodeId         string
+	heartbeatEvery time.Duration
 
 	// classifier is the failure path's ONE model call, installed from app/ on
 	// a node that can reach a model. Nil is a working state: a table miss then
@@ -271,7 +273,14 @@ func (j *workJournal) call(ctx context.Context, name string, args map[string]any
 		j.warn(name, err)
 		return
 	}
-	if _, err := j.exec.Execute(journalContext(ctx), query); err != nil {
+	writeCtx := journalContext(ctx)
+	if run, ok := common.RunFromContext(ctx); ok && strings.TrimSpace(run.OwnerUserId) != "" {
+		// The owning principal must write an adopted run and its steps.
+		// The cluster actor remains the read identity for recovery, but its
+		// synthetic writes would blank the step owner and fail owned updates.
+		writeCtx = auth.ContextWithInternalOrigin(auth.ContextWithUserActor(ctx, run.OwnerUserId))
+	}
+	if _, err := j.exec.Execute(writeCtx, query); err != nil {
 		j.warn(name, err)
 	}
 }

@@ -57,10 +57,29 @@ export async function downloadWorkerRegistration(): Promise<ServiceWorkerRegistr
     const registration = await navigator.serviceWorker.register(base + DOWNLOAD_SW_PATH, {
       scope: base + DOWNLOAD_SW_SCOPE,
     });
-    // A brand-new registration may still be installing; the ready worker is
-    // the one that answers the channel below.
-    await navigator.serviceWorker.ready.catch(() => {});
-    return registration.active || registration.waiting || registration.installing ? registration : null;
+    // The OS page is outside the download scope, so serviceWorker.ready
+    // would wait forever for a worker controlling this page. Wait for this
+    // registration's worker instead, then fall back if it cannot activate.
+    const worker = registration.installing ?? registration.waiting ?? registration.active;
+    if (!worker) return null;
+    if (worker.state !== "activated") {
+      const activated = await new Promise<boolean>((resolve) => {
+        const finish = (ready: boolean) => {
+          clearTimeout(timer);
+          worker.removeEventListener("statechange", changed);
+          resolve(ready);
+        };
+        const changed = () => {
+          if (worker.state === "activated") finish(true);
+          else if (worker.state === "redundant") finish(false);
+        };
+        const timer = setTimeout(() => finish(false), 4_000);
+        worker.addEventListener("statechange", changed);
+        changed();
+      });
+      if (!activated) return null;
+    }
+    return registration.active ? registration : null;
   } catch {
     return null;
   }

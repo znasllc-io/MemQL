@@ -8,7 +8,6 @@ import (
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/component/memql"
-	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 )
 
@@ -124,27 +123,13 @@ func (i *Integration) handleCreateGoal(ctx context.Context, args map[string]any,
 		TriggeredBy:    "manual",
 		Mode:           modeLive,
 		Status:         runStatusCompiling,
-		NodeId:         selfNodeId(),
 		StartedAt:      now,
 		OwnerUserId:    owner,
 	}); err != nil {
 		return nil, err
 	}
 
-	// The RUN rides the context from here (memql#4999), so every model call
-	// the compile pass makes is journaled against this run. context.WithoutCancel
-	// inside dispatchCompile preserves values, so the stamp survives onto the
-	// detached goroutine along with the actor and the budget scopes.
-	//
-	// Mode is live: this run reads no journal. It WRITES one, which is what
-	// makes a later replay of it possible at all.
-	ctx = common.ContextWithRun(ctx, common.RunContext{
-		RunId:       runId,
-		GoalId:      goalId,
-		Mode:        common.RunModeLive,
-		OwnerUserId: owner,
-	})
-
+	// Local intake and remote graph events share the same compile claim.
 	dispatched := i.dispatchCompile(ctx, CompileRequest{
 		GoalId:      goalId,
 		RunId:       runId,
@@ -160,43 +145,6 @@ func (i *Integration) handleCreateGoal(ctx context.Context, args map[string]any,
 		"status":            runStatusCompiling,
 		"compileDispatched": dispatched,
 	}), nil
-}
-
-// dispatchCompile hands the run to the compile surface on a DETACHED
-// goroutine, and reports whether there was one to hand it to.
-//
-// # The budget scope is stamped HERE, not inside compile
-//
-// memql.ContextWithBudgetScope is what makes the per-run and per-goal ceilings
-// reachable by the LLM guard at the provider chokepoint (ai_guard.go). Compile
-// is the FIRST thing that can reach a model on this goal's behalf, so a scope
-// applied later would leave exactly the calls made before a template exists
-// uncounted -- and those are the calls a runaway compile would make.
-//
-// # The context is deliberately NOT the caller's
-//
-// The caller's context dies when the builtin returns, and compile outlives it
-// by design (the attachment handler's runAnalysisAsync pattern). So the
-// detached work gets a background context carrying the borrowed actor and the
-// budget scope, and nothing else.
-//
-// # A nil compiler is an ANSWER, and the run stays in `compiling`
-//
-// A node with no compile surface reports compileDispatched:false and says so
-// in the log. The run is then the sweep's: it has a startedAt and no
-// heartbeat, so the abandoned pass closes it with a sentence naming the node.
-// Inventing a plan here would be worse in every direction.
-func (i *Integration) dispatchCompile(ctx context.Context, req CompileRequest) bool {
-	c := i.compilerRef()
-	if c == nil {
-		i.log().Warn("work: a goal was accepted on a node with no compile surface; the run stays in compiling until the abandoned sweep closes it",
-			"component", "work.goal", "goal", req.GoalId, "run", req.RunId)
-		return false
-	}
-	base := ownerActor(context.WithoutCancel(ctx), req.OwnerUserId)
-	base = memql.ContextWithBudgetScope(base, compileBudgetScopes(req)...)
-	go c.Compile(base, req)
-	return true
 }
 
 // compileBudgetScopes names the two ceilings a compile spends against.

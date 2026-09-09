@@ -264,53 +264,11 @@ func (e *MemQLEngine) InvokeAIStructured(
 	if err != nil {
 		return "", err
 	}
-	resolved, err := e.resolveAI(ctx, req)
+	call, err := e.CallAIStructured(ctx, req, messages, spec)
 	if err != nil {
 		return "", err
 	}
-	structured, isStructured := resolved.Client.(common.ChatStructuredProvider)
-	if !isStructured || structured == nil {
-		return "", fmt.Errorf("the router resolved %q for a structured call and it does not serve one",
-			resolved.Resolution.ProviderName)
-	}
-	resolvedProvider := resolved.Resolution.ProviderName
-
-	// THE JOURNAL SEAM (memql#4999). What wraps the call is serveText, which
-	// decides -- once, via work.DecideServe -- whether this run may be answered
-	// from its journal, and records what happened either way. Outside a work
-	// run it costs one context lookup and calls straight through.
-	//
-	// The provider recorded is the one the request ACTUALLY ran on rather than
-	// the one the prompt asked for: hashing the requested name would let a
-	// replay serve one provider's answer for another's.
-	journalReq := common.ModelRequest{
-		Provider: resolvedProvider,
-		Model:    resolved.Resolution.Model,
-		Settings: e.answerAffectingSettings(resolvedProvider),
-		Messages: messages,
-		Schema:   spec,
-	}
-
-	var result string
-	result, err = e.modelSeam.serveText(ctx, journalReq, templateId, func(ctx context.Context) (modelCallOutcome, error) {
-		var out modelCallOutcome
-		text, usage, callErr := callStructuredWithUsage(ctx, structured, messages, spec)
-		out.Usage = usage
-		if callErr != nil {
-			return out, callErr
-		}
-		// A structured provider returns verbatim JSON. The fence-stripping the
-		// old chat-with-schema last resort needed is gone with it: a chat model
-		// asked for "ONLY JSON" wrapped it in a markdown fence often enough
-		// that the wrapper was the common case, and the answer to that is not
-		// to strip fences -- it is to refuse a chain that cannot serve a
-		// structured call.
-		out.Value = text
-		return out, nil
-	})
-	if err != nil {
-		return "", err
-	}
+	result := call.Text
 
 	if cacheKey != "" {
 		e.aiRuntime.cache.set(cacheKey, result, cacheTTL)

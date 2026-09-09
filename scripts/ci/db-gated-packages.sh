@@ -8,12 +8,11 @@
 # 100, component/grpc 42, examples/referencepack). Both jobs therefore compiled
 # and executed those files on every PR.
 #
-# `integrations/planner` was on this list until memql#5052 and is not any more:
-# the plan orchestration loop it db-tested is deleted, and the package now
-# carries no db-gated test at all. TestDBTestsLaneRunsAtLeastOneDBGatedTest is
-# what caught that -- a selector entry matching no db-gated test contributes
-# nothing to the lane while looking like coverage. In go-checks the DB-gated CASES skip (no MEMQL_DATABASE_DSN), but
-# the packages still compile and their non-DB tests still run.
+# `app`, `integrations/compose` and `integrations/planner` exercise persisted
+# work drafts and materialization across independent engine instances. Their
+# database assertions belong here so they also run on every relevant CI build.
+# In go-checks the DB-gated cases skip (no MEMQL_DATABASE_DSN), but the packages
+# still compile and their non-DB tests still run.
 #
 # So: db-tests owns those trees entirely, and go-checks runs the COMPLEMENT.
 # The non-DB tests in those packages are not lost -- db-tests runs the whole
@@ -145,6 +144,7 @@ readonly MODULE_PATH="github.com/znasllc-io/memql"
 # packages -- and the sink's own suite is DB-free through its insert seam, so
 # it now happens to run beside a database it ignores.
 readonly DB_GATED_TREES=(
+	"app"
 	"component/memql"
 	"component/automations"
 	"component/backup"
@@ -156,7 +156,9 @@ readonly DB_GATED_TREES=(
 	"component/packages"
 	"component/sitetraffic"
 	"component/worker/fleetcatalog"
+	"integrations/compose"
 	"integrations/embedding"
+	"integrations/planner"
 	"integrations/shopify"
 	"integrations/work"
 	"examples/referencepack"

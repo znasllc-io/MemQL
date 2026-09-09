@@ -179,3 +179,12 @@ query construct cataloguedConstructsForGoalSignature {
   filter  ownerUserId==actor.userId && catalogued==true && goalSignature==args.goalSignature
   shape   constructFull
 }
+
+/// One owned authored construct by its stored identity. Work execution uses the run's template
+/// reference, then verifies its bundle and recompiles the complete closure on the executing node.
+@actor
+query construct authoringConstructById {
+  args { constructId string! }
+  filter ownerUserId==actor.userId && row.id==args.constructId
+  shape constructFull
+}
