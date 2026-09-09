@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Concepts } from "@znasllc-io/memql-sdk-core/client";
-import { ArrowLeft, ExternalLink, History, Sparkles } from "lucide-react";
+import { ArrowLeft, ExternalLink, History } from "lucide-react";
 
+import { Mark } from "../../../chrome/Mark";
 import { Button, Chip, Chips, Head, Input, Panel, useLiveView } from "../../../kit";
 import { ActionBar, type Act } from "../../../kit/ActionBar";
 import { OpenLogsButton } from "../../../logs/OpenLogs";
@@ -301,7 +302,7 @@ export function DeployablePage({
                 onClick={() => onAsk(`app:deployables site:${site.hostname || site.id}`)}
                 ariaLabel={`Ask about ${name}`}
               >
-                <Sparkles size={13} aria-hidden /> Ask
+                <Mark size={13} aria-hidden /> Ask
               </Button>
             ) : null}
           </Head>

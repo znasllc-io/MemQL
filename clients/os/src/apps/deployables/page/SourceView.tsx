@@ -1,5 +1,6 @@
-import { ArrowLeft, GitBranch, History, Sparkles } from "lucide-react";
+import { ArrowLeft, GitBranch, History } from "lucide-react";
 
+import { Mark } from "../../../chrome/Mark";
 import { Button, Caption, Chip, Fact, Facts, Head, Panel } from "../../../kit";
 import { formatMoment } from "../../../kit/format";
 import { ActionBar, type Act } from "../../../kit/ActionBar";
@@ -107,7 +108,7 @@ export function SourceView({
             </Button>
             {onAsk ? (
               <Button tone="quiet" onClick={() => onAsk(`app:deployables package:${pkg.name || pkg.id}`)}>
-                <Sparkles size={13} aria-hidden /> Ask
+                <Mark size={13} aria-hidden /> Ask
               </Button>
             ) : null}
           </Head>

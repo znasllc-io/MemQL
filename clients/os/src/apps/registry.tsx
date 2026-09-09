@@ -11,7 +11,6 @@ import {
   Settings as SettingsIcon,
   Shapes,
   Store,
-  Sparkles,
   Trash2,
   Users,
   Waypoints,
@@ -19,6 +18,7 @@ import {
 
 import { AskSurface } from "../ask/AskSurface";
 import { useAsk } from "../ask/AskProvider";
+import { Mark } from "../chrome/Mark";
 import { useMakeGoal } from "../ask/useMakeGoal";
 import type { OsAppManifest, OsRegistry, OsWidgetManifest } from "../system/registry";
 import { AccountsApp } from "./accounts/AccountsApp";
@@ -695,7 +695,7 @@ const askWidget: OsWidgetManifest = {
   // requirement renders the setup sentence in its own body rather than the
   // whole surface -- a desktop widget is too small to carry a headline.
   requires: ["ai"] as const,
-  icon: Sparkles,
+  icon: Mark,
   size: { w: 3, h: 2 },
   component: AskWidgetBody,
 };

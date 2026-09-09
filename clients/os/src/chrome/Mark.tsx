@@ -1,12 +1,24 @@
 // Same MemQL mark geometry as brand/mark.svg -- currentColor so chrome paints it.
-export function Mark({ className }: { className?: string }) {
+//
+// Sized two ways on purpose: `size` matches the lucide icon signature, so the mark
+// drops into an AppManifest.icon slot and beside a label where the sparkle used to
+// sit; `className` carries the CSS-sized call sites (the orb, launcher, phone
+// header, sign-in), where the surrounding rule already owns the dimension.
+export function Mark({
+  className,
+  size = 24,
+}: {
+  className?: string;
+  size?: number | string;
+  "aria-hidden"?: boolean;
+}) {
   return (
     <svg
       className={className}
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      width="24"
-      height="24"
+      width={size}
+      height={size}
       aria-hidden="true"
     >
       <g fill="none" stroke="currentColor" strokeWidth="0.78" strokeLinecap="round">
