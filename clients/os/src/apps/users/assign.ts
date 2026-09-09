@@ -25,15 +25,21 @@ import { roleHolds, type GrantRow, type RoleRow } from "./rows";
 //  2. the caller must hold the people-authority grant at all -- `update` on
 //     `principal` to re-role somebody, `create` on `admission` or `principal`
 //     to name a role on an INVITATION. That split is memql#4917's: a developer
-//     invites people and does not re-role them.
+//     invites people and does not re-role them. Which one is asked is decided
+//     by `kind`, NOT by whether `targetRole` is empty -- see AssignKind.
 //  3. the caller must govern the person as they stand today (strictly above
 //     them, or an owner).
 //  4. the new rung must sit strictly below the caller's own -- unless the
 //     caller is an owner, the carve-out that makes a second owner possible.
-//  5. the new role must hold no `principal` verb the caller does not, whatever
-//     the ranks say. developer ranks ABOVE admin and holds fewer principal
-//     verbs, so rank alone would let a developer mint an admin who can then
-//     re-role anybody.
+//  5. RE-ROLING ONLY (memql#5236): the new role must hold no `principal` verb
+//     the caller does not, whatever the ranks say. A re-role hands authority
+//     over immediately; an invitation opens a door the recipient must still
+//     walk through, and the inviter holds no verb on the principal that
+//     results. So a developer MAY invite an admin and may not re-role anybody
+//     into one. The escalation that buys -- inviting an address you control --
+//     is an accepted, recorded trade-off; see auth.MayAssignRole. DO NOT
+//     "restore" this to the invitation kind as a fix: that is the bug this
+//     rule caused, and it disables the rung the engine would accept.
 //  6. an account-scoped role is offered only for somebody already in that
 //     account's group. An unanswerable membership question is a NO, exactly as
 //     a nil `targetIsMember` refuses server-side.
@@ -48,7 +54,22 @@ export type RungRefusal =
   | "authorityBeyond"
   | "notAMember";
 
+/**
+ * WHICH SEAM is assigning, mirroring `auth.AssignKind`.
+ *
+ * The Go read this off `targetCurrentSlug == ""` and that is not what the test
+ * means: it means THE TARGET HAS NO RUNG, which is a different fact from "this
+ * is an invitation". They come apart here too -- PersonPage passes
+ * `person?.role ?? ""`, so a person whose role is blank would take the
+ * invitation branch on the RE-ROLE page. Harmless while the test only chose
+ * which capability to require; not harmless once it also decides whether rule 5
+ * runs. Each surface says which it is.
+ */
+export type AssignKind = "invitation" | "reRole";
+
 export interface AssignContext {
+  /** Which seam is asking. Decides rules 2 and 5. */
+  kind: AssignKind;
   /** The caller's own role slug. */
   callerRole: string;
   /** The caller's rank, resolved through the ladder. */
@@ -74,7 +95,7 @@ export function rungRefusal(rung: RoleRow, ctx: AssignContext): RungRefusal {
   // Rule 2. An invitation names a role on a person who does not exist yet, so
   // it asks for the CREATE grant; a re-role asks for update-on-principal.
   const managing =
-    ctx.targetRole === ""
+    ctx.kind === "invitation"
       ? roleHolds(ctx.grants, ctx.callerRole, "create", "admission") ||
         roleHolds(ctx.grants, ctx.callerRole, "create", "principal")
       : roleHolds(ctx.grants, ctx.callerRole, "update", "principal");
@@ -91,8 +112,9 @@ export function rungRefusal(rung: RoleRow, ctx: AssignContext): RungRefusal {
   // second owner or hand itself on.
   if (!ctx.callerIsOwner && rung.rank >= ctx.callerRank) return "aboveCaller";
 
-  // Rule 5.
-  for (const verb of PRINCIPAL_VERBS) {
+  // Rule 5 -- RE-ROLING ONLY. See the rule list above for why, and for why
+  // putting it back on the invitation kind is the bug rather than the fix.
+  for (const verb of ctx.kind === "reRole" ? PRINCIPAL_VERBS : []) {
     if (
       roleHolds(ctx.grants, rung.slug, verb, "principal") &&
       !roleHolds(ctx.grants, ctx.callerRole, verb, "principal")
