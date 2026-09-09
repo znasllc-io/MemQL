@@ -11873,21 +11873,6 @@ a.os-button {
   right: 3px;
 }
 
-/* The Ask widget's own unconfigured line: it has no room for the surface, so
-   it carries the sentence and nothing else. Padded to the widget's own inset
-   rather than centred -- a centred paragraph in a 3x2 cell reads as an error. */
-.os-ask-unconfigured {
-  margin: 0;
-  padding: 12px 14px;
-}
-
-/* The same sentence, in the SHEET (epic memql#5118, D7). The sheet already
-   pads, so the paragraph inside it does not pad again -- the widget's copy
-   does, because a widget body carries none of its own. */
-.os-ask-sheet-unconfigured > .os-ask-unconfigured {
-  padding: 0;
-}
-
 /* ==========================================================================
    THE CORE GATE -- the shell held before the desk
    (design record 2026-09-07-core-gate-and-honest-install, D1, D2 and D6)
