@@ -43,12 +43,17 @@ func TestValidateRegister(t *testing.T) {
 		// descriptor) keep working exactly as before.
 		{name: "headless only no descriptor", caps: []string{"HEADLESS"}},
 		{name: "headless plus computeruse no descriptor", caps: []string{"HEADLESS", "COMPUTERUSE"}},
+		{name: "headless plus model no descriptor", caps: []string{CapabilityHeadless, ModelCapability}},
+		{name: "model without headless rejected", caps: []string{ModelCapability}, wantErr: "HEADLESS capability is mandatory"},
+		{name: "model does not admit unknown capability", caps: []string{CapabilityHeadless, ModelCapability, "INVENTED"}, wantErr: `unknown capability "INVENTED"`},
 		{name: "no capabilities rejected", caps: nil, wantErr: "at least one capability"},
 		{name: "unknown capability string rejected", caps: []string{"HEADLESS", "computer:screenshot"}, wantErr: "unknown capability"},
 		{name: "computeruse without headless rejected", caps: []string{"COMPUTERUSE"}, wantErr: "HEADLESS capability is mandatory"},
 
 		// Structured descriptor admission.
 		{name: "valid descriptor accepted", caps: []string{"HEADLESS", "COMPUTERUSE"}, descriptorJSON: validDescriptorJSON, wantDescriptor: true},
+		{name: "model with valid descriptor accepted", caps: []string{CapabilityHeadless, CapabilityComputerUse, ModelCapability}, descriptorJSON: validDescriptorJSON, wantDescriptor: true},
+		{name: "model does not bypass descriptor validation", caps: []string{CapabilityHeadless, ModelCapability}, descriptorJSON: `{not json`, wantErr: "invalid JSON"},
 		{name: "valid headless descriptor accepted", caps: []string{"HEADLESS"},
 			descriptorJSON: `{"platform":"linux","displayServer":"none","computerUseAvailable":false,"actions":[],"schemaVersion":1}`,
 			wantDescriptor: true},
