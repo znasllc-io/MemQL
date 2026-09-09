@@ -597,11 +597,11 @@ automatic recommended set is the row below and does not accumulate smaller sets.
 | Class | Fast / strong / reasoning | Embeddings | Estimated resident set |
 |---|---|---|---|
 | Below 16 GB, above the setup hardware floor | `qwen3.5:4b` | `qwen3-embedding:0.6b` | Depends on available memory and context; simultaneous residency is not guaranteed |
-| 16 GB | `qwen3.5:9b` | `qwen3-embedding:0.6b` | 10.4 GB at 32K chat / 8K embedding context |
-| 24 GB | `qwen3.8:27b` | `qwen3-embedding:0.6b` | 21.7 GB at 32K / 8K |
-| 32 GB | `qwen3.8:27b` | `qwen3-embedding:0.6b` | 21.7 GB at 32K / 8K |
-| 64 GB | `qwen3.8:27b-q8_0` | `qwen3-embedding:0.6b` | 40.3 GB at 256K / 8K |
-| 128 GB | `qwen3.8:27b-q8_0` | `qwen3-embedding:0.6b` | 40.3 GB at 256K / 8K |
+| 16 GB | `qwen3.5:9b` | `qwen3-embedding:0.6b` | 11.4 GB at 32K chat / 8K embedding context |
+| 24 GB | `qwen3.8:27b` | `qwen3-embedding:0.6b` | 22.7 GB at 32K / 8K |
+| 32 GB | `qwen3.8:27b` | `qwen3-embedding:0.6b` | 22.7 GB at 32K / 8K |
+| 64 GB | `qwen3.8:27b-q8_0` | `qwen3-embedding:0.6b` | 41.3 GB at 256K / 8K |
+| 128 GB | `qwen3.8:27b-q8_0` | `qwen3-embedding:0.6b` | 41.3 GB at 256K / 8K |
 
 These are one text model and one embedder per class. The larger classes use
 higher precision rather than installing a second text model by default.
@@ -618,13 +618,21 @@ The below-16 row is the standalone Cockpit setup fallback; the engine's
 catalog class ladder still starts at 16. On smaller machines, reduce context
 or explicitly choose models that fit the available memory.
 
-`memoryNeedBytes` estimates weights plus cache at the stated working context.
+`memoryNeedBytes` estimates residency at the stated working context. The
+embedder's 2.6 GB allowance includes runtime compute buffers: on 2026-09-08,
+Ollama 0.33.3 on an RTX 4090 at 8K with `q8_0` KV allocated
+2,416,873,308 GPU bytes, plus about 205 MiB of host buffers.
 The conformance gate runs the engine's actual recommendation function over
 the embedded seeds, checks every class against this table, and requires the
 unique recommended models to fit within 90% of the class. This is a curation
 budget, not a runtime reservation: larger prompts, concurrent requests and
 other GPU applications can require more memory. Embedding calls use an 8K
 working context; chat calls carry their context requirement to the runtime.
+In that local run, chat at 32K and a 1024-dimensional embedding each
+succeeded, but another application using about 6.5 GiB of VRAM caused
+Ollama to evict the chat model before loading the embedder. The run verified
+both calls individually; simultaneous residency requires sufficient free
+memory and was not demonstrated under that contention.
 The native Linux service requests `q8_0` KV cache; Ollama enables Flash
 Attention automatically on supported devices, where this reduces cache memory. See [Ollama context settings](https://docs.ollama.com/context-length)
 and [cache quantization](https://docs.ollama.com/faq).

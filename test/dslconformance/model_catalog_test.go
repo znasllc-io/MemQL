@@ -495,6 +495,24 @@ func TestRecommendedCatalogMatchesTheClassTable(t *testing.T) {
 	}
 }
 
+func TestActiveEmbedderReservationCoversMeasuredRuntime(t *testing.T) {
+	// RTX 4090, Ollama 0.33.3, num_ctx=8192, q8_0 KV, 2026-09-08:
+	// /api/ps reported this GPU allocation after a successful 1024-dimension
+	// embedding. It includes compute buffers, which a weights+KV estimate
+	// omitted. This floor is a measurement, independent of the chosen margin.
+	const measuredGPUBytes int64 = 2_416_873_308
+	for _, p := range loadSeededProfiles(t) {
+		if p.modelID != "qwen3-embedding:0.6b" {
+			continue
+		}
+		if p.memoryNeedBytes < measuredGPUBytes {
+			t.Fatalf("active embedder reserves %d bytes, below the measured 8K runtime allocation of %d bytes including compute buffers", p.memoryNeedBytes, measuredGPUBytes)
+		}
+		return
+	}
+	t.Fatal("active embedder is missing from the embedded catalog")
+}
+
 // TestEveryClassRecommendedSetFitsResident is the 2026-09-08 record's D6 as
 // a gate: the models a class recommends across its four levels fit LOADED
 // TOGETHER inside nine tenths of the class, on both platforms.

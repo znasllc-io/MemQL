@@ -704,7 +704,7 @@ seed modelProfile qwen3_embedding_06b {
   params:           600000000
   quant:            "Q8_0"
   sizeBytes:        639000000
-  memoryNeedBytes:  1600000000
+  memoryNeedBytes:  2600000000
   contextWindow:    32768
   flags:            []
   dimensions:       1024
@@ -713,7 +713,7 @@ seed modelProfile qwen3_embedding_06b {
   recommendedFor:   ["embeddings"]
   minMachineClass:  "16"
   offeredOn:        ["macos", "linux"]
-  notes:            "The cluster's active embedder (embedder:active) at every class: 1024 dimensions, 639 MB of weights. Every layer is full attention, so at Ollama's 32K default the cache alone is 3.8 GB; the cockpit sends every embedding call at an 8K working context, which is the 1.6 GB figure here and what lets it sit beside a 27B on a 24 GB card."
+  notes:            "The cluster's active embedder (embedder:active) at every class: 1024 dimensions, 639 MB of weights, an 8K working context. The 2.6 GB reservation includes compute buffers: Ollama 0.33.3 on an RTX 4090 with q8_0 KV used 2,416,873,308 GPU bytes on 2026-09-08, plus about 205 MiB of host buffers. Concurrent models and other GPU applications can still force eviction; 8K context does not guarantee simultaneous residency."
   active:           true
   curated:          true
 }

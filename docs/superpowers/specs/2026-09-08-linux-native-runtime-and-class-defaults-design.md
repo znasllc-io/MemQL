@@ -217,12 +217,19 @@ stale). And `qwen3-embedding:0.6b` is full attention in every layer, so at
 owner's card as 5.8 GB of VRAM for the embedder alone. Two rulings follow:
 the cockpit sends every embedding call with `num_ctx` 8192 (inputs are
 chunks and queries, never a document; the runtime clamps a value above a
-model's ceiling), which is the 1.6 GB figure the catalog carries; and the
-native Linux unit sets `OLLAMA_KV_CACHE_TYPE=q8_0`, half the cache for a loss
-the runtime's own docs call very small, which on a 24 GB card is the
-difference between the 27B and the embedder staying resident together and a
-reload on every embed-then-chat pair. The catalog's figures are computed at
-f16 so a macOS machine, where the unit is Homebrew's, gets the same sets.
+model's ceiling); and the native Linux unit sets
+`OLLAMA_KV_CACHE_TYPE=q8_0` to reduce cache memory. Neither setting guarantees
+that the text model and embedder stay resident together: compute buffers,
+concurrency and other GPU applications also consume memory.
+
+The 2026-09-08 live run on an RTX 4090 with Ollama 0.33.3 measured
+2,416,873,308 GPU bytes for the embedder at 8K with `q8_0` KV:
+603.87 MiB of weights, 476 MiB of KV cache and 1225.04 MiB of compute
+buffers, plus about 205 MiB of host buffers. The previous 1.6 GB estimate
+omitted compute buffers; the catalog now reserves 2.6 GB. This is a
+conservative GPU estimate for that measured configuration, not a measured
+total-process bound for every runtime or platform. Text estimates remain
+unchanged.
 
 Chat calls now carry a positive working-context request through the worker
 protocol and across the replica hop to Ollama's `num_ctx`. A prompt admitted
@@ -233,22 +240,31 @@ Attention on supported devices, which is required for cache quantization.
 
 ## 4. The recommended set, by class
 
-Memory figures are estimates of weights plus cache in decimal GB at the
-stated contexts, not measurements of total process memory. The class is
+Memory figures are residency estimates in decimal GB at the stated
+contexts; the embedder includes measured compute buffers. They are not
+measurements of total process memory. The class is
 converted from GiB before reserving ten percent for runtime overhead; larger
 contexts, concurrency and other GPU applications can exceed that budget.
 The engine test verifies the actual selected set, and local inference checks
 exercise the owner's 24 GB card. Smaller-than-class-16 machines have no
 simultaneous-residency promise.
 
+The local run returned `MEMQL_LOCAL_OK` from the 27B model at 32768 context
+and a 1024-dimensional embedding at 8192 context. Another application held
+about 6.5 GiB of VRAM, so Ollama evicted chat before loading the embedder.
+This validates both calls separately and records a contention limitation;
+it does not establish simultaneous residency. The updated 22.7 GB pair
+estimate still fits the class-24 curation budget of 23.2 GB when competing
+allocations are absent.
+
 | Class | Budget | Fast / strong / reasoning | Text estimate | Embeddings | Set estimate |
 |---|---|---|---|---|---|
 | Below 16, above the setup floor | Varies | `qwen3.5:4b` | Context-dependent | `qwen3-embedding:0.6b` at 8K | Varies |
-| 16 | 15.5 GB | `qwen3.5:9b` | 8.8 GB at 32K | 1.6 GB at 8K | 10.4 GB |
-| 24 | 23.2 GB | `qwen3.8:27b` | 20.1 GB at 32K | 1.6 GB at 8K | 21.7 GB |
-| 32 | 30.9 GB | `qwen3.8:27b` | 20.1 GB at 32K | 1.6 GB at 8K | 21.7 GB |
-| 64 | 61.8 GB | `qwen3.8:27b-q8_0` | 38.7 GB at 256K | 1.6 GB at 8K | 40.3 GB |
-| 128 | 123.7 GB | `qwen3.8:27b-q8_0` | 38.7 GB at 256K | 1.6 GB at 8K | 40.3 GB |
+| 16 | 15.5 GB | `qwen3.5:9b` | 8.8 GB at 32K | 2.6 GB at 8K | 11.4 GB |
+| 24 | 23.2 GB | `qwen3.8:27b` | 20.1 GB at 32K | 2.6 GB at 8K | 22.7 GB |
+| 32 | 30.9 GB | `qwen3.8:27b` | 20.1 GB at 32K | 2.6 GB at 8K | 22.7 GB |
+| 64 | 61.8 GB | `qwen3.8:27b-q8_0` | 38.7 GB at 256K | 2.6 GB at 8K | 41.3 GB |
+| 128 | 123.7 GB | `qwen3.8:27b-q8_0` | 38.7 GB at 256K | 2.6 GB at 8K | 41.3 GB |
 
 Evidence checked on 2026-09-08:
 
