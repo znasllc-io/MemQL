@@ -112,8 +112,15 @@ const HEALTHY_EMAIL: Row = {
 /** A cluster whose authored automations are running. */
 const RUNNING_AUTOMATIONS: Row = { id: "cluster", authoredAutomationsEnabled: true };
 
-export function fakeConnection(seed: FakeSeed = {}) {
-  return {
+// Explicit so tsc -b (composite) does not chase vitest 5 Mock internals (TS2742).
+export type FakeConnection = {
+  query: Record<string, ReturnType<typeof vi.fn>>;
+  subscriptions: FakeSubscriptions;
+  dispatcher: { sendAndWait: ReturnType<typeof vi.fn> };
+};
+
+export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
+  return ({
     query: {
       // The five live seeds.
       campaigns: reader(seed.campaigns),
@@ -173,10 +180,9 @@ export function fakeConnection(seed: FakeSeed = {}) {
     },
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },
-  };
+  } as FakeConnection);
 }
 
-export type FakeConnection = ReturnType<typeof fakeConnection>;
 
 export function withSession(children: ReactNode, overrides: { role?: string } = {}) {
   const config: OsRuntimeConfig = { ...UNKNOWN_RUNTIME_CONFIG, domain: "memql.example.com" };

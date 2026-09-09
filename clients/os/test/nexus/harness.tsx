@@ -82,7 +82,17 @@ export interface FakeSeed {
   constructs?: Row[] | Error;
 }
 
-export function fakeConnection(seed: FakeSeed = {}) {
+// Explicit so tsc -b (composite) does not chase vitest 5 Mock internals (TS2742).
+export type FakeConnection = {
+  query: Record<string, ReturnType<typeof vi.fn>>;
+  subscriptions: {
+    subscribeGraph: (...args: never[]) => () => void;
+    emit?: (...args: never[]) => void;
+  };
+  dispatcher: { sendAndWait: ReturnType<typeof vi.fn> };
+};
+
+export function fakeConnection(seed: FakeSeed = {}): FakeConnection {
   const read = (rows: Row[] | Error | undefined) =>
     vi.fn(async (_args: Record<string, unknown>) => {
       if (rows instanceof Error) throw rows;
@@ -93,7 +103,7 @@ export function fakeConnection(seed: FakeSeed = {}) {
       if (seed.writeError) throw seed.writeError;
       return rowsResult(reply ? [reply] : []);
     });
-  return {
+  return ({
     query: {
       // TYPED ARGS EVEN ON THE NO-ARGUMENT READS. A `vi.fn(async () => ...)`
       // has an empty parameter list, so `.mock.calls[0][0]` is a tuple of
@@ -140,10 +150,9 @@ export function fakeConnection(seed: FakeSeed = {}) {
     },
     subscriptions: fakeSubscriptions(),
     dispatcher: { sendAndWait: vi.fn() },
-  };
+  } as FakeConnection);
 }
 
-export type FakeConnection = ReturnType<typeof fakeConnection>;
 
 export function withSession(children: ReactNode, overrides: { role?: string } = {}) {
   const config: OsRuntimeConfig = { ...UNKNOWN_RUNTIME_CONFIG, domain: "memql.example.com" };

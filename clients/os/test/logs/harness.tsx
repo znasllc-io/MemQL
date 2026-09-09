@@ -158,7 +158,11 @@ export async function renderLogsApp(opts: {
   intent?: { id: string; payload: Record<string, unknown> };
   consumeIntent?: (intentId: string) => void;
   navigate?: (sectionId: string) => void;
-} = {}) {
+} = {}): Promise<{
+  view: ReturnType<typeof render>;
+  store: LogsSettingsStore;
+  navigate: (sectionId: string) => void;
+}> {
   const store = opts.store ?? memLogsStore(opts.settings ?? {});
   const navigate = opts.navigate ?? vi.fn();
   const view = render(
