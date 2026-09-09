@@ -109,15 +109,24 @@ func TestMayAssignRole(t *testing.T) {
 			newRole: "viewer", want: AssignNotAUserManager,
 		},
 		{
-			// RANK IS NOT AUTHORITY. developer (300) outranks admin (200) and
-			// holds strictly fewer principal verbs, so the rank test alone lets
-			// a developer INVITE an address they control AS an admin -- who
-			// then holds the user management the developer does not, including
-			// the role changes this function governs. Two moves to owner, with
-			// a paper trail that looks like an ordinary invitation.
-			name:       "developer may not invite an admin whose people-authority exceeds theirs",
+			// REVERSED DELIBERATELY (memql#5236), and the argument it used to
+			// carry is still true: developer (300) outranks admin (200) and holds
+			// strictly fewer principal verbs, so a developer can invite an address
+			// they control AS an admin and act through it.
+			//
+			// The cluster owner accepted that knowingly, because the clause was
+			// taking back most of the create-on-admission the seeds grant a
+			// developer on purpose, and `admin` is the rung somebody standing a
+			// cluster up most often needs to hand out. The people-authority clause
+			// now runs on AssignOnReRole only; the mitigation (a second sign-off,
+			// an owner notification, or an explicit admission ceiling) is a
+			// recorded open question, not an oversight.
+			//
+			// The sibling case below is what keeps this honest: the SAME pair on
+			// the re-role seam is still refused.
+			name:       "developer may invite an admin -- admitting is not wielding",
 			callerRole: RoleDeveloper, callerId: "u-dev", targetId: "", targetCurrent: "",
-			newRole: "admin", want: AssignAuthorityBeyond,
+			newRole: "admin", want: AssignAllowed,
 		},
 		{
 			// The capability a developer DOES hold is create-on-admission, so
@@ -194,8 +203,17 @@ func TestMayAssignRole(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Every case in this table was authored when an empty
+			// targetCurrent WAS the invitation signal, so deriving the kind
+			// here preserves each case's original meaning exactly.
+			// TestAssignmentCrossProduct pins the two kinds explicitly.
+			kind := AssignOnReRole
+			if tc.targetCurrent == "" {
+				kind = AssignOnInvitation
+			}
 			got := MayAssignRole(
 				UserContext{ID: tc.callerId, Role: tc.callerRole},
+				kind,
 				tc.targetId, tc.targetCurrent, tc.newRole, tc.isMember,
 			)
 			if got != tc.want {
@@ -212,10 +230,10 @@ func TestMayAssignRole(t *testing.T) {
 func TestMayAssignRoleWithNoCatalogUsesTheCompiledLadder(t *testing.T) {
 	SetCapabilityCatalog(nil)
 
-	if got := MayAssignRole(UserContext{ID: "u-owner", Role: RoleOwner}, "u-a", "", "admin", nil); got != AssignAllowed {
+	if got := MayAssignRole(UserContext{ID: "u-owner", Role: RoleOwner}, AssignOnInvitation, "u-a", "", "admin", nil); got != AssignAllowed {
 		t.Fatalf("owner inviting an admin on a catalog-less node = %q, want allowed", got)
 	}
-	if got := MayAssignRole(UserContext{ID: "u-adm", Role: RoleAdmin}, "u-a", "", "developer", nil); got != AssignAboveCaller {
+	if got := MayAssignRole(UserContext{ID: "u-adm", Role: RoleAdmin}, AssignOnInvitation, "u-a", "", "developer", nil); got != AssignAboveCaller {
 		t.Fatalf("admin inviting a developer on a catalog-less node = %q, want %q", got, AssignAboveCaller)
 	}
 }

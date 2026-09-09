@@ -52,20 +52,49 @@ const (
 	AssignNotAMember AssignRefusal = "target_not_a_member_of_the_scope"
 )
 
+// AssignKind names WHICH SEAM is assigning, and the seam says so rather than
+// being inferred (memql#5236).
+//
+// This was read off `targetCurrentSlug == ""`, and that test does not mean what
+// it was being used for. It means THE TARGET HAS NO CURRENT RUNG, which is a
+// different fact from "this caller is issuing an invitation" -- and the two
+// come apart, because `v1:identity:user.role` is declared `@default("reader")`
+// with no `!` and a concept-field default is never applied on insert, so a
+// blank role is reachable and SetUserRole passes `user.Role` straight through.
+//
+// It was harmless while the inference decided only which CAPABILITY to require
+// (SetUserRole's outer gate is AtLeastAdmin == create-on-principal, so only
+// owner and admin reach the re-role path and both hold every principal verb).
+// It stops being harmless the moment it also decides whether a SECURITY clause
+// runs, which is exactly what the exemption below does. A rule that infers its
+// own caller is a rule that stops meaning what its comment says.
+type AssignKind int
+
+const (
+	// AssignOnInvitation -- naming the role on an invitation. No principal
+	// exists yet; one is created only if the recipient redeems it.
+	AssignOnInvitation AssignKind = iota
+	// AssignOnReRole -- moving an existing principal to a different rung.
+	AssignOnReRole
+)
+
 // MayAssignRole decides D4: may `actor` put `newSlug` on the principal named by
 // `targetUserId`, who currently holds `targetCurrentSlug`?
 //
 // `targetCurrentSlug` is EMPTY for an invitation -- there is no principal yet,
 // so there is no current rung to outrank, and the target half of the rule
 // passes trivially. What stops an admin inviting an owner is the NEW-rank
-// bound, which applies identically to an invitation and to a re-role. The
-// emptiness also selects which CAPABILITY is required; see below.
+// bound, which applies identically to an invitation and to a re-role.
+//
+// `kind` selects which CAPABILITY is required and whether the people-authority
+// clause runs; see both below.
 //
 // `targetIsMember` answers "is this person in that account's groups", and is
 // consulted only for a scoped role. A NIL function REFUSES a scoped role: a
 // caller that cannot answer the question is not a caller whose answer is yes.
 func MayAssignRole(
 	actor UserContext,
+	kind AssignKind,
 	targetUserId, targetCurrentSlug, newSlug string,
 	targetIsMember func(accountId string) bool,
 ) AssignRefusal {
@@ -79,15 +108,15 @@ func MayAssignRole(
 	// caller who holds no people-authority would let the refusal name a rank
 	// when the real answer is "this is not your job".
 	//
-	// WHICH GRANT DEPENDS ON WHETHER A PRINCIPAL ALREADY EXISTS, and that is
-	// the model's own create-versus-update split rather than a convenience.
-	// Re-roling somebody is `update` on `principal` (D4). Naming the role on an
-	// INVITATION is not: there is no principal yet, and a developer holds
-	// create-on-admission and no update-on-principal precisely so it can invite
-	// people and cannot re-role them (memql#4917). Requiring update here would
-	// take invitations away from every developer in every cluster, through the
-	// one function whose job is deciding which ROLE they may name.
-	if targetCurrentSlug == "" {
+	// WHICH GRANT DEPENDS ON WHICH SEAM IS ASKING, and that is the model's own
+	// create-versus-update split rather than a convenience. Re-roling somebody
+	// is `update` on `principal` (D4). Naming the role on an INVITATION is not:
+	// there is no principal yet, and a developer holds create-on-admission and
+	// no update-on-principal precisely so it can invite people and cannot
+	// re-role them (memql#4917). Requiring update here would take invitations
+	// away from every developer in every cluster, through the one function whose
+	// job is deciding which ROLE they may name.
+	if kind == AssignOnInvitation {
 		if !Capable(actor.Role, VerbCreate, ResourceAdmission) &&
 			!Capable(actor.Role, VerbCreate, ResourcePrincipal) {
 			return AssignNotAUserManager
@@ -128,7 +157,26 @@ func MayAssignRole(
 	// every "must strictly outrank" rule admits developer -> admin -- while
 	// admin can then do the user management the developer cannot, including
 	// calling this function to make anybody an owner.
-	if GrantsPrincipalAuthorityBeyond(actor.Role, Role(newSlug)) {
+	//
+	// RE-ROLING ONLY (memql#5236). Admitting somebody is not wielding their
+	// powers: a re-role hands over authority immediately, while an invitation
+	// opens a door the recipient must still walk through, and the inviter still
+	// holds no verb on the principal that results. The seeds grant developer
+	// create-on-admission for exactly this -- "a developer standing a cluster up
+	// alongside the owner can get colleagues in" (dsl/rbac/seeds.memql) -- and
+	// this clause took most of it back, since `admin` is the rung such a person
+	// most often needs to hand out.
+	//
+	// THE TRADE-OFF IS ACCEPTED AND DEFERRED, NOT OVERLOOKED. A developer can
+	// invite an address they control as admin, redeem it, and act through that
+	// account to do the people-management developers are denied. The cluster
+	// owner accepted this knowingly; the open question -- a second sign-off from
+	// somebody who holds the authority, an owner notification, or an explicit
+	// per-role admission ceiling -- is recorded for a later epic. DO NOT
+	// "restore" this clause to the invitation seam as a fix: that silently takes
+	// invitations away from every developer in every cluster, which is the bug
+	// this issue exists to close.
+	if kind == AssignOnReRole && GrantsPrincipalAuthorityBeyond(actor.Role, Role(newSlug)) {
 		return AssignAuthorityBeyond
 	}
 

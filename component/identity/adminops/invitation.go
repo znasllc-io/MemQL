@@ -145,6 +145,7 @@ func (s *Service) IssueUserInvitation(ctx context.Context, in UserInvitation) Re
 		inviterSlug := auth.Role(strings.ToLower(strings.TrimSpace(string(act.role))))
 		refusal := auth.MayAssignRole(
 			auth.UserContext{ID: act.userID, Role: inviterSlug},
+			auth.AssignOnInvitation,
 			"", "", role, nil,
 		)
 		if refusal != auth.AssignAllowed {
@@ -159,8 +160,7 @@ func (s *Service) IssueUserInvitation(ctx context.Context, in UserInvitation) Re
 			}
 			return fail(CodePermissionDenied, s.emit(ctx, identity.AuditCategoryAdmin, "user_invitation_issued",
 				act, "", email, detail, identity.AuditOutcomeBlocked, reason),
-				"identity admin: you cannot invite somebody as "+role+" -- "+
-					auth.AssignRefusalSentence(refusal, inviterSlug, role))
+				"identity admin: "+auth.AssignRefusalSentence(refusal, inviterSlug, role))
 		}
 	}
 
