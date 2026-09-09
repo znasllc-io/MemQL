@@ -11,6 +11,7 @@ import (
 
 	"github.com/znasllc-io/memql/component/automations"
 	langparser "github.com/znasllc-io/memql/component/language/parser"
+	"github.com/znasllc-io/memql/component/memql"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -89,9 +90,15 @@ func (e *FunctionExecutor) Execute(ctx context.Context, step *automations.Step, 
 	if len(step.Function.Args) > 0 {
 		args := step.Function.Args
 		if stepCtx.Evaluator != nil {
-			if resolved, resolveErr := resolveArgsRefs(args, stepCtx.Evaluator); resolveErr == nil {
-				args = resolved
+			resolved, resolveErr := resolveArgsRefs(args, stepCtx.Evaluator)
+			if resolveErr != nil {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("function %q argument resolution failed: %v", funcName, resolveErr)
+				result.CompletedAt = time.Now()
+				result.Duration = result.CompletedAt.Sub(result.StartedAt)
+				return result, fmt.Errorf("function %q argument resolution failed: %w", funcName, resolveErr)
 			}
+			args = resolved
 		}
 		query = fmt.Sprintf("%s(%s)", funcName, renderFunctionArgs(args))
 	}
@@ -518,6 +525,13 @@ func isBareStepArgIdentifier(s string) bool {
 func resolveArgValueRef(v any, evaluator *automations.Evaluator) (any, error) {
 	switch val := v.(type) {
 	case string:
+		// Date failures must remain errors: converting an invalid optional cutoff
+		// to nil would remove its when-guard and turn a sweep into a full scan.
+		if evaluator != nil {
+			if resolved, handled, err := evaluator.TryEvaluateDateBuiltin(normalizeStepMethodAccessors(val)); handled || err != nil {
+				return resolved, err
+			}
+		}
 		// Bare step-variable reference: a single identifier (no dot / call /
 		// operator) that names a recorded step result. A logic body's later
 		// step passes a prior `name := <call>` result straight through as a
@@ -551,7 +565,7 @@ func resolveArgValueRef(v any, evaluator *automations.Evaluator) (any, error) {
 		if strings.HasPrefix(val, "concat(") && strings.HasSuffix(val, ")") {
 			resolved, err := evaluateArgConcat(evaluator, val)
 			if err != nil {
-				return v, nil
+				return nil, err
 			}
 			return resolved, nil
 		}
@@ -627,7 +641,7 @@ func resolveArgValueRef(v any, evaluator *automations.Evaluator) (any, error) {
 		for i, item := range val {
 			r, err := resolveArgValueRef(item, evaluator)
 			if err != nil {
-				return v, nil
+				return nil, err
 			}
 			result[i] = r
 		}
@@ -695,6 +709,12 @@ func evaluateArgConcat(evaluator *automations.Evaluator, expr string) (string, e
 // to the shared MutationExecutor evaluator vs treat the arg as a
 // bare runtime reference.
 func looksLikeNestedBuiltin(s string) bool {
+	// Date calls are evaluated before named-argument rendering, which quotes
+	// unresolved source text. A textual cutoff such as "addDuration(...)"
+	// would otherwise compare greater than every ISO timestamp.
+	if name, _, ok := strings.Cut(s, "("); ok && memql.IsDateBuiltin(name) && strings.HasSuffix(s, ")") {
+		return true
+	}
 	if !strings.HasSuffix(s, ")") {
 		return false
 	}
