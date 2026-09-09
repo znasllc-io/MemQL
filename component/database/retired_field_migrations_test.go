@@ -48,6 +48,7 @@ func TestTheRetiredFieldMigrationsAreDiscoveredAndPaired(t *testing.T) {
 		"20260908030000", // the planner retirement's pointers
 		"20260908040000", // the environment collapse
 		"20260908050000", // the retired policy slug
+		"20260909010000", // remaining agent fields and closed nested blocks
 	} {
 		var found *migrate.Migration
 		for i := range sorted {
