@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { ChevronRight, Files, Folder, HardDrive, Monitor, Sparkles, Trash2 } from "lucide-react";
+import { ChevronRight, Files, Folder, HardDrive, Layers, Monitor, Trash2 } from "lucide-react";
 import type { LiveState } from "@znasllc-io/memql-sdk-core/client";
 
 import { Caption, Chip } from "../../kit";
@@ -319,7 +319,7 @@ export function Rail({
           is for. */}
       <Place
         place="materializer"
-        glyph={<Sparkles size={14} aria-hidden />}
+        glyph={<Layers size={14} aria-hidden />}
         name="Materializer"
         count={materializedRail.total}
         countTitle={`${materializedRail.total} ${

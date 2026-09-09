@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import {
   CalendarDays,
   File as FileGlyph,
@@ -5,16 +6,25 @@ import {
   ListTodo,
   NotebookPen,
   Radio,
-  Sparkles,
 } from "lucide-react";
 
+import { GeneratedGlyph } from "../apps/files/glyphs";
 import { FileProvenanceDot } from "../kit";
 import type { MachinePresence } from "./provenance";
 import type { FileEntry } from "../system/desktop";
 
-const GLYPHS: Record<string, typeof FileGlyph> = {
+// SECOND MAP, SAME CONCEPT: `apps/files/glyphs.tsx` maps kind -> glyph too, and
+// its own comment claims to be the only one. Nothing enforces that they agree.
+// They must, so `generated_output` is IMPORTED from there rather than drawn
+// again here -- one glyph, two call sites. Consolidating the maps themselves is
+// its own job (memql#5263 records it) and is not done here.
+//
+// The value type is widened from `typeof FileGlyph` to the lucide-shaped
+// signature, because the composite glyph is a plain component rather than a
+// lucide forwardRef.
+const GLYPHS: Record<string, ComponentType<{ size?: number | string; "aria-hidden"?: boolean }>> = {
   document: FileText,
-  generated_output: Sparkles,
+  generated_output: GeneratedGlyph,
   note: NotebookPen,
   todo: ListTodo,
   calendar_event: CalendarDays,

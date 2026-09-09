@@ -17,7 +17,7 @@ import {
   renderFiles,
 } from "./harness";
 import { COMPOSITION_CONCEPT } from "../../src/apps/files/concepts";
-import { Sparkles } from "lucide-react";
+import { Layers } from "lucide-react";
 import { MATERIALIZER_APP } from "../../src/apps/files/materializer";
 import type { OsAppManifest } from "../../src/system/registry";
 
@@ -247,7 +247,7 @@ describe("the Materializer place", () => {
 const MATERIALIZER_MANIFEST: OsAppManifest = {
   id: MATERIALIZER_APP,
   name: "Materializer",
-  icon: Sparkles,
+  icon: Layers,
   sections: [
     { id: "composer", name: "Composer" },
     { id: "materialized", name: "Materialized" },
