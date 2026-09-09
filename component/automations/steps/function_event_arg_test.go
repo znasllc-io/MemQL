@@ -18,7 +18,7 @@ import (
 //
 // The regression this guards against: when `event` is NOT seeded
 // (the old schedule path), the bare reference fails to resolve, the
-// renderer emits the unresolved literal token `event=event`, the
+// renderer emits the unresolved literal token `event: event`, the
 // engine coerces it to a STRING, and the receiving logic function's
 // `event: object` validation trips with
 // `argument "event": expected object, got string` -- the exact
@@ -54,13 +54,13 @@ func TestScheduleTriggeredEventArgRendersAsObject(t *testing.T) {
 
 	rendered := renderFunctionArgs(resolved)
 
-	// Must render as an object literal: `event={...}`.
-	if !strings.HasPrefix(rendered, "event={") || !strings.HasSuffix(rendered, "}") {
+	// Must render as an object literal: `event: {...}`.
+	if !strings.HasPrefix(rendered, "event: {") || !strings.HasSuffix(rendered, "}") {
 		t.Fatalf("expected event arg to render as an object literal, got %q", rendered)
 	}
 	// Must NOT render as the bare/string token that the engine coerces
 	// to a string (the #418 failure mode).
-	if rendered == "event=event" {
+	if rendered == "event: event" {
 		t.Fatalf("event arg rendered as bare token %q -- engine would coerce to string (regression of #418)", rendered)
 	}
 	if strings.Contains(rendered, `"triggeredBy"`) == false {
@@ -71,7 +71,7 @@ func TestScheduleTriggeredEventArgRendersAsObject(t *testing.T) {
 // TestUnseededEventArgIsTheKnownFailureShape documents the buggy
 // behaviour the fix eliminates: with no `event` seeded (the old
 // schedule path) the same compiled argument renders as the bare token
-// `event=event`, which the engine coerces to a string. This test pins
+// `event: event`, which the engine coerces to a string. This test pins
 // the contract that the executor must NOT leave `event` unseeded for
 // scheduled runs -- if it ever regresses, the assertion above starts
 // failing while this one keeps documenting why.
@@ -85,7 +85,7 @@ func TestUnseededEventArgIsTheKnownFailureShape(t *testing.T) {
 	}
 	rendered := renderFunctionArgs(resolved)
 
-	if rendered != "event=event" {
-		t.Fatalf("expected unseeded event arg to render as the bare token \"event=event\" (the #418 failure shape), got %q", rendered)
+	if rendered != "event: event" {
+		t.Fatalf("expected unseeded event arg to render as the bare token \"event: event\" (the #418 failure shape), got %q", rendered)
 	}
 }
