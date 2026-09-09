@@ -56,8 +56,10 @@ func runBuildAndImport(t *testing.T, failOn string, nodes ...string) ([]string, 
 		"    if [[ \"$1\" == \"" + failOn + "\" ]]; then\n" +
 		"        cap_fail 5 \"building the $1 image failed\"\n" +
 		"    fi\n" +
+		"    LOCAL_IMAGE_BUILT_ID=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
 		"}\n" +
-		"function build_carrier_node() { :; }\n" +
+		"function build_carrier_node() { LOCAL_IMAGE_BUILT_ID=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }\n" +
+		"function docker() { echo sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }\n" +
 		"function import_image() { echo \"$1\" >> \"" + importLog + "\"; }\n" +
 		"function restart_deployment() { :; }\n" +
 		"function cap_changed() { :; }\n" +

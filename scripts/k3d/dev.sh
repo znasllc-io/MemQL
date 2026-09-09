@@ -134,6 +134,8 @@ source "${SCRIPT_DIR}/../lib/capability.sh"
 source "${SCRIPT_DIR}/../lib/engine_build_args.sh"
 # shellcheck source=../lib/local_traefik.sh
 source "${SCRIPT_DIR}/../lib/local_traefik.sh"
+# shellcheck source=../lib/local_images.sh
+source "${SCRIPT_DIR}/../lib/local_images.sh"
 
 cap_init "k3d.dev" "Build node image(s) locally, import into k3d, and restart Deployments."
 cap_spec_param "node"            "node type(s) to rebuild, comma-separated (default: all app nodes)" ""
@@ -416,7 +418,7 @@ function build_engine_node() {
     # detail line per step, and the only thing that survives the run. The
     # recorder now writes this stderr to a `.log` beside that record and names
     # it in the detail, so the evidence is where the pointer is.
-    docker build \
+    build_local_image \
         "${ENGINE_BUILD_ARGS[@]}" \
         --target "${ENGINE_BUILD_TARGET}" \
         --tag "${image}" \
@@ -446,7 +448,7 @@ function build_carrier_node() {
         cap_fail 4 "carrier repo not found at ${CARRIER_REPO}"
     fi
 
-    docker build \
+    build_local_image \
         --build-arg BUILD_TAGS="${node}" \
         --build-arg CGO_ENABLED=0 \
         --tag "${image}" \
@@ -462,11 +464,14 @@ function build_carrier_node() {
 #=============================================================================
 
 function import_image() {
-    local image="$1"
-
+    local image="$1" expected="${2:-}"
+    if [[ -z "$expected" ]]; then
+        expected="$(docker image inspect --format '{{.Id}}' "$image")" \
+            || cap_fail 5 "could not inspect ${image} before import"
+    fi
     info "Importing ${image} into k3d cluster '${CLUSTER_NAME}'..."
-    k3d image import "${image}" --cluster "${CLUSTER_NAME}" >&2 \
-        || cap_fail 5 "importing ${image} into k3d cluster '${CLUSTER_NAME}' failed -- the image was built, so this is the cluster or the import, not the build"
+    import_local_image_verified "$image" "$CLUSTER_NAME" "$expected" \
+        || cap_fail 5 "importing or verifying ${image} in k3d cluster '${CLUSTER_NAME}' failed -- see stderr for the affected image/node"
     info "Imported ${image}."
 }
 
@@ -536,17 +541,28 @@ function build_node() {
 # fail partway and asserts that nothing was imported. Inlined in main() that
 # assertion could only be made against the whole script.
 function build_and_import_nodes() {
-    local node
+    local node index=0
+    local ids=()
 
-    # PASS 1 -- build every image. A failure here has imported nothing, so the
-    # cluster is exactly as it was (memql#5058).
+    # Build every image before touching the cluster; preserve each build's
+    # own ID while later builds can take minutes and mutable tags can change.
     for node in "$@"; do
+        LOCAL_IMAGE_BUILT_ID=""
         build_node "$node"
+        ids+=("$LOCAL_IMAGE_BUILT_ID")
     done
 
-    # PASS 2 -- import them. Only reached when EVERY build succeeded.
+    # Fence the entire set before the first import, then each import fences
+    # again. A concurrent update must not substitute its images for this run.
     for node in "$@"; do
-        install_node "$node"
+        local_image_matches "$(image_name_for_node "$node")" "${ids[$index]}" \
+            || cap_fail 5 "the built ${node} image changed before import; retry after other updates finish"
+        index=$((index + 1))
+    done
+    index=0
+    for node in "$@"; do
+        install_node "$node" "${ids[$index]}"
+        index=$((index + 1))
     done
 }
 
@@ -555,7 +571,7 @@ function build_and_import_nodes() {
 function install_node() {
     local node="$1"
 
-    import_image "$(image_name_for_node "$node")"
+    import_image "$(image_name_for_node "$node")" "${2:-}"
     IMPORTED_NODES+=("$node")
     # Under --image-source=checkout the Application's node overrides are dropped
     # once every image is imported, and the sync that follows rolls the pods --
@@ -582,8 +598,7 @@ function pull_and_import_infra() {
         docker pull "${image}" >&2 \
             || cap_fail 5 "pulling the infra image ${image} failed"
         info "Importing ${image} into k3d..."
-        k3d image import "${image}" --cluster "${CLUSTER_NAME}" >&2 \
-            || cap_fail 5 "importing the infra image ${image} into k3d failed"
+        import_image "$image"
         info "Done: ${image}"
     done
 
@@ -665,8 +680,7 @@ function ensure_db_image() {
         || cap_fail 5 "building ${DB_IMAGE} from ${REPO_ROOT} failed"
 
     info "Importing ${DB_IMAGE} into k3d..."
-    k3d image import "${DB_IMAGE}" --cluster "${CLUSTER_NAME}" >&2 \
-        || cap_fail 5 "k3d image import of ${DB_IMAGE} failed"
+    import_image "$DB_IMAGE"
 
     DB_IMAGE_IMPORTED=true
     cap_changed
