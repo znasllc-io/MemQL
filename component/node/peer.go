@@ -2,13 +2,14 @@ package node
 
 import (
 	"context"
+	"google.golang.org/protobuf/proto"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/znasllc-io/memql/core/component"
 	nodev1 "github.com/znasllc-io/memql/component/node/gen"
 	"github.com/znasllc-io/memql/core/common"
+	"github.com/znasllc-io/memql/core/component"
 )
 
 const (
@@ -468,6 +469,23 @@ func (pm *PeerManager) ByType(t NodeType) []*PeerEntry {
 	entries := make([]*PeerEntry, 0, len(typeMap))
 	for _, entry := range typeMap {
 		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// SnapshotByType returns immutable selections for operations that outlive the
+// peer-table lock. The connection remains the selected transport even if the
+// manager detaches or replaces it; its own lifecycle reports disconnection.
+func (pm *PeerManager) SnapshotByType(t NodeType) []*PeerEntry {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	entries := make([]*PeerEntry, 0, len(pm.byType[t]))
+	for _, entry := range pm.byType[t] {
+		snapshot := *entry
+		if entry.Info != nil {
+			snapshot.Info = proto.Clone(entry.Info).(*nodev1.PeerInfo)
+		}
+		entries = append(entries, &snapshot)
 	}
 	return entries
 }

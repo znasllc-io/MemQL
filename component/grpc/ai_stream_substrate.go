@@ -119,7 +119,7 @@ func (s *streamSession) proxyAIStream(
 	target node.NodeType,
 	consume func(ctx context.Context, correlate, requestId string),
 ) error {
-	ctx := s.stream.Context()
+	ctx, cancel := context.WithCancel(s.stream.Context())
 	correlate := envelope.GetMessageId()
 
 	// Refuse locally on an unprovable authority. It matters more here than on
@@ -128,6 +128,7 @@ func (s *streamSession) proxyAIStream(
 	// never reach the client and the stream would simply hang (memql#3205).
 	principal, err := s.forwardedPrincipal()
 	if err != nil {
+		cancel()
 		return s.sendQueryError(requestId, correlate, codes.Internal,
 			"cannot establish forwarded authority for this session: "+err.Error())
 	}
@@ -135,6 +136,7 @@ func (s *streamSession) proxyAIStream(
 
 	respCh, err := s.service.aiForwarder.Forward(ctx, requestId, target, principal, envelope)
 	if err != nil {
+		cancel()
 		return s.sendQueryError(requestId, correlate, codes.Unavailable, err.Error())
 	}
 
@@ -163,11 +165,15 @@ func (s *streamSession) proxyAIStream(
 			}
 			_ = s.sendQueryError(requestId, correlate,
 				forwardErrorCode(qe.GetError().GetCode()), qe.GetError().GetMessage())
+			cancel()
 		}
 	}()
 
 	// Consume the streamed frames from the substrate and render to the client.
-	go consume(ctx, correlate, requestId)
+	go func() {
+		defer cancel()
+		consume(ctx, correlate, requestId)
+	}()
 	return nil
 }
 
@@ -179,49 +185,46 @@ func (s *streamSession) proxyAIStream(
 // replay are the substrate's guarantees. The WS-owning bff renders these back to
 // the client via consumeTokenStream.
 func (s *streamSession) produceTokenStreamToSubstrate(ctx context.Context, requestId string, chunks <-chan common.StreamChunk) {
-	// The streamed content rides the substrate, but the forward inflight on the
-	// bff still needs a terminal AiForwardResponse{Done} to be cleaned up (the
-	// content no longer flows over forwardedStream). Emit one bare terminal over
-	// the forwardedStream on EVERY exit path. The bff's proxyAIStream drains and
-	// DISCARDS forward responses, so this terminal closes the inflight without
-	// being rendered to the client (no double delivery).
-	defer s.closeForwardInflight(requestId)
+	// A bare completion is safe only after the durable terminal was written.
+	// Otherwise the browser has no row to consume and must receive the failure
+	// over the forwarding hop while that transport is still available.
+	var publishErr error
+	defer func() {
+		if publishErr != nil {
+			if s.logger != nil {
+				s.logger.Warn("token stream durable publication failed", "request_id", requestId, "error", publishErr)
+			}
+			_ = s.sendQueryError(requestId, requestId, codes.Unavailable, "AI response could not be delivered; please try again")
+			return
+		}
+		s.closeForwardInflight(requestId)
+	}()
 
 	sess := s.service.newTokenStreamSession(requestId)
-	if _, err := sess.Start(ctx, nil); err != nil {
-		if s.logger != nil {
-			s.logger.Warn("token stream substrate Start failed", "request_id", requestId, "error", err)
-		}
+	if _, publishErr = sess.Start(ctx, nil); publishErr != nil {
 		return
 	}
 
 	var fullContent strings.Builder
 	for chunk := range chunks {
 		if chunk.Error != nil {
-			_, _ = sess.Fail(ctx, chunk.Error.Error())
+			_, publishErr = sess.Fail(ctx, chunk.Error.Error())
 			return
 		}
 		if chunk.Content != "" {
 			fullContent.WriteString(chunk.Content)
-			if _, err := sess.Delta(ctx, chunk.Content); err != nil {
-				if s.logger != nil {
-					s.logger.Warn("token stream substrate Delta failed", "request_id", requestId, "error", err)
-				}
+			if _, publishErr = sess.Delta(ctx, chunk.Content); publishErr != nil {
 				return
 			}
 		}
 		if chunk.Done {
-			if _, err := sess.Complete(ctx, fullContent.String(), nil); err != nil && s.logger != nil {
-				s.logger.Warn("token stream substrate Complete failed", "request_id", requestId, "error", err)
-			}
+			_, publishErr = sess.Complete(ctx, fullContent.String(), nil)
 			return
 		}
 	}
-	// Provider closed without an explicit Done: still terminate the stream so the
-	// consumer closes cleanly with whatever was assembled.
-	if _, err := sess.Complete(ctx, fullContent.String(), nil); err != nil && s.logger != nil {
-		s.logger.Warn("token stream substrate Complete (implicit) failed", "request_id", requestId, "error", err)
-	}
+	// A provider may close without an explicit Done; publication failure must
+	// still remain an error, including a canceled request's implicit completion.
+	_, publishErr = sess.Complete(ctx, fullContent.String(), nil)
 }
 
 // closeForwardInflight sends a single bare terminal over the worker's
