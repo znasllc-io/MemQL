@@ -132,6 +132,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/capability.sh"
 # shellcheck source=../lib/engine_build_args.sh
 source "${SCRIPT_DIR}/../lib/engine_build_args.sh"
+# shellcheck source=../lib/local_traefik.sh
+source "${SCRIPT_DIR}/../lib/local_traefik.sh"
 
 cap_init "k3d.dev" "Build node image(s) locally, import into k3d, and restart Deployments."
 cap_spec_param "node"            "node type(s) to rebuild, comma-separated (default: all app nodes)" ""
@@ -1149,6 +1151,11 @@ function main() {
             info "Carrier override: ${CARRIER_NODES[*]} (from ${CARRIER_REPO})"
         fi
         build_and_import_nodes "${nodes_to_build[@]}"
+
+        # Editor rebuilds use this path without another make up. Reconcile
+        # only after successful builds, so a build failure cannot roll ingress.
+        info "Reconciling local ingress for long-lived streams."
+        ensure_local_traefik "$CLUSTER_NAME" || cap_fail 5 "could not configure local ingress for streaming requests"
 
         if [[ "$IMAGE_SOURCE" == "checkout" ]]; then
             point_application_at_local_images "${nodes_to_build[@]}"
