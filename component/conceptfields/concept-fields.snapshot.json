@@ -3658,7 +3658,8 @@
         "localEligible",
         "localModelCount",
         "minimumContextWindow",
-        "runnableApps"
+        "runnableApps",
+        "streamingChatEligible"
       ],
       "required": [
         "appEligible",

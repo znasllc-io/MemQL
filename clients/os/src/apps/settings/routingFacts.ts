@@ -114,6 +114,7 @@ export interface DoorReading {
 export interface InferenceReading {
   read: boolean;
   eligible: boolean;
+  streamingChatEligible?: boolean;
   doorsOpen: string[];
   localEligible: boolean;
   localModelCount: number;
@@ -131,6 +132,7 @@ export interface InferenceReading {
 export const UNREAD_INFERENCE: InferenceReading = {
   read: false,
   eligible: false,
+  streamingChatEligible: undefined,
   doorsOpen: [],
   localEligible: false,
   localModelCount: 0,
@@ -178,6 +180,7 @@ export function inferenceFrom(row: Row | null | undefined, error: string): Infer
   return {
     read: true,
     eligible: bool(r, "eligible"),
+    streamingChatEligible: typeof r.streamingChatEligible === "boolean" ? r.streamingChatEligible : undefined,
     doorsOpen: strings(r, "doorsOpen"),
     localEligible: bool(r, "localEligible"),
     localModelCount: num(r, "localModelCount"),
