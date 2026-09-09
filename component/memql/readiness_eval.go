@@ -2,7 +2,7 @@ package memql
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
@@ -230,19 +230,6 @@ func evaluateModules(ctx context.Context, r readinessResolvers, mods []envregist
 	return out
 }
 
-// integrationReport is the slice of integration.<name>.status's payload the
-// evaluator reads. The report's own fields, nothing invented.
-type integrationReport struct {
-	State    string `json:"state"`
-	Settings []struct {
-		Source string `json:"source"`
-	} `json:"settings"`
-	Credentials []struct {
-		Present bool   `json:"present"`
-		Source  string `json:"source"`
-	} `json:"credentials"`
-}
-
 // readinessResolvers wires the evaluator to this node: the environment, the
 // two row tiers, the plug-in registry, the provider registry and the
 // in-process capability map.
@@ -283,27 +270,15 @@ func (e *MemQLEngine) readinessResolvers() readinessResolvers {
 				return "", false, true, err
 			}
 			for _, n := range nodes {
-				var rep integrationReport
-				if err := json.Unmarshal(n.Payload, &rep); err != nil {
-					continue
+				state, touched, err := readiness.IntegrationStatus(n.Payload, name)
+				if err == nil {
+					return state, touched, true, nil
 				}
-				if rep.State == "" {
-					continue
-				}
-				touched := false
-				for _, s := range rep.Settings {
-					if s.Source != "" && s.Source != readinessSourceUnset {
-						touched = true
-					}
-				}
-				for _, c := range rep.Credentials {
-					if c.Present {
-						touched = true
-					}
-				}
-				return rep.State, touched, true, nil
 			}
-			return "", false, true, nil
+			// Malformed or missing reports cannot establish whether setup
+			// is complete. Keep them on the existing failed-probe path and
+			// never include the value-bearing payload in an error.
+			return "", false, true, errors.New("readiness: integration status has no matching report")
 		},
 	}
 }

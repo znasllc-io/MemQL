@@ -40,6 +40,7 @@ type Engine struct {
 	cache     sync.Map
 	byteNodes [256]ID
 	byteOnce  sync.Once
+	untracked bool
 }
 
 // New creates an Engine.
@@ -47,6 +48,17 @@ func New() *Engine {
 	e := &Engine{}
 	e.cache.Store(ID("0"), true)
 	e.cache.Store(ID("1"), true)
+	return e
+}
+
+// NewUntracked generates the same IDs without retaining generation history.
+// Use it for long-lived hash-only callers: FromBytes generates an intermediate
+// ID for every byte, so tracking unique inputs retains more than final IDs.
+// Exists reports only the base IDs "0" and "1" on an untracked engine.
+// New and the zero-value Engine retain their existing tracking behavior.
+func NewUntracked() *Engine {
+	e := New()
+	e.untracked = true
 	return e
 }
 
@@ -67,7 +79,9 @@ func (e *Engine) Combine(a, b ID) ID {
 	hash := sha256.Sum256([]byte(input))
 	id := ID(hex.EncodeToString(hash[:]))
 
-	e.cache.Store(id, true)
+	if !e.untracked {
+		e.cache.Store(id, true)
+	}
 	return id
 }
 

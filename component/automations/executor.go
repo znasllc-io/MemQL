@@ -520,6 +520,9 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 	// `ctx.input.<...>` form going forward; `event.<...>` is kept
 	// for transition and parse-equivalent through Phase B/D.
 	eventEnvelope := buildEventEnvelope(triggeringEvent, triggeredBy, trigger)
+	if adopt != nil && adopt.Journal != nil && adopt.Journal.GoalId == "" && adopt.Journal.TriggerEvent != nil {
+		eventEnvelope = adopt.Journal.TriggerEvent
+	}
 	evaluator.SetCustom("event", eventEnvelope)
 	evaluator.SetCustom("ctx", map[string]any{
 		"input":  eventEnvelope,
