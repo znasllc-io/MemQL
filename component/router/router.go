@@ -96,9 +96,10 @@ func (r *Router) resolveStreamWithTools(ctx context.Context, req ResolveRequest)
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
 	return &fallbackStreamWithTools{
-		router: r,
-		chain:  chain,
-		req:    req,
+		router:   r,
+		chain:    chain,
+		req:      req,
+		resolved: resolved,
 	}, resolved, nil
 }
 
@@ -123,9 +124,10 @@ func (r *Router) resolveWithTools(ctx context.Context, req ResolveRequest) (comm
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
 	return &fallbackWithTools{
-		router: r,
-		chain:  chain,
-		req:    req,
+		router:   r,
+		chain:    chain,
+		req:      req,
+		resolved: resolved,
 	}, resolved, nil
 }
 
@@ -144,9 +146,10 @@ func (r *Router) resolveChat(ctx context.Context, req ResolveRequest) (common.Ch
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
 	return &fallbackChat{
-		router: r,
-		chain:  chain,
-		req:    req,
+		router:   r,
+		chain:    chain,
+		req:      req,
+		resolved: resolved,
 	}, resolved, nil
 }
 

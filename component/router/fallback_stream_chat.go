@@ -18,9 +18,10 @@ import (
 // method returns. It is safe to retry only before content. Raw
 // runtime errors and errors after output never replay a started generation.
 type fallbackStreamChat struct {
-	router *Router
-	chain  []string
-	req    ResolveRequest
+	router   *Router
+	chain    []string
+	req      ResolveRequest
+	resolved Resolved
 }
 
 func (f *fallbackStreamChat) CallChatStream(
@@ -41,6 +42,7 @@ func (f *fallbackStreamChat) CallChatStream(
 		if !ok {
 			continue
 		}
+		resolved = resolved.withDecisionFrom(f.resolved)
 		inner := client.(common.ChatStreamProvider)
 
 		// If the previous attempt failed pre-flight, that failure was
@@ -153,5 +155,5 @@ func (r *Router) resolveStreamChat(ctx context.Context, req ResolveRequest) (com
 	}
 	req = r.stampRequestId(req)
 	resolved.Chain = chain
-	return &fallbackStreamChat{router: r, chain: chain, req: req}, resolved, nil
+	return &fallbackStreamChat{router: r, chain: chain, req: req, resolved: resolved}, resolved, nil
 }

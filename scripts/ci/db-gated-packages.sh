@@ -152,6 +152,7 @@ readonly DB_GATED_TREES=(
 	"component/grpc"
 	"component/identity"
 	"component/logstore"
+	"component/node"
 	"component/packages"
 	"component/sitetraffic"
 	"component/worker/fleetcatalog"
