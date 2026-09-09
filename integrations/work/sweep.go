@@ -215,6 +215,9 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 			i.log().Info("work: resumed a run whose timer wait came due",
 				"component", "work.sweep", "run", runId, "owner", owner)
 			res.Resumed++
+			// Goal events can dispatch eagerly, but ordinary scheduler journals
+			// require this explicit recovery path. Both share the run claim.
+			i.DispatchRun(ctx, runId, owner)
 			continue
 		}
 
@@ -287,7 +290,7 @@ func (i *Integration) redispatchStale(ctx context.Context, run map[string]any, r
 	if rowString(run, "automationName") == "" {
 		return false
 	}
-	if !i.DispatchRun(ctx, runId, owner) {
+	if !i.dispatchRun(ctx, DispatchRequest{RunId: runId, OwnerUserId: owner, GoalId: rowString(run, "goalId"), Status: rowString(run, "status"), Recovery: true}) {
 		return false
 	}
 	i.log().Info("work: handed a silent run back to the cluster instead of abandoning it",

@@ -107,6 +107,8 @@ type Dispatcher interface {
 // DispatchRequest is everything the executor side needs, read off the run row
 // once so the seam does no graph reads of its own.
 type DispatchRequest struct {
+	// Recovery is set only by the sweep, never inferred from a graph event.
+	Recovery       bool
 	RunId          string
 	GoalId         string
 	OwnerUserId    string
@@ -118,6 +120,21 @@ type DispatchRequest struct {
 	// has moved. Carried so the seam can say what it was told when the two
 	// disagree, which is the difference between "a race" and "a bug".
 	Status string
+}
+
+// CanDispatchStoredRun rechecks an event or explicit recovery request against
+// the authoritative row. Ordinary journals belong to their scheduler; only
+// the sweep can take one over. A waiting run is eligible solely for a due
+// inference retry explicitly requested by that sweep, never a stale event.
+func (r DispatchRequest) CanDispatchStoredRun(goalId, status string, waitingOn map[string]any, now time.Time) bool {
+	if status == runStatusRunning {
+		return r.Status == runStatusRunning && (strings.TrimSpace(goalId) != "" || r.Recovery)
+	}
+	if status == runStatusWaiting && r.Status == runStatusWaiting && r.Recovery {
+		due, inference := inferenceRetryDue(map[string]any{"waitingOn": waitingOn}, now)
+		return inference && due
+	}
+	return false
 }
 
 // RunClaimer is the cross-replica gate. Satisfied by
@@ -203,7 +220,11 @@ func (i *Integration) HandleRunEvent(ev events.Event) {
 	// payload to read a name OUT of, so an empty name there means "not
 	// stated", not "not set". runEventFields marks that case by leaving
 	// everything but the id and the status blank.
-	if req.AutomationName == "" && !req.idOnly() {
+	// Ordinary automation runs are journals of work the scheduler already
+	// owns. Only goal-backed work is dispatched in the reverse direction.
+	// An id-only event must be checked against the persisted row by the
+	// dispatcher; absence from a full row payload is conclusive here.
+	if (req.AutomationName == "" || strings.TrimSpace(req.GoalId) == "") && !req.idOnly() {
 		return
 	}
 	if i.dispatcherRef() == nil {
@@ -223,6 +244,7 @@ func (i *Integration) HandleRunEvent(ev events.Event) {
 // a claimed run has a live replica on it and must not be abandoned this pass.
 func (i *Integration) DispatchRun(ctx context.Context, runId, ownerUserId string) bool {
 	return i.dispatchRun(ctx, DispatchRequest{
+		Recovery:    true,
 		RunId:       runId,
 		OwnerUserId: ownerUserId,
 		Status:      runStatusRunning,

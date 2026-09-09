@@ -451,6 +451,9 @@ func TestSweepHandsASilentRunBackBeforeAbandoningIt(t *testing.T) {
 		if len(got) != 1 || got[0].RunId != "v1:work:run:r-unclaimed" {
 			t.Fatalf("dispatched %+v, want the one silent run", got)
 		}
+		if !got[0].Recovery || got[0].Status != runStatusRunning {
+			t.Fatalf("missing recovery context: %+v", got[0])
+		}
 		if got[0].OwnerUserId != "u-bob" {
 			t.Errorf("dispatched under owner %q, want u-bob -- the run's steps write that person's rows", got[0].OwnerUserId)
 		}

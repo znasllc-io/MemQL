@@ -73,6 +73,10 @@ type RunAdoption struct {
 	// them, and a second writer of one field is a field with two versions
 	// of the truth.
 	Variables map[string]any
+
+	// Journal restores the original context when recovering a scheduler run.
+	// Goal runs retain the caller-origin boundary for compiled variables.
+	Journal *RunJournal
 }
 
 // ExecuteAdopted runs an automation as an EXISTING run.
@@ -118,8 +122,8 @@ func (e *Executor) ExecuteAdopted(ctx context.Context, automation *Automation, a
 		Payload:   adopt.Variables,
 	}
 
-	// callerSuppliedPayload is TRUE, and it is the security-relevant line in
-	// this file.
+	// Compiled goal variables use callerSuppliedPayload TRUE. Scheduler
+	// recovery below restores the journal's original caller-origin flag.
 	//
 	// exec.SourceTrusted is `automation.Trusted && !callerSuppliedPayload`,
 	// and these variables came from `createGoal`'s caller -- a person's goal
@@ -133,7 +137,18 @@ func (e *Executor) ExecuteAdopted(ctx context.Context, automation *Automation, a
 	// @serverOnly rows is refused rather than silently privileged. That
 	// refusal is visible (the step fails and the run says so), which is the
 	// side of this trade that can be debugged.
-	return e.executeWithEvent(ctx, automation, adopt.TriggeredBy, trigger, true, &adopt)
+	callerSupplied := true
+	if j := adopt.Journal; j != nil && j.GoalId == "" {
+		callerSupplied = j.CallerSuppliedPayload
+		adopt.TriggeredBy = j.TriggeredBy
+		trigger = nil
+		if j.TriggerEvent != nil {
+			payload, _ := j.TriggerEvent["payload"].(map[string]any)
+			topic, _ := j.TriggerEvent["topic"].(string)
+			trigger = &events.Event{Topic: topic, Payload: payload}
+		}
+	}
+	return e.executeWithEvent(ctx, automation, adopt.TriggeredBy, trigger, callerSupplied, &adopt)
 }
 
 // adoptRun advances an EXISTING run row to running, in place of openRun's

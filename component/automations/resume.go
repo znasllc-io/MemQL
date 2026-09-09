@@ -62,6 +62,9 @@ var (
 // RunJournal is what resume needs from the rows: the run's envelope and
 // the completed steps' trimmed results.
 type RunJournal struct {
+	GoalId                string
+	Status                string
+	WaitingOn             map[string]any
 	RunId                 string
 	AutomationName        string
 	TemplateFingerprint   string
@@ -146,6 +149,8 @@ func runJournalFromRows(run map[string]any, steps []map[string]any) (*RunJournal
 	}
 	j := &RunJournal{
 		RunId:                 shortWorkId(stringField(run, "id")),
+		GoalId:                stringField(run, "goalId"),
+		Status:                stringField(run, "status"),
 		AutomationName:        stringField(run, "automationName"),
 		TemplateFingerprint:   stringField(run, "templateFingerprint"),
 		TriggeredBy:           stringField(run, "triggeredBy"),
@@ -156,6 +161,7 @@ func runJournalFromRows(run map[string]any, steps []map[string]any) (*RunJournal
 		InitialChainHead:      stringField(run, "initialChainHead"),
 		Steps:                 map[string]*MinimalStepResult{},
 	}
+	j.WaitingOn, _ = run["waitingOn"].(map[string]any)
 	if ev, ok := run["triggerEvent"].(map[string]any); ok {
 		j.TriggerEvent = ev
 	}

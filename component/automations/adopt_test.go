@@ -2,6 +2,7 @@ package automations
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -162,4 +163,56 @@ func containsName(names []string, want string) bool {
 		}
 	}
 	return false
+}
+
+type adoptionContextProbe struct {
+	event    any
+	ctxInput any
+}
+
+func (p *adoptionContextProbe) Execute(_ context.Context, step *Step, ctx *StepContext) (*StepResult, error) {
+	p.event, _ = ctx.Evaluator.EvaluateValue("$event")
+	p.ctxInput, _ = ctx.Evaluator.EvaluateValue("$ctx.input")
+	return &StepResult{StepId: step.ID, Status: "completed"}, nil
+}
+
+func TestExecuteAdoptedRestoresSchedulerContextWithoutPromotingGoalInputs(t *testing.T) {
+	saved := map[string]any{"topic": "system.startup", "kind": "system_startup", "payload": map[string]any{"node": map[string]any{"type": "bff"}}}
+	for _, tc := range []struct {
+		name, goal      string
+		caller, trusted bool
+		event           map[string]any
+	}{
+		{"internal event recovery", "", false, true, saved},
+		{"caller event recovery", "", true, false, saved},
+		{"scheduled recovery", "", false, true, nil},
+		{"compiled goal", "g", false, false, saved},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			probe := &adoptionContextProbe{}
+			e := NewExecutor(ExecutorOptions{StepRegistry: probe})
+			defer e.Close()
+			auto := adoptProbeAutomation()
+			auto.Trusted = true
+			journal := &RunJournal{GoalId: tc.goal, TriggeredBy: "schedule", CallerSuppliedPayload: tc.caller, TriggerEvent: tc.event}
+			exec, err := e.ExecuteAdopted(context.Background(), auto, RunAdoption{RunId: "recover-" + tc.name, TriggeredBy: "compiled", Variables: map[string]any{"body": "goal input"}, Journal: journal})
+			if err != nil || exec.Status != "completed" {
+				t.Fatalf("execution %+v error %v", exec, err)
+			}
+			if exec.SourceTrusted != tc.trusted {
+				t.Fatalf("trusted=%v want %v", exec.SourceTrusted, tc.trusted)
+			}
+			if tc.goal == "" && tc.event != nil {
+				if !reflect.DeepEqual(probe.event, saved) || !reflect.DeepEqual(probe.ctxInput, saved) {
+					t.Fatalf("lost saved event: event=%v ctx=%v", probe.event, probe.ctxInput)
+				}
+			}
+			if tc.goal != "" {
+				event := probe.event.(map[string]any)
+				if event["topic"] != "work.run.dispatched" {
+					t.Fatalf("goal adopted scheduler context: %v", event)
+				}
+			}
+		})
+	}
 }
