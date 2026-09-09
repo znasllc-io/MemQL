@@ -33,6 +33,7 @@ package http
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -168,8 +169,9 @@ func passkeyLimiter(s *Server) *abuse.IPRateLimiter {
 func (s *Server) webauthnCeremony() (*webauthn.Ceremony, error) {
 	s.webauthnCeremonyOnce.Do(func() {
 		s.webauthnCeremonyValue, s.webauthnCeremonyErr = webauthn.New(webauthn.Config{
-			BaseURL:     s.Cfg.BaseURL,
-			DisplayName: s.Cfg.BrandName,
+			BaseURL:          s.Cfg.BaseURL,
+			DisplayName:      s.Cfg.BrandName,
+			ChallengeBackend: s.challengeBackend(),
 		})
 		if s.webauthnCeremonyErr != nil && s.Logger != nil {
 			s.Logger.Warn("webauthn: relying party unavailable; passkey routes will refuse",
@@ -215,7 +217,7 @@ func (s *Server) webauthnCeremonyFor(r *http.Request) (*webauthn.Ceremony, error
 		c, _ := cached.(*webauthn.Ceremony)
 		return c, nil
 	}
-	c, err := webauthn.NewForDoor(name, webauthn.Config{DisplayName: s.Cfg.BrandName})
+	c, err := webauthn.NewForDoor(name, webauthn.Config{DisplayName: s.Cfg.BrandName, ChallengeBackend: s.challengeBackend()})
 	if err != nil {
 		// A DOOR WHOSE RELYING PARTY CANNOT BE BUILT MUST NOT FALL BACK to the
 		// cluster's. The fallback would mint a credential scoped to
@@ -233,6 +235,18 @@ func (s *Server) webauthnCeremonyFor(r *http.Request) (*webauthn.Ceremony, error
 	actual, _ := s.doorCeremonies.LoadOrStore(name, c)
 	got, _ := actual.(*webauthn.Ceremony)
 	return got, nil
+}
+
+func (s *Server) challengeBackend() webauthn.ChallengeBackend {
+	if s.ChallengeBackend != nil {
+		return s.ChallengeBackend
+	}
+	return webauthn.NewPostgresChallengeBackend(func() *sql.DB {
+		if s.Store == nil || s.Store.DirectDB == nil {
+			return nil
+		}
+		return s.Store.DirectDB()
+	})
 }
 
 // handleWebAuthnRegisterBegin issues a registration challenge bound to
@@ -320,9 +334,10 @@ func (s *Server) handleWebAuthnRegisterBegin(w http.ResponseWriter, r *http.Requ
 
 	challenge, err := ceremony.BeginRegistration(user)
 	if err != nil {
-		s.auditPasskey(r, "passkey_registration_challenge_denied", userId, "", identity.AuditOutcomeFailure, "begin_failed", nil)
-		writeJSON(w, http.StatusInternalServerError, WebAuthnRegisterBeginResponse{
-			ErrorCode: "begin_failed", Error: err.Error()})
+		status, code := passkeyBeginErrorCode(err)
+		s.auditPasskey(r, "passkey_registration_challenge_denied", userId, "", identity.AuditOutcomeFailure, code, nil)
+		writeJSON(w, status, WebAuthnRegisterBeginResponse{
+			ErrorCode: code, Error: s.passkeyErrorMessage(err)})
 		return
 	}
 
@@ -392,7 +407,7 @@ func (s *Server) handleWebAuthnRegisterFinish(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		status, code := passkeyCeremonyErrorCode(err)
 		s.auditPasskey(r, "passkey_registration_denied", userId, "", identity.AuditOutcomeFailure, code, nil)
-		writeJSON(w, status, WebAuthnRegisterFinishResponse{ErrorCode: code, Error: err.Error()})
+		writeJSON(w, status, WebAuthnRegisterFinishResponse{ErrorCode: code, Error: s.passkeyErrorMessage(err)})
 		return
 	}
 
@@ -693,6 +708,8 @@ func enrolmentTargetId(row *enrolment.Row) string {
 // should not enumerate the ways verification can fail.
 func passkeyCeremonyErrorCode(err error) (int, string) {
 	switch {
+	case errors.Is(err, webauthn.ErrChallengeStorage):
+		return http.StatusServiceUnavailable, "challenge_unavailable"
 	case errors.Is(err, webauthn.ErrChallengeNotFound):
 		return http.StatusBadRequest, "challenge_not_found"
 	case errors.Is(err, webauthn.ErrChallengeExpired):
@@ -704,6 +721,21 @@ func passkeyCeremonyErrorCode(err error) (int, string) {
 	default:
 		return http.StatusBadRequest, "attestation_rejected"
 	}
+}
+
+func passkeyBeginErrorCode(err error) (int, string) {
+	if errors.Is(err, webauthn.ErrChallengeStorage) {
+		return http.StatusServiceUnavailable, "challenge_unavailable"
+	}
+	return http.StatusInternalServerError, "begin_failed"
+}
+
+func (s *Server) passkeyErrorMessage(err error) string {
+	if errors.Is(err, webauthn.ErrChallengeStorage) {
+		s.logErr("webauthn: shared challenge storage failed", err)
+		return "Passkey verification is temporarily unavailable. Please try again."
+	}
+	return err.Error()
 }
 
 // resolvePasskeyLabel picks the credential's display label: the

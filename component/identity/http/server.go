@@ -55,6 +55,10 @@ type Server struct {
 	Audit      identity.AuditLogger
 	Logger     *slog.Logger
 
+	// ChallengeBackend overrides shared Postgres persistence for an isolated
+	// embedding or test harness. Nil uses Store.DirectDB, never local memory.
+	ChallengeBackend webauthn.ChallengeBackend
+
 	// OnUserProvisioned fires once, immediately after a user row is created
 	// on FIRST sign-in through an upstream provider (epic memql#5165,
 	// section G) -- what places an arriving person into the group of the

@@ -30,9 +30,11 @@ type Store struct {
 	Logger *slog.Logger
 
 	// DirectDB resolves the DIRECT (non-pooled) database handle used by
-	// the magic-link consume gate (memql#4301). Optional: with it nil the
-	// gate degrades to the pre-gate read-then-write, which is what a unit
-	// test with a fake engine gets. app/integrations_identity.go wires it
+	// shared passkey challenges and the magic-link consume gate. Passkey
+	// HTTP ceremonies refuse unavailable storage; isolated unit harnesses
+	// inject their own challenge backend. The magic-link gate's separate
+	// degradation policy is documented in magic_link_gate.go.
+	// app/integrations_identity.go wires this getter
 	// from the same directDBGetter the cron leader and the recovery-key
 	// mint use -- a transaction-mode PgBouncer would silently drop the
 	// session-scoped lock, so the pooled handle is not interchangeable.

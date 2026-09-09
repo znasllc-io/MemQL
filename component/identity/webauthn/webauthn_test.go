@@ -312,12 +312,12 @@ func TestChallengeStore_SweepsExpiredOnPut(t *testing.T) {
 		_, err := c.BeginRegistration(&User{Id: testUserId})
 		require.NoError(t, err)
 	}
-	require.Equal(t, 5, c.Challenges().Len())
+	require.Len(t, c.challenges.backend.(*memoryChallengeBackend).entries, 5)
 
 	now = now.Add(2 * time.Minute)
 	_, err = c.BeginRegistration(&User{Id: testUserId})
 	require.NoError(t, err)
-	require.Equal(t, 1, c.Challenges().Len(), "the five expired entries must be swept")
+	require.Len(t, c.challenges.backend.(*memoryChallengeBackend).entries, 1, "the five expired entries must be swept")
 }
 
 func TestFormatAAGUID_NormalisesAbsentAndZero(t *testing.T) {
