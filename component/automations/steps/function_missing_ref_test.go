@@ -73,10 +73,10 @@ func TestCompiledArgReferenceMissingLeafDropsToNull(t *testing.T) {
 	if strings.Contains(rendered, "$args.") {
 		t.Fatalf("unresolved reference literal leaked into rendered args: %q", rendered)
 	}
-	if !strings.Contains(rendered, "summary=null") {
+	if !strings.Contains(rendered, "summary: null") {
 		t.Fatalf("expected missing summary to render as null, got %q", rendered)
 	}
-	if !strings.Contains(rendered, `title="10 best German folklore tales for kids"`) {
+	if !strings.Contains(rendered, `title: "10 best German folklore tales for kids"`) {
 		t.Fatalf("expected present title to render as its value, got %q", rendered)
 	}
 }
