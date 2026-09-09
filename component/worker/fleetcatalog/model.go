@@ -199,7 +199,9 @@ func ParseModelAttributes(value string) ModelAttributes {
 			}
 			a.Quant = v
 		case attrMax:
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			// Parse at the advertised width: oversized values are malformed,
+			// just like negative or nonnumeric attributes, and are ignored.
+			if n, err := strconv.ParseUint(v, 10, 32); err == nil && n > 0 {
 				a.MaxConcurrent = uint32(n)
 			}
 		case attrVision:
