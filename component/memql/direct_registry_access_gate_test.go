@@ -151,14 +151,15 @@ var inPackageOnlyBanned = map[string]string{
 // allowedFiles are individual exceptions outside those trees. Keep it as short
 // as possible; every entry is a place the seam is not single.
 //
-// All five are in the WIRING layer, and none of them calls a model. Four hand
-// the registry to something that will walk it -- the router itself, the fleet
-// seam, the app door, the plug-in context -- and the fifth LISTS it for a
-// catalog page. That is the whole shape of a legitimate entry here: the
+// These files wire or inspect providers, and none calls a model. They hand
+// the registry to the router, fleet seam, app door or plug-in context, install
+// its catalog reader, or list it for a catalog page. That is the shape of a
+// legitimate entry here: the
 // registry is a place providers live, and somebody has to pass it to the one
 // component allowed to choose from it.
 var allowedFiles = map[string]string{
 	"app/engine.go":                    "constructs the Router from the registries; this IS the wiring the gate protects",
+	"app/fleet_catalog.go":             "installs the shared graph catalog reader during bootstrap; it selects no provider and calls no model",
 	"app/cluster_worker.go":            "hands the registry to the fleet seam so `fleet:` entries resolve per user; it calls no model",
 	"app/integrations_worker_agent.go": "the same fleet-seam wiring on the agent node",
 	"app/plugins.go":                   "builds the PluginContext, including the two resolver-backed closures below; it calls no model itself",

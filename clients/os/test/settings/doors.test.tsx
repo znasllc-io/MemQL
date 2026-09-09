@@ -232,7 +232,7 @@ beforeEach(() => {
     localModelCount: 3,
     eligibleModelIds: ["qwen3-coder", "llama4"],
     minimumContextWindow: 32000,
-    fleetInferenceInstalled: true,
+    fleetCatalogInstalled: true,
   };
   h.state.inferenceError = null;
   h.state.verifyReply = { verified: true, reason: "" };
@@ -412,7 +412,7 @@ describe("the fleet door, as a pure reading", () => {
       localModelCount: 3,
       eligibleModelIds: ["a", "b"],
       minimumContextWindow: 32000,
-      fleetInferenceInstalled: true,
+      fleetCatalogInstalled: true,
     });
     expect(door.state).toBe("open");
     expect(door.said).toMatch(/2 of 3 models on your machines meet the/);
@@ -427,37 +427,33 @@ describe("the fleet door, as a pure reading", () => {
         localModelCount: 1,
         eligibleModelIds: ["a"],
         minimumContextWindow: 32000,
-        fleetInferenceInstalled: true,
+        fleetCatalogInstalled: true,
       }).said,
     ).toMatch(/1 of 1 model on your machines meets the/);
     expect(
       fleetFrom({
         localEligible: false,
-        fleetInferenceInstalled: true,
+        fleetCatalogInstalled: true,
         localModelCount: 1,
         minimumContextWindow: 32000,
       }).said,
     ).toMatch(/offer one model, and it does not meet the/);
   });
 
-  it("tells a node that cannot place fleet calls apart from a fleet with nothing on it", () => {
-    // They look identical on a page and have entirely different fixes, which
-    // is the whole reason the engine reports them apart. This one is worth
-    // reading twice: the list's first draft read `fleetInferenceInstalled` as
-    // "a machine is set up to run models but has not pulled one yet", which is
-    // a claim about somebody's LAPTOP made out of a field about the NODE.
+  it("tells unreadable inventory apart from an empty fleet", () => {
+    // Inventory access is independent of whether this node dispatches calls.
     expect(
-      fleetFrom({ localEligible: false, fleetInferenceInstalled: false, localModelCount: 0 }).said,
-    ).toMatch(/not set up to reach models on your own machines/);
+      fleetFrom({ localEligible: false, fleetCatalogInstalled: false, localModelCount: 0 }).said,
+    ).toMatch(/fleet inventory cannot be read/);
     expect(
-      fleetFrom({ localEligible: false, fleetInferenceInstalled: true, localModelCount: 0 }).said,
+      fleetFrom({ localEligible: false, fleetCatalogInstalled: true, localModelCount: 0 }).said,
     ).toMatch(/No machine you own is offering a model/);
   });
 
   it("names the floor when machines are there but none clears it", () => {
     const door = fleetFrom({
       localEligible: false,
-      fleetInferenceInstalled: true,
+      fleetCatalogInstalled: true,
       localModelCount: 2,
       minimumContextWindow: 32000,
     });
@@ -510,7 +506,7 @@ describe("the app door, as a pure reading", () => {
   });
 
   it("is shut when this cluster cannot open app sessions at all", () => {
-    // `appSessionsInstalled` is the twin of `fleetInferenceInstalled`, and the
+    // `appSessionsInstalled` reports local dispatch capability, and the
     // engine says so in its own field description: it reports whether the NODE
     // can open sessions, never whether an app is installed on a machine. The
     // two states have entirely different fixes and only one of them is the

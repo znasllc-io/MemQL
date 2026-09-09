@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { ChromeLayout } from "../app/layout";
+import { useAskReadiness } from "../ask/useAskReadiness";
 import { AskProvider } from "../ask/AskProvider";
 import { ThemeStore } from "../themes/ThemeStore";
 import { openMicrophone } from "../ask/micCapture";
@@ -291,6 +292,7 @@ function ShellTransports({
   children: (uploads: UploadProvider, store: DesktopStore) => ReactNode;
 }) {
   const connection = useOsConnection();
+  const askAvailability = useAskReadiness();
   const askTransport = useMemo<AskTransport>(
     () => ports.askTransport ?? new SdkAskTransport(() => connection?.dispatcher ?? null),
     [ports.askTransport, connection],
@@ -329,7 +331,7 @@ function ShellTransports({
     return new GraphDesktopStore(new LocalDesktopStore(), new SdkDesktopGateway(connection));
   }, [ports.store, connection]);
   return (
-    <AskProvider transport={askTransport} voice={askVoice}>
+    <AskProvider transport={askTransport} voice={askVoice} availability={askAvailability}>
       {children(uploads, desktopStore)}
     </AskProvider>
   );

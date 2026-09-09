@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 
 import { AskSurface } from "../ask/AskSurface";
-import { AskUnconfigured } from "../ask/AskUnconfigured";
 import { useAsk } from "../ask/AskProvider";
 import { useMakeGoal } from "../ask/useMakeGoal";
 import type { OsAppManifest, OsRegistry, OsWidgetManifest } from "../system/registry";
@@ -52,8 +51,7 @@ import { UsersApp } from "./users/UsersApp";
 import { USERS_SECTIONS } from "./users/settings";
 import { NexusApp } from "./nexus/NexusApp";
 import { NEXUS_SECTIONS } from "./nexus/settings";
-import { useSession } from "../chrome/access";
-import { gateFor } from "../kit/ReadinessStates";
+import { useOs } from "../chrome/state";
 
 // The installed roster (spec D12). Every app is real now -- Files (epic
 // #4721) replaced the last stub, and the `stub` helper and StubApp went with
@@ -671,21 +669,17 @@ const stores: OsAppManifest = {
 };
 
 function AskWidgetBody() {
-  const { transport, voice, settings } = useAsk();
-  // Ask needs a provider, and a widget is too small for the setup surface --
-  // so it says the one sentence instead. Nothing while the feed is unknown:
-  // a widget that flashes "not set up" on every load would be worse than one
-  // that waits a moment.
-  const { readiness } = useSession();
-  const aiGate = gateFor(readiness, ["ai"], []);
+  const { transport, voice, settings, availability } = useAsk();
+  const { actions } = useOs();
   // The widget hands a prompt off exactly as the sheet does (epic memql#4785).
   // One Ask, three entry points, and an act that exists on one of them is an
   // act somebody learns and then cannot find.
   const makeGoal = useMakeGoal();
-  if (aiGate.state === "unconfigured") return <AskUnconfigured />;
   return (
     <AskSurface
       transport={transport}
+      availability={availability}
+      onOpenFleet={() => { actions.openApp("fleet"); }}
       voicePorts={voice}
       settings={settings}
       variant="widget"

@@ -1,3 +1,4 @@
+import { READY_ASK } from "../../src/ask/useAskReadiness";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -17,7 +18,7 @@ function stub(over: Partial<MakeGoalState> = {}): MakeGoalState {
 
 function mount(makeGoal: MakeGoalState | null) {
   return render(
-    <AskSurface transport={new StubAskTransport()} variant="sheet" makeGoal={makeGoal} />,
+    <AskSurface availability={READY_ASK} transport={new StubAskTransport()} variant="sheet" makeGoal={makeGoal} />,
   );
 }
 

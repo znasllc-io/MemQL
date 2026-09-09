@@ -343,6 +343,32 @@ type FleetCallResult struct {
 	Images   []FleetImage
 }
 
+// FleetCatalogReader reads graph-backed availability without dispatching calls.
+// Both public query nodes and agent nodes install the same projection.
+type FleetCatalogReader interface {
+	Catalog(context.Context, string) ([]FleetModel, error)
+}
+
+// SetFleetCatalog installs a read-only catalog without claiming local dispatch.
+func (r *ProviderRegistry) SetFleetCatalog(reader FleetCatalogReader) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fleetCatalog = reader
+}
+
+// FleetCatalogInstalled reports whether this node can read fleet availability.
+func (r *ProviderRegistry) FleetCatalogInstalled() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.fleetCatalog != nil
+}
+
 // FleetInference is the contract an agent-tagged build fills in.
 type FleetInference interface {
 	// Catalog returns the live model list. An empty actingUserId asks for
@@ -372,6 +398,7 @@ func (r *ProviderRegistry) SetFleetInference(f FleetInference) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.fleet = f
+	r.fleetCatalog = f
 }
 
 // FleetInferenceInstalled reports whether this node can place model calls on
@@ -393,7 +420,7 @@ func (r *ProviderRegistry) FleetCatalog(ctx context.Context, actingUserId string
 		return nil, nil
 	}
 	r.mu.RLock()
-	f := r.fleet
+	f := r.fleetCatalog
 	r.mu.RUnlock()
 	if f == nil {
 		return nil, nil

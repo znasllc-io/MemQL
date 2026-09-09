@@ -187,10 +187,13 @@ func ParseWorkerPeers(raw string) ([]WorkerTarget, []WorkerPeerIssue) {
 	return out, issues
 }
 
-// WorkerDialer opens outbound NodeService streams from a BFF to each
-// worker-type peer so that the BFF can push NodeClientMessage envelopes
-// (AiForwardRequest / AiForwardCancel, and later capability /
-// event-forward messages) through them.
+type workerDiscoveryEngine interface {
+	Execute(context.Context, string) (*memqlengine.ExecuteResult, error)
+}
+
+// WorkerDialer opens outbound NodeService streams for AI and worker forwards.
+// BFF nodes dial worker types; agent nodes narrow the set to sibling agents
+// or workbench nodes so requests reach the replica that holds their state.
 //
 // The dial set is reconciled from two sources:
 //
@@ -210,15 +213,12 @@ func ParseWorkerPeers(raw string) ([]WorkerTarget, []WorkerPeerIssue) {
 // uses). On NodeWelcome we register the peer as monitored in
 // PeerManager and bind the *peerConnection onto its PeerEntry so
 // AiForwardRouter / EventBridge / CapabilityRouter can find it.
-//
-// WorkerDialer is BFF-only -- workers themselves never dial peers in
-// this topology. Callers that are not BFF should not construct one.
 type WorkerDialer struct {
 	*component.Component
 
 	identity *Identity
 	peerMgr  *PeerManager
-	engine   *memqlengine.MemQLEngine
+	engine   workerDiscoveryEngine
 	eventBus *events.Bus
 	logger   *slog.Logger
 
@@ -295,11 +295,13 @@ func NewWorkerDialer(
 		Component: comp,
 		identity:  identity,
 		peerMgr:   peerMgr,
-		engine:    engine,
 		eventBus:  eventBus,
 		logger:    logger,
 		seeds:     append([]WorkerTarget(nil), seeds...),
 		conns:     make(map[string]*dialEntry),
+	}
+	if engine != nil {
+		wd.engine = engine
 	}
 	wd.ConfigureLifecycle(
 		component.WithRunHook(wd.run),
@@ -498,7 +500,13 @@ func (wd *WorkerDialer) triggerReconcile() {
 // reconcile rebuilds the desired target set (seeds ∪ DB rows), diffs it
 // against currently-active dials, and dials/closes to converge.
 func (wd *WorkerDialer) reconcile(ctx context.Context) {
-	desired := wd.buildDesiredSet(ctx)
+	desired, err := wd.buildDesiredSet(ctx)
+	if err != nil {
+		// A failed read is not evidence that a replica departed. Closing its
+		// stream here also cancels every in-flight request crossing that peer.
+		wd.logger.Warn("worker_dialer: discovery failed; keeping existing connections", "error", err)
+		return
+	}
 
 	wd.mu.Lock()
 	defer wd.mu.Unlock()
@@ -530,7 +538,7 @@ func (wd *WorkerDialer) reconcile(ctx context.Context) {
 
 // buildDesiredSet returns the full desired target map (seeds ∪ DB
 // discovery), keyed by "<type>@<address>". Callers hold no locks.
-func (wd *WorkerDialer) buildDesiredSet(ctx context.Context) map[string]WorkerTarget {
+func (wd *WorkerDialer) buildDesiredSet(ctx context.Context) (map[string]WorkerTarget, error) {
 	desired := make(map[string]WorkerTarget)
 
 	for _, t := range wd.seeds {
@@ -544,7 +552,11 @@ func (wd *WorkerDialer) buildDesiredSet(ctx context.Context) map[string]WorkerTa
 	}
 
 	if wd.engine != nil {
-		for _, t := range wd.discoverFromDB(ctx) {
+		targets, err := wd.discoverFromDB(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range targets {
 			if wd.isSelf(t.Address) {
 				continue
 			}
@@ -558,7 +570,7 @@ func (wd *WorkerDialer) buildDesiredSet(ctx context.Context) map[string]WorkerTa
 		}
 	}
 
-	return desired
+	return desired, nil
 }
 
 // isSelf reports whether the given address points at this node (avoid
@@ -572,22 +584,23 @@ func (wd *WorkerDialer) isSelf(addr string) bool {
 	return self != "" && self == addr
 }
 
-// discoverFromDB queries v1:cluster:node and returns worker targets.
+// discoverFromDB reads the complete latest-per-node topology and returns worker targets.
 // Skips rows without an address, non-worker node types, and rows
 // marked OFFLINE/STOPPED.
-func (wd *WorkerDialer) discoverFromDB(ctx context.Context) []WorkerTarget {
+func (wd *WorkerDialer) discoverFromDB(ctx context.Context) ([]WorkerTarget, error) {
 	if wd.engine == nil {
-		return nil
+		return nil, nil
 	}
-	result, err := wd.engine.Execute(ctx, "concept==v1:cluster:node")
+	// The raw concept scan caps historical versions at 50. Liveness chatter
+	// can push healthy, unchanged replicas out of that window. This existing
+	// topology sweep is @unbounded and asOf latest; with no olderThan argument
+	// it includes every non-stopped node regardless of heartbeat age.
+	result, err := wd.engine.Execute(ctx, "query staleClusterNodes()")
 	if err != nil {
-		wd.logger.Debug("worker_dialer: DB discovery query failed",
-			"error", err,
-		)
-		return nil
+		return nil, err
 	}
 	if result == nil || result.Bundle == nil {
-		return nil
+		return nil, fmt.Errorf("worker topology query returned no graph bundle")
 	}
 
 	var out []WorkerTarget
@@ -630,7 +643,7 @@ func (wd *WorkerDialer) discoverFromDB(ctx context.Context) []WorkerTarget {
 			NodeId:   nodeId,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // dialTarget creates a *peerConnection for the target and starts its

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -212,6 +213,12 @@ func (r *ExecuteResult) ToAPIResult() (*memqlv1.GraphBundle, []*structpb.Value, 
 
 	payload := r.OutputPayload()
 	var data []*structpb.Value
+	// A builtin's empty node set is zero rows, not the single empty object
+	// JSON would produce for its map. Preserve empty logic objects: the Go
+	// type still distinguishes them here, while the wire shape cannot.
+	if nodes, ok := payload.(map[string]memorynodes.MemoryNode); ok && len(nodes) == 0 {
+		return r.maybeClearBundle(bundle), data, nil
+	}
 	switch typed := payload.(type) {
 	case nil:
 		return bundle, data, nil

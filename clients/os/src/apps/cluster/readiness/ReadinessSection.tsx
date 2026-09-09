@@ -117,7 +117,7 @@ function InferenceLine({
       appSessionsInstalled: boolOr(row, "appSessionsInstalled", false),
       cloudConfigured: boolOr(row, "cloudConfigured", false),
       federationConfigured: boolOr(row, "federationConfigured", false),
-      fleetInferenceInstalled: boolOr(row, "fleetInferenceInstalled", false),
+      fleetCatalogInstalled: boolOr(row, "fleetCatalogInstalled", false),
       minimumContextWindow: numberOf(row, "minimumContextWindow"),
     };
   }, [row]);
@@ -165,11 +165,13 @@ function InferenceLine({
           next={notReadyNext(facts)}
         >
           <Caption>
-            {facts.localModelCount === 0
-              ? "Your fleet offers no models at all."
-              : `Your fleet offers ${facts.localModelCount} ${
-                  facts.localModelCount === 1 ? "model" : "models"
-                }, and none of them meets the ${facts.minimumContextWindow.toLocaleString()}-token floor with structured output.`}
+            {!facts.fleetCatalogInstalled
+              ? "Fleet model availability is unknown."
+              : facts.localModelCount === 0
+                ? "Your fleet offers no models at all."
+                : `Your fleet offers ${facts.localModelCount} ${
+                    facts.localModelCount === 1 ? "model" : "models"
+                  }, and none of them meets the ${facts.minimumContextWindow.toLocaleString()}-token floor with structured output.`}
           </Caption>
           {/* The route above says it in WORDS, which is the discipline
               useAppReach exists to force -- a Set up group rendered with no
@@ -177,7 +179,7 @@ function InferenceLine({
               only half that can go missing. This carries the same intent the
               first-run wizard's fleet door sends, so a person arriving from
               either lands on the same panel with the same box already ticked. */}
-          {facts.fleetInferenceInstalled && fleet.canOpenWindows ? (
+          {facts.fleetCatalogInstalled && fleet.canOpenWindows ? (
             <Button
               onClick={() => fleet.open("machines", { addMachine: { inference: true } })}
             >
@@ -208,11 +210,11 @@ function InferenceLine({
 function notReadyNext(facts: {
   cloudConfigured: boolean;
   federationConfigured: boolean;
-  fleetInferenceInstalled: boolean;
+  fleetCatalogInstalled: boolean;
   appSessionsInstalled: boolean;
 }): string {
   const routes: string[] = [];
-  if (facts.fleetInferenceInstalled) {
+  if (facts.fleetCatalogInstalled) {
     // NAMES THE CHECKBOX, not just the section (epic memql#5103, design D5).
     // "Pair a machine that runs a local model" left the last step to be
     // guessed: pairing a machine gets you a machine, and the thing that makes
@@ -220,7 +222,7 @@ function notReadyNext(facts: {
     // signpost into instructions.
     routes.push('pair a machine with "will run local models" ticked (Fleet -> Machines -> Add a machine)');
   } else {
-    routes.push("this node cannot place fleet model calls at all, so a local model is not a route from here");
+    routes.push("the fleet inventory cannot be read here, so local model availability is unknown; try reading again");
   }
   // The app door, in the order the chain tries it: after a local model and
   // before anything metered, because it costs a subscription the person is

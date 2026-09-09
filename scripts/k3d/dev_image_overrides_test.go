@@ -714,7 +714,26 @@ func TestPatchedRunRestartsNothingWhenEveryBuiltNodeMoved(t *testing.T) {
 // only real external tool is git, read-only against this checkout (which is
 // what --repo-root points at, and what require_build_checkout demands).
 const e2eFakeDocker = `#!/usr/bin/env bash
-# ` + "`image inspect`" + ` succeeding is what makes prewarm_build_frontend skip its pull.
+id=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+case "$1" in
+  build)
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --iidfile ]; then printf '%s\n' "$id" > "$2"; break; fi
+      shift
+    done ;;
+  image) printf '%s\n' "$id" ;;
+  ps) printf 'k3d-memql-server-0 server running\n' ;;
+  exec)
+    case "$*" in
+      *'images ls -q'*) echo docker.io/library/memql-db:16-dev ;;
+      *'images ls'*)
+        for arg in "$@"; do case "$arg" in name==*) ref="${arg#name==}" ;; esac; done
+        printf 'REF TYPE DIGEST SIZE\n%s application/vnd.oci.image.index.v1+json %s 1MiB\n' "$ref" "$id" ;;
+      *'images check'*)
+        for arg in "$@"; do case "$arg" in name==*) printf '%s\n' "${arg#name==}" ;; esac; done ;;
+      *'crictl inspecti'*) printf '%s\n' "$id" ;;
+    esac ;;
+esac
 exit 0
 `
 

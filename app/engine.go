@@ -369,6 +369,7 @@ func (a *App) engineAndBus() {
 	// v1:router:call rows via recordRouterCall). The router is
 	// never a separate node; it's a library the agent replier, the
 	// gRPC AI handlers, and future policy-driven call sites all share.
+	a.wireFleetCatalog()
 	a.router = router.New(a.engine.Providers(), a.engine.Policies(), a.engine.Rules(), a.engine, a.Logger)
 
 	// THE SETTER IS THE FEATURE (epic memql#5127, design D2). The engine holds

@@ -337,11 +337,11 @@ function DoorsPanel({
               detail={
                 doors.localEligible
                   ? `${doors.eligibleModelIds.length} of ${doors.localModelCount} meet the ${doors.minimumContextWindow.toLocaleString()}-token floor`
-                  : doors.fleetInferenceInstalled
+                  : doors.fleetCatalogInstalled
                     ? doors.localModelCount === 0
                       ? "your fleet offers no models"
                       : "nothing meets the floor with structured output"
-                    : "this node cannot place fleet calls at all"
+                    : "fleet inventory cannot be read here"
               }
             />
             <DoorState

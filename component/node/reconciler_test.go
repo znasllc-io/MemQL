@@ -264,3 +264,51 @@ func TestBareNodeID(t *testing.T) {
 		}
 	}
 }
+
+// The identity deploy-control endpoint knows its BFF callers, not the whole
+// worker mesh. On a real rollout its elected reaper repeatedly stopped live
+// agents outside that view. Exercise the production factory and retirement
+// path, with a BFF control that must still retire a truly absent node.
+func TestTopologyReconcilerAuthorityRequiresFullBFFView(t *testing.T) {
+	for _, role := range []NodeType{NodeTypeIdentity, NodeTypeAgent, NodeTypePlanner, NodeTypeWorkbench, NodeTypeMCP, NodeTypeEdge, "", NodeTypeBFF} {
+		t.Run(string(role), func(t *testing.T) {
+			clock := time.Date(2026, 9, 9, 5, 28, 0, 0, time.UTC)
+			self := &Identity{ID: "authority", Type: role}
+			peers := NewPeerManager(self, testLogger())
+			// A narrow endpoint sees only its caller. A BFF additionally owns the
+			// worker fan-out and therefore sees the live agent directly.
+			peers.Register(&nodev1.PeerInfo{NodeId: "caller-bff", NodeType: string(NodeTypeBFF), Health: nodev1.NodeHealthStatus_NODE_HEALTH_HEALTHY})
+			if role == NodeTypeBFF {
+				peers.Register(&nodev1.PeerInfo{NodeId: "live-agent", NodeType: string(NodeTypeAgent), Health: nodev1.NodeHealthStatus_NODE_HEALTH_HEALTHY})
+			}
+			old := clock.Add(-time.Hour).Format(time.RFC3339)
+			eng := &fakeReconcileEngine{nodes: []*memqlv1.MemoryNode{nodeRow(t, "live-agent", "healthy", "current", old), nodeRow(t, "departed-agent", "healthy", "old", old)}}
+			r := NewTopologyReconciler(self, peers, eng, nil, testLogger())
+			if r != nil {
+				r.now = func() time.Time { return clock }
+				r.reconcile(context.Background())
+				clock = clock.Add(time.Minute)
+				r.reconcile(context.Background())
+			}
+			retired := eng.retiredIDs(t)
+			if role != NodeTypeBFF {
+				if len(retired) > 0 {
+					t.Fatalf("%s's incomplete peer view retired %v", role, retired)
+				}
+				if r != nil {
+					t.Fatal("narrow-view role could enter cluster-wide leader election")
+				}
+			} else {
+				if r == nil {
+					t.Fatal("BFF cannot reconcile topology")
+				}
+				if len(retired) != 1 || retired[0] != "departed-agent" {
+					t.Fatalf("BFF should retain live agent and retire departed peer; got %v", retired)
+				}
+			}
+		})
+	}
+	if r := NewTopologyReconciler(nil, nil, nil, nil, testLogger()); r != nil {
+		t.Fatal("unknown identity can enter leader election")
+	}
+}

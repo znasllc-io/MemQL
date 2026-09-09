@@ -33,6 +33,7 @@ import (
 	"strings"
 
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	"github.com/znasllc-io/memql/core/common"
 )
 
 // FleetModelConcept is the canonical id of the catalog projection.
@@ -156,9 +157,10 @@ func (e *MemQLEngine) evaluateFleetModelsExpression(ctx context.Context) ([]memo
 // let a person be told inference is configured on one surface and not on the
 // other, with both readings defensible.
 type inferenceDoors struct {
-	LocalEligible    bool
-	LocalModels      int
-	EligibleModelIds []string
+	StreamingChatEligible bool
+	LocalEligible         bool
+	LocalModels           int
+	EligibleModelIds      []string
 	// AppEligible and RunnableApps are the app door (epic memql#5096): a
 	// signed-in Claude Code or Codex on a machine whose stream THIS replica
 	// holds. They live here rather than beside the caller for the reason the
@@ -181,6 +183,12 @@ func (e *MemQLEngine) inferenceDoors(ctx context.Context) inferenceDoors {
 	if err == nil {
 		for _, m := range models {
 			d.LocalModels++
+			// Ask needs plain streaming chat, not structured output. Read the
+			// same caller-scoped catalog on BFF even though its worker dispatch
+			// lives on agent replicas. An embedding model cannot serve chat.
+			if ok, _ := m.eligibleFor(FleetNeeds{MinContextWindow: MinimumContextWindow}); ok && !m.Embeddings {
+				d.StreamingChatEligible = true
+			}
 			// The MINIMUM CAPABILITY PROFILE (design G): structured output
 			// plus the context floor. Not "any model at all" -- a fleet whose
 			// only model cannot do structured output would pass a naive gate
@@ -204,13 +212,20 @@ func (e *MemQLEngine) inferenceDoors(ctx context.Context) inferenceDoors {
 			if door.Runnable() {
 				d.AppEligible = true
 				d.RunnableApps = append(d.RunnableApps, door.AppId)
+				// Runnable apps currently answer completed chat only. Do not
+				// promise streaming merely because their sessions are ready.
+				if _, streams := any((*appProvider)(nil)).(common.ChatStreamProvider); streams {
+					d.StreamingChatEligible = true
+				}
 			}
 		}
 	}
 	sort.Strings(d.RunnableApps)
 
 	d.CloudConfigured = e.providers.HasCloudProviderConfigured()
-	d.Federation = e.providers.federationConfigured()
+	var federationStreams bool
+	d.Federation, federationStreams = e.providers.federationReadiness()
+	d.StreamingChatEligible = d.StreamingChatEligible || federationStreams
 	// THE ORDER IS THE ORDER THE DEFAULT CHAIN TRIES THEM (design D4): a
 	// model on the person's own hardware, then a subscription they already
 	// pay for, then federation, then a key. Every client renders this list
@@ -248,20 +263,22 @@ func (e *MemQLEngine) evaluateInferenceStatusExpression(ctx context.Context) ([]
 	d := e.inferenceDoors(ctx)
 
 	raw, err := json.Marshal(map[string]any{
-		"eligible":             d.LocalEligible || d.AppEligible || d.CloudConfigured || d.Federation,
-		"doorsOpen":            toAnySlice(d.Doors),
-		"localEligible":        d.LocalEligible,
-		"appEligible":          d.AppEligible,
-		"runnableApps":         toAnySlice(d.RunnableApps),
-		"localModelCount":      d.LocalModels,
-		"eligibleModelIds":     toAnySlice(d.EligibleModelIds),
-		"cloudConfigured":      d.CloudConfigured,
-		"federationConfigured": d.Federation,
+		"streamingChatEligible": d.StreamingChatEligible,
+		"eligible":              d.LocalEligible || d.AppEligible || d.CloudConfigured || d.Federation,
+		"doorsOpen":             toAnySlice(d.Doors),
+		"localEligible":         d.LocalEligible,
+		"appEligible":           d.AppEligible,
+		"runnableApps":          toAnySlice(d.RunnableApps),
+		"localModelCount":       d.LocalModels,
+		"eligibleModelIds":      toAnySlice(d.EligibleModelIds),
+		"cloudConfigured":       d.CloudConfigured,
+		"federationConfigured":  d.Federation,
 		// fleetInferenceInstalled distinguishes "your machines are asleep"
 		// from "the node answering this request has no worker service at
 		// all". They look identical from a page and have entirely different
 		// fixes.
 		"fleetInferenceInstalled": e.providers.FleetInferenceInstalled(),
+		"fleetCatalogInstalled":   e.providers.FleetCatalogInstalled(),
 		// The app door's twin of the line above, and the same distinction:
 		// "you have signed into nothing" and "this node cannot open an app
 		// session at all" look identical on a page and have different fixes.
@@ -406,8 +423,15 @@ func (e *MemQLEngine) measurementsForCaller(ctx context.Context) ([]Measurement,
 // credential through workload identity federation (memql#4333) -- the second
 // of the three inference doors.
 func (r *ProviderRegistry) federationConfigured() bool {
+	configured, _ := r.federationReadiness()
+	return configured
+}
+
+// federationReadiness distinguishes an available federated provider from one
+// that can serve Ask's plain stream. Credentials alone cannot establish modality.
+func (r *ProviderRegistry) federationReadiness() (configured, streamingChat bool) {
 	if r == nil {
-		return false
+		return false, false
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -420,8 +444,11 @@ func (r *ProviderRegistry) federationConfigured() bool {
 		// one definition, or the Providers page and the first-run gate can
 		// disagree about whether a door is open.
 		if providerAuthSourceOf(entry) == AuthSourceFederation {
-			return true
+			configured = true
+			if _, ok := entry.Client.(common.ChatStreamProvider); ok {
+				streamingChat = true
+			}
 		}
 	}
-	return false
+	return configured, streamingChat
 }
