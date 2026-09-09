@@ -7971,6 +7971,27 @@
     },
     {
       "concept": "v1:agents:agent",
+      "field": "avatar",
+      "kind": "field",
+      "migration": "20260909010000_agent_nested_retirements.up.sql",
+      "note": "Completes agent retirements in #5017, #5062 and #5164. The same migration repairs closed capabilities/providerConfig/lineage nested blocks; preserves their declared siblings and all unrelated concepts."
+    },
+    {
+      "concept": "v1:agents:agent",
+      "field": "avatarPersonaId",
+      "kind": "field",
+      "migration": "20260909010000_agent_nested_retirements.up.sql",
+      "note": "Completes agent retirements in #5017, #5062 and #5164. The same migration repairs closed capabilities/providerConfig/lineage nested blocks; preserves their declared siblings and all unrelated concepts."
+    },
+    {
+      "concept": "v1:agents:agent",
+      "field": "avatarVendor",
+      "kind": "field",
+      "migration": "20260909010000_agent_nested_retirements.up.sql",
+      "note": "Completes agent retirements in #5017, #5062 and #5164. The same migration repairs closed capabilities/providerConfig/lineage nested blocks; preserves their declared siblings and all unrelated concepts."
+    },
+    {
+      "concept": "v1:agents:agent",
       "field": "gender",
       "kind": "field",
       "migration": "20260908020000_agent_conversational_fields_retired.up.sql",
@@ -7992,10 +8013,24 @@
     },
     {
       "concept": "v1:agents:agentRole",
+      "field": "recommendedGender",
+      "kind": "field",
+      "migration": "20260909010000_agent_nested_retirements.up.sql",
+      "note": "Completes agent retirements in #5017, #5062 and #5164. The same migration repairs closed capabilities/providerConfig/lineage nested blocks; preserves their declared siblings and all unrelated concepts."
+    },
+    {
+      "concept": "v1:agents:agentRole",
       "field": "recommendedPolicySlug",
       "kind": "field",
       "migration": "20260908050000_agent_role_recommended_policy_slug_retired.up.sql",
       "note": "commit 4812ec5c4 (memql#5130, #5128) removed the last two places a retired AI Router policy survived; epic memql#5127 replaced per-call policy slugs with levels. Measured by memql#5210."
+    },
+    {
+      "concept": "v1:agents:skillChangeEvent",
+      "field": "planId",
+      "kind": "field",
+      "migration": "20260909010000_agent_nested_retirements.up.sql",
+      "note": "Completes agent retirements in #5017, #5062 and #5164. The same migration repairs closed capabilities/providerConfig/lineage nested blocks; preserves their declared siblings and all unrelated concepts."
     },
     {
       "concept": "v1:cluster:cluster",
