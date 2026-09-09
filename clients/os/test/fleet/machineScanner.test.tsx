@@ -367,6 +367,20 @@ async function mountModels(opts: { recommended?: Row[]; measurements?: Row[] } =
 }
 
 describe("the Models group's recommended set", () => {
+  it("counts unique downloads while preserving each recommendation level", async () => {
+    const chat = { ...RECOMMENDED.entries[0], modelId: "qwen3.8:27b" };
+    await mountModels({ recommended: [{
+      ...RECOMMENDED,
+      entries: [
+        ...["fast", "strong", "reasoning"].map((level) => ({ ...chat, level })),
+        { ...chat, modelId: "qwen3-embedding:0.6b", level: "embeddings", category: "embedding" },
+      ],
+    } as unknown as Row] });
+    expect(screen.getByText(/2 models, pulled one after another/)).toBeTruthy();
+    expect(screen.getAllByText("qwen3.8:27b")).toHaveLength(3);
+    expect(screen.getByText("qwen3-embedding:0.6b")).toBeTruthy();
+  });
+
   it("shows the set with one act, and keeps a blocked entry with its reason", async () => {
     // A BLOCKED ENTRY STAYS ON SCREEN. Dropping it answers "why can my machine
     // not do voice" with silence, which is indistinguishable from a catalog

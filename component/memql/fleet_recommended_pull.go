@@ -101,6 +101,7 @@ func (e *MemQLEngine) evaluateFleetPullRecommendedExpression(ctx context.Context
 	// machine does not have produces a failure on somebody's laptop for a
 	// reason the page already knew.
 	var plans []modelPullPlan
+	plannedModels := make(map[string]bool)
 	var blocked []map[string]any
 	now := time.Now()
 	for _, r := range set {
@@ -120,6 +121,12 @@ func (e *MemQLEngine) evaluateFleetPullRecommendedExpression(ctx context.Context
 			// written, which is what keeps a half-run set out of existence.
 			return nil, err
 		}
+		// A model can serve several recommendation levels. Keep those levels
+		// in the recommendation, but dispatch its download only once.
+		if plannedModels[plan.Model] {
+			continue
+		}
+		plannedModels[plan.Model] = true
 		plans = append(plans, plan)
 	}
 

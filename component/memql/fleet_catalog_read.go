@@ -262,6 +262,7 @@ func (e *MemQLEngine) evaluateInferenceStatusExpression(ctx context.Context) ([]
 		// all". They look identical from a page and have entirely different
 		// fixes.
 		"fleetInferenceInstalled": e.providers.FleetInferenceInstalled(),
+		"fleetCatalogInstalled":   e.providers.FleetCatalogInstalled(),
 		// The app door's twin of the line above, and the same distinction:
 		// "you have signed into nothing" and "this node cannot open an app
 		// session at all" look identical on a page and have different fixes.

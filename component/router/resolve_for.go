@@ -20,7 +20,9 @@ package router
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/znasllc-io/memql/component/auth"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/core/airoute"
 )
@@ -30,7 +32,14 @@ func (r *Router) ResolveFor(ctx context.Context, req ResolveRequest) (memql.Reso
 	if r == nil {
 		return memql.ResolvedProvider{}, memql.ErrAIResolverUnwired
 	}
-	_ = ctx // the Resolve* entry points carry their own context internally
+	// Some production callers (including AiChat) carry identity only in ctx.
+	// Populate omitted attribution for selectors and observers; an explicit
+	// server-side UserId retains the existing registry precedence.
+	if strings.TrimSpace(req.UserId) == "" {
+		if access, ok := auth.AccessFromContext(ctx); ok && access != nil {
+			req.UserId = strings.TrimSpace(access.UserId)
+		}
+	}
 
 	var client any
 	var resolved Resolved
@@ -38,17 +47,19 @@ func (r *Router) ResolveFor(ctx context.Context, req ResolveRequest) (memql.Reso
 
 	switch req.Modality {
 	case airoute.ModalityStreamingTools:
-		client, resolved, err = r.ResolveStreamWithTools(req)
+		client, resolved, err = r.resolveStreamWithTools(ctx, req)
 	case airoute.ModalityTools:
-		client, resolved, err = r.ResolveWithTools(req)
-	case airoute.ModalityChat, airoute.ModalityStreamingChat:
-		client, resolved, err = r.ResolveChat(req)
+		client, resolved, err = r.resolveWithTools(ctx, req)
+	case airoute.ModalityStreamingChat:
+		client, resolved, err = r.resolveStreamChat(ctx, req)
+	case airoute.ModalityChat:
+		client, resolved, err = r.resolveChat(ctx, req)
 	case airoute.ModalityStructured:
-		client, resolved, err = r.ResolveStructured(req)
+		client, resolved, err = r.resolveDirect(ctx, req, modalityStructured)
 	case airoute.ModalityVision:
-		client, resolved, err = r.ResolveVision(req)
+		client, resolved, err = r.resolveDirect(ctx, req, modalityVision)
 	case airoute.ModalityEmbedding:
-		client, resolved, err = r.ResolveEmbedding(req)
+		client, resolved, err = r.resolveDirect(ctx, req, modalityEmbedding)
 	default:
 		// A modality the seam does not serve is a CALL-SITE fault, and the
 		// message says which: reporting it as an unavailable provider would

@@ -13,6 +13,7 @@ import (
 	langparser "github.com/znasllc-io/memql/component/language/parser"
 	memqlengine "github.com/znasllc-io/memql/component/memql"
 	workerservice "github.com/znasllc-io/memql/component/worker"
+	fleetcatalog "github.com/znasllc-io/memql/component/worker/fleetcatalog"
 	"github.com/znasllc-io/memql/core/num"
 )
 
@@ -242,53 +243,7 @@ func (s *EngineStore) WorkersForOwner(ctx context.Context, ownerUserId string) (
 	if s == nil || s.Engine == nil {
 		return nil, nil
 	}
-	if strings.TrimSpace(ownerUserId) == "" {
-		return nil, fmt.Errorf("agent.worker store: ownerUserId is required")
-	}
-	res, err := s.Engine.Execute(s.fleetContext(ctx, ownerUserId), `query myWorkersWithStatus()`)
-	if err != nil {
-		return nil, fmt.Errorf("fleet read: %w", err)
-	}
-	if res == nil {
-		return nil, nil
-	}
-	rows := outputPayloadRows(res.OutputPayload())
-	out := make([]Candidate, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		id := rowString(row, "id")
-		if id == "" {
-			continue
-		}
-		out = append(out, Candidate{
-			RegistrationId: id,
-			Name:           rowString(row, "name"),
-			DisplayName:    rowString(row, "displayName"),
-			Capabilities:   rowStringList(row, "capabilities"),
-			// The merge happens HERE, once, on the way out of the store --
-			// so no caller can accidentally match on the cockpit's map alone
-			// and quietly ignore the labels the owner set.
-			Labels: MergeLabels(rowStringMap(row, "labels"), rowStringMap(row, "operatorLabels")),
-			// Read from operatorLabels ALONE, deliberately not from the
-			// merge one line above (epic memql#4676): the cockpit rewrites
-			// `labels` on every reconnect, so an opt-in found there was
-			// granted by the machine rather than by its owner.
-			SharingMode:     workerservice.SharingFromRow(row["sharing"]).Mode,
-			InferenceServe:  capabilityInferenceServe(row["capabilityDescriptor"]),
-			Apps:            rowApps(row, "apps"),
-			AppDescriptors:  rowAppDescriptors(row, "appDescriptors"),
-			Hardware:        workerservice.InventoryFromRow(row["hardware"]),
-			Concurrency:     rowUint32Map(row, "concurrency"),
-			ActiveCount:     rowInt(row, "activeCount"),
-			ConnectedNodeId: rowString(row, "connectedNodeId"),
-			LastSelectedAt:  rowTime(row, "lastSelectedAt"),
-			LastSeenAt:      rowTime(row, "lastSeenAt"),
-			RevokedAt:       rowTime(row, "revokedAt"),
-		})
-	}
-	return out, nil
+	return (&fleetcatalog.EngineStore{Engine: s.Engine}).WorkersForOwner(ctx, ownerUserId)
 }
 
 // RoutingPolicyForOwner returns the owner's active policy, or nil when they
@@ -408,37 +363,6 @@ func rowStringMap(row map[string]any, key string) map[string]string {
 		}
 	}
 	return out
-}
-
-func rowUint32Map(row map[string]any, key string) map[string]uint32 {
-	raw, ok := row[key].(map[string]any)
-	if !ok || len(raw) == 0 {
-		return nil
-	}
-	out := make(map[string]uint32, len(raw))
-	for k, v := range raw {
-		if f, ok := v.(float64); ok && f >= 0 {
-			out[k] = uint32(f)
-		}
-	}
-	return out
-}
-
-// rowTime parses an RFC3339 timestamp. An empty or unparseable value yields
-// the zero time, which every caller reads as "never" -- and for lastSeenAt
-// that means offline, which is the safe direction: a machine whose timestamp
-// cannot be read is not one to send work to.
-func rowTime(row map[string]any, key string) time.Time {
-	raw := rowString(row, key)
-	if raw == "" {
-		return time.Time{}
-	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.000Z"} {
-		if t, err := time.Parse(layout, raw); err == nil {
-			return t.UTC()
-		}
-	}
-	return time.Time{}
 }
 
 // -- helpers ----------------------------------------------------------------
@@ -582,26 +506,6 @@ func intFrom(v any) int {
 	return 0
 }
 
-// capabilityInferenceServe reads the COCKPIT's half of the sharing consent off
-// the stored capability descriptor (epic memql#5146, D6).
-//
-// AN ABSENT DESCRIPTOR, an absent field, or anything that is not exactly
-// `cluster` reads as `owner`. A cockpit that predates the field has said
-// nothing, and silence is not agreement to run other people's work on somebody's
-// laptop -- the one place in this epic where the honest reading of silence and
-// the safe one coincide.
-func capabilityInferenceServe(v any) string {
-	descriptor, ok := v.(map[string]any)
-	if !ok {
-		return workerservice.InferenceServeOwner
-	}
-	serve, _ := descriptor["inferenceServe"].(string)
-	if strings.TrimSpace(serve) != workerservice.InferenceServeCluster {
-		return workerservice.InferenceServeOwner
-	}
-	return workerservice.InferenceServeCluster
-}
-
 func stringsFrom(v any) []string {
 	list, ok := v.([]any)
 	if !ok {
@@ -636,50 +540,9 @@ func (s *EngineStore) SharedInferenceWorkers(ctx context.Context) ([]Candidate, 
 	if s == nil || s.Engine == nil {
 		return nil, nil
 	}
-	res, err := s.Engine.Execute(systemFleetContext(ctx), `query allWorkersWithStatus()`)
-	if err != nil {
-		return nil, fmt.Errorf("shared fleet read: %w", err)
-	}
-	if res == nil {
-		return nil, nil
-	}
-	rows := outputPayloadRows(res.OutputPayload())
-	out := make([]Candidate, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		id := rowString(row, "id")
-		if id == "" {
-			continue
-		}
-		operator := rowStringMap(row, "operatorLabels")
-		out = append(out, Candidate{
-			RegistrationId:  id,
-			Name:            rowString(row, "name"),
-			DisplayName:     rowString(row, "displayName"),
-			Capabilities:    rowStringList(row, "capabilities"),
-			Labels:          MergeLabels(rowStringMap(row, "labels"), operator),
-			SharingMode:     workerservice.SharingFromRow(row["sharing"]).Mode,
-			InferenceServe:  capabilityInferenceServe(row["capabilityDescriptor"]),
-			Apps:            rowApps(row, "apps"),
-			AppDescriptors:  rowAppDescriptors(row, "appDescriptors"),
-			Hardware:        workerservice.InventoryFromRow(row["hardware"]),
-			Concurrency:     rowUint32Map(row, "concurrency"),
-			ActiveCount:     rowInt(row, "activeCount"),
-			ConnectedNodeId: rowString(row, "connectedNodeId"),
-			LastSelectedAt:  rowTime(row, "lastSelectedAt"),
-			LastSeenAt:      rowTime(row, "lastSeenAt"),
-			RevokedAt:       rowTime(row, "revokedAt"),
-			OwnerUserId:     rowString(row, "ownerUserId"),
-		})
-	}
-	return out, nil
+	return (&fleetcatalog.EngineStore{Engine: s.Engine}).SharedInferenceWorkers(ctx)
 }
 
-// systemFleetActor is the subject the cluster's own model calls act as. It is
-// not a user id and resolves to no identity row; its only purpose is to be a
-// legible `sub` in an audit line.
 // maxCredentialLifetimeSeconds bounds the delegation policy's own field
 // before it becomes a time.Duration.
 //
@@ -688,94 +551,3 @@ func (s *EngineStore) SharedInferenceWorkers(ctx context.Context) ([]Candidate, 
 // so a policy asking for longer was never realizable -- this is the read side
 // agreeing with the write side rather than a new rule.
 const maxCredentialLifetimeSeconds = 8 * 60 * 60
-
-const systemFleetActor = "system:fleet-inference"
-
-func systemFleetContext(ctx context.Context) context.Context {
-	claims := map[string]any{"sub": systemFleetActor, "role": "owner"}
-	ctx = auth.ContextWithClaims(ctx, claims)
-	ctx = auth.ContextWithToken(ctx, auth.BuildTokenInfo(claims))
-	// Unranked + Synthetic (epic memql#4832, D4): the fleet store acting as
-	// the cluster, not as a person. RoleOwner is what buys it the
-	// cluster-owner escape; it is not a claim to rank 400, and without the
-	// flags a rank-strict concept would read this as an owner writing a PEER
-	// owner's row and refuse the sweep.
-	return auth.ContextWithAccess(ctx, &auth.AccessContext{
-		UserId: systemFleetActor, Role: auth.RoleOwner, Unranked: true, Synthetic: true,
-	})
-}
-
-// rowApps decodes the reported local-app inventory off a registration row.
-//
-// Malformed entries are DROPPED rather than defaulted, the same rule
-// component/worker's own decoder applies: an app with no id cannot be routed
-// to, and an entry claiming to be runnable without the fields to prove it is
-// exactly what must not be trusted.
-func rowApps(row map[string]any, key string) []workerservice.AppInfo {
-	raw, ok := row[key].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]workerservice.AppInfo, 0, len(raw))
-	for _, item := range raw {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		id, _ := m["id"].(string)
-		if strings.TrimSpace(id) == "" {
-			continue
-		}
-		version, _ := m["version"].(string)
-		subscription, _ := m["subscription"].(string)
-		signedIn, _ := m["signedIn"].(bool)
-		allowed, _ := m["allowed"].(bool)
-		out = append(out, workerservice.AppInfo{
-			Id:           strings.TrimSpace(id),
-			Version:      version,
-			SignedIn:     signedIn,
-			Subscription: workerservice.NormalizeSubscription(subscription),
-			Allowed:      allowed,
-		})
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// rowAppDescriptors decodes the harness descriptors, dropping every entry
-// whose app id or harness word this build does not know -- so a cluster
-// mid-upgrade cannot read a protocol name out of the graph that its own code
-// has no client for.
-func rowAppDescriptors(row map[string]any, key string) []workerservice.AppDescriptor {
-	raw, ok := row[key].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]workerservice.AppDescriptor, 0, len(raw))
-	for _, item := range raw {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		id, _ := m["id"].(string)
-		harness, _ := m["harness"].(string)
-		structured, _ := m["structuredResult"].(bool)
-		followUps, _ := m["followUps"].(bool)
-		d := workerservice.AppDescriptor{
-			Id:               strings.TrimSpace(id),
-			Harness:          strings.TrimSpace(harness),
-			StructuredResult: structured,
-			FollowUps:        followUps,
-		}
-		if !d.Valid() {
-			continue
-		}
-		out = append(out, d)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}

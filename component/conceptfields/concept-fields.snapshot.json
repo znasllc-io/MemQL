@@ -3653,6 +3653,7 @@
         "eligible",
         "eligibleModelIds",
         "federationConfigured",
+        "fleetCatalogInstalled",
         "fleetInferenceInstalled",
         "localEligible",
         "localModelCount",

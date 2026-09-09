@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -328,4 +329,24 @@ func TestPeerManager_AttachDetachConnection(t *testing.T) {
 
 	// Detaching a missing node must not panic.
 	pm.DetachConnection("ghost")
+}
+
+// With the per-pod addresses emitted by the manifests, an agent must retain
+// every sibling target while excluding itself. A shared Service address would
+// make both replicas look like self and leave no cross-replica route.
+func TestWorkerDialerDistinctReplicaAddressesRetainSibling(t *testing.T) {
+	replicas := []WorkerTarget{
+		{NodeType: NodeTypeAgent, NodeId: "agent-a", Address: "10.42.0.10:50055"},
+		{NodeType: NodeTypeAgent, NodeId: "agent-b", Address: "10.42.0.11:50055"},
+	}
+	for i, self := range replicas {
+		identity := &Identity{ID: self.NodeId, Type: self.NodeType, Address: self.Address}
+		wd := NewWorkerDialer(identity, NewPeerManager(identity, testLogger()), nil, nil, replicas, testLogger())
+		wd.SetDialTypes(NodeTypeAgent)
+		got := wd.buildDesiredSet(context.Background())
+		other := replicas[1-i]
+		if len(got) != 1 || got[targetKey(other)] != other {
+			t.Fatalf("%s desired peers = %+v; want only sibling %+v", self.NodeId, got, other)
+		}
+	}
 }

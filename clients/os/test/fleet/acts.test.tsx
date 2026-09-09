@@ -320,7 +320,8 @@ const DOORS = {
   appSessionsInstalled: true,
   cloudConfigured: false,
   federationConfigured: false,
-  fleetInferenceInstalled: true,
+  fleetInferenceInstalled: false,
+  fleetCatalogInstalled: true,
   minimumContextWindow: 8192,
 };
 
@@ -865,5 +866,28 @@ describe("every act the Fleet offers (D5, memql#5159)", () => {
     // tests. The two here are indistinguishable by anything but a count.
     parent.append(rename, rename.cloneNode(true));
     expect(auditCase(detail).join("\n")).toContain('"Rename" -- expected 1, found 2');
+  });
+});
+
+
+describe("model availability through a BFF catalog", () => {
+  it("shows catalog availability without requiring local dispatch", async () => {
+    h.connection = fakeConnection({ inferenceStatus: [{
+      ...DOORS, eligible: false, localEligible: false, localModelCount: 0,
+      eligibleModelIds: [], fleetCatalogInstalled: true, fleetInferenceInstalled: false,
+    }] });
+    render(withSession(<ModelsSection />));
+    await screen.findByText("your fleet offers no models");
+    expect(screen.queryByText(/cannot place fleet calls/)).toBeNull();
+  });
+
+  it("distinguishes unreadable inventory from no eligible models", async () => {
+    h.connection = fakeConnection({ inferenceStatus: [{
+      ...DOORS, eligible: false, localEligible: false, localModelCount: 0,
+      eligibleModelIds: [], fleetCatalogInstalled: false, fleetInferenceInstalled: true,
+    }] });
+    render(withSession(<ModelsSection />));
+    await screen.findByText("fleet inventory cannot be read here");
+    expect(screen.queryByText("your fleet offers no models")).toBeNull();
   });
 });

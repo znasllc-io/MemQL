@@ -45,6 +45,7 @@ export interface DoorsReading {
   cloudConfigured: boolean;
   federationConfigured: boolean;
   fleetInferenceInstalled: boolean;
+  fleetCatalogInstalled: boolean;
   minimumContextWindow: number;
 }
 
@@ -149,6 +150,7 @@ export function doorsFromRow(row: Row | null): DoorsReading | null {
     cloudConfigured: boolOr(row, "cloudConfigured", false),
     federationConfigured: boolOr(row, "federationConfigured", false),
     fleetInferenceInstalled: boolOr(row, "fleetInferenceInstalled", false),
+    fleetCatalogInstalled: boolOr(row, "fleetCatalogInstalled", false),
     minimumContextWindow: numberOf(row, "minimumContextWindow"),
   };
 }
