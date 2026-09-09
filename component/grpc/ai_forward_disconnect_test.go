@@ -269,3 +269,39 @@ func TestAiForwardRelayReportsMissingTerminalOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestAiDispatchablePeerConcurrentDetach(t *testing.T) {
+	remote, addr := startDisconnectPeer(t, node.NodeTypeAgent)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	identity := &node.Identity{ID: "browser-bff", Type: node.NodeTypeBFF}
+	peers := node.NewPeerManager(identity, testLogger())
+	router := NewAiForwardRouter(peers, testLogger())
+	dialer := node.NewWorkerDialer(identity, peers, nil, nil, []node.WorkerTarget{{NodeType: node.NodeTypeAgent, Address: addr}}, testLogger())
+	dialer.Start(ctx)
+	awaitDisconnectCondition(t, func() bool {
+		ps := peers.SnapshotByType(node.NodeTypeAgent)
+		return len(ps) == 1 && ps[0].Connection != nil
+	}, "handshake failed")
+	selected := peers.SnapshotByType(node.NodeTypeAgent)[0]
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 10000; i++ {
+			peers.DetachConnection(remote.nodeID)
+			peers.AttachConnection(remote.nodeID, selected.Connection)
+		}
+	}()
+	for i := 0; i < 10000; i++ {
+		router.hasDispatchablePeer(node.NodeTypeAgent)
+	}
+	<-done
+	peers.AttachConnection(remote.nodeID, selected.Connection)
+	if !router.hasDispatchablePeer(node.NodeTypeAgent) {
+		t.Fatal("reattached peer is unavailable")
+	}
+	peers.DetachConnection(remote.nodeID)
+	if router.hasDispatchablePeer(node.NodeTypeAgent) {
+		t.Fatal("detached peer remains dispatchable")
+	}
+}

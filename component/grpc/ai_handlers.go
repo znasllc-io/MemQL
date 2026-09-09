@@ -305,6 +305,11 @@ func (s *streamSession) handleAiChatNonStream(ctx context.Context, requestId, co
 }
 
 func (s *streamSession) handleAiChatStream(ctx context.Context, requestId, correlate string, messages []common.ChatMessage, providerName string) {
+	// Provider work belongs to this turn, not the lifetime of the peer stream.
+	// A failed response publication must release the model and its capacity.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	streamProvider, _, err := memqlengine.ResolveAITyped[common.ChatStreamProvider](
 		ctx, s.service.engine, chatStreamResolveRequest(messages, providerName))
 	if err != nil {

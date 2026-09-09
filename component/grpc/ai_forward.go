@@ -952,7 +952,7 @@ func (r *AiForwardRouter) hasDispatchablePeer(targetType node.NodeType) bool {
 	if r == nil || r.peerMgr == nil {
 		return false
 	}
-	for _, p := range r.peerMgr.ByType(targetType) {
+	for _, p := range r.peerMgr.SnapshotByType(targetType) {
 		if p != nil && p.Info != nil && p.Connection != nil {
 			return true
 		}
