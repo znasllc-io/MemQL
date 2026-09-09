@@ -271,7 +271,7 @@ const (
 
 var (
 	schemaIdCache   sync.Map
-	contentIdEngine = id.New()
+	contentIdEngine = id.NewUntracked()
 )
 
 // SetContentIdSalt configures the server-side salt used for content-addressed ID derivation.
