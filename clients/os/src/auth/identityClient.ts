@@ -32,16 +32,34 @@ export function authorizeUrl(
   return url.toString();
 }
 
+export function canCoordinateIdentityRefresh(): boolean {
+  return typeof navigator !== "undefined" && typeof navigator.locks?.request === "function";
+}
+
+/** Refresh cookies are shared by tabs. Hold the origin-wide lock through
+ * the response headers, when the browser has applied Set-Cookie, so another
+ * document never rotates the predecessor concurrently. No credential enters
+ * local storage or a broadcast channel. */
+async function fetchIdentityRefresh(config: OsRuntimeConfig, fetchImpl: IdentityFetch): Promise<Response> {
+  if (!canCoordinateIdentityRefresh()) {
+    return Promise.reject(new Error("This browser needs Web Locks support to keep sign-in in sync across tabs. Update your browser and try again."));
+  }
+  const signal = AbortSignal.timeout(15_000);
+  return navigator.locks.request("memql:identity:refresh", { mode: "exclusive", signal }, () =>
+    fetchImpl(apiUrl(config, "/auth/refresh"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal,
+    }));
+}
+
 export async function probeSession(
   config: OsRuntimeConfig,
   fetchImpl: IdentityFetch = fetch,
 ): Promise<{ signedIn: boolean }> {
-  const response = await fetchImpl(apiUrl(config, "/auth/refresh"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  const response = await fetchIdentityRefresh(config, fetchImpl);
   return { signedIn: response.ok };
 }
 
@@ -49,24 +67,23 @@ export async function probeSession(
  * Refresh the access token through the HttpOnly cookie (memql#4719). The
  * credential rides the BODY and the cookie, never a query parameter. Null =
  * no session (or no parsable token) -- the caller treats that as signed out.
- * The identity service's field is `access_token` (OAuth shape).
+ * Keep the OAuth `expires_in` lifetime so HTTP consumers can renew even when
+ * the SDK stopped rotating during an outage. It is relative, so browser/server
+ * clock skew cannot turn credential reads into a refresh loop.
  */
-export async function refreshAccessToken(
+export async function refreshAccessCredential(
   config: OsRuntimeConfig,
   fetchImpl: IdentityFetch = fetch,
-): Promise<string | null> {
-  const response = await fetchImpl(apiUrl(config, "/auth/refresh"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+): Promise<{ bearer: string; expiresInSeconds: number } | null> {
+  const response = await fetchIdentityRefresh(config, fetchImpl);
   if (!response.ok) return null;
   try {
-    const payload = (await response.json()) as { access_token?: unknown };
-    return typeof payload.access_token === "string" && payload.access_token !== ""
-      ? payload.access_token
-      : null;
+    const payload = (await response.json()) as { access_token?: unknown; expires_in?: unknown };
+    if (
+      typeof payload.access_token !== "string" || payload.access_token === "" ||
+      typeof payload.expires_in !== "number" || !Number.isFinite(payload.expires_in) || payload.expires_in <= 0
+    ) return null;
+    return { bearer: payload.access_token, expiresInSeconds: payload.expires_in };
   } catch {
     return null;
   }

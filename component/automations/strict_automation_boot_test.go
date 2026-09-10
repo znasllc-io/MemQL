@@ -139,7 +139,9 @@ func TestStrictAutomationBoot_EmbeddedTreeIsClean(t *testing.T) {
 // proof of ownership. Three added, none removed -- and the count is what
 // SAYS none was removed, which is exactly the check a diff of a list could
 // not have made.
-const shippedAutomationCount = 57
+// materializeFile adds the Materializer's known execution template.
+const shippedAutomationCount = 58
+
 //
 // 56 -> 57 in epic memql#5168 (the per-account front door):
 // reconcileAccountFrontDoors, a SECOND sweep beside reconcileCustomDomains

@@ -65,6 +65,7 @@ function fakeSubscriptions() {
 
 export interface FakeSeed {
   compositions?: Row[];
+  runs?: Row[];
   templates?: Row[];
   recipes?: Row[];
   /** What `composableConcepts` answers with. */
@@ -92,6 +93,9 @@ export function fakeConnection(seed: FakeSeed = {}) {
       // index. A test that asserts a read was issued UNFILTERED needs it.
       compositions: vi.fn(async (_args?: Record<string, unknown>, _opts?: unknown) =>
         rowsResult(seed.compositions ?? []),
+      ),
+      workRunForOwner: vi.fn(async (args: Record<string, unknown>, _opts?: unknown) =>
+        rowsResult((seed.runs ?? []).filter((row) => row.id === args.runId)),
       ),
       composeTemplates: vi.fn(async (_args?: Record<string, unknown>, _opts?: unknown) =>
         rowsResult(seed.templates ?? []),

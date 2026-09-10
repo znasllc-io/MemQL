@@ -581,6 +581,16 @@ func (pm *PeerManager) DetachConnection(nodeId string) {
 	}
 }
 
+// detachConnectionIf releases only the transport owned by the caller, so an
+// older attempt cannot detach a replacement registered under the same peer ID.
+func (pm *PeerManager) detachConnectionIf(nodeID string, conn *peerConnection) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if entry := pm.peers[nodeID]; entry != nil && entry.Connection == conn {
+		entry.Connection = nil
+	}
+}
+
 // AddChildConnection adds a connection for a child node.
 func (pm *PeerManager) AddChildConnection(nodeId string, conn *peerConnection) {
 	pm.childMu.Lock()

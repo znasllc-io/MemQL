@@ -1,4 +1,4 @@
-//go:build agent
+//go:build agent || planner
 
 package worker
 
@@ -67,6 +67,20 @@ func NewFleetInference(d *Dispatcher, forward *ForwardRouter, logger *slog.Logge
 		selfNodeId: d.selfNodeId,
 		logger:     logger,
 		clock:      d.clock,
+	}
+}
+
+// NewRemoteFleetInference gives a node that owns no cockpit streams the same
+// owner-scoped selection and forwarding path as an agent replica. It creates
+// no WorkerService or local registry; every selected machine is reached on the
+// agent named by its connectedNodeId.
+func NewRemoteFleetInference(store FleetStore, forward *ForwardRouter, selfNodeId string, logger *slog.Logger) *FleetInference {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &FleetInference{
+		router: NewRouter(store, logger, time.Now), store: store,
+		forward: forward, selfNodeId: selfNodeId, logger: logger, clock: time.Now,
 	}
 }
 
@@ -342,6 +356,9 @@ func (o ModelForwardOutcome) Ok() bool {
 }
 
 func (f *FleetInference) isLocal(cand Candidate) bool {
+	if f.registry == nil {
+		return false
+	}
 	if f.selfNodeId == "" {
 		return true
 	}

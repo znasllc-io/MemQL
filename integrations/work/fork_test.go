@@ -14,6 +14,8 @@ func sourceRun(owner string) map[string]any {
 		"goalId":              "v1:work:goal:g1",
 		"automationName":      "reconcileInvoices",
 		"templateFingerprint": "fp-abc",
+		"templateConstructId": "v1:authoring:construct:compiled",
+		"templateVersion":     "sealed-source",
 		"input":               map[string]any{"month": "2026-09"},
 		"inputFingerprint":    "in-abc",
 		"status":              runStatusSucceeded,
@@ -72,6 +74,12 @@ func TestForkAndReplayDeriveARunAndLeaveTheSourceAlone(t *testing.T) {
 			// re-compiled would not be a replay of anything.
 			if args["automationName"] != "reconcileInvoices" || args["templateFingerprint"] != "fp-abc" {
 				t.Errorf("the template identity was not inherited: %v / %v", args["automationName"], args["templateFingerprint"])
+			}
+			if args["templateConstructId"] != "v1:authoring:construct:compiled" || args["templateVersion"] != "sealed-source" {
+				t.Fatalf("derived run lost its sealed authored template: %+v", args)
+			}
+			if args["status"] != runStatusRunning {
+				t.Errorf("known template was sent back to compile at status %v; a replay must execute its inherited template", args["status"])
 			}
 			if args["goalId"] != "v1:work:goal:g1" {
 				t.Errorf("goalId = %v; journal serving never crosses goals, so a derived run must stay on its source's goal", args["goalId"])

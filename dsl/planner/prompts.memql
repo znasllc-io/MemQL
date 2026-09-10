@@ -42,8 +42,8 @@ prompt reactiveConductor {
 /// deliverable made of INDEPENDENT sections (e.g. '10 folk tales, each a complete story') that can
 /// be produced concurrently and assembled -- the planner then GENERATES a parallel plan-automation
 /// instead of a serial decompose chain. Fast/cheap tier (chat54Mini) by design. Output contract:
-/// {complexity: 'trivial'|'moderate'|'complex', reasoning: '<one short sentence>', sectionable?:
-/// bool, assembly?: '<one sentence>', sections?: [{label, instruction}]}.
+/// {complexity: 'trivial'|'moderate'|'complex', reasoning: '<one short sentence>', requiresFile: bool, sectionable?:
+/// bool, fileName?: string, fileFormat?: string, assembly?: '<one sentence>', sections?: [{label, instruction}]}.
 @level("fast")
 @templateFile("prompts/goalComplexityTriage.tmpl")
 prompt goalComplexityTriage {

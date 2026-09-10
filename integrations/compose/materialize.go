@@ -2,14 +2,19 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	pure "github.com/znasllc-io/memql/component/compose"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
+	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 	"github.com/znasllc-io/memql/core/num"
+	work "github.com/znasllc-io/memql/integrations/work"
 )
 
 // materialize.go -- the five steps, in order.
@@ -20,10 +25,10 @@ import (
 //	stamp       deterministic   embed provenance, per the format's table
 //	file        deterministic   write v1:library:file + the composition record
 //
-// FOUR OF THE FIVE REACH NO MODEL, and that split is the whole product
-// claim rather than an implementation detail: the second quarter's
-// report costs a page read and a render. The one that does is `compose`,
-// and on a catalog hit through the work spine it does not either.
+// The known template needs no compiler call. Its compose stage reaches the
+// configured model and the work runtime journals that call on the owning run.
+// Gathered inputs and completed output identities survive recovery on another
+// replica through the composition and its owner-only input record.
 //
 // THE WHOLE PATH RUNS UNDER THE CALLER'S OWN ACTOR and borrows nobody's
 // authority -- everything it touches is the caller's: their sources,
@@ -98,81 +103,254 @@ func parseMaterializeArgs(args map[string]any) (materializeArgs, error) {
 	return out, nil
 }
 
-// materialize runs the five steps and returns what the caller sees.
-//
-// THE ROW IS OPENED FIRST AND UPDATED AS IT GOES, never written once at
-// the end. A composition that failed halfway with no row is one the
-// person cannot find, ask about or retry -- and "it just did nothing" is
-// the report that follows. Every failure below marks the row `failed`
-// with a reason before returning the error.
+// executionRequest is captured once under the requesting actor. Retrying on
+// another replica reads this snapshot rather than asking mutable sources again.
+type executionRequest struct {
+	Args     materializeArgs `json:"args"`
+	Resolved []Resolved      `json:"resolved"`
+	Started  time.Time       `json:"started"`
+}
+
+var materializeIDEngine = id.NewUntracked()
+
+func stableMaterializeID(parts ...string) string {
+	return string(materializeIDEngine.MustFromMap(map[string]any{"parts": parts}))[:32]
+}
+
 func (i *Integration) materialize(ctx context.Context, userId, userEmail string, a materializeArgs) (map[string]any, error) {
-	st := i.store()
+	rc, nested := common.RunFromContext(ctx)
+	nested = nested && rc.RunId != "" && rc.GoalId != ""
 	compositionId := id.NewShortId()
-	started := i.clock().UTC()
-
-	// --- the goal, first, so the composition can name it ---
-	//
-	// EVERY MATERIALIZATION IS A GOAL (design D6), opened through the work
-	// spine's OWN `createGoal` builtin over this package's engine handle,
-	// under the caller's own actor. That is deliberately a DSL call rather
-	// than a Go seam onto integrations/work: `createGoal` exists there as
-	// a capability handler and not as an exported method, and adding one
-	// would couple two integrations in Go for something the DSL already
-	// exposes -- plus give `requestedVia` a second spelling.
-	//
-	// A FAILURE HERE IS LOGGED AND NOT FATAL. The file is the deliverable
-	// and the tracking is around it, so a node with no work plug-in -- or
-	// a work spine having a bad day -- still materializes. The composition
-	// then carries an empty goalId, which the app renders as "not tracked"
-	// rather than as a broken link.
-	goalId, runId := i.openGoal(ctx, compositionId, a)
-
-	// --- step 1: gather ---
-	//
-	// BEFORE THE ROW, and that ordering is deliberate. Resolving is a
-	// set of READS under the caller's own actor: it cannot fail as a
-	// whole (a source that finds nothing records its own problem and the
-	// others carry on), and doing it first is what lets the row record
-	// what was ACTUALLY found, with each source's capturedAt. A row
-	// written first would have to be updated with its own sources a
-	// moment later, and `sources` is not a field updateCompositionState
-	// accepts -- deliberately, because what a composition was made from
-	// must not be rewritable after the fact.
+	if nested {
+		// The step owns a single materialization for this exact request. Including
+		// args also distinguishes multiple file calls within the same agent step.
+		raw, err := json.Marshal(a)
+		if err != nil {
+			return nil, err
+		}
+		identityRun := rc.RunId
+		if rc.Mode == common.RunModeReplay {
+			if rc.SourceRunId == "" || !sameRowID(rc.SourceGoalId, rc.GoalId) {
+				return nil, errors.New("compose: replay needs a source run in the same goal")
+			}
+			identityRun = rc.SourceRunId
+		}
+		compositionId = stableMaterializeID(memql.BareShortId(identityRun), rc.StepKey, string(raw))
+		row, err := i.store().compositionExecutionById(ctx, compositionId)
+		if err != nil {
+			return nil, err
+		}
+		if row != nil {
+			return i.executeComposition(ctx, userId, userEmail, compositionId, row)
+		}
+		if rc.Mode == common.RunModeReplay {
+			return nil, errors.New("compose: replay has no completed composition to serve")
+		}
+	}
 	resolved, err := i.resolve(ctx, a.Sources)
 	if err != nil {
 		return nil, fmt.Errorf("compose: the sources could not be read: %w", err)
 	}
-
-	// --- the row, before anything that CAN fail ---
-	if err := st.createComposition(ctx, map[string]any{
-		"compositionId":  compositionId,
-		"name":           a.Name,
-		"statement":      a.Statement,
-		"format":         string(a.Format),
-		"sources":        rowSources(resolved),
-		"templateId":     a.TemplateId,
-		"folderId":       a.FolderId,
-		"accountIds":     stringsOrNil(a.AccountIds),
-		"goalId":         goalId,
-		"runId":          runId,
-		"recipeId":       a.RecipeId,
-		"deployableKind": a.DeployableKind,
+	request := executionRequest{Args: a, Resolved: resolved, Started: i.clock().UTC()}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("compose: capturing the request: %w", err)
+	}
+	var snapshot map[string]any
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return nil, err
+	}
+	goalId, runId := "", ""
+	if nested {
+		goalId, runId = rc.GoalId, rc.RunId
+	}
+	// A composition may be shared with an account, but the source payloads
+	// were resolved using its owner's access. Persist them privately before
+	// making a composition available to the executor on any replica.
+	if err := i.store().createCompositionInput(ctx, map[string]any{
+		"compositionId": compositionId, "request": snapshot,
+	}); err != nil {
+		return nil, fmt.Errorf("compose: saving the execution input: %w", err)
+	}
+	if err := i.store().createComposition(ctx, map[string]any{
+		"compositionId": compositionId, "name": a.Name, "statement": a.Statement,
+		"format": string(a.Format), "sources": rowSources(resolved),
+		"templateId": a.TemplateId, "folderId": a.FolderId, "accountIds": stringsOrNil(a.AccountIds),
+		"goalId": goalId, "runId": runId, "recipeId": a.RecipeId, "deployableKind": a.DeployableKind,
 	}); err != nil {
 		return nil, fmt.Errorf("compose: opening the composition record: %w", err)
 	}
+	if nested {
+		row, err := i.store().compositionExecutionById(ctx, compositionId)
+		if err != nil {
+			return nil, err
+		}
+		return i.executeComposition(ctx, userId, userEmail, compositionId, row)
+	}
+	opener := i.goalOpenerRef()
+	if opener == nil {
+		return i.failComposition(ctx, compositionId, errors.New("compose: the work runtime is not configured"))
+	}
+	goalId, runId, err = opener.OpenDirectGoal(ctx, work.DirectGoal{
+		OwnerUserId: userId, Statement: firstNonEmpty(a.Statement, "Materialize "+a.Name+" as "+string(a.Format)),
+		AutomationName: "materializeFile", RequestedVia: "materializer", TriggeredBy: "materializer",
+		AccountIds: a.AccountIds, Ceilings: a.Ceilings, Input: map[string]any{"compositionId": compositionId},
+		BeforeRun: func(bindCtx context.Context, goal, run string) error {
+			return i.store().updateCompositionState(bindCtx, map[string]any{"compositionId": compositionId, "goalId": goal, "runId": run})
+		},
+	})
+	if err != nil {
+		return i.failComposition(ctx, compositionId, fmt.Errorf("compose: starting the work run: %w", err))
+	}
+	return map[string]any{"compositionId": compositionId, "goalId": goalId, "runId": runId, "format": string(a.Format), "status": "draft"}, nil
+}
 
-	fail := func(reason string, err error) (map[string]any, error) {
-		if uerr := st.updateCompositionState(ctx, map[string]any{
-			"compositionId": compositionId,
-			"status":        "failed",
-			"failureReason": reason,
-		}); uerr != nil {
-			i.log().Error("compose: could not record a failure on the composition", "error", uerr, "compositionId", compositionId)
-		}
-		if err == nil {
-			err = fmt.Errorf("compose: %s", reason)
-		}
+// handleExecute is reachable only in a run carrying this composition's identities.
+// @serverOnly is unsuitable here: adopted runs intentionally retain the caller's
+// origin even for trusted templates. The run context is server supplied and is
+// checked together with the persisted owner before reading the execution input.
+func (i *Integration) handleExecute(ctx context.Context, args map[string]any, _ int) ([]memorynodes.MemoryNode, error) {
+	ac, err := requirePrincipal(ctx)
+	if err != nil {
 		return nil, err
+	}
+	rc, ok := common.RunFromContext(ctx)
+	if !ok || rc.RunId == "" || rc.GoalId == "" {
+		return nil, errors.New("compose: execution requires its owning work run")
+	}
+	compositionId := strings.TrimSpace(stringOf(args["compositionId"]))
+	if compositionId == "" {
+		return nil, errors.New("compose: execution needs a compositionId")
+	}
+	row, err := i.store().compositionExecutionById(ctx, compositionId)
+	if err != nil {
+		return nil, err
+	}
+	out, err := i.executeComposition(ctx, ac.UserId, ac.PrimaryEmail, compositionId, row)
+	if err != nil {
+		return nil, err
+	}
+	return i.resultNode(out), nil
+}
+
+func sameRowID(a, b string) bool {
+	// Persisted relationship fields are canonical, while a rehydrated work
+	// journal deliberately exposes its run's bare ID. Both name the same row.
+	return a != "" && b != "" && memql.BareShortId(a) == memql.BareShortId(b)
+}
+func (i *Integration) executeComposition(ctx context.Context, userId, userEmail, compositionId string, row map[string]any) (map[string]any, error) {
+	if row == nil {
+		return nil, errors.New("compose: no composition with that id is readable by you")
+	}
+	rc, ok := common.RunFromContext(ctx)
+	sameRun := sameRowID(rc.RunId, stringOf(row["runId"]))
+	replaySource := rc.Mode == common.RunModeReplay && sameRowID(rc.SourceRunId, stringOf(row["runId"])) && sameRowID(rc.SourceGoalId, rc.GoalId)
+	if !ok || rc.GoalId == "" || rc.RunId == "" || (!sameRun && !replaySource) || !sameRowID(rc.GoalId, stringOf(row["goalId"])) || !sameRowID(userId, stringOf(row["ownerUserId"])) {
+		return nil, errors.New("compose: this composition does not belong to the current caller and work run")
+	}
+	if stringOf(row["status"]) == "ready" {
+		return compositionResult(compositionId, row), nil
+	}
+	if replaySource {
+		return nil, errors.New("compose: replay source did not complete; no file can be served")
+	}
+	if stringOf(row["status"]) == "cancelled" {
+		return nil, errors.New("compose: the composition was cancelled")
+	}
+	input, err := i.store().compositionInputById(ctx, compositionId)
+	if err != nil {
+		return nil, err
+	}
+	var request executionRequest
+	raw, err := json.Marshal(input["request"])
+	if err != nil {
+		return nil, err
+	}
+	if err = json.Unmarshal(raw, &request); err != nil {
+		return nil, err
+	}
+	if request.Args.Name == "" {
+		return i.failComposition(ctx, compositionId, errors.New("compose: the saved execution request is missing"))
+	}
+	return i.executePipeline(ctx, userId, userEmail, compositionId, rc.GoalId, rc.RunId, request)
+}
+func compositionResult(compositionId string, row map[string]any) map[string]any {
+	out := map[string]any{"compositionId": compositionId}
+	for _, key := range []string{"goalId", "runId", "outputFileId", "format", "name", "status", "sha256", "provenanceEmbedded", "provenanceNote", "modelsUsed", "deployableKind"} {
+		if value, ok := row[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func (i *Integration) failComposition(ctx context.Context, compositionId string, cause error) (map[string]any, error) {
+	// Cancellation may invalidate ctx while the model is in flight. The terminal
+	// record still needs a bounded write under the same actor.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	row, readErr := i.store().compositionById(cleanup, compositionId)
+	status := "failed"
+	if (row != nil && stringOf(row["status"]) == "cancelled") || errors.Is(cause, context.Canceled) {
+		status = "cancelled"
+	}
+	if readErr != nil {
+		i.log().Warn("compose: could not read terminal composition state", "error", readErr)
+	}
+	if err := i.store().updateCompositionState(cleanup, map[string]any{"compositionId": compositionId, "status": status, "failureReason": cause.Error()}); err != nil {
+		i.log().Error("compose: could not record composition failure", "compositionId", compositionId, "error", err)
+	}
+	return nil, cause
+}
+
+func (i *Integration) checkCompositionCancellation(ctx context.Context, compositionId string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	row, err := i.store().compositionById(ctx, compositionId)
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		return errors.New("compose: the composition is no longer readable")
+	}
+	if stringOf(row["status"]) == "cancelled" {
+		return errors.New("compose: the composition was cancelled")
+	}
+	return nil
+}
+
+func (i *Integration) executePipeline(ctx context.Context, userId, userEmail, compositionId, goalId, runId string, request executionRequest) (map[string]any, error) {
+	st := i.store()
+	a, resolved, started := request.Args, request.Resolved, request.Started
+	fail := func(reason string, cause error) (map[string]any, error) {
+		if cause == nil {
+			cause = errors.New("compose: " + reason)
+		} else {
+			cause = fmt.Errorf("compose: %s: %w", reason, cause)
+		}
+		return i.failComposition(ctx, compositionId, cause)
+	}
+	if err := i.checkCompositionCancellation(ctx, compositionId); err != nil {
+		return fail("materialization stopped", err)
+	}
+
+	existingFileId := stableMaterializeID("materialized-file", compositionId)
+	existingFile, err := st.libraryFileById(ctx, existingFileId)
+	if err != nil {
+		return fail("checking an earlier output failed", err)
+	}
+	if existingFile != nil {
+		// The filing row is written only after uploading all bytes. Its identity is
+		// stable even when the final composition update was interrupted.
+		if err := st.updateCompositionState(ctx, map[string]any{"compositionId": compositionId, "status": "ready", "outputFileId": existingFileId, "sha256": existingFile["sha256"]}); err != nil {
+			return nil, err
+		}
+		row, err := st.compositionById(ctx, compositionId)
+		if err != nil {
+			return nil, err
+		}
+		return compositionResult(compositionId, row), nil
 	}
 
 	// --- the template, resolved under the caller ---
@@ -231,6 +409,10 @@ func (i *Integration) materialize(ctx context.Context, userId, userEmail string,
 		return fail("this node has no composer configured and no draft was supplied, so there is nothing to render", nil)
 	}
 
+	if err := i.checkCompositionCancellation(ctx, compositionId); err != nil {
+		return fail("materialization stopped", err)
+	}
+
 	// The two data formats take their rows from the sources rather than
 	// from prose, and a composer that returned none is not an error --
 	// it means the draft's body was the interesting part and the rows
@@ -243,6 +425,10 @@ func (i *Integration) materialize(ctx context.Context, userId, userEmail string,
 		"compositionId": compositionId, "status": "rendering",
 	}); err != nil {
 		i.log().Warn("compose: could not mark the composition rendering", "error", err, "compositionId", compositionId)
+	}
+
+	if err := i.checkCompositionCancellation(ctx, compositionId); err != nil {
+		return fail("materialization stopped", err)
 	}
 
 	// --- steps 3 + 4: render and stamp ---
@@ -270,12 +456,23 @@ func (i *Integration) materialize(ctx context.Context, userId, userEmail string,
 		return fail("rendering the file failed: "+err.Error(), err)
 	}
 
+	if err := i.checkCompositionCancellation(ctx, compositionId); err != nil {
+		return fail("materialization stopped", err)
+	}
+
 	// --- step 5: file ---
-	fileId := id.NewShortId()
+	fileId := stableMaterializeID("materialized-file", compositionId)
 	fileName := outputFileName(a.Name, a.Format, a.DeployableKind)
 	mimeType := a.Format.MimeType()
 	if a.DeployableKind != "" {
 		mimeType = "application/zip"
+	}
+
+	if err := st.updateCompositionState(ctx, map[string]any{
+		"compositionId": compositionId, "modelsUsed": modelRows(models), "provenanceEmbedded": rendered.Embedded,
+		"provenanceNote": rendered.Note, "sha256": rendered.SHA256(),
+	}); err != nil {
+		return fail("recording output provenance failed", err)
 	}
 
 	blobUrl, storageErr := i.storeBytes(ctx, userId, fileId, fileName, mimeType, rendered.Bytes)
@@ -288,26 +485,34 @@ func (i *Integration) materialize(ctx context.Context, userId, userEmail string,
 		return fail(storageErr, nil)
 	}
 
+	if err := i.checkCompositionCancellation(ctx, compositionId); err != nil {
+		return fail("materialization stopped", err)
+	}
+	runContext, _ := common.RunFromContext(ctx)
 	if err := st.createLibraryFile(ctx, map[string]any{
-		"fileId":   fileId,
-		"name":     fileName,
-		"mimeType": mimeType,
-		"size":     len(rendered.Bytes),
-		"sha256":   rendered.SHA256(),
-		"blobUrl":  blobUrl,
-		"source":   "agent_generated",
-		"format":   libraryFormatFor(a.Format, a.DeployableKind),
-		"summary":  fileSummary(a, prov),
-		"folderId": a.FolderId,
+		"fileId":            fileId,
+		"name":              fileName,
+		"mimeType":          mimeType,
+		"size":              len(rendered.Bytes),
+		"sha256":            rendered.SHA256(),
+		"blobUrl":           blobUrl,
+		"source":            "agent_generated",
+		"producedByRunId":   runId,
+		"producedByStepKey": runContext.StepKey,
+		"format":            libraryFormatFor(a.Format, a.DeployableKind),
+		"summary":           fileSummary(a, prov),
+		"folderId":          a.FolderId,
 	}); err != nil {
 		return fail("the output could not be filed in your Library: "+err.Error(), err)
 	}
 	if err := st.setLibraryFileReady(ctx, fileId, fileSummary(a, prov)); err != nil {
-		// NOT FATAL. The bytes are stored and the row exists; a status
-		// that stayed at `stored` costs the file its "ready" mark and
-		// nothing else, and failing here would report a materialization
-		// that plainly worked as broken.
-		i.log().Warn("compose: could not mark the output file ready", "error", err, "fileId", fileId)
+		// The native work step completes only after the durable delivery
+		// receipt exists. A stored blob alone cannot mark the run successful.
+		return fail("the output file could not be marked ready", err)
+	}
+
+	if err := i.checkCompositionCancellation(ctx, compositionId); err != nil {
+		return fail("materialization stopped", err)
 	}
 
 	if err := st.updateCompositionState(ctx, map[string]any{
@@ -341,49 +546,6 @@ func (i *Integration) materialize(ctx context.Context, userId, userEmail string,
 		"modelsUsed":         modelRows(models),
 		"sourcesResolved":    len(resolved),
 	}, nil
-}
-
-// openGoal opens the v1:work:goal this materialization is, through the
-// work spine's own `createGoal` builtin.
-//
-// UNSTAMPED, so the caller's actor decides: the goal is the caller's own,
-// `createGoal` is `@sdk` rather than `@serverOnly`, and stamping internal
-// origin here would widen a call that needs no widening.
-//
-// It returns EMPTY IDS on every failure rather than an error, and the
-// caller carries on. A work spine that is absent, refusing or slow must
-// not be able to stop somebody making a file; what it costs is the Nexus
-// hand-off and replay, which the app says plainly rather than pretending.
-func (i *Integration) openGoal(ctx context.Context, compositionId string, a materializeArgs) (string, string) {
-	statement := strings.TrimSpace(a.Statement)
-	if statement == "" {
-		statement = "Materialize " + a.Name + " as " + string(a.Format)
-	}
-	args := map[string]any{
-		"statement":    statement,
-		"requestedVia": "materializer",
-		"input": map[string]any{
-			"compositionId": compositionId,
-			"format":        string(a.Format),
-			"templateId":    a.TemplateId,
-		},
-	}
-	if len(a.AccountIds) > 0 {
-		args["accountIds"] = a.AccountIds
-	}
-	if len(a.Ceilings) > 0 {
-		args["ceilings"] = a.Ceilings
-	}
-	rows, err := i.store().query(ctx, "builtin "+call("createGoal", args))
-	if err != nil {
-		i.log().Warn("compose: could not open the goal for a materialization; it will not appear in Nexus",
-			"error", err, "compositionId", compositionId)
-		return "", ""
-	}
-	if len(rows) == 0 {
-		return "", ""
-	}
-	return stringOf(rows[0]["goalId"]), stringOf(rows[0]["runId"])
 }
 
 // renderDeployable produces the package source zip (design D8).

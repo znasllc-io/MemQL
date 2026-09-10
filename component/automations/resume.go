@@ -62,11 +62,21 @@ var (
 // RunJournal is what resume needs from the rows: the run's envelope and
 // the completed steps' trimmed results.
 type RunJournal struct {
+	HeartbeatAt           time.Time
+	HasRunningStep        bool
 	GoalId                string
 	Status                string
+	OwnerUserId           string
+	Variables             map[string]any
+	Mode                  string
+	ReplayPolicy          string
+	ForkedFromRunId       string
+	ForkAtStepKey         string
 	WaitingOn             map[string]any
 	RunId                 string
 	AutomationName        string
+	TemplateVersion       string
+	TemplateConstructId   string
 	TemplateFingerprint   string
 	TriggeredBy           string
 	Input                 any
@@ -151,8 +161,15 @@ func runJournalFromRows(run map[string]any, steps []map[string]any) (*RunJournal
 		RunId:                 shortWorkId(stringField(run, "id")),
 		GoalId:                stringField(run, "goalId"),
 		Status:                stringField(run, "status"),
+		OwnerUserId:           stringField(run, "ownerUserId"),
+		Mode:                  stringField(run, "mode"),
+		ReplayPolicy:          stringField(run, "replayPolicy"),
+		ForkedFromRunId:       stringField(run, "forkedFromRunId"),
+		ForkAtStepKey:         stringField(run, "forkAtStepKey"),
 		AutomationName:        stringField(run, "automationName"),
 		TemplateFingerprint:   stringField(run, "templateFingerprint"),
+		TemplateConstructId:   stringField(run, "templateConstructId"),
+		TemplateVersion:       stringField(run, "templateVersion"),
 		TriggeredBy:           stringField(run, "triggeredBy"),
 		Input:                 run["input"],
 		InputFingerprint:      stringField(run, "inputFingerprint"),
@@ -161,7 +178,9 @@ func runJournalFromRows(run map[string]any, steps []map[string]any) (*RunJournal
 		InitialChainHead:      stringField(run, "initialChainHead"),
 		Steps:                 map[string]*MinimalStepResult{},
 	}
+	j.HeartbeatAt, _ = time.Parse(time.RFC3339Nano, stringField(run, "heartbeatAt"))
 	j.WaitingOn, _ = run["waitingOn"].(map[string]any)
+	j.Variables, _ = run["variables"].(map[string]any)
 	if ev, ok := run["triggerEvent"].(map[string]any); ok {
 		j.TriggerEvent = ev
 	}
@@ -176,6 +195,9 @@ func runJournalFromRows(run map[string]any, steps []map[string]any) (*RunJournal
 		key := stringField(row, "key")
 		if key == "" {
 			continue
+		}
+		if stringField(row, "status") == "running" {
+			j.HasRunningStep = true
 		}
 		switch stringField(row, "status") {
 		case "done":
@@ -326,6 +348,21 @@ func (e *Executor) ResumeFrom(
 	evaluator.SetCanonicalIdResolver(e.createCanonicalIdResolver())
 	evaluator.SetLogger(e.logger)
 	evaluator.SetCustom("timestamp", time.Now().UTC().Format(time.RFC3339))
+	// Resume restores the same declared arguments and validation used at
+	// first execution. Variables on a goal run are authoritative; ordinary
+	// scheduled/event runs take their saved event payload.
+	payload := journal.Variables
+	if payload == nil && journal.TriggerEvent != nil {
+		payload, _ = journal.TriggerEvent["payload"].(map[string]any)
+	}
+	boundArgs, _, bindErr := bindEventArgs(automation, &events.Event{Payload: payload})
+	if bindErr != nil {
+		return nil, fmt.Errorf("resume args contract violation: %w", bindErr)
+	}
+	if boundArgs != nil {
+		evaluator.SetCustom("args", boundArgs)
+		evaluator.SetCustom("argsDeclared", declaredArgsSet(automation))
+	}
 
 	// Restore input from the run row
 	if journal.Input != nil {
@@ -381,7 +418,7 @@ func (e *Executor) ResumeFrom(
 	// Include completed steps from the journal in StepOrder for chain verification
 	// Only copy steps BEFORE the resume point to avoid duplicates
 	var chainHead string
-	if e.chainTrackingEnabled {
+	{
 		// Copy only steps before resumeIndex (not including the failed step)
 		// The failed step will be added when it executes
 		if len(journal.StepOrder) > 0 && resumeIndex > 0 {
@@ -396,6 +433,8 @@ func (e *Executor) ResumeFrom(
 		} else {
 			exec.StepOrder = make([]string, 0, len(automation.Steps))
 		}
+	}
+	if e.chainTrackingEnabled {
 		exec.InitialChainHead = journal.InitialChainHead
 		chainHead = journal.ChainHead // Resume from the run row's chain position
 		if chainHead == "" {
@@ -434,10 +473,8 @@ func (e *Executor) ResumeFrom(
 	for i := resumeIndex; i < len(automation.Steps); i++ {
 		step := automation.Steps[i]
 
-		// Track step order for chain verification
-		if e.chainTrackingEnabled {
-			exec.StepOrder = append(exec.StepOrder, step.ID)
-		}
+		// Replay/fork needs the executed order even without chain hashing.
+		exec.StepOrder = append(exec.StepOrder, step.ID)
 
 		// Check for cancellation
 		select {
@@ -495,7 +532,7 @@ func (e *Executor) ResumeFrom(
 			attemptNo = 2
 		}
 		writer.stepRunning(ctx, exec, step, i, attemptNo)
-		result, err := e.executeStep(ctx, step, stepCtx)
+		result, err := e.executeJournaledStep(ctx, writer, step, stepCtx)
 		if result != nil {
 			// Compute chain linkage if tracking enabled
 			if e.chainTrackingEnabled {
@@ -536,7 +573,7 @@ func (e *Executor) ResumeFrom(
 						)
 					}
 					writer.stepRunning(ctx, exec, step, i, attemptNo+attempt)
-					result, err = e.executeStep(ctx, step, stepCtx)
+					result, err = e.executeJournaledStep(ctx, writer, step, stepCtx)
 					if err == nil {
 						if e.chainTrackingEnabled && result != nil {
 							result.PreviousChainHead = chainHead
@@ -672,7 +709,10 @@ func ToMinimalStepResults(steps map[string]*StepResult) map[string]*MinimalStepR
 		// For queries with many nodes, we omit the result to save space
 		if result.Result != nil {
 			if shouldIncludeResult(result) {
-				minResult.Result = result.Result
+				// ExecuteResult holds flat builtin/logic output in a private
+				// field. Serializing its wrapper discards the returned value,
+				// so rehydrate the same value downstream evaluation sees.
+				minResult.Result = UnwrapStepResult(result.Result)
 			}
 		}
 

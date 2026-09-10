@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/znasllc-io/memql/component/auth"
 	"github.com/znasllc-io/memql/component/memql"
@@ -75,10 +76,11 @@ func TestCreateGoalOpensTheGoalAndItsFirstRun(t *testing.T) {
 		t.Errorf("the reply names {%v, %v} but the rows written were {%v, %v}",
 			reply["goalId"], reply["runId"], goalArgs["goalId"], runArgs["runId"])
 	}
-	// No compiler is bound in this harness, so the reply must SAY so rather
-	// than implying work started.
-	if reply["compileDispatched"] != false {
-		t.Errorf("compileDispatched = %v with no compile surface bound; a caller must be able to tell", reply["compileDispatched"])
+	// Event-forward is enabled and no local compiler is bound: the run graph
+	// event IS the handoff, so compileDispatched must be true rather than
+	// implying the run is stranded until the abandoned sweep.
+	if reply["compileDispatched"] != true {
+		t.Errorf("compileDispatched = %v with event-forward enabled; want true", reply["compileDispatched"])
 	}
 	if !strings.HasPrefix(reply["goalId"].(string), goalConcept+":") {
 		t.Errorf("goal id %q is not canonical", reply["goalId"])
@@ -110,11 +112,11 @@ func TestCreateGoalRefusesAnUnknownRequestedVia(t *testing.T) {
 // can reach a model on a goal's behalf, so a scope applied later leaves
 // exactly the runaway-compile calls uncounted.
 func TestCreateGoalDispatchesCompileWithTheBudgetScope(t *testing.T) {
-	i, _ := newTestIntegration(t)
+	_, i, _, _ := compileDB(t)
 	rec := &recordingCompiler{done: make(chan CompileRequest, 1)}
 	i.SetCompiler(rec)
 
-	nodes, err := i.handleCreateGoal(callerContext("u-alice"), map[string]any{"statement": "do it"}, 0)
+	nodes, err := i.handleCreateGoal(actorCtx("u-alice"), map[string]any{"statement": "do it"}, 0)
 	if err != nil {
 		t.Fatalf("createGoal: %v", err)
 	}
@@ -126,10 +128,10 @@ func TestCreateGoalDispatchesCompileWithTheBudgetScope(t *testing.T) {
 	if req.GoalId != reply["goalId"] || req.RunId != reply["runId"] {
 		t.Errorf("compile was handed {%s, %s}, the reply names {%v, %v}", req.GoalId, req.RunId, reply["goalId"], reply["runId"])
 	}
-	if req.OwnerUserId != "u-alice" {
+	if req.OwnerUserId != canonicalUser("u-alice") {
 		t.Errorf("compile was handed owner %q", req.OwnerUserId)
 	}
-	if rec.actor != "u-alice" {
+	if rec.actor != canonicalUser("u-alice") {
 		t.Errorf("compile ran under actor %q, want the goal owner's borrowed authority -- an owned read under any other actor answers zero rows", rec.actor)
 	}
 	// The scope assertion is in two halves, because the guard reads its
@@ -245,6 +247,42 @@ func TestCancelGoalRefusesAGoalTheCallerCannotRead(t *testing.T) {
 	}
 	if len(eng.callsTo("updateWorkRun")) != 0 {
 		t.Error("cancelGoal wrote to a run despite failing to read the goal")
+	}
+}
+
+// TestCreateGoalRefusesWithNoCompileSurface is the loud refuse: accepting a
+// goal on a node that can neither compile nor forward leaves a run in
+// `compiling` that the abandoned sweep later closes with a false "node lost"
+// sentence. Prefer a clear error at the door.
+func TestCreateGoalRefusesWithNoCompileSurface(t *testing.T) {
+	eng := newRecordingEngine()
+	i := New(eng, testLogger())
+	i.SetNow(func() time.Time { return testNow })
+	_, err := i.handleCreateGoal(callerContext("u-alice"), map[string]any{
+		"statement": "reconcile the September invoices",
+	}, 0)
+	if err == nil {
+		t.Fatal("createGoal accepted with neither a local compiler nor event forward")
+	}
+	if !strings.Contains(err.Error(), "no compile surface") {
+		t.Errorf("error = %v, want it to name no compile surface", err)
+	}
+	if got := eng.summary(); got != "(none)" {
+		t.Errorf("rows were written before the refuse: %s", got)
+	}
+}
+
+// TestCreateGoalEventForwardReportsDispatched pins the bff posture: no local
+// compiler, event forward enabled, reply says compile will run.
+func TestCreateGoalEventForwardReportsDispatched(t *testing.T) {
+	i, _ := newTestIntegration(t)
+	nodes, err := i.handleCreateGoal(callerContext("u-alice"), map[string]any{"statement": "do it"}, 0)
+	if err != nil {
+		t.Fatalf("createGoal: %v", err)
+	}
+	reply := decodeReply(t, nodes)
+	if reply["compileDispatched"] != true {
+		t.Fatalf("compileDispatched = %v, want true on the event-forward path", reply["compileDispatched"])
 	}
 }
 

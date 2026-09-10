@@ -225,11 +225,18 @@ func (s *modelSeam) serve(
 	req common.ModelRequest,
 	promptRef string,
 	live func(context.Context) (modelCallOutcome, error),
+	observers ...func(JournaledCall),
 ) (any, error) {
 	rc, inRun := common.RunFromContext(ctx)
 	if s == nil || !inRun {
 		out, err := live(ctx)
 		return out.Value, err
+	}
+	record := func(call JournaledCall) {
+		s.record(ctx, rc, call)
+		for _, observer := range observers {
+			observer(call)
+		}
 	}
 
 	hash := req.Hash()
@@ -262,7 +269,7 @@ func (s *modelSeam) serve(
 		// The replay run gets a row of its OWN, marked `journal`. Without it
 		// a replayed run's journal is empty and the two runs cannot be
 		// compared -- which is most of what a replay is for.
-		s.record(ctx, rc, JournaledCall{
+		record(JournaledCall{
 			RunId:         rc.RunId,
 			StepKey:       rc.StepKey,
 			RequestHash:   hash,
@@ -303,17 +310,20 @@ func (s *modelSeam) serve(
 		LatencyMs:    int(time.Since(started).Milliseconds()),
 		Served:       served,
 	}
+	if out.Usage.Model != "" {
+		call.Model = out.Usage.Model
+	}
 	if err != nil {
 		// A FAILED CALL IS JOURNALED TOO. A replay whose journal skips the
 		// failures reproduces a run that never happened, and "the third
 		// attempt is where it broke" is exactly the question a journal is
 		// read to answer.
 		call.Error = err.Error()
-		s.record(ctx, rc, call)
+		record(call)
 		return nil, err
 	}
 	call.Response = responseOf(out.Value)
-	s.record(ctx, rc, call)
+	record(call)
 	return out.Value, nil
 }
 
@@ -341,8 +351,9 @@ func (s *modelSeam) serveText(
 	req common.ModelRequest,
 	promptRef string,
 	live func(context.Context) (modelCallOutcome, error),
+	observers ...func(JournaledCall),
 ) (string, error) {
-	v, err := s.serve(ctx, req, promptRef, live)
+	v, err := s.serve(ctx, req, promptRef, live, observers...)
 	if err != nil {
 		return "", err
 	}

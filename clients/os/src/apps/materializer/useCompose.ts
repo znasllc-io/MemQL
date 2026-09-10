@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
-import { getRowByConceptAndId, type Row } from "@znasllc-io/memql-sdk-core/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Concepts, getRowByConceptAndId, rowString, type Row } from "@znasllc-io/memql-sdk-core/client";
 
 import { useOsConnection } from "../../live/connection";
 import { useLiveCollection, type LiveCollectionHandle } from "../../live/useLiveCollection";
+import { compositionRunSource, unfinishedCompositionRunIds } from "./runState";
 import { COMPOSITION_CONCEPT, RECIPE_CONCEPT, TEMPLATE_CONCEPT } from "./concepts";
 
 // The Materializer's feeds, and the one read that is deliberately not a
 // feed.
 //
 // ===========================================================================
-// THREE FEEDS AT THE APP ROOT, ONE PER CONCEPT
+// FEEDS AT THE APP ROOT, ONE PER CONCEPT
 // ===========================================================================
 // Compositions, templates and recipes are retained ONCE, at the app root,
 // and passed down. `useLiveCollection` constructs a collection per
@@ -46,7 +47,7 @@ import { COMPOSITION_CONCEPT, RECIPE_CONCEPT, TEMPLATE_CONCEPT } from "./concept
 
 /** Every composition this caller can read, newest first. */
 export function useCompositions(): LiveCollectionHandle<Row> {
-  return useLiveCollection<Row>("compose:compositions", (connection) => ({
+  const compositions = useLiveCollection<Row>("compose:compositions", (connection) => ({
     concept: COMPOSITION_CONCEPT,
     seed: async (_cursor, signal) => {
       const result = await connection.query.compositions({}, { signal });
@@ -58,6 +59,30 @@ export function useCompositions(): LiveCollectionHandle<Row> {
     },
     paged: false,
   }));
+  // Read the exact bound runs, including old ones outside the newest run page.
+  // They remain retained while these compositions are unfinished; neither the
+  // worker process nor Nexus needs to remain open for an abandonment to arrive.
+  const runIds = unfinishedCompositionRunIds(compositions.snapshot.rows);
+  const runKey = JSON.stringify(runIds);
+  const runs = useLiveCollection<Row>(runIds.length ? `compose:runs:${runKey}` : null, (connection) => ({
+    concept: Concepts.WORK_RUN,
+    seed: async (_cursor, signal) => {
+      const results = await Promise.all(runIds.map((runId) => connection.query.workRunForOwner({ runId }, { signal })));
+      return { rows: results.flatMap((result) => result.rows()), nextCursor: "" };
+    },
+    inScope: (row) => runIds.includes(rowString(row, "id")),
+    reread: async (runId, signal) => {
+      if (!runIds.includes(runId)) return null;
+      const result = await connection.query.workRunForOwner({ runId }, { signal });
+      return result.rows()[0] ?? null;
+    },
+    paged: false,
+  }));
+  const source = useMemo(() => compositions.source && runs.source
+    ? compositionRunSource(compositions.source, runs.source) : compositions.source,
+  [compositions.source, runs.source]);
+  return { source, snapshot: source?.snapshot ?? compositions.snapshot,
+    reseed: () => { compositions.reseed(); runs.reseed(); } };
 }
 
 /** Every template binding this caller owns. */

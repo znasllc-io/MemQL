@@ -10,6 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microcosm-cc/bluemonday"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer/html"
 	"github.com/znasllc-io/memql/core/num"
 )
 
@@ -223,9 +227,7 @@ var htmlDoc = template.Must(template.New("composition").Parse(`<!doctype html>
 {{- if .Title}}
 <h1>{{.Title}}</h1>
 {{- end}}
-{{- range .Paragraphs}}
-<p>{{.}}</p>
-{{- end}}
+{{.Body}}
 </body>
 </html>
 `))
@@ -233,21 +235,41 @@ var htmlDoc = template.Must(template.New("composition").Parse(`<!doctype html>
 type htmlMeta struct{ Name, Content string }
 
 type htmlPage struct {
-	Title      string
-	Meta       []htmlMeta
-	Paragraphs []string
+	Title string
+	Meta  []htmlMeta
+	Body  template.HTML
 }
 
+// Composed drafts may contain Markdown or HTML fragments. Raw HTML is accepted
+// by the Markdown renderer only because its output always passes through the
+// allowlist below before entering the page. No body attributes, active elements,
+// or external resources survive; title and provenance remain ordinary strings
+// escaped in their own contexts by html/template.
+var htmlMarkdown = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithRendererOptions(html.WithUnsafe()),
+)
+
+var htmlBodyPolicy = func() *bluemonday.Policy {
+	p := bluemonday.NewPolicy()
+	p.AllowElements(
+		"h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "hr",
+		"blockquote", "pre", "code", "strong", "em", "b", "i", "s", "del",
+		"ul", "ol", "li", "dl", "dt", "dd",
+		"table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td",
+		"div", "span", "a", "sub", "sup",
+	)
+	return p
+}()
+
 func renderHTML(d Draft, p Provenance) ([]byte, error) {
+	var body bytes.Buffer
+	if err := htmlMarkdown.Convert([]byte(d.Body), &body); err != nil {
+		return nil, fmt.Errorf("compose: rendering html body: %w", err)
+	}
 	page := htmlPage{
 		Title: firstNonEmpty(d.Title, p.Title),
-		// The body is Markdown source and is emitted as paragraphs. THIS
-		// IS NOT A MARKDOWN RENDERER and does not pretend to be one: a
-		// half-implemented one that handles bold and not tables produces
-		// documents wrong in ways nobody predicts, and the honest small
-		// thing is paragraphs. A real renderer is a dependency decision,
-		// and it is not this epic's.
-		Paragraphs: splitParagraphs(d.Body),
+		Body:  template.HTML(htmlBodyPolicy.SanitizeBytes(body.Bytes())),
 	}
 	for _, m := range []htmlMeta{
 		{"memql:statement", p.Statement},

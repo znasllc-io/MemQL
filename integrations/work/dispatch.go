@@ -202,6 +202,12 @@ func (i *Integration) HandleRunEvent(ev events.Event) {
 	if !ok {
 		return
 	}
+	if req.Status == runStatusCompiling {
+		if i.compilerRef() != nil {
+			go i.dispatchCompile(context.Background(), CompileRequest{RunId: req.RunId, OwnerUserId: req.OwnerUserId})
+		}
+		return
+	}
 	// `running` is the ONLY dispatchable status, and the list is not an
 	// oversight:
 	//   compiling -- no template yet; dispatching would run nothing
@@ -376,6 +382,13 @@ func (i *Integration) FailRun(ctx context.Context, ownerUserId, runId, code, mes
 
 // DirectGoal is a goal whose template is already known.
 type DirectGoal struct {
+	// AccountIds and Ceilings apply the same scope and limits as a compiled goal.
+	AccountIds []string
+	Ceilings   map[string]any
+	// BeforeRun binds a caller-owned record to these identities before the run's
+	// running event makes it eligible for execution on another replica.
+	BeforeRun func(context.Context, string, string) error
+
 	OwnerUserId string
 	// Statement is the goal in the requester's words -- the prompt, or what
 	// the deliverable is. It is what a person sees in Nexus.
@@ -442,9 +455,28 @@ func (i *Integration) OpenDirectGoal(ctx context.Context, g DirectGoal) (goalId,
 		Origin:       "user",
 		Input:        g.Input,
 		RequestedVia: g.RequestedVia,
+		AccountIds:   g.AccountIds,
+		Ceilings:     g.Ceilings,
 	}); err != nil {
 		return "", "", err
 	}
+	closeUnstarted := func(cause error) (string, string, error) {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(scoped), 5*time.Second)
+		defer cancel()
+		if closeErr := st.writeInternal(cleanup, "mutation "+call("updateWorkGoal", map[string]any{
+			"goalId": goalId,
+			"status": "closed", "closedAt": rfc(i.clock()), "closeReason": "The run could not start: " + cause.Error(),
+		})); closeErr != nil {
+			i.log().Error("work: could not close unstarted direct goal", "goal", goalId, "error", closeErr)
+		}
+		return goalId, runId, cause
+	}
+	if g.BeforeRun != nil {
+		if err := g.BeforeRun(scoped, goalId, runId); err != nil {
+			return closeUnstarted(err)
+		}
+	}
+
 	if err := st.createRunRow(scoped, runSeed{
 		RunId:          runId,
 		GoalId:         goalId,
@@ -458,7 +490,7 @@ func (i *Integration) OpenDirectGoal(ctx context.Context, g DirectGoal) (goalId,
 		StartedAt:      now,
 		OwnerUserId:    owner,
 	}); err != nil {
-		return "", "", err
+		return closeUnstarted(err)
 	}
 
 	// NOTHING IS DISPATCHED FROM HERE, and that is the design rather than an

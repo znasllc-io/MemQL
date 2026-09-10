@@ -21,11 +21,11 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/znasllc-io/memql/component/automations"
 	"github.com/znasllc-io/memql/component/events"
+	"github.com/znasllc-io/memql/component/memql"
 	workspine "github.com/znasllc-io/memql/integrations/work"
 )
 
@@ -89,7 +89,7 @@ func (a *App) wireWorkRunDispatcher() {
 
 	d := &workRunDispatcher{app: a, exec: exec}
 	work.SetDispatcher(d)
-	work.SetRunClaimer(a.clusterGuard)
+	work.SetRunClaimer(a.clusterGuard.StrictClaimer())
 
 	// created AND updated. A run is normally created in `compiling` and
 	// UPDATED to `running` by compile, so the update carries the dispatch --
@@ -135,11 +135,27 @@ func (d *workRunDispatcher) Dispatch(ctx context.Context, req workspine.Dispatch
 	// A delayed running event may now name a terminal run. Ordinary
 	// scheduler journals must never be adopted as compiled work either:
 	// that duplicates their effects and discards their original event/trust.
-	if !req.CanDispatchStoredRun(journal.GoalId, journal.Status, journal.WaitingOn, time.Now()) {
+	if !workRunCanStart(req, journal, time.Now()) {
+		return
+	}
+	// Event payloads may be stale or contain only an id. Use the current
+	// row for ownership, variables, mode and goal on the execution replica.
+	req.OwnerUserId, req.GoalId = journal.OwnerUserId, journal.GoalId
+	var source *automations.RunJournal
+	if journal.ForkedFromRunId != "" {
+		source, err = automations.LoadRunJournal(ctx, d.app.engine, journal.ForkedFromRunId)
+		if err != nil {
+			d.failRun(ctx, req, "source_journal_unavailable", err.Error())
+			return
+		}
+	}
+	ctx, err = workExecutionContext(ctx, journal, source)
+	if err != nil {
+		d.failRun(ctx, req, "source_journal_refused", err.Error())
 		return
 	}
 
-	auto, err := d.resolve(journal.AutomationName)
+	template, err := loadWorkTemplate(ctx, d.app.engine, d.app.automationLoader, journal)
 	if err != nil {
 		// A run naming an automation this node cannot resolve is a DEAD run,
 		// not a transient one: retrying resolves the same nothing. It is
@@ -150,10 +166,21 @@ func (d *workRunDispatcher) Dispatch(ctx context.Context, req workspine.Dispatch
 		return
 	}
 
+	auto := template.automation
+	executor := d.exec
+	if template.registry != nil {
+		ctx = memql.ContextWithAuthoredExecution(ctx, journal.OwnerUserId, template.registry)
+		ctx = context.WithValue(ctx, workTemplateStackKey{}, []string{auto.Name})
+		trigger := &workTemplateTrigger{app: d.app, template: template}
+		executor = trigger.executor()
+		executor.SetSymptomClassifier(&workSymptomClassifier{engine: d.app.engine})
+		defer executor.Close()
+	}
+
 	if journal.FailedStep == "" && len(journal.Steps) == 0 {
 		// A run without step intents or receipts starts at the first step.
 		// Ordinary recovery restores its saved trigger; goals bind variables.
-		exec, execErr := d.exec.ExecuteAdopted(ctx, auto, automations.RunAdoption{
+		exec, execErr := executor.ExecuteAdopted(ctx, auto, automations.RunAdoption{
 			RunId:       req.RunId,
 			TriggeredBy: "compiled",
 			Variables:   d.variables(req, journal),
@@ -176,33 +203,19 @@ func (d *workRunDispatcher) Dispatch(ctx context.Context, req workspine.Dispatch
 	// step's own idempotency key (runId:key:attempt) is what stops a
 	// duplicate effect. Where a step has no idempotent form, a repeat is
 	// possible and is the accepted cost of resuming at all.
-	exec, execErr := d.exec.ResumeFrom(ctx, journal, auto, &automations.ResumeOptions{
+	exec, execErr := executor.ResumeFrom(ctx, journal, auto, &automations.ResumeOptions{
 		AllowSideEffects: true,
 	})
 	d.report(ctx, req, exec, execErr)
-}
-
-// resolve turns the run's automation name into a runnable automation, through
-// the SAME loader and the same refusal the MCP manual path uses -- so a
-// @disabled automation is not runnable here either.
-func (d *workRunDispatcher) resolve(name string) (*automations.Automation, error) {
-	auto, err := d.app.automationLoader.LoadByName(name)
-	if err != nil {
-		return nil, fmt.Errorf("automation %q: %w", name, err)
-	}
-	if auto == nil {
-		return nil, fmt.Errorf("automation %q not found", name)
-	}
-	if err := automationRunRefusal(auto); err != nil {
-		return nil, err
-	}
-	return auto, nil
 }
 
 // variables prefers the run row's own, falling back to what the event
 // carried. The row is the record; the event is a copy of it that was already
 // stale when it arrived.
 func (d *workRunDispatcher) variables(req workspine.DispatchRequest, journal *automations.RunJournal) map[string]any {
+	if journal.Variables != nil {
+		return journal.Variables
+	}
 	if m, ok := journal.Input.(map[string]any); ok && len(m) > 0 {
 		return m
 	}

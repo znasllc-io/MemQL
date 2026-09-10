@@ -1,6 +1,6 @@
 // Package compose is the Go half of the Materializer (design record
 // docs/superpowers/specs/2026-09-05-compose-materializer-design.md, epic
-// memql#4977). It backs the five builtins declared in
+// memql#4977). It backs the builtins declared in
 // dsl/compose/builtins.memql:
 //
 //	integration.compose.materialize         -- compose, render, stamp, file
@@ -33,6 +33,7 @@ import (
 	pure "github.com/znasllc-io/memql/component/compose"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/component/memql"
+	work "github.com/znasllc-io/memql/integrations/work"
 )
 
 // integrationName is the plug-in name and the middle segment of every
@@ -64,20 +65,10 @@ type ConceptSource interface {
 	ConceptDefinitions() []*memorynodes.Concept
 }
 
-// THERE IS NO GoalOpener SEAM, and its absence is a decision. A
-// materialization IS a goal (design D6), and the obvious shape is a Go
-// interface onto integrations/work -- but `createGoal` exists there as a
-// capability HANDLER rather than as an exported method, so taking that
-// shape would mean adding one, coupling two integrations in Go for
-// something the DSL already exposes, and giving `requestedVia` a second
-// spelling.
-//
-// So `openGoal` in materialize.go calls the `createGoal` BUILTIN over
-// this package's own engine handle, unstamped, under the caller's actor
-// -- the same path a DSL author would take. A failure there is logged
-// and never fatal: the file is the deliverable and the tracking is
-// around it, so the composition carries an empty goalId, which the app
-// renders as "not tracked" rather than as a broken link.
+// GoalOpener starts the known Materializer template on the work dispatcher.
+type GoalOpener interface {
+	OpenDirectGoal(context.Context, work.DirectGoal) (string, string, error)
+}
 
 // Composer produces the draft. It is the ONE step that reaches a model,
 // and the only one.
@@ -123,8 +114,9 @@ type Integration struct {
 	bucket   string
 	instance string
 
-	concepts ConceptSource
-	composer Composer
+	concepts   ConceptSource
+	composer   Composer
+	goalOpener GoalOpener
 
 	now func() time.Time
 	mu  sync.RWMutex
@@ -174,6 +166,19 @@ func (i *Integration) SetComposer(c Composer) {
 	i.composer = c
 }
 
+// SetGoalOpener wires the existing work runtime that owns materialization runs.
+func (i *Integration) SetGoalOpener(opener GoalOpener) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.goalOpener = opener
+}
+
+func (i *Integration) goalOpenerRef() GoalOpener {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.goalOpener
+}
+
 // SetNow injects a clock. Tests only.
 func (i *Integration) SetNow(f func() time.Time) {
 	if f != nil {
@@ -215,7 +220,6 @@ func (i *Integration) conceptsRef() ConceptSource {
 	return i.concepts
 }
 
-
 func (i *Integration) composerRef() Composer {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -233,9 +237,10 @@ func (i *Integration) IntegrationName() string { return integrationName }
 // registry lacks is a BOOT failure on every node type.
 func (i *Integration) Capabilities() []memql.IntegrationCapability {
 	return []memql.IntegrationCapability{
+		{Name: "execute", Description: "Execute the persisted materialization belonging to the current work run.", Handler: i.handleExecute, ArgsSchema: map[string]string{"compositionId": "string (required) -- the composition this run owns"}},
 		{
 			Name:        "materialize",
-			Description: "Compose the named sources into a file of the chosen format and file it in the Library. Opens a v1:compose:composition, a v1:work:goal with requestedVia=\"materializer\" and that goal's first run, then runs gather / compose / render / stamp / file. Returns {compositionId, goalId, runId, outputFileId, format, provenanceEmbedded}.",
+			Description: "Compose the named sources into a file of the chosen format and file it in the Library. Opens a v1:compose:composition, a v1:work:goal with requestedVia=\"materializer\" and that goal's first run, then dispatches the known materializeFile template. Returns {compositionId, goalId, runId, format}; the composition reports progress and its outputFileId.",
 			Handler:     i.handleMaterialize,
 			ArgsSchema: map[string]string{
 				"name":           "string (required) -- what to call it, and the filename stem",

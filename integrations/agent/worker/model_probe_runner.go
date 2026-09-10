@@ -118,16 +118,6 @@ type ModelProbeForwarder interface {
 	) (ModelProbeOutcome, error)
 }
 
-// ModelProbeOutcome is the terminal answer of a forwarded probe.
-type ModelProbeOutcome struct {
-	Model        string
-	Ok           bool
-	SuiteVersion string
-	ErrorCode    string
-	ErrorMessage string
-	Figures      probe.Figures
-}
-
 // ModelProbeRunner drives this replica's model probes.
 type ModelProbeRunner struct {
 	dispatcher *Dispatcher

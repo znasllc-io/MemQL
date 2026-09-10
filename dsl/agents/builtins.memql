@@ -73,6 +73,7 @@ builtin runAgentTurn {
   agentId  string!
   prompt   string!
   scopeId  string
+  requireFile bool
 }
 
 // ---- builtin requestUserFeedback -------------------------------------

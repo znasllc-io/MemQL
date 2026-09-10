@@ -4,12 +4,38 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/znasllc-io/memql/component/automations"
+	"github.com/znasllc-io/memql/component/memql"
 )
+
+type wrappedBranchOutput struct{}
+
+func (wrappedBranchOutput) Execute(_ context.Context, step *automations.Step, _ *Context) (*automations.StepResult, error) {
+	return &automations.StepResult{StepId: step.ID, Status: "success", Result: memql.NewResultWithOutput(map[string]any{"reply": "section content"})}, nil
+}
+
+func TestParallelExecutor_ReturnsBranchContentToFollowingSteps(t *testing.T) {
+	for _, wait := range []string{"all", "any"} {
+		t.Run(wait, func(t *testing.T) {
+			reg := NewRegistry()
+			reg.Register(automations.StepTypeFunction, wrappedBranchOutput{})
+			step := &automations.Step{ID: "sections", Type: automations.StepTypeParallel, Parallel: &automations.ParallelStepConfig{Wait: wait, Branches: []*automations.Step{{ID: "one", Type: automations.StepTypeFunction}}}}
+			result, err := (&ParallelExecutor{Registry: reg}).Execute(context.Background(), step, &Context{Evaluator: automations.NewEvaluator()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []any{map[string]any{"reply": "section content"}}
+			if !reflect.DeepEqual(result.Result, want) {
+				t.Fatalf("following step receives opaque engine envelopes instead of section content: %#v", result.Result)
+			}
+		})
+	}
+}
 
 // memql#1368 -- execution-level coverage for the authored `parallel` step:
 // a struct-form DSL source with a parallel layer is compiled through the

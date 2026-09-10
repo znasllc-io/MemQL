@@ -262,14 +262,26 @@ func (a *App) cluster() {
 		// replay) collapses at that claim, so this can only ever ADD a missed
 		// delivery, never double-execute.
 		//
-		// The consumer is the AGENT node, not the planner: design-record
-		// section H puts step execution there, and it is the run dispatcher
-		// that consumes these events.
-		runsSteps := nodeIdentity.Type == node.NodeTypeAgent
-		if rd := node.NewRunDelivery(nodeIdentity, substrate, a.eventBus, runsSteps, a.Logger); rd != nil {
+		// Consumers are the AGENT (step execution) AND the PLANNER (compile).
+		// Design-record section H splits those two; both listen to the same
+		// run graph events. Without the planner on this durable leg, a compile
+		// handoff opened on the bff that lost its mesh fast-path would sit in
+		// `compiling` until the abandoned sweep closed it.
+		consumesRunLifecycle := nodeIdentity.Type == node.NodeTypeAgent ||
+			nodeIdentity.Type == node.NodeTypePlanner
+		if rd := node.NewRunDelivery(nodeIdentity, substrate, a.eventBus, consumesRunLifecycle, a.Logger); rd != nil {
 			a.Dependencies = append(a.Dependencies, rd)
 			a.Logger.Info("run-lifecycle path routed through durable delivery substrate",
-				"node_id", nodeIdentity.ID, "node_type", string(nodeIdentity.Type), "runs_steps", runsSteps)
+				"node_id", nodeIdentity.ID, "node_type", string(nodeIdentity.Type),
+				"consumes_run_lifecycle", consumesRunLifecycle)
+		}
+		// BFF (and any mesh node that accepts createGoal without a local
+		// Compiler) hands compile to the cluster through the run graph event.
+		// Enable that forward here, once the durable path exists: without it
+		// createGoal refuses with "no compile surface" rather than accepting
+		// a run nobody will compile.
+		if work := a.lookupWorkIntegration(); work != nil {
+			work.EnableCompileViaEvent()
 		}
 	}
 

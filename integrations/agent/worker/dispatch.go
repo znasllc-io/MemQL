@@ -1,4 +1,4 @@
-//go:build agent
+//go:build agent || planner
 
 // Package worker (agent-side) bridges the agent's tool loop to the
 // worker subsystem. It owns:
@@ -10,9 +10,8 @@
 //   - the per-call telemetry write to v1:worker:invocation,
 //   - the audit emission for denied / scope-elevation events.
 //
-// All worker integration code lives under //go:build agent so the
-// other node types (bff, voice, cognition, planner) compile without
-// the dependency.
+// The tool integration and WorkerService remain agent-only. The transport and
+// routing helpers also compile on planner nodes for outbound local inference.
 package worker
 
 import (

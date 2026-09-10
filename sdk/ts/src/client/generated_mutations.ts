@@ -2337,6 +2337,8 @@ QueryClient.prototype.createIdentityProvider = function (this: QueryClient, args
 /** Create a Library file row for bytes already written to blob storage. Owner-acted: ownerUserId is stamped from actor.userId, so a file can only ever be created for the person the call runs as. format is the caller's MIME-derived classification, defaulting to 'other' (the metadata-only card) for a type nothing recognises. status starts at 'stored' -- the bytes are durable and nothing has looked at them yet; the analysis pass moves it on through setLibraryFileStatus. That status is STAMPED rather than accepted is load-bearing beyond this mutation: indexFileOnCreate filters on status=="stored" so it promotes exactly once, because graph.node.created fires on every write and a second promotion would wipe the artifact's labels -- a caller-supplied status would let a later write re-enter that state. indexFileOnCreate folds the new row into the Library index automatically. */
 // Bound concept: v1:library:file (machine-readable: BoundConcepts["createLibraryFile"] in generated_concepts.ts).
 export interface CreateLibraryFileArgs {
+  producedByRunId?: string;
+  producedByStepKey?: string;
   fileId: string;
   name: string;
   mimeType: string;
@@ -2356,6 +2358,8 @@ export interface CreateLibraryFileArgs {
 
 export function buildCreateLibraryFile(args: CreateLibraryFileArgs): string {
   const parts: string[] = [];
+  if (args.producedByRunId !== undefined) parts.push("producedByRunId: " + renderMemQLValue(args.producedByRunId));
+  if (args.producedByStepKey !== undefined) parts.push("producedByStepKey: " + renderMemQLValue(args.producedByStepKey));
   parts.push("fileId: " + renderMemQLValue(args.fileId));
   parts.push("name: " + renderMemQLValue(args.name));
   parts.push("mimeType: " + renderMemQLValue(args.mimeType));

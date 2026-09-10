@@ -18,14 +18,9 @@
 // sources into their own Library, and the row tier is what decides which
 // those are.
 
-/// Materialize: compose the named sources into a file of the chosen format and file it in the
-/// Library. Opens a v1:compose:composition, a v1:work:goal with requestedVia="materializer" and
-/// that goal's first run, then dispatches the five-step template -- gather, compose, render, stamp,
-/// file. Returns {compositionId, goalId, runId}.
-///
-/// ONE OF THOSE FIVE STEPS REACHES A MODEL, and on a catalog exact match not even that: a re-run
-/// with the same template and the same source SHAPE is a GoalSignature hit, which is the whole
-/// claim the work spine makes and the reason a second quarter's report costs nothing.
+/// Start a Materializer work run using the known materializeFile template. The composition and
+/// immutable source snapshot are saved before dispatch. Returns {compositionId, goalId, runId};
+/// progress and the eventual outputFileId arrive on the composition row.
 @sdk
 @executor("integration.compose.materialize")
 builtin composeMaterialize {
@@ -33,7 +28,7 @@ builtin composeMaterialize {
   statement      string    @description("What you asked for, in your own words. Becomes the goal's statement, so it is what Nexus shows and what the catalog keys on.")
   format         string!   @description("markdown, html, txt, csv, json, docx or pdf. Audio and video are named in the brief and deliberately unoffered -- audio wants a compose-then-speak pipeline with a cost ceiling of its own, video a generation provider this cluster has none of.")
   sources        []object  @description("What to compose from: a list of {kind, ref, label} where kind is concept_row | library_file | query. A `query` source is a SELECTION and is resolved at run time under your own actor, which is what makes it re-runnable; the other two name one row each.")
-  draft          string    @description("A draft to start from, when the person has already written one. Empty means the compose step writes it from the sources. Supplying one does NOT skip the reasoning step -- it seeds it, and a composition that needed no thought is one the catalog answered.")
+  draft          string    @description("A draft to start from, when the person has already written one. Empty means the compose step writes it from the sources. Supplying one seeds the configured composer. With no composer available, the supplied draft can be rendered directly.")
   templateId     string    @description("v1:compose:template to render through. Resolved under your own actor, so a template you cannot read is refused rather than rendered through.")
   folderId       string    @description("v1:library:folder to file the output into. Empty means the Library root.")
   accountIds     []string  @description("Optional account tags -- a record of who the work is for, never a visibility scope.")
@@ -85,4 +80,12 @@ builtin composableConcepts {
 @executor("integration.compose.resolveSources")
 builtin composeResolveSources {
   sources  []object!  @description("The same {kind, ref, label} list composeMaterialize takes.")
+}
+
+/// Execute the saved request for a composition owned by the current work run. The handler requires
+/// server-supplied run context and verifies its goal, run and owner against the persisted row.
+/// This is an executor entry point; callers start work through composeMaterialize.
+@executor("integration.compose.execute")
+builtin composeExecute {
+  compositionId string!
 }

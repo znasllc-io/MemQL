@@ -103,6 +103,7 @@ export function ComposerSection({
   const open = composition;
   const draftState = {
     sourceCount: picked.length,
+    hasContent: statement.trim() !== "" || draft.trim() !== "",
     hasFormat: format !== "",
     submitting: busy,
   };

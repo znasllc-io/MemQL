@@ -270,6 +270,8 @@ func (s *store) createRunRow(ctx context.Context, r runSeed) error {
 		"goalId":              r.GoalId,
 		"automationName":      r.AutomationName,
 		"templateFingerprint": r.TemplateFingerprint,
+		"templateConstructId": r.TemplateConstructId,
+		"templateVersion":     r.TemplateVersion,
 		"input":               optMap(r.Input),
 		"inputFingerprint":    r.InputFingerprint,
 		"triggeredBy":         r.TriggeredBy,
@@ -354,6 +356,8 @@ type runSeed struct {
 	GoalId              string
 	AutomationName      string
 	TemplateFingerprint string
+	TemplateConstructId string
+	TemplateVersion     string
 	Input               map[string]any
 	InputFingerprint    string
 	TriggeredBy         string

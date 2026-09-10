@@ -42,6 +42,9 @@ func reactiveSystemActorContext(ctx context.Context) context.Context {
 // without being able to touch anyone else's (the sweep is read-only and
 // each write re-stamps ownerUserId from this impersonated userId).
 func ownerActorContext(ctx context.Context, ownerUserId string) context.Context {
+	if authority, ok := auth.ForwardedAuthorityFromContext(ctx); ok && authority.Subject == ownerUserId {
+		return ctx
+	}
 	ctx = auth.ContextWithToken(ctx, &auth.TokenInfo{
 		Subject: reactiveSystemActor,
 		Claims: map[string]any{

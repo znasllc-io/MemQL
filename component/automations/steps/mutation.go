@@ -209,6 +209,16 @@ func normalizeStepMethodAccessors(s string) string {
 func (e *MutationExecutor) evaluateValue(evaluator *automations.Evaluator, value any) (any, error) {
 	switch v := value.(type) {
 	case string:
+		// The event intrinsic is an object in direct function arguments and
+		// concat operands. Preserve that meaning inside nested builtins too:
+		// field(event, "payload") must not inspect the literal word "event".
+		if v == "event" {
+			return evaluator.EvaluateValue("$event")
+		}
+		// A literal's contents are data, so decode before normalizing paths.
+		if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+			return decodeArgStringLiteral(v)
+		}
 		// Normalize step method accessors up-front: autoRole.first().payload.value
 		// -> autoRole.first.payload.value. Downstream resolvers understand the
 		// dotted-shorthand form; they do not understand the method form.
@@ -216,11 +226,6 @@ func (e *MutationExecutor) evaluateValue(evaluator *automations.Evaluator, value
 		// Check if it's an expression that needs evaluation
 		if strings.HasPrefix(v, "$") {
 			return evaluator.EvaluateValue(v)
-		}
-		// Handle quoted string literals - strip the outer quotes
-		// This handles cases like "inProgress" from if() function results
-		if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
-			return v[1 : len(v)-1], nil
 		}
 		// Handle timestamp() or now() function - returns current UTC time in ISO 8601 format
 		if v == "timestamp()" || v == "now()" {
@@ -474,7 +479,11 @@ func (e *MutationExecutor) evaluateConcat(evaluator *automations.Evaluator, expr
 
 		// String literal
 		if strings.HasPrefix(arg, "\"") && strings.HasSuffix(arg, "\"") {
-			result.WriteString(arg[1 : len(arg)-1])
+			literal, err := decodeArgStringLiteral(arg)
+			if err != nil {
+				return "", err
+			}
+			result.WriteString(literal)
 			continue
 		}
 

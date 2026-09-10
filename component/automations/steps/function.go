@@ -664,7 +664,11 @@ func evaluateArgConcat(evaluator *automations.Evaluator, expr string) (string, e
 		}
 		// String literal
 		if strings.HasPrefix(arg, "\"") && strings.HasSuffix(arg, "\"") {
-			result.WriteString(arg[1 : len(arg)-1])
+			literal, err := decodeArgStringLiteral(arg)
+			if err != nil {
+				return "", err
+			}
+			result.WriteString(literal)
 			continue
 		}
 		// Nested concat

@@ -60,9 +60,12 @@ type CompileRequest struct {
 type CompileOutcome struct {
 	// Route is the tier that answered.
 	Route work.Route
-	// ConstructId is the catalogued template reused, for the two catalog
-	// routes.
+	// ConstructId identifies the reused catalog template or the stored run draft.
 	ConstructId string
+	// TemplateFingerprint binds the stored headline to the run execution contract.
+	TemplateFingerprint string
+	// TemplateVersion seals all authored dependency source for execution.
+	TemplateVersion string
 	// AutomationName is the template to run.
 	AutomationName string
 	// Gaps are the arguments a near match must close.
@@ -132,7 +135,7 @@ func (l *PlannerAgentLoop) CompileGoalForRun(ctx context.Context, req CompileReq
 	// way a model is reached before the author tier.
 	d := work.Decide(in)
 	if !d.NeedsTriage {
-		return l.finishCompile(ctx, req, d, out, sandbox)
+		return l.finishCompile(ctx, req, d, out, sandbox, sectionableDecision{})
 	}
 
 	// Tier 3: ONE classifier call answering complexity AND sectionability.
@@ -159,11 +162,11 @@ func (l *PlannerAgentLoop) CompileGoalForRun(ctx context.Context, req CompileReq
 	}
 
 	d = work.Decide(in)
-	return l.finishCompile(ctx, req, d, out, sandbox)
+	return l.finishCompile(ctx, req, d, out, sandbox, sectionable)
 }
 
 // finishCompile carries out whichever route was decided.
-func (l *PlannerAgentLoop) finishCompile(ctx context.Context, req CompileRequest, d work.Decision, out CompileOutcome, sandbox authoringSandbox) (CompileOutcome, error) {
+func (l *PlannerAgentLoop) finishCompile(ctx context.Context, req CompileRequest, d work.Decision, out CompileOutcome, sandbox authoringSandbox, sectionable sectionableDecision) (CompileOutcome, error) {
 	out.Route = d.Route
 	if d.Candidate != nil {
 		out.ConstructId = d.Candidate.ConstructId
@@ -177,12 +180,24 @@ func (l *PlannerAgentLoop) finishCompile(ctx context.Context, req CompileRequest
 		// near route's gap list is closed by the run's own reasoning
 		// steps rather than by a second compile pass.
 		return out, nil
-	case work.RouteSectionable:
-		// Deterministic after the one triage call already counted.
-		return out, nil
-	case work.RouteTrivial:
-		// One reasoning step; the run needs no draft.
-		return out, nil
+	case work.RouteSectionable, work.RouteTrivial:
+		if sandbox == nil {
+			return out, fmt.Errorf("work compile: goal %s needs a runnable draft and no Gate 1 sandbox is available", req.GoalId)
+		}
+		agentId := ""
+		nativeFile := sectionable.RequiresFile != nil && *sectionable.RequiresFile
+		if !nativeFile || (sectionable.Sectionable && len(sectionable.Sections) >= minSectionsForFanout) {
+			var err error
+			agentId, err = l.reasoningAgent(ctx, req.OwnerUserId)
+			if err != nil {
+				return out, err
+			}
+		}
+		bundle, err := synthesizeWorkReasoningBundle(req, agentId, sectionable)
+		if err != nil {
+			return out, err
+		}
+		return l.persistWorkDraft(ctx, req, out, bundle, sandbox)
 	case work.RouteAuthor:
 		if sandbox == nil {
 			return out, fmt.Errorf("work compile: goal %s needs authoring and no sandbox is available; a draft that cannot pass Gate 1 must not be run", req.GoalId)
@@ -214,8 +229,7 @@ func (l *PlannerAgentLoop) finishCompile(ctx context.Context, req CompileRequest
 			// before execution rather than after it.
 			return out, fmt.Errorf("work compile: the draft for goal %s did not pass Gate 1", req.GoalId)
 		}
-		out.AutomationName = bundle.AutomationName
-		return out, nil
+		return l.persistWorkDraft(ctx, req, out, bundle, sandbox)
 	default:
 		return out, fmt.Errorf("work compile: goal %s reached no route", req.GoalId)
 	}

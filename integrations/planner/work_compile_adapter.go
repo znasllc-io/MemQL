@@ -21,6 +21,8 @@ package planner
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	memqlengine "github.com/znasllc-io/memql/component/memql"
@@ -111,6 +113,11 @@ func (c *WorkCompiler) Compile(ctx context.Context, req workintegration.CompileR
 		return
 	}
 
+	if strings.TrimSpace(out.AutomationName) == "" {
+		c.failRun(ctx, req, fmt.Errorf("work compile: route %s returned no runnable automation", out.Route))
+		return
+	}
+
 	// Record the template compile chose. This is why updateWorkRun accepts
 	// automationName, templateConstructId and variables: the run is opened
 	// BEFORE the template is known -- that ordering is the design, so the
@@ -120,6 +127,12 @@ func (c *WorkCompiler) Compile(ctx context.Context, req workintegration.CompileR
 		"runId":          req.RunId,
 		"status":         "running",
 		"automationName": out.AutomationName,
+	}
+	if out.TemplateVersion != "" {
+		args["templateVersion"] = out.TemplateVersion
+	}
+	if out.TemplateFingerprint != "" {
+		args["templateFingerprint"] = out.TemplateFingerprint
 	}
 	if out.ConstructId != "" {
 		args["templateConstructId"] = out.ConstructId

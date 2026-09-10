@@ -10,8 +10,8 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/znasllc-io/memql/core/component"
 	"github.com/znasllc-io/memql/core/common"
+	"github.com/znasllc-io/memql/core/component"
 )
 
 // ClusterExecutionGuard makes EVENT-triggered automations exactly-once
@@ -121,6 +121,24 @@ func (g *ClusterExecutionGuard) Claim(ctx context.Context, automationName, dedup
 	return g.ClaimWithTTL(ctx, automationName, dedupKey, 0)
 }
 
+// StrictClusterClaimer admits work only after PostgreSQL confirms its claim.
+// It shares the guard's claims and counters without using the scheduler's
+// allowance for unguarded execution during a storage outage.
+type StrictClusterClaimer struct{ guard *ClusterExecutionGuard }
+
+// StrictClaimer supplies the fail-closed policy used for work run execution,
+// where admitting two replicas can duplicate a file or another side effect.
+func (g *ClusterExecutionGuard) StrictClaimer() StrictClusterClaimer {
+	return StrictClusterClaimer{guard: g}
+}
+
+func (c StrictClusterClaimer) ClaimWithTTL(ctx context.Context, name, key string, ttl time.Duration) bool {
+	if c.guard == nil {
+		return false
+	}
+	return c.guard.claimWithTTL(ctx, name, key, ttl, false)
+}
+
 // ClaimWithTTL is Claim with an optional attempt-scoped lease. It is the
 // opt-in variant (memql#2548): the default Claim path (ttl <= 0) is unchanged,
 // so automation/planner callers keep exactly-once-within-retention semantics.
@@ -140,9 +158,18 @@ func (g *ClusterExecutionGuard) Claim(ctx context.Context, automationName, dedup
 // timeout. Delivery is already at-least-once, so a rare re-take under an
 // extreme stall re-delivers rather than corrupts.
 func (g *ClusterExecutionGuard) ClaimWithTTL(ctx context.Context, automationName, dedupKey string, ttl time.Duration) bool {
+	return g.claimWithTTL(ctx, automationName, dedupKey, ttl, true)
+}
+
+func (g *ClusterExecutionGuard) claimWithTTL(ctx context.Context, automationName, dedupKey string, ttl time.Duration, allowUnguarded bool) bool {
 	db := g.dbGetter()
 	if db == nil || db.DB == nil {
 		g.errors.Add(1)
+		if !allowUnguarded {
+			g.warn("work execution claim refused: no database; a persisted claim is required",
+				"automation", automationName, "dedupKey", dedupKey)
+			return false
+		}
 		if !g.allowUnguarded() {
 			g.warn("automation execution claim skipped -- no database AND the unguarded-execution budget is exhausted; failing CLOSED (skipping) to bound the double-fire window (memql#1142)",
 				"automation", automationName)
@@ -177,6 +204,11 @@ func (g *ClusterExecutionGuard) ClaimWithTTL(ctx context.Context, automationName
 	}
 	if err != nil {
 		g.errors.Add(1)
+		if !allowUnguarded {
+			g.warn("work execution claim refused: storage failed; a persisted claim is required",
+				"automation", automationName, "dedupKey", dedupKey, "error", err)
+			return false
+		}
 		if !g.allowUnguarded() {
 			g.warn("automation execution claim failed AND the unguarded-execution budget is exhausted; failing CLOSED (skipping) to bound the double-fire window (memql#1142)",
 				"automation", automationName, "dedupKey", dedupKey, "error", err)
@@ -187,7 +219,13 @@ func (g *ClusterExecutionGuard) ClaimWithTTL(ctx context.Context, automationName
 		return true // fail-open (bounded)
 	}
 
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		g.errors.Add(1)
+		g.warn("execution claim refused: storage did not confirm the claim result",
+			"automation", automationName, "dedupKey", dedupKey, "error", err)
+		return false
+	}
 	if n == 0 {
 		// Another replica already owns this (automation, event) -> duplicate.
 		g.prevented.Add(1)

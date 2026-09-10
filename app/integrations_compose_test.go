@@ -62,10 +62,6 @@ func TestComposeSettersAreAllCalledOrDeliberatelyAbsent(t *testing.T) {
 	// Every app-level settings store in this tree takes the same shape.
 	deliberatelyUnwired := map[string]string{
 		"SetNow": "injects a clock; tests only, nothing in the shell passes one",
-		"SetComposer": "the reasoning step's implementation. NOT wired in this epic -- " +
-			"the compose prompt is a product concern and a node with none refuses a " +
-			"materialization that supplied no draft, by name, rather than producing an " +
-			"empty file",
 	}
 
 	declared := composeSettersInSource(t)

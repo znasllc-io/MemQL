@@ -34,7 +34,6 @@ import (
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	"github.com/znasllc-io/memql/component/memql"
 	"github.com/znasllc-io/memql/component/work"
-	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/num"
 )
 
@@ -78,9 +77,15 @@ type Integration struct {
 	remedy Remedy
 
 	// compiler is the compile seam (design section B, "Compile"). Set by the
-	// node that runs compile; nil everywhere else, and a nil one leaves a
-	// freshly opened run in `compiling` rather than inventing a plan.
+	// node that runs compile; nil everywhere else. A nil one is either a
+	// forward (EnableCompileViaEvent) or a refuse (hasCompileSurface), never
+	// a silent accept that the abandoned sweep later closes as a lost node.
 	compiler Compiler
+
+	// compileViaEvent is set on replicas that accept createGoal but do not
+	// compile locally: the run row's graph event is the handoff to a planner.
+	// See EnableCompileViaEvent.
+	compileViaEvent bool
 
 	// dispatcher is the execution seam (memql#5054). Set by the node that
 	// runs steps; nil everywhere else, and a nil one means this replica
@@ -118,9 +123,9 @@ type Compiler interface {
 	Compile(ctx context.Context, req CompileRequest)
 }
 
-// CompileRequest is everything compile needs that createGoal already has in
-// hand. The owner rides along so the compiler can borrow the same authority
-// without re-reading the goal.
+// CompileRequest is reconstructed from the authoritative run and goal on
+// the planner. No caller-local run, actor, or budget context is assumed to
+// survive the graph event that crosses the node boundary.
 type CompileRequest struct {
 	GoalId      string
 	RunId       string
@@ -225,7 +230,7 @@ func (i *Integration) Capabilities() []memql.IntegrationCapability {
 	return []memql.IntegrationCapability{
 		{
 			Name:        "createGoal",
-			Description: "Accept a goal and start work on it: opens a v1:work:goal owned by the caller and its first v1:work:run in `compiling`, then dispatches compile. Returns {goalId, runId, compileDispatched}.",
+			Description: "Accept a goal and start work on it: opens a v1:work:goal owned by the caller and its first v1:work:run in `compiling`, then dispatches compile (locally or via the run graph event to a planner). Refuses with no compile surface when neither a local compiler nor event forward is available. Returns {goalId, runId, compileDispatched}.",
 			Handler:     i.handleCreateGoal,
 			ArgsSchema: map[string]string{
 				"statement":    "string (required) -- the goal in the person's own words",
@@ -452,6 +457,9 @@ func (i *Integration) RecordCompileOutcome(ctx context.Context, ownerUserId, run
 	if strings.TrimSpace(runId) == "" {
 		return fmt.Errorf("work: RecordCompileOutcome needs a run id")
 	}
+	if err := i.stopCompileHeartbeat(ctx, runId); err != nil {
+		return err
+	}
 	// The run is the goal owner's, so the write borrows their authority --
 	// the owner arrives from a goal row the caller already read under their
 	// own actor, so it can never name somebody they could not act as.
@@ -642,6 +650,9 @@ func (i *Integration) OpenResponsibilityGoal(ctx context.Context, g Responsibili
 	if owner == "" || respId == "" || statement == "" {
 		return "", "", fmt.Errorf("work: a responsibility goal needs an owner, a responsibility id and a statement")
 	}
+	if !i.hasCompileSurface() {
+		return "", "", errNoCompileSurface
+	}
 
 	st := i.store()
 	now := i.clock().UTC()
@@ -667,30 +678,18 @@ func (i *Integration) OpenResponsibilityGoal(ctx context.Context, g Responsibili
 		TriggeredBy:    "responsibility:" + respId,
 		Mode:           modeLive,
 		Status:         runStatusCompiling,
-		NodeId:         selfNodeId(),
 		StartedAt:      now,
 		OwnerUserId:    owner,
 	}); err != nil {
 		return "", "", err
 	}
 
-	// The run rides the context, so the compile pass's model calls are
-	// journaled against it (memql#4999).
-	dispatchCtx := common.ContextWithRun(ctx, common.RunContext{
-		RunId:       runId,
-		GoalId:      goalId,
-		Mode:        common.RunModeLive,
-		OwnerUserId: owner,
-	})
-	if dispatched := i.dispatchCompile(dispatchCtx, CompileRequest{
+	_ = i.dispatchCompile(ctx, CompileRequest{
 		GoalId:      goalId,
 		RunId:       runId,
 		OwnerUserId: owner,
 		Statement:   statement,
 		Input:       g.Input,
-	}); !dispatched {
-		i.log().Info("work: a responsibility's goal is waiting for a compile surface",
-			"component", "work.responsibility", "goal", goalId, "run", runId, "responsibility", respId)
-	}
+	})
 	return goalId, runId, nil
 }

@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { installSharedWebLocks } from "./webLocks";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { SdkAskTransport, type AskStreamFn } from "../../src/ask/sdkTransport";
 import { artifactsUploadPath, EdgeUploadProvider } from "../../src/items/edgeUpload";
-import { refreshAccessToken } from "../../src/auth/identityClient";
+import { refreshAccessCredential } from "../../src/auth/identityClient";
 import { bridgePathFor } from "../../src/live/connection";
 import type { Dispatcher } from "@znasllc-io/memql-sdk-core/client";
+
+beforeEach(installSharedWebLocks);
 
 const CONFIG = {
   identityUrl: "https://identity.example.test",
@@ -128,17 +131,22 @@ describe("EdgeUploadProvider", () => {
   });
 });
 
-describe("refreshAccessToken", () => {
-  it("returns the access_token field on 200 and null otherwise", async () => {
+describe("refreshAccessCredential", () => {
+  it("retains the credential lifetime on 200 and refuses incomplete responses", async () => {
     const ok = (async () =>
-      new Response(JSON.stringify({ access_token: "tok" }), { status: 200 })) as unknown as typeof fetch;
-    expect(await refreshAccessToken(CONFIG, ok)).toBe("tok");
+      new Response(JSON.stringify({ access_token: "tok", expires_in: 60 }), { status: 200 })) as unknown as typeof fetch;
+    expect(await refreshAccessCredential(CONFIG, ok)).toEqual({ bearer: "tok", expiresInSeconds: 60 });
 
     const noSession = (async () => new Response("{}", { status: 401 })) as unknown as typeof fetch;
-    expect(await refreshAccessToken(CONFIG, noSession)).toBeNull();
+    expect(await refreshAccessCredential(CONFIG, noSession)).toBeNull();
 
     const empty = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
-    expect(await refreshAccessToken(CONFIG, empty)).toBeNull();
+    expect(await refreshAccessCredential(CONFIG, empty)).toBeNull();
+  });
+
+  it.each([undefined, 0, -1, "60"])("refuses an absent or invalid credential lifetime %s", async (expiresIn) => {
+    const invalid = async () => new Response(JSON.stringify({ access_token: "tok", expires_in: expiresIn }));
+    expect(await refreshAccessCredential(CONFIG, invalid)).toBeNull();
   });
 
   it("never leaks the credential into the URL", async () => {
@@ -147,7 +155,7 @@ describe("refreshAccessToken", () => {
       urls.push(url);
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    await refreshAccessToken(CONFIG, spy);
+    await refreshAccessCredential(CONFIG, spy);
     expect(urls[0]).toBe("https://identity.example.test/auth/refresh");
   });
 });

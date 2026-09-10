@@ -1,0 +1,14 @@
+/// Create a finished file in the user's Library using the Materializer. During a work run this
+/// waits for the file and returns outputFileId. Supply the complete content request and optionally
+/// a starting draft or source references. Use for documents, reports, lists and data exports.
+@handler(type="function", name="composeMaterialize")
+@allowedRoles("assistant", "specialist")
+@executionTime("slow")
+tool composeFile {
+  name       string!   @description("Descriptive filename stem, without a path.")
+  statement  string!   @description("Complete instructions for the requested content.")
+  format     string!   @description("markdown, html, txt, csv, json, docx or pdf.")
+  draft      string    @description("Optional finished or starting draft to use when composing.")
+  sources    array  @description("Optional source references: {kind, ref, label}; kind is concept_row, library_file or query.")
+  folderId   string    @description("Optional Library folder; omitted means the Library root.")
+}

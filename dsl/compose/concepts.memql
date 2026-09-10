@@ -15,13 +15,14 @@
 // v1:work:goal.requestedVia already carries that string -- what changed
 // is the name of the rows, which is the half that had a collision.
 //
-// TIER. All three declare the composite owner tier
+// TIER. The three public record types declare the composite owner tier
 // (@rowAuthz(owner="ownerUserId", clusterOwner)): a person reads their
 // own, a cluster owner reads the instance's. That second half is what
 // makes "everything materialized in this instance" a read that can
 // honestly return everything -- a plain owner= tier has no cluster-owner
 // escape on the READ path, so the Materialized view would silently
-// render one person's subset (memql#4312).
+// render one person's subset (memql#4312). compositionInput is owner-only:
+// sharing a record must not share source payloads captured with private access.
 
 use accounts.concepts.{ account }
 use identity.concepts.{ user }
@@ -95,6 +96,19 @@ concept composition {
   @relationship(type="references", as="carriedBy", field="runId", target=run, direction="outgoing")
   @relationship(type="references", as="runFrom", field="recipeId", target=recipe, direction="outgoing")
   @relationship(type="references", as="forAccount", field="accountIds", target=account, direction="outgoing")
+}
+
+/// The saved execution request and captured source payloads for one materialization. Kept apart
+/// from the account-shared composition so sharing its provenance does not share private inputs.
+// @no-displayCard: execution input has no separate human-facing name; the composition names the work.
+@rowAuthz(owner="ownerUserId")
+concept compositionInput {
+  ownerUserId   string!  @serverSet
+  compositionId string!
+  request       object!
+
+  @relationship(type="parent", field="ownerUserId", target=user, direction="outgoing")
+  @relationship(type="references", field="compositionId", target=composition, direction="outgoing")
 }
 
 // ---- composeTemplate: the repeatable part ----

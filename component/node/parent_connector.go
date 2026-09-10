@@ -152,27 +152,6 @@ func (pc *ParentConnector) run(ctx context.Context, markStarted func()) error {
 	pc.cancel = cancel
 	pc.mu.Unlock()
 
-	conn := newPeerConnection(pc.identity, "", pc.identity.ParentAddress, pc.logger)
-	conn.SetHeartbeatInterval(pc.peerMgr.HeartbeatInterval())
-	// Advertise this node's lifecycle health on every heartbeat to the parent
-	// (memql#1268) so the parent routes around us the instant we drain.
-	conn.SetHealthFn(pc.peerMgr.Lifecycle().Health)
-	// Re-mint our node token if the parent rejects it after an identity key
-	// rotation (memql#1521), so a leaf recovers on its own instead of looping
-	// forever on a dead token. Only wired when self-bootstrap is configured --
-	// an out-of-band MEMQL_NODE_TOKEN cannot be re-minted.
-	if pc.identity.CanRemintBearerToken() {
-		conn.SetReauthFn(func(ctx context.Context) (string, error) {
-			return pc.identity.RemintBearerToken(ctx, pc.logger)
-		})
-	}
-
-	pc.mu.Lock()
-	pc.conn = conn
-	pc.mu.Unlock()
-
-	pc.peerMgr.SetParentConnection(conn)
-
 	markStarted()
 
 	pc.logger.Info("parent_connector: dialing parent",
@@ -191,9 +170,38 @@ func (pc *ParentConnector) run(ctx context.Context, markStarted func()) error {
 	// (the node reconnects on its own) rather than "every mesh dependency is
 	// currently connected". peerConnection.Connect already reconnects
 	// internally between attempts; this outer loop is the backstop for the rare
-	// path where Connect itself returns.
+	// path where Connect itself returns. A peer removal permanently closes its
+	// transport, so each outer attempt must create a fresh connection.
 	for {
+		conn := newPeerConnection(pc.identity, "", pc.identity.ParentAddress, pc.logger)
+		conn.SetHeartbeatInterval(pc.peerMgr.HeartbeatInterval())
+		// Advertise this node's lifecycle health on every heartbeat to the parent
+		// (memql#1268) so the parent routes around us the instant we drain.
+		conn.SetHealthFn(pc.peerMgr.Lifecycle().Health)
+		// Re-mint our node token if the parent rejects it after an identity key
+		// rotation (memql#1521), so a leaf recovers on its own instead of looping
+		// forever on a dead token. Only wired when self-bootstrap is configured --
+		// an out-of-band MEMQL_NODE_TOKEN cannot be re-minted.
+		if pc.identity.CanRemintBearerToken() {
+			conn.SetReauthFn(func(ctx context.Context) (string, error) {
+				return pc.identity.RemintBearerToken(ctx, pc.logger)
+			})
+		}
+
+		pc.mu.Lock()
+		pc.conn = conn
+		pc.mu.Unlock()
+
+		pc.peerMgr.SetParentConnection(conn)
+
 		err := conn.Connect(ctx, pc.handleServerMessage)
+		conn.Close()
+		pc.mu.Lock()
+		parentID := pc.parentNodeId
+		pc.parentNodeId = ""
+		pc.conn = nil
+		pc.mu.Unlock()
+		pc.peerMgr.detachConnectionIf(parentID, conn)
 
 		// Context cancelled -> Stop was requested; exit cleanly so the
 		// component framework records a normal stop (not a crash).
@@ -245,8 +253,11 @@ func (pc *ParentConnector) handleServerMessage(msg *nodev1.NodeServerMessage) {
 	// The parent also emits NodeHeartbeat on the server ticker; treating
 	// every message as a touch still covers the welcome / intro window
 	// before the first beat and keeps LastSeen honest under load.
-	if pc.parentNodeId != "" {
-		pc.peerMgr.TouchPeer(pc.parentNodeId)
+	pc.mu.Lock()
+	parentID := pc.parentNodeId
+	pc.mu.Unlock()
+	if parentID != "" {
+		pc.peerMgr.TouchPeer(parentID)
 	}
 	switch payload := msg.Payload.(type) {
 	case *nodev1.NodeServerMessage_NodeWelcome:
@@ -273,8 +284,14 @@ func (pc *ParentConnector) handleServerMessage(msg *nodev1.NodeServerMessage) {
 			// reach the parent.
 			pc.mu.Lock()
 			conn := pc.conn
+			previousParent := pc.parentNodeId
 			pc.parentNodeId = welcome.NodeId
 			pc.mu.Unlock()
+			if previousParent != welcome.NodeId {
+				// A service address may reconnect to a different BFF replica.
+				// Reaping its old identity must not close the new live stream.
+				pc.peerMgr.detachConnectionIf(previousParent, conn)
+			}
 			if conn != nil {
 				conn.SetNodeId(welcome.NodeId)
 				pc.peerMgr.AttachConnection(welcome.NodeId, conn)

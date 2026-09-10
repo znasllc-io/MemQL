@@ -275,6 +275,11 @@ func newTestIntegration(t *testing.T) (*Integration, *recordingEngine) {
 	// origin, and a gate that denied everything would make every sweep
 	// assertion vacuous. sweep_test.go pins the REFUSAL case explicitly.
 	i.admitRow = func(context.Context, memorynodes.MemoryNode) bool { return true }
+	// Tests that open goals/forks need a compile surface. Production bff
+	// gets this from mesh bootstrap; the harness enables the same forward
+	// so fixtures do not all have to. TestCreateGoalRefusesWithNoCompileSurface
+	// builds without it on purpose.
+	i.EnableCompileViaEvent()
 	return i, eng
 }
 

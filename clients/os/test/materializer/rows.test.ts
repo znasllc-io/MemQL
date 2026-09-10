@@ -173,13 +173,20 @@ describe("the words", () => {
 });
 
 describe("acts follow the state", () => {
-  const noDraft = { sourceCount: 0, hasFormat: true, submitting: false };
-  const ready = { sourceCount: 2, hasFormat: true, submitting: false };
+  const noDraft = { sourceCount: 0, hasContent: false, hasFormat: true, submitting: false };
+  const ready = { sourceCount: 2, hasContent: false, hasFormat: true, submitting: false };
 
   // AN ILLEGAL ACT IS ABSENT, NEVER DISABLED.
-  it("offers nothing to compose with no sources, and says why on the bar", () => {
+  it("offers nothing to compose without content or sources, and says why on the bar", () => {
     expect(actsFor(null, noDraft)).toEqual([]);
-    expect(stateLine(null, noDraft)).toContain("at least one source");
+    expect(stateLine(null, noDraft)).toContain("Describe what to make");
+  });
+
+  it("offers Materialize for supplied content without graph sources", () => {
+    const content = { ...noDraft, hasContent: true };
+    expect(actsFor(null, content).map((a) => a.id)).toEqual(["materialize"]);
+    expect(stateLine(null, content)).toBe("Ready to compose your file");
+    expect(actsFor(null, { ...content, hasFormat: false })).toEqual([]);
   });
 
   it("offers Materialize once there is something to compose from", () => {
