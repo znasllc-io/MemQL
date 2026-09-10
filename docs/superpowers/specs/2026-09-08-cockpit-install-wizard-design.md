@@ -71,7 +71,7 @@ rail the compose flow and the first-run wizard already read.
   token, and `RevokeWorkerTokenMsg` takes that id. The SDK exposes both
   (`identity/workerToken.ts`).
 - **The installers** (`memql-cockpit/scripts/install/install-{mac,linux}.sh`) preflight
-  the release asset, prompt for sudo unless `--user-local`, write `worker.yaml`, install a
+  the release asset, prompt for sudo unless `--user-local`, upsert a home in `workers.yaml` (legacy `worker.yaml` mirror), install a
   LaunchAgent / user systemd unit that reconnects on boot, and with `--inference` run
   `memql worker setup --inference --non-interactive`, which exits 3 when a runtime install
   needs a person and prints the command to run by hand. The computer-use build asks macOS
@@ -203,7 +203,7 @@ answer is its own PR and ships in the release D15 cuts.
 ### D12 -- Uninstall is one line too
 
 `scripts/install/uninstall-{mac,linux}.sh` in the cockpit repository stop and remove the
-service, remove the binary and its symlink, and remove `worker.yaml` (the token);
+service, remove the binary and its symlink, and remove `worker.yaml` / `workers.yaml` (the token registry);
 `--purge` removes the state directory, `policy.yaml` and the logs as well; `--user-local`
 removes from `~/.memql/bin` instead of `/usr/local/bin`. The OS composes the one-liner
 in three places: the machine page's **Remove this machine** (revoke, then the line), the

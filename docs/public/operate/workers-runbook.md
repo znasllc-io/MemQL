@@ -18,11 +18,19 @@ truth now that the implementation plan has shipped end-to-end.
 ## 1. What is a worker?
 
 A worker is the **user's own machine** running
-`memql worker run`. It connects to a MemQL cluster via
-`WorkerService.Stream` (gRPC bidi), advertises its capabilities
+`memql worker run`. One supervisor process — the LaunchAgent
+`com.znasllc.memql-worker` on macOS, or the user systemd unit
+`memql-worker.service` on Linux — can enroll against **one or more
+clusters** at once: each enabled home opens its own
+`WorkerService.Stream` (gRPC bidi), advertises capabilities
 (HEADLESS, optionally COMPUTERUSE), and accepts dispatched tool calls
 (`workerHost.*`, `workerComputer.*`) from agents acting in
-sessions owned by the same user.
+sessions owned by the same user on that cluster.
+
+Shared machine-side pieces stay singletons (consent socket, metrics
+`:9100`, policy/tools, local inference). Each cluster still sees its
+own registration independently — there is no engine wire change for
+multi-home.
 
 Per-user routing means there is no shared pool — agents only ever
 see workers owned by the user whose session they're acting in.
@@ -85,10 +93,14 @@ The install script:
    (`memql-darwin-arm64`, or `memql-computeruse-darwin-arm64` with
    `--computeruse`) and installs it as **`memql`** -- one installed command
    for both build variants.
-2. Writes `~/.memql/worker.yaml` with the token + cluster URL.
+2. **Upserts** this cluster as one home in `~/.memql/workers.yaml`
+   (0600) and mirrors that home into legacy `~/.memql/worker.yaml`.
+   A second install against a **different** cluster URL appends a home;
+   sibling homes are preserved. `--force` replaces the **matched** home
+   only. Home id defaults to the cluster URL's host.
 3. Drops a LaunchAgent at
    `~/Library/LaunchAgents/com.znasllc.memql-worker.plist`
-   and `launchctl load`s it.
+   and `launchctl load`s it (one agent for every home).
 
 The first time you run the computer-use variant, macOS will prompt for
 **Accessibility** and **Screen Recording** permissions (System
@@ -122,21 +134,28 @@ install rather than as a missing grant.
 curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/install-linux.sh | bash -s -- --token mql_wkr_xxxxxxxxxxxx --cluster https://api.example.com --computeruse
 ```
 
-The install script writes a user-systemd unit at
+The install script upserts the same multi-home registry
+(`~/.memql/workers.yaml`, with a legacy `worker.yaml` mirror), then
+writes a user-systemd unit at
 `~/.config/systemd/user/memql-worker.service` and starts
-it. On Wayland the worker registers HEADLESS only; X11 sessions
-get COMPUTERUSE as well.
+it — one unit for every home. On Wayland the worker registers HEADLESS
+only; X11 sessions get COMPUTERUSE as well. Pairing / re-install is
+additive the same way as on macOS (`--force` replaces the matched home
+only).
 
 ---
 
 ## 3. Configure
 
-`~/.memql/worker.yaml`:
+### Multi-home registry (`~/.memql/workers.yaml`)
+
+The supervisor reads **`~/.memql/workers.yaml`** (0600). Shared fields
+apply to the whole machine; each entry under `homes` is one cluster
+enrollment (`id`, `cluster_url`, `token`, optional `enabled`):
 
 ```yaml
-cluster_url: https://api.example.com
-token: mql_wkr_<your token>
-name: jose-mac-mini
+version: 1
+worker_name: jose-mac-mini
 labels:
   os: darwin
   arch: arm64
@@ -149,7 +168,41 @@ log_level: info
 capabilities:
   - HEADLESS
   - COMPUTERUSE
+homes:
+  - id: api.example.com
+    cluster_url: https://api.example.com
+    token: mql_wkr_<token for this cluster>
+    enabled: true
+  - id: api.other.example
+    cluster_url: https://api.other.example
+    token: mql_wkr_<token for the other cluster>
+    enabled: true
 ```
+
+**Migration:** if only legacy `~/.memql/worker.yaml` exists, the first
+`worker run` / pair / install promotes it to one home (stable id = URL
+host), writes `workers.yaml`, and **keeps** the legacy file as a mirror.
+Tokens are never wiped by migration.
+
+**Additive upsert:** `install-mac.sh` / `install-linux.sh` and
+`memql worker pair` upsert by home id / cluster URL. A new URL appends;
+the same URL refreshes the token in place. `--force` replaces that home
+only — never sibling homes. The Go pair wizard also accepts
+`--home-id <id>` (default: matching `clusters.yaml` name, else URL host);
+the curl installers derive the id from the URL host today.
+
+Useful CLI:
+
+```bash
+memql worker config                         # list homes
+memql worker unpair --cluster <home-id>     # remove one home
+memql worker unpair --cluster <home-id> --disable
+```
+
+Reload the LaunchAgent / systemd unit after editing homes so the
+supervisor reconnects every enabled stream.
+
+### `cluster_url` transport
 
 **`cluster_url` states its transport, and a bare `host:port` means
 PLAINTEXT.** The worker turns this value into a dial address plus a
@@ -158,10 +211,12 @@ dial with TLS on 443 unless another port is given; `http://` and
 `ws://` dial in the clear; a value with no scheme is dialled in the
 clear whatever its port, because a port number is not evidence of a
 transport -- `agent.example.com:443` and `agent.example.com:8443` are
-equally silent about TLS. Pairing (`memql worker pair`) writes
-this file for you and the server now supplies the scheme, so this only
-bites a hand-written config. If you edit it, write the scheme
-(memql#3437).
+equally silent about TLS. Pairing (`memql worker pair`) and the
+installers write the scheme for you, so this only bites a hand-written
+home. If you edit it, write the scheme (memql#3437).
+
+Legacy `~/.memql/worker.yaml` remains a single-home mirror of the home
+last written by install/pair; prefer editing `workers.yaml`.
 
 `~/.memql/policy.yaml` (optional) controls allow/deny for shell,
 fs, and HTTP tools, plus per-call resource limits and the optional
@@ -464,9 +519,11 @@ one action bar carrying the state and the acts legal from it.
 2. **Install** -- the plain `mql_wkr_...` token, shown ONCE (only its SHA-256
    hash persists; it is never written to browser storage or a URL, and it goes
    with the window), the one-line install command for that platform with the
-   token and `https://api.<domain>` filled in, and the manual steps in the
-   order they happen on the machine: a terminal, the paste, the password
-   prompt, on macOS the two permission dialogs, the download. When local
+   token and `https://api.<domain>` filled in (paste-safe: one physical line),
+   and the manual steps in the order they happen on the machine: a terminal,
+   the paste, the password prompt, on macOS the two permission dialogs, the
+   download. The installer **upserts** a home in `~/.memql/workers.yaml`; it
+   does not clobber sibling homes already enrolled on that machine. When local
    models were asked for, the second command -- the installed binary's
    `worker setup --inference`, run once the installer prints SUCCESS -- is stated up front,
    because the one-liner cannot approve a runtime install unattended. Every
@@ -516,9 +573,13 @@ the right shape for a machine that can redeem a short code interactively.
 **Remove this machine** revokes the registration (the row stays as audit
 history) and shows the uninstall one-liner for its platform --
 `scripts/install/uninstall-{mac,linux}.sh` in the cockpit repository, which
-stops and removes the service, the binary and `worker.yaml`, and keeps the
-logs unless `--purge` is passed. Select the installation location on this page
-so the uninstaller targets the system command or the account-only command.
+stops and removes the service, the binary, and the worker credential files
+(`worker.yaml`; also remove `workers.yaml` by hand if you are leaving the
+machine with no homes), and keeps the logs unless `--purge` is passed. To
+drop **one** cluster home while keeping the supervisor for others, prefer
+`memql worker unpair --cluster <home-id>` and reload the service instead of
+a full uninstall. Select the installation location on this page so the
+uninstaller targets the system command or the account-only command.
 
 ### 5.6 The cross-node forward (memql#4352)
 
@@ -690,6 +751,23 @@ The worker emits a `RotationRequest` 7 days before
 `worker_token.expiresAt`. Operators can also force one by
 restarting the worker — the next reconnect refreshes
 `lastSeenAt` and the next scheduled rotation fires from there.
+
+### Add this machine to another cluster
+
+Re-run the Fleet install one-liner (or `memql worker pair`) against the
+**other** cluster's token and `https://api.<domain>`. The upsert is
+additive: the new home is appended in `workers.yaml`, the same
+LaunchAgent / systemd unit keeps running, and each cluster gets its own
+registration. Use `--force` only when you intend to replace the matched
+home's token/URL.
+
+### List or drop one home
+
+```bash
+memql worker config
+memql worker unpair --cluster <home-id>
+# then reload the LaunchAgent / systemd unit
+```
 
 ---
 

@@ -14,6 +14,11 @@
 // same single line -- if the shape changes on any of the three, it changes on
 // all of them.
 //
+// The cockpit installer (memql-cockpit multi-home fleet) upserts one home into
+// ~/.memql/workers.yaml; it does not overwrite sibling homes. This emitter
+// does not pass --force or --home-id: a fresh Fleet mint is always a new or
+// same-URL token refresh, and install scripts derive home id from the URL host.
+//
 // THE INSTALLER SHIPS FROM memql-cockpit, not from this repo. The worker is a
 // run mode of the `memql` command that repo builds; scripts/install/ here
 // carries the cluster bring-up installers instead. The panel says so under

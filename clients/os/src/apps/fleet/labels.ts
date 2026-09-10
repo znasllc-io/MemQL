@@ -92,7 +92,7 @@ export function mergeLabels(reported: LabelMap, operator: LabelMap): MergedLabel
 //
 // A worker label is a PAIR, and the editor works in flat strings, so the chip
 // text is the pair written the way an operator would type it: `key=value`.
-// That is also the form docs/public/operate/workers-runbook.md's worker.yaml
+// That is also the form docs/public/operate/workers-runbook.md's workers.yaml
 // already shows, so there is one spelling to learn rather than two.
 
 /** The separator. One export, because the parser, the formatter, the

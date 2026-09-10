@@ -665,7 +665,10 @@ export function installSteps(draft: Draft): string[] {
       "On a Wayland session the worker registers without mouse and keyboard; computer use needs an X11 session. Everything else works either way.",
     );
   }
-  steps.push(`Leave the terminal open until it prints SUCCESS. ${serviceSentence(draft.platform)}`);
+  steps.push(
+    `Leave the terminal open until it prints SUCCESS. ${serviceSentence(draft.platform)} ` +
+      "It upserts this cluster as one home in ~/.memql/workers.yaml without removing other homes already on the machine.",
+  );
   if (draft.inference) {
     steps.push(
       "After SUCCESS, run the local models setup command below. It checks the hardware, asks you to approve the runtime installation and downloads the recommended models — several gigabytes, so allow time for this step.",
