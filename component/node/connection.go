@@ -171,6 +171,20 @@ func (pc *peerConnection) SetReadLivenessTimeout(d time.Duration) {
 	pc.mu.Unlock()
 }
 
+// SetNodeId records the peer's identity once learned (NodeWelcome on a
+// ParentConnector dial). Parent dials start with an empty nodeId because the
+// service address (bff-active:50058) is known before the replica's id; without
+// this update, "peer connection lost, reconnecting" logs forever show an
+// empty peer_id and ops cannot tell which BFF replica flapped.
+func (pc *peerConnection) SetNodeId(nodeId string) {
+	if pc == nil || nodeId == "" {
+		return
+	}
+	pc.mu.Lock()
+	pc.nodeId = nodeId
+	pc.mu.Unlock()
+}
+
 // resolvedReadLivenessTimeout returns the effective inbound-silence deadline:
 // an explicit override if set, otherwise defaultReadLivenessFactor x the
 // heartbeat interval. A negative override (or a non-positive heartbeat with no

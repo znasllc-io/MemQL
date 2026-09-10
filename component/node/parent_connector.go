@@ -242,11 +242,9 @@ func (pc *ParentConnector) handleServerMessage(msg *nodev1.NodeServerMessage) {
 		return
 	}
 	// Any inbound message from the parent is evidence of its liveness.
-	// The parent's NodeService server does not currently run an outbound
-	// heartbeat ticker, so we treat every message (NodeWelcome,
-	// PeerIntroduction, EventForward, etc.) as a keep-alive and refresh
-	// the parent's LastSeen. Once the parent is registered (via
-	// NodeWelcome below) future messages will bump its liveness.
+	// The parent also emits NodeHeartbeat on the server ticker; treating
+	// every message as a touch still covers the welcome / intro window
+	// before the first beat and keeps LastSeen honest under load.
 	if pc.parentNodeId != "" {
 		pc.peerMgr.TouchPeer(pc.parentNodeId)
 	}
@@ -278,6 +276,7 @@ func (pc *ParentConnector) handleServerMessage(msg *nodev1.NodeServerMessage) {
 			pc.parentNodeId = welcome.NodeId
 			pc.mu.Unlock()
 			if conn != nil {
+				conn.SetNodeId(welcome.NodeId)
 				pc.peerMgr.AttachConnection(welcome.NodeId, conn)
 			}
 		}

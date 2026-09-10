@@ -325,7 +325,7 @@ export function AskSurface({
         <div className="os-caption os-ask-micnote">
           <p id={readinessId} role="status">{availability.message}</p>
           {onOpenFleet ? <button type="button" className="os-link" onClick={onOpenFleet}>Open Fleet</button> : null}{" "}
-          {availability.state !== "checking" && availability.state !== "disconnected" ? <button type="button" className="os-link" onClick={availability.refresh}>Check again</button> : null}
+          {availability.state !== "checking" && availability.state !== "disconnected" && availability.state !== "reconnecting" ? <button type="button" className="os-link" onClick={availability.refresh}>Check again</button> : null}
         </div>
       ) : null}
       <form className="os-ask-input" onSubmit={onSubmit}>
