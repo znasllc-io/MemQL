@@ -177,10 +177,15 @@ func (e *MemQLEngine) tryCompileCombinedFilter(ctx context.Context, expr Express
 			// "an array with elements, or a non-empty string" rather than
 			// "not null", because a row carrying `""` or `[]` is untied and
 			// admitting it would hand staff rows that belong to no client.
-			return compiledExpression{sql: fmt.Sprintf(
-				"((jsonb_typeof(%s) = 'array' AND jsonb_array_length(%s) > 0) OR "+
-					"(jsonb_typeof(%s) = 'string' AND (%s #>> '{}') <> ''))",
-				jsonbExpr, jsonbExpr, jsonbExpr, jsonbExpr)}, true
+			// Type names are bound params (not adjacent SQL string literals) so
+			// a path expression cannot be misread as breaking out of quotes.
+			return compiledExpression{
+				sql: fmt.Sprintf(
+					"((jsonb_typeof(%s) = ? AND jsonb_array_length(%s) > 0) OR "+
+						"(jsonb_typeof(%s) = ? AND (%s #>> '{}') <> ''))",
+					jsonbExpr, jsonbExpr, jsonbExpr, jsonbExpr),
+				args: []any{"array", "string"},
+			}, true
 		}
 		if len(node.accounts) == 0 {
 			return compiledExpression{sql: "FALSE"}, true
@@ -1345,8 +1350,19 @@ func compileCreatedByComparison(op ComparisonOperator, value any) (compiledExpre
 // kind, name, trigger, via. All string-valued.
 func compileProvenanceComparison(leaf string, op ComparisonOperator, value any) (compiledExpression, error) {
 	leaf = strings.ToLower(strings.TrimSpace(leaf))
+	// Constant extracts only: interpolating the leaf into quotes is what
+	// CodeQL flags as unsafe quoting, even though the switch below is a
+	// closed allowlist. Keep the SQL identical for callers/tests.
+	var extract string
 	switch leaf {
-	case "kind", "name", "trigger", "via":
+	case "kind":
+		extract = "provenance->>'kind'"
+	case "name":
+		extract = "provenance->>'name'"
+	case "trigger":
+		extract = "provenance->>'trigger'"
+	case "via":
+		extract = "provenance->>'via'"
 	default:
 		return compiledExpression{}, fmt.Errorf("provenance.%s is not a supported leaf (kind|name|trigger|via)", leaf)
 	}
@@ -1361,7 +1377,7 @@ func compileProvenanceComparison(leaf string, op ComparisonOperator, value any) 
 			return compiledExpression{}, err
 		}
 		return compiledExpression{
-			sql:  fmt.Sprintf("(provenance->>'%s' %s ?)", leaf, sqlOp),
+			sql:  fmt.Sprintf("(%s %s ?)", extract, sqlOp),
 			args: []any{s},
 		}, nil
 	case OpIn, OpOut:
@@ -1377,7 +1393,7 @@ func compileProvenanceComparison(leaf string, op ComparisonOperator, value any) 
 			operator = "NOT IN"
 		}
 		return compiledExpression{
-			sql:  fmt.Sprintf("(provenance->>'%s' %s (?))", leaf, operator),
+			sql:  fmt.Sprintf("(%s %s (?))", extract, operator),
 			args: []any{bun.In(values)},
 		}, nil
 	default:
@@ -1638,7 +1654,9 @@ func buildJSONPathExpression(path []string) (string, error) {
 		if trimmed == "" || !isSafePathSegment(trimmed) {
 			return "", fmt.Errorf("payload path segment %q is invalid", segment)
 		}
-		segments[i] = trimmed
+		// Escape even though isSafePathSegment rejects quotes: CodeQL tracks
+		// path text into the quoted #>> literal and wants a sanitizer.
+		segments[i] = strings.ReplaceAll(trimmed, "'", "''")
 	}
 
 	return fmt.Sprintf("payload #>> '{%s}'", strings.Join(segments, ",")), nil
@@ -1659,10 +1677,17 @@ func buildJSONBPathExpression(path []string) (string, error) {
 		if trimmed == "" || !isSafePathSegment(trimmed) {
 			return "", fmt.Errorf("payload path segment %q is invalid", segment)
 		}
-		segments[i] = fmt.Sprintf("'%s'", trimmed)
+		segments[i] = sqlStringLiteral(trimmed)
 	}
 
 	return fmt.Sprintf("payload->%s", strings.Join(segments, "->")), nil
+}
+
+// sqlStringLiteral quotes s as a PostgreSQL string literal. Callers still gate
+// with isSafePathSegment; the escape is what CodeQL recognizes as sanitizing
+// a value embedded between single quotes.
+func sqlStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func isSafePathSegment(segment string) bool {

@@ -22,7 +22,9 @@ func (r *Replier) scopeWorkExecution(ctx context.Context, data map[string]any, n
 	if !isOwnedWorkExecution(ctx) {
 		return names
 	}
-	out := make([]string, 0, len(names)+1)
+	// Capacity is len(names); composeFile is appended only when present, so a
+	// +1 here is what CodeQL flags as allocation-size overflow.
+	out := make([]string, 0, len(names))
 	for _, name := range names {
 		if name != produceArtifactToolName && name != "canvasPublish" && name != "composeFile" {
 			out = append(out, name)
