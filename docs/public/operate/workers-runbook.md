@@ -96,8 +96,10 @@ The install script:
 2. **Upserts** this cluster as one home in `~/.memql/workers.yaml`
    (0600) and mirrors that home into legacy `~/.memql/worker.yaml`.
    A second install against a **different** cluster URL appends a home;
-   sibling homes are preserved. `--force` replaces the **matched** home
-   only. Home id defaults to the cluster URL's host.
+   sibling homes are preserved. Re-running against the **same**
+   `cluster_url` refreshes the token in place without `--force`.
+   `--force` only remaps an existing home **id** onto a **different**
+   `cluster_url` (siblings kept). Home id defaults to the cluster URL's host.
 3. Drops a LaunchAgent at
    `~/Library/LaunchAgents/com.znasllc.memql-worker.plist`
    and `launchctl load`s it (one agent for every home).
@@ -140,8 +142,71 @@ writes a user-systemd unit at
 `~/.config/systemd/user/memql-worker.service` and starts
 it — one unit for every home. On Wayland the worker registers HEADLESS
 only; X11 sessions get COMPUTERUSE as well. Pairing / re-install is
-additive the same way as on macOS (`--force` replaces the matched home
-only).
+additive the same way as on macOS (same `cluster_url` refreshes without
+`--force`; `--force` only remaps a home id onto a different cluster).
+
+### Re-run and version-aware install
+
+Re-running the same one-liner is safe:
+
+- **Same installed version** as the target release → success no-op
+  ("already at vX"); no re-download. `--force` is not involved.
+- **Installed newer** than the target → refuse (no silent downgrade).
+  `--force` does not override this; it only remaps homes in
+  `workers.yaml`.
+- **Older or missing** → install or upgrade.
+- **Same `cluster_url`** already enrolled → token/config refresh without
+  `--force`, even when the suggested home id differs from the enrolled
+  id (for example install's URL-host id vs `memql worker pair --home-id
+  local`).
+- **`--force`** only when remapping an existing home id onto a
+  **different** `cluster_url`. Never means "binary already exists".
+
+### Uninstall
+
+Uninstall is one physical line too — the install run backwards. It stops
+and removes the service (LaunchAgent / user-systemd), the binary and its
+symlink, and the token registry `~/.memql/workers.yaml` plus the legacy
+`~/.memql/worker.yaml` mirror. It does **not** revoke the machine on the
+cluster; do that from Fleet -> Machines (or the machine page's **Remove
+this machine**). Cluster credentials under `clusters.yaml` are left alone.
+
+`--user-local` removes a `--user-local` install from `~/.memql/bin`
+instead of `/usr/local/bin`. `--purge` also removes `~/.memql/policy.yaml`,
+the state dir (logs, ledgers), and on Linux the native model runtime under
+`~/.memql/ollama` when present; without `--purge` those are kept and the
+script says so.
+
+To drop **one** cluster home while keeping the supervisor for others,
+prefer `memql worker unpair --cluster <home-id>` and reload the service
+instead of a full uninstall.
+
+**macOS** (one physical line):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-mac.sh | bash
+```
+
+With flags (still one physical line):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-mac.sh | bash -s -- --user-local --purge
+```
+
+**Linux** (one physical line):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-linux.sh | bash
+```
+
+With flags:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/znasllc-io/memql-cockpit/main/scripts/install/uninstall-linux.sh | bash -s -- --user-local --purge
+```
+
+From a cockpit clone: `./scripts/install/uninstall-mac.sh` or
+`./scripts/install/uninstall-linux.sh` with the same flags.
 
 ---
 
@@ -186,8 +251,11 @@ Tokens are never wiped by migration.
 
 **Additive upsert:** `install-mac.sh` / `install-linux.sh` and
 `memql worker pair` upsert by home id / cluster URL. A new URL appends;
-the same URL refreshes the token in place. `--force` replaces that home
-only — never sibling homes. The Go pair wizard also accepts
+the same URL refreshes the token in place without `--force` (the enrolled
+home id is preserved even when the installer would have suggested a
+different one). `--force` is only for remapping an existing home **id**
+onto a **different** `cluster_url` — never sibling homes, and never
+"binary already exists". The Go pair wizard also accepts
 `--home-id <id>` (default: matching `clusters.yaml` name, else URL host);
 the curl installers derive the id from the URL host today.
 
@@ -523,7 +591,10 @@ one action bar carrying the state and the acts legal from it.
    and the manual steps in the order they happen on the machine: a terminal,
    the paste, the password prompt, on macOS the two permission dialogs, the
    download. The installer **upserts** a home in `~/.memql/workers.yaml`; it
-   does not clobber sibling homes already enrolled on that machine. When local
+   does not clobber sibling homes already enrolled on that machine. Re-running
+   the same command is version-aware (same version = no-op; no silent
+   downgrade) and refreshes the same `cluster_url` without `--force` — see
+   [Re-run and version-aware install](#re-run-and-version-aware-install). When local
    models were asked for, the second command -- the installed binary's
    `worker setup --inference`, run once the installer prints SUCCESS -- is stated up front,
    because the one-liner cannot approve a runtime install unattended. Every
@@ -571,15 +642,16 @@ the right shape for a machine that can redeem a short code interactively.
 
 **Removing a machine** is the same act in reverse, on the machine's page:
 **Remove this machine** revokes the registration (the row stays as audit
-history) and shows the uninstall one-liner for its platform --
-`scripts/install/uninstall-{mac,linux}.sh` in the cockpit repository, which
-stops and removes the service, the binary, and the worker credential files
-(`worker.yaml`; also remove `workers.yaml` by hand if you are leaving the
-machine with no homes), and keeps the logs unless `--purge` is passed. To
-drop **one** cluster home while keeping the supervisor for others, prefer
-`memql worker unpair --cluster <home-id>` and reload the service instead of
-a full uninstall. Select the installation location on this page so the
-uninstaller targets the system command or the account-only command.
+history) and shows the uninstall one-liner for its platform — the same
+paste-safe `curl | bash` lines in [Uninstall](#uninstall) above
+(`uninstall-mac.sh` / `uninstall-linux.sh` from cockpit `main`). That
+script stops and removes the service, the binary, and the token registry
+`~/.memql/workers.yaml` plus legacy `worker.yaml`, and keeps logs /
+`policy.yaml` unless `--purge` is passed. Select the installation location
+on this page so the uninstaller gets `--user-local` when the install was
+account-only. To drop **one** cluster home while keeping the supervisor for
+others, prefer `memql worker unpair --cluster <home-id>` and reload the
+service instead of a full uninstall.
 
 ### 5.6 The cross-node forward (memql#4352)
 
@@ -758,8 +830,9 @@ Re-run the Fleet install one-liner (or `memql worker pair`) against the
 **other** cluster's token and `https://api.<domain>`. The upsert is
 additive: the new home is appended in `workers.yaml`, the same
 LaunchAgent / systemd unit keeps running, and each cluster gets its own
-registration. Use `--force` only when you intend to replace the matched
-home's token/URL.
+registration. Re-running against a cluster URL already enrolled refreshes
+that home without `--force`. Use `--force` only when remapping an existing
+home **id** onto a **different** `cluster_url`.
 
 ### List or drop one home
 
