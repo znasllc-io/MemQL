@@ -157,6 +157,31 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		// owner; the value comes off the row just read.
 		writeCtx := ownerActor(ctx, owner)
 		status := rowString(run, "status")
+		if status == runStatusCompiling {
+			// Events can be lost while planners are unavailable. Compilation
+			// uses the same durable claim for this recovery and eager delivery.
+			// Only a LOCAL compiler can recover here: EnableCompileViaEvent makes
+			// createGoal honest on a BFF, but dispatchCompile then returns true
+			// without claiming — counting that as Redispatched would skip the
+			// abandon path forever (memql#5262 fold of #5268).
+			if i.compilerRef() != nil && i.dispatchCompile(writeCtx, CompileRequest{RunId: runId, OwnerUserId: owner}) {
+				res.Redispatched++
+				continue
+			}
+			// Another planner may have won since rowsInFlight took its
+			// snapshot. Judge its current heartbeat, never that old snapshot.
+			current, readErr := st.runForOwner(writeCtx, runId)
+			if readErr != nil || current == nil || rowString(current, "status") != runStatusCompiling {
+				continue
+			}
+			run = current
+			if argBool(run, "cancelRequested") {
+				if err := st.updateRun(writeCtx, runId, map[string]any{"status": runStatusCancelled, "finishedAt": rfc(now)}); err != nil {
+					i.log().Warn("work: could not cancel a compiling run", "run", runId, "error", err)
+				}
+				continue
+			}
+		}
 
 		if status == runStatusWaiting {
 			// A CLASSIFIED FAILURE'S ACT IS SERVED FIRST (epic memql#5127).
@@ -251,13 +276,29 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		// A takeover RESUMES rather than restarts: the seam loads the run's
 		// journal and resumes from the step that was in flight, so the steps
 		// that already ran are not re-executed.
-		if i.redispatchStale(writeCtx, run, runId, owner) {
+		if status != runStatusCompiling && i.redispatchStale(writeCtx, run, runId, owner) {
 			res.Redispatched++
 			continue
 		}
+		code := "run_abandoned"
+		if status == runStatusCompiling && rowString(run, "heartbeatAt") == "" {
+			// A planner can have won arbitration and still be writing its
+			// first heartbeat. Closing an unclaimed run participates in the
+			// same arbitration, so neither side can invalidate the other's
+			// read in that gap. An interrupted claim expires normally.
+			if !i.claimCompile(writeCtx, runId) {
+				continue
+			}
+			current, err := st.runForOwner(writeCtx, runId)
+			if err != nil || rowString(current, "status") != runStatusCompiling || rowString(current, "heartbeatAt") != "" {
+				continue
+			}
+			run = current
+			code = "compile_unclaimed"
+		}
 		if err := st.updateRun(writeCtx, runId, map[string]any{
 			"status":       runStatusAbandoned,
-			"errorCode":    "run_abandoned",
+			"errorCode":    code,
 			"errorMessage": abandonedMessage(run, last),
 			"finishedAt":   rfc(now),
 		}); err != nil {
@@ -266,9 +307,16 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 				"component", "work.sweep", "run", runId, "err", err)
 			continue
 		}
-		i.log().Info("work: closed a run whose node stopped answering",
-			"component", "work.sweep", "run", runId,
-			"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"))
+		if neverReachedCompile(run) {
+			i.log().Info("work: closed a run that never reached a compile surface",
+				"component", "work.sweep", "run", runId,
+				"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"),
+				"status", status, "automationName", rowString(run, "automationName"))
+		} else {
+			i.log().Info("work: closed a run whose node stopped answering",
+				"component", "work.sweep", "run", runId,
+				"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"))
+		}
 		res.Abandoned++
 	}
 	return res, nil
@@ -286,8 +334,12 @@ func (i *Integration) redispatchStale(ctx context.Context, run map[string]any, r
 	// Only a run that HAS an automation to execute can be handed back. A run
 	// at `running` with no template is the compile-failed shape, and
 	// dispatching it would claim a run the seam then refuses -- burning a
-	// lease and delaying the close by one pass for nothing.
-	if rowString(run, "automationName") == "" {
+	// lease and delaying the close by one pass for nothing. The compile
+	// sentinel (`work.compile`) is the same shape: it names no template, and
+	// handing it to the executor would claim a run that then fails for
+	// "automation not runnable".
+	name := rowString(run, "automationName")
+	if name == "" || name == compilingAutomationName {
 		return false
 	}
 	if !i.dispatchRun(ctx, DispatchRequest{RunId: runId, OwnerUserId: owner, GoalId: rowString(run, "goalId"), Status: rowString(run, "status"), Recovery: true}) {
@@ -335,10 +387,22 @@ func lastHeartbeat(run map[string]any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// abandonedMessage says the three things a person needs and nothing the sweep
-// cannot know. It does NOT say the run failed: the cluster lost the node, and
-// whether the work was about to succeed is not something this can see.
+// abandonedMessage says what the sweep can actually know. It does NOT say the
+// run failed: whether the work was about to succeed is not something this can
+// see, and an append-only row cannot be corrected.
+//
+// Two shapes share the abandoned status and must NOT share a sentence:
+//
+//   - A run that was executing and whose node went silent -- "lost the node".
+//   - A run that never left `compiling` / still carries the work.compile
+//     sentinel -- compile never ran. Saying the node was lost sends the reader
+//     at infrastructure for a goal the bff accepted with no compile surface.
 func abandonedMessage(run map[string]any, last time.Time) string {
+	if neverReachedCompile(run) {
+		return fmt.Sprintf(
+			"this run never reached a compile surface; it was still compiling (no planner compiled it) when the sweep closed it at %s. Re-create the goal once a planner is available, or resume only after compile can run.",
+			last.UTC().Format(time.RFC3339))
+	}
 	where := ""
 	if node := rowString(run, "nodeId"); node != "" {
 		where = fmt.Sprintf(" (%s)", node)
@@ -346,6 +410,15 @@ func abandonedMessage(run map[string]any, last time.Time) string {
 	return fmt.Sprintf(
 		"this cluster lost the node that was running this%s; it was last heard from at %s. Completed steps are in the journal, so a resume serves them rather than running them again.",
 		where, last.UTC().Format(time.RFC3339))
+}
+
+// neverReachedCompile reports a run that was abandoned before any template was
+// chosen: still in `compiling`, or still carrying the compile sentinel name.
+func neverReachedCompile(run map[string]any) bool {
+	if rowString(run, "status") == runStatusCompiling {
+		return true
+	}
+	return rowString(run, "automationName") == compilingAutomationName
 }
 
 // ---------------------------------------------------------------------------

@@ -198,6 +198,7 @@ automation indexMemoryOnCreate {
 @filter(payload.status == "stored")
 automation indexFileOnCreate {
   args {
+    producedByRunId any
     archived any
     folderId any
     format any
@@ -214,6 +215,7 @@ automation indexFileOnCreate {
   step persist {
     mutation createArtifact (
       sourceConceptRef: id,
+      producedByRunId: producedByRunId ?? "",
       ownerUserId:      ownerUserId,
       lens:             "artifact",
       kind:             "file",

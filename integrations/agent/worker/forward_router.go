@@ -1,4 +1,4 @@
-//go:build agent
+//go:build agent || planner
 
 package worker
 
@@ -110,7 +110,7 @@ type forwardCall struct {
 	onChunk func(*nodev1.WorkerForwardStream)
 }
 
-// NewForwardRouter constructs an idle router bound to the agent node's
+// NewForwardRouter constructs an idle router bound to the originating node's
 // PeerManager.
 func NewForwardRouter(peerMgr *node.PeerManager, logger *slog.Logger) *ForwardRouter {
 	self := func() (string, string) {

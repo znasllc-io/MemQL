@@ -245,6 +245,7 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	// file body to the canvas, even as a fallback when the workbench write
 	// hiccups. Ordinary turns are untouched (the hint is absent).
 	toolNames = ScopeToolsForDeliverableSurface(msg.Hints, toolNames)
+	toolNames = r.scopeWorkExecution(ctx, data, toolNames)
 
 	// Provider selection runs through the MemQL AI Router, and the replier no
 	// longer owns any part of the decision (epic memql#5127). It says what
@@ -320,10 +321,14 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 		role = "operator"
 	}
 
+	promptName := "agentReply"
+	if isOwnedWorkExecution(ctx) {
+		promptName = "workAgentReply"
+	}
 	routerReq := router.ResolveRequest{
 		RequestId:        msg.RequestId,
 		AgentId:          msg.AgentId,
-		PromptName:       "agentReply",
+		PromptName:       promptName,
 		Level:            airoute.LevelStrong,
 		Modality:         airoute.ModalityStreamingTools,
 		Needs:            airoute.Needs{Tools: true},
@@ -584,9 +589,15 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 	data["etiquette"] = r.loadAssistantEtiquette(ctx)
 
 	renderStart := time.Now()
-	prompt, err := r.engine.RenderPrompt("agentReply", data)
+	promptData := data
+	if promptName == "workAgentReply" {
+		// The work prompt owns one turn envelope, so optional contextual
+		// fields cannot violate a different prompt's closed input schema.
+		promptData = map[string]any{"turn": data}
+	}
+	prompt, err := r.engine.RenderPrompt(promptName, promptData)
 	if err != nil {
-		return nil, fmt.Errorf("render agentReply prompt: %w", err)
+		return nil, fmt.Errorf("render %s prompt: %w", promptName, err)
 	}
 	r.logger.Info("agentReply: stage",
 		"stage", "renderPrompt",
@@ -697,6 +708,7 @@ func (r *Replier) prepareTurn(ctx context.Context, msg *memqlv1.AgentGenerateTur
 		// plan-level runaway can't form. The same hint that scopes canvasPublish
 		// out (memql#950) is the authoritative "I am the executor" marker.
 		IsProduceArtifactExecution: IsProduceArtifactExecutionTurn(msg.Hints),
+		IsWorkExecution:            isOwnedWorkExecution(ctx),
 	}
 	// On a post-approval execution turn the planner forwards
 	// hints["plan_id"] alongside hints["trigger"]="plan_approved".
@@ -743,17 +755,22 @@ func (r *Replier) handleStreaming(ctx context.Context, msg *memqlv1.AgentGenerat
 		return nil, err
 	}
 
-	provider, resolved, err := r.router.ResolveStreamWithTools(prep.routerReq)
+	selection, err := r.router.ResolveFor(ctx, prep.routerReq)
 	if err != nil {
 		return nil, fmt.Errorf("router: resolve stream-with-tools: %w", err)
 	}
+	provider, ok := selection.Client.(common.ChatStreamWithToolsProvider)
+	if !ok {
+		return nil, fmt.Errorf("router: streaming tools resolved to %T", selection.Client)
+	}
+	resolved := selection.Resolution
 	r.logger.Info("agentReply: router picked provider",
 		"lane", "interactive",
 		"provider", resolved.ProviderName,
 		"vendor", resolved.Vendor,
 		"model", resolved.Model,
-		"policy", resolved.PolicyName,
-		"chain", resolved.Chain,
+		"policy", resolved.Decision.Policy,
+		"considered", resolved.Decision.Considered,
 		"explicitHint", prep.routerReq.ExplicitProvider,
 		"operatorEnabled", prep.operatorEnabled,
 		"requestId", prep.routerReq.RequestId,

@@ -735,10 +735,8 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 	cancelPoll := newCancelPoller(e.cancelPollInterval)
 
 	for stepIndex, step := range automation.Steps {
-		// Track step order for chain verification
-		if e.chainTrackingEnabled {
-			exec.StepOrder = append(exec.StepOrder, step.ID)
-		}
+		// Replay/fork needs the executed order even without chain hashing.
+		exec.StepOrder = append(exec.StepOrder, step.ID)
 
 		// Check for cancellation
 		select {
@@ -836,7 +834,7 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 		// `running` BEFORE its body so a crash mid-step leaves evidence the
 		// step was reached, which is what resume uses as its resume point.
 		journal.stepRunning(ctx, exec, step, stepIndex, 1)
-		result, err := e.executeStep(ctx, step, stepCtx)
+		result, err := e.executeJournaledStep(ctx, journal, step, stepCtx)
 		if result != nil {
 			// Compute chain linkage if tracking enabled
 			if e.chainTrackingEnabled {
@@ -879,7 +877,7 @@ func (e *Executor) executeWithEvent(ctx context.Context, automation *Automation,
 						)
 					}
 					journal.stepRunning(ctx, exec, step, stepIndex, attempt+1)
-					result, err = e.executeStep(ctx, step, stepCtx)
+					result, err = e.executeJournaledStep(ctx, journal, step, stepCtx)
 					if err == nil {
 						// Compute chain linkage if tracking enabled
 						if e.chainTrackingEnabled && result != nil {
@@ -1112,9 +1110,14 @@ func (e *Executor) withRunContext(ctx context.Context, stepCtx *StepContext, ste
 	if e == nil || e.sandboxRun || stepCtx == nil || stepCtx.Execution == nil || step == nil {
 		return ctx
 	}
-	// Already stamped by a caller that knows more than this one does -- a
-	// derived run being compiled, say. Its mode and lineage must win.
-	if _, ok := common.RunFromContext(ctx); ok {
+	// Keep inherited lineage and replay policy, but identify the current
+	// step when this executor owns that run. Nested executions keep their
+	// parent's association rather than attributing a call to another run.
+	if run, ok := common.RunFromContext(ctx); ok {
+		if memql.BareShortId(run.RunId) == memql.BareShortId(stepCtx.Execution.ID) {
+			run.StepKey = step.ID
+			return common.ContextWithRun(ctx, run)
+		}
 		return ctx
 	}
 	return common.ContextWithRun(ctx, common.RunContext{

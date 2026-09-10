@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The connection seam, mocked at the MODULE (the browse suite's pattern).
@@ -57,6 +57,53 @@ describe("the Desktop place", () => {
 });
 
 describe("the open intent", () => {
+  it("selects a backing file's artifact and opens its folder", async () => {
+    const consumed: string[] = [];
+    h.connection = fakeConnection({
+      folders: [folderRow({ id: "reports", name: "Reports" })],
+      artifacts: [
+        artifactRow({ id: "output-index", sourceConceptRef: "output-file", title: "Inventory.csv", folderId: "reports" }),
+        artifactRow({ id: "output-file", sourceConceptRef: "unrelated-file", title: "Unrelated.csv" }),
+      ],
+    });
+    await renderFiles({
+      intent: { id: "open-output", payload: { fileId: "output-file" } },
+      consumeIntent: (id) => consumed.push(id),
+    });
+    expect(screen.getByRole("heading", { name: "Reports" })).toBeTruthy();
+    const details = screen.getByRole("complementary", { name: "File details" });
+    expect(within(details).getByText("Inventory.csv")).toBeTruthy();
+    expect(within(details).queryByText("Unrelated.csv")).toBeNull();
+    expect(consumed).toEqual(["open-output"]);
+  });
+
+  it("waits for indexing on the retained feed and selects the output once", async () => {
+    const consumed: string[] = [];
+    const conn = fakeConnection({ artifacts: [] });
+    h.connection = conn;
+    await renderFiles({
+      intent: { id: "pending-output", payload: { fileId: "output-file" } },
+      consumeIntent: (id) => consumed.push(id),
+    });
+    expect(consumed).toEqual([]);
+    expect(conn.subscriptions.activeCount("v1:library:artifact")).toBe(1);
+    await act(async () => {
+      conn.subscriptions.emit("v1:library:artifact", artifactRow({
+        id: "output-index", sourceConceptRef: "output-file", title: "Inventory.csv",
+      }), "NODE_CREATED");
+    });
+    expect(within(screen.getByRole("complementary", { name: "File details" })).getByText("Inventory.csv")).toBeTruthy();
+    expect(consumed).toEqual(["pending-output"]);
+
+    // A later event must not re-open a file the person has just closed.
+    await click(screen.getByRole("button", { name: /Inventory\.csv/, expanded: true }));
+    await act(async () => {
+      conn.subscriptions.emit("v1:library:artifact", artifactRow({ id: "another-index", title: "Other.csv" }), "NODE_CREATED");
+    });
+    expect(screen.queryByRole("complementary", { name: "File details" })).toBeNull();
+    expect(consumed).toEqual(["pending-output"]);
+  });
+
   it("lands the window on the asked-for place and folder, and consumes by id", async () => {
     const consumed: string[] = [];
     h.connection = fakeConnection({

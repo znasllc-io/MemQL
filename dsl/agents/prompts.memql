@@ -4,6 +4,15 @@
 // platform-bootstrapped agents (Planner, Trainer) carry on their
 // providerConfig. The bodies live in prompts/<name>.tmpl.
 
+/// Tool-calling prompt for a Nexus work run under its persisted owner. Ships with the engine so
+/// background execution has its identity, source context and completion instructions on any agent
+/// replica, without depending on a product's interactive conversation prompt.
+@level("strong")
+@templateFile("prompts/workAgentReply.tmpl")
+prompt workAgentReply {
+  turn object! @description("Prepared work turn: agent identity, execution directive, optional etiquette and retrieved context. The goal and conversation history travel separately as model messages.")
+}
+
 /// System prompt for the user's Planner Agent -- the orchestrator persona that owns Plan
 /// decomposition, Task dispatch, retry decisions, and escalation to the user. Paired with Claude
 /// Sonnet (streamClaudeSonnet) -- the planner's workload is structured pattern-matching over the

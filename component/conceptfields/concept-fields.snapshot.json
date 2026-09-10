@@ -1603,6 +1603,20 @@
       }
     },
     {
+      "concept": "v1:compose:compositionInput",
+      "file": "compose/concepts.memql",
+      "fields": [
+        "compositionId",
+        "ownerUserId",
+        "request"
+      ],
+      "required": [
+        "compositionId",
+        "ownerUserId",
+        "request"
+      ]
+    },
+    {
       "concept": "v1:compose:recipe",
       "file": "compose/concepts.memql",
       "fields": [
@@ -2802,6 +2816,8 @@
         "mimeType",
         "name",
         "ownerUserId",
+        "producedByRunId",
+        "producedByStepKey",
         "sha256",
         "size",
         "source",

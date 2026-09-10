@@ -180,6 +180,12 @@ func (i *Integration) handleCancel(ctx context.Context, args map[string]any, _ i
 	}); err != nil {
 		return nil, fmt.Errorf("compose: recording the cancellation: %w", err)
 	}
+	if goalId := strings.TrimSpace(stringOf(row["goalId"])); goalId != "" {
+		if _, err := st.query(ctx, "builtin "+call("cancelGoal", map[string]any{"goalId": goalId, "reason": reason})); err != nil {
+			return nil, fmt.Errorf("compose: the composition was stopped, but its work run could not be asked to cancel: %w", err)
+		}
+	}
+
 	return i.resultNode(map[string]any{
 		"compositionId": compositionId,
 		"status":        "cancelled",

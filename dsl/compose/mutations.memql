@@ -65,6 +65,25 @@ mutate composition createComposition {
   }
 }
 
+/// Capture a validated materialization request under the actor who resolved its sources. Scoping
+/// to actor.userId protects whose input this is, but cannot authorize a caller to rewrite captured
+/// payloads: recovery must execute the request the engine validated before the work run opened.
+@actor
+@serverOnly
+mutate compositionInput createCompositionInput {
+  args {
+    compositionId string!
+    request       object!
+  }
+  insert {
+    accept { compositionId, request }
+    stamp {
+      id: args.compositionId
+      ownerUserId: actor.userId
+    }
+  }
+}
+
 /// Move a composition through its lifecycle and, at the end, record what it produced.
 ///
 /// SCOPING TO actor.userId IS NOT THE FIX HERE, and that is why the annotation is @serverOnly
@@ -85,6 +104,7 @@ mutate composition updateCompositionState {
   args {
     compositionId       string!
     status              string
+    goalId              string
     runId               string
     outputFileId        string
     modelsUsed          []object
@@ -94,7 +114,7 @@ mutate composition updateCompositionState {
     failureReason       string
   }
   update {
-    accept { status, runId, outputFileId, modelsUsed, provenanceEmbedded, provenanceNote, sha256, failureReason }
+    accept { status, goalId, runId, outputFileId, modelsUsed, provenanceEmbedded, provenanceNote, sha256, failureReason }
     stamp {
       id: args.compositionId
       ownerUserId: actor.userId

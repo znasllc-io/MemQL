@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { pumpToPort } from "../../src/apps/files/actions/downloadWorker";
+import { downloadWorkerRegistration, pumpToPort } from "../../src/apps/files/actions/downloadWorker";
 
 // The page half of the streaming download (design D13): the page fetches with
 // the bearer -- authorization never leaves this side -- and pumps body chunks
@@ -29,6 +29,71 @@ function fakePort() {
     postMessage: vi.fn((msg: Sent) => void sent.push(msg)),
   };
 }
+
+describe("the download-only worker registration", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function install(state: ServiceWorkerState) {
+    const worker = Object.assign(new EventTarget(), { state });
+    const registration = {
+      active: state === "activated" ? worker : null,
+      waiting: null,
+      installing: state === "activated" ? null : worker,
+    };
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        register: async () => registration,
+        // The OS page is outside /__memql-dl/, so this never settles.
+        ready: new Promise(() => {}),
+      },
+    });
+    return { worker, registration };
+  }
+
+  it("uses an active scoped worker without waiting for control of the OS page", async () => {
+    const { registration } = install("activated");
+    await expect(downloadWorkerRegistration()).resolves.toBe(registration);
+  }, 500);
+
+  it("waits for its own installation to activate", async () => {
+    const { worker, registration } = install("installing");
+    let finished = false;
+    const result = downloadWorkerRegistration().then((value) => { finished = true; return value; });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    worker.state = "activated";
+    registration.active = worker;
+    registration.installing = null;
+    worker.dispatchEvent(new Event("statechange"));
+    await expect(result).resolves.toBe(registration);
+  }, 500);
+
+  it("falls back when installation cannot activate within the bounded wait", async () => {
+    vi.useFakeTimers();
+    install("installing");
+    const result = downloadWorkerRegistration();
+    await vi.advanceTimersByTimeAsync(4_000);
+    await expect(result).resolves.toBeNull();
+  }, 500);
+
+  it("waits for an available update before using a previously active worker", async () => {
+    const { worker, registration } = install("installing");
+    registration.active = Object.assign(new EventTarget(), { state: "activated" as ServiceWorkerState });
+    let finished = false;
+    const result = downloadWorkerRegistration().then((value) => { finished = true; return value; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    worker.state = "activated";
+    registration.active = worker;
+    registration.installing = null;
+    worker.dispatchEvent(new Event("statechange"));
+    await expect(result).resolves.toBe(registration);
+  }, 500);
+});
 
 describe("pumpToPort", () => {
   it("forwards every chunk in order and closes with done", async () => {

@@ -858,7 +858,7 @@ QueryClient.prototype.allSafetyClassifications = function (this: QueryClient, ar
   return this.executeNamed("allSafetyClassifications", buildAllSafetyClassifications(args), opts);
 };
 
-/** Every machine in the cluster, for a cluster owner; optionally narrowed to one owner. Backs /fleet/machines' operator view, which adds an owner column. */
+/** Every machine in the cluster, for a cluster owner; optionally narrowed to one owner. Backs /fleet/machines' operator view, which adds an owner column. Shared inference uses this same read, so heartbeat eligibility must not use cached status. */
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["allWorkersWithStatus"] in generated_concepts.ts).
 export interface AllWorkersWithStatusArgs {
   ownerUserId?: string;
@@ -1468,6 +1468,28 @@ declare module "./query.js" {
 
 QueryClient.prototype.authoringBundlesForOwner = function (this: QueryClient, args: AuthoringBundlesForOwnerArgs = {} as AuthoringBundlesForOwnerArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("authoringBundlesForOwner", buildAuthoringBundlesForOwner(args), opts);
+};
+
+/** One owned authored construct by its stored identity. Work execution uses the run's template reference, then verifies its bundle and recompiles the complete closure on the executing node. */
+// Bound concept: v1:authoring:construct (machine-readable: BoundConcepts["authoringConstructById"] in generated_concepts.ts).
+export interface AuthoringConstructByIdArgs {
+  constructId: string;
+}
+
+export function buildAuthoringConstructById(args: AuthoringConstructByIdArgs): string {
+  const parts: string[] = [];
+  parts.push("constructId: " + renderMemQLValue(args.constructId));
+  return "query authoringConstructById(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    authoringConstructById(args: AuthoringConstructByIdArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.authoringConstructById = function (this: QueryClient, args: AuthoringConstructByIdArgs = {} as AuthoringConstructByIdArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("authoringConstructById", buildAuthoringConstructById(args), opts);
 };
 
 /** All authored constructs belonging to a bundle, scoped to the caller. Backs the gate runners (compile/bind the whole closure) + the runtime register/unregister path. */
@@ -2371,6 +2393,28 @@ QueryClient.prototype.compositionById = function (this: QueryClient, args: Compo
   return this.executeNamed("compositionById", buildCompositionById(args), opts);
 };
 
+/** Execution identities and output metadata. The executor checks the owner and work run before loading the separately stored, owner-only input snapshot. */
+// Bound concept: v1:compose:composition (machine-readable: BoundConcepts["compositionExecutionById"] in generated_concepts.ts).
+export interface CompositionExecutionByIdArgs {
+  compositionId: string;
+}
+
+export function buildCompositionExecutionById(args: CompositionExecutionByIdArgs): string {
+  const parts: string[] = [];
+  parts.push("compositionId: " + renderMemQLValue(args.compositionId));
+  return "query compositionExecutionById(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    compositionExecutionById(args: CompositionExecutionByIdArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.compositionExecutionById = function (this: QueryClient, args: CompositionExecutionByIdArgs = {} as CompositionExecutionByIdArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("compositionExecutionById", buildCompositionExecutionById(args), opts);
+};
+
 /** The composition that produced one Library file, if one did. Backs the Files app's inspector line ("Made in the Materializer from 3 sources") and its Open in Materializer act -- the one direction of the seam agreed with the Files-places epic, which never edits a composition. */
 // Bound concept: v1:compose:composition (machine-readable: BoundConcepts["compositionForOutputFile"] in generated_concepts.ts).
 export interface CompositionForOutputFileArgs {
@@ -2391,6 +2435,28 @@ declare module "./query.js" {
 
 QueryClient.prototype.compositionForOutputFile = function (this: QueryClient, args: CompositionForOutputFileArgs = {} as CompositionForOutputFileArgs, opts?: QueryCallOptions): Promise<Result> {
   return this.executeNamed("compositionForOutputFile", buildCompositionForOutputFile(args), opts);
+};
+
+/** The input snapshot captured under this owner. Account membership and cluster ownership grant no access: source payloads may have been private even when the resulting composition is shared. */
+// Bound concept: v1:compose:compositionInput (machine-readable: BoundConcepts["compositionInputById"] in generated_concepts.ts).
+export interface CompositionInputByIdArgs {
+  compositionId: string;
+}
+
+export function buildCompositionInputById(args: CompositionInputByIdArgs): string {
+  const parts: string[] = [];
+  parts.push("compositionId: " + renderMemQLValue(args.compositionId));
+  return "query compositionInputById(" + parts.join(", ") + ")";
+}
+
+declare module "./query.js" {
+  interface QueryClient {
+    compositionInputById(args: CompositionInputByIdArgs, opts?: QueryCallOptions): Promise<Result>;
+  }
+}
+
+QueryClient.prototype.compositionInputById = function (this: QueryClient, args: CompositionInputByIdArgs = {} as CompositionInputByIdArgs, opts?: QueryCallOptions): Promise<Result> {
+  return this.executeNamed("compositionInputById", buildCompositionInputById(args), opts);
 };
 
 /** Everything materialized, newest first: the Materialized view's one read and the Files app's Materializer place. Owned, with the cluster-owner escape -- which is what makes "everything materialized in THIS INSTANCE" (the epic's words) a claim this read can honestly make. A plain owner tier has no bypass on the read path, so an operator would silently see one person's subset. */
@@ -4137,19 +4203,25 @@ QueryClient.prototype.libraryFileVersionsForFile = function (this: QueryClient, 
   return this.executeNamed("libraryFileVersionsForFile", buildLibraryFileVersionsForFile(args), opts);
 };
 
-/** List the caller's Library files, newest first, gated by ownerUserId==actor.userId. The file-level read behind the Artifacts page's upload and training surfaces -- the artifact index is what the list renders, and this is what answers questions the index does not carry (analysis status, embedding coverage, which domains a file was trained into). */
+/** List the caller's Library files, newest first, gated by ownerUserId==actor.userId. The file-level read behind the Artifacts page's upload and training surfaces -- the artifact index is what the list renders, and this is what answers questions the index does not carry (analysis status, embedding coverage, which domains a file was trained into). Optional run and status filters also provide an immediate owned file receipt for work turns. */
 // Bound concept: v1:library:file (machine-readable: BoundConcepts["libraryFilesForOwner"] in generated_concepts.ts).
 export interface LibraryFilesForOwnerArgs {
+  runId?: string;
+  stepKey?: string;
+  status?: string;
 }
 
 export function buildLibraryFilesForOwner(args: LibraryFilesForOwnerArgs): string {
-  void args;
-  return "query libraryFilesForOwner()";
+  const parts: string[] = [];
+  if (args.runId !== undefined) parts.push("runId: " + renderMemQLValue(args.runId));
+  if (args.stepKey !== undefined) parts.push("stepKey: " + renderMemQLValue(args.stepKey));
+  if (args.status !== undefined) parts.push("status: " + renderMemQLValue(args.status));
+  return "query libraryFilesForOwner(" + parts.join(", ") + ")";
 }
 
 declare module "./query.js" {
   interface QueryClient {
-    libraryFilesForOwner(args?: LibraryFilesForOwnerArgs, opts?: QueryCallOptions): Promise<Result>;
+    libraryFilesForOwner(args: LibraryFilesForOwnerArgs, opts?: QueryCallOptions): Promise<Result>;
   }
 }
 
@@ -4752,7 +4824,7 @@ QueryClient.prototype.myRoutingPolicies = function (this: QueryClient, args: MyR
 };
 
 /** The caller's own machines, with everything the router orders and filters on.
-ONE QUERY FOR TWO READERS, and that is the point. The design had a separate `workersForOwnerWithStatus(ownerUserId)` for the router, @serverOnly because a caller-supplied owner id is not a caller check. It is not needed: the router has no caller of its own -- it dispatches on behalf of the session's owner -- and therefore already runs under auth.ContextWithUserActor for that owner. Reading `actor.userId` is then both simpler and strictly safer than accepting an argument: there is no id to supply, so there is nothing to enumerate, and no @serverOnly annotation to keep honest. */
+ONE QUERY FOR TWO READERS, and that is the point. The design had a separate `workersForOwnerWithStatus(ownerUserId)` for the router, @serverOnly because a caller-supplied owner id is not a caller check. It is not needed: the router has no caller of its own -- it dispatches on behalf of the session's owner -- and therefore already runs under auth.ContextWithUserActor for that owner. Reading `actor.userId` is then both simpler and strictly safer than accepting an argument: there is no id to supply, so there is nothing to enumerate, and no @serverOnly annotation to keep honest. Read heartbeats live: the default 60-second cache outlives the 30-second online window, and a heartbeat written by another replica must keep its machine eligible immediately. */
 // Bound concept: v1:worker:registration (machine-readable: BoundConcepts["myWorkersWithStatus"] in generated_concepts.ts).
 export interface MyWorkersWithStatusArgs {
 }

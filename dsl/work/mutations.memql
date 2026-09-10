@@ -36,6 +36,8 @@ mutate run createWorkRun {
     goalId                 string
     automationName         string!
     templateFingerprint    string!
+    templateConstructId    string
+    templateVersion        string
     input                  object
     inputFingerprint       string
     triggeredBy            string
@@ -52,7 +54,7 @@ mutate run createWorkRun {
     startedAt              string!
   }
   insert {
-    accept { goalId, automationName, templateFingerprint, input, inputFingerprint, triggeredBy, triggerEvent, variables, forkedFromRunId, forkAtStepKey, status, nodeId, initialChainHead, startedAt }
+    accept { goalId, automationName, templateFingerprint, templateConstructId, templateVersion, input, inputFingerprint, triggeredBy, triggerEvent, variables, forkedFromRunId, forkAtStepKey, status, nodeId, initialChainHead, startedAt }
     stamp {
       id: args.runId
       ownerUserId: actor.userId
@@ -76,7 +78,10 @@ mutate run updateWorkRun {
     automationName   string
     templateConstructId  string
     templateVersion  string
+    templateFingerprint string
     variables        object
+    nodeId           string
+    callerSuppliedPayload bool
     heartbeatAt      string
     chainHead        string
     stepOrder        []string
@@ -92,7 +97,7 @@ mutate run updateWorkRun {
     summary          object
   }
   update {
-    accept { status, automationName, templateConstructId, templateVersion, variables, heartbeatAt, chainHead, stepOrder, waitingOn, spent, outcome, errorCode, errorMessage, finishedAt, cancelRequested, cancelledBy, actualFootprint, summary }
+    accept { status, automationName, templateConstructId, templateVersion, templateFingerprint, variables, nodeId, callerSuppliedPayload, heartbeatAt, chainHead, stepOrder, waitingOn, spent, outcome, errorCode, errorMessage, finishedAt, cancelRequested, cancelledBy, actualFootprint, summary }
     stamp {
       id: args.runId
     }
@@ -336,4 +341,3 @@ mutate approval decideWorkApproval {
     }
   }
 }
-

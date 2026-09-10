@@ -4231,12 +4231,14 @@ func CreateIdentityProviderBuild(args CreateIdentityProviderArgs) string {
 //
 // Bound concept: v1:library:file (machine-readable: BoundConcepts["createLibraryFile"] in generated_concepts.go).
 type CreateLibraryFileArgs struct {
-	FileId   string
-	Name     string
-	MimeType string
-	Size     int
-	Sha256   string
-	BlobUrl  string
+	ProducedByRunId   string
+	ProducedByStepKey string
+	FileId            string
+	Name              string
+	MimeType          string
+	Size              int
+	Sha256            string
+	BlobUrl           string
 	// Enum: uploaded | exported | agent_generated | derived
 	Source string
 	// Enum: markdown | document | pdf | spreadsheet | image | text | conversation | other
@@ -4257,6 +4259,20 @@ func (qc *QueryClient) CreateLibraryFile(ctx context.Context, args CreateLibrary
 func CreateLibraryFileBuild(args CreateLibraryFileArgs) string {
 	var b strings.Builder
 	b.WriteString("mutation createLibraryFile(")
+	if args.ProducedByRunId != "" {
+		b.WriteString("producedByRunId: ")
+		b.WriteString(quoteMemQL(args.ProducedByRunId))
+	}
+	if args.ProducedByStepKey != "" {
+		if b.Len() > 27 {
+			b.WriteString(", ")
+		}
+		b.WriteString("producedByStepKey: ")
+		b.WriteString(quoteMemQL(args.ProducedByStepKey))
+	}
+	if b.Len() > 27 {
+		b.WriteString(", ")
+	}
 	b.WriteString("fileId: ")
 	b.WriteString(quoteMemQL(args.FileId))
 	if b.Len() > 27 {

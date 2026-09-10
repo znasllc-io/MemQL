@@ -331,6 +331,9 @@ query delegationPolicy delegationPolicyForUser {
 /// auth.ContextWithUserActor for that owner. Reading `actor.userId` is then both simpler and
 /// strictly safer than accepting an argument: there is no id to supply, so there is nothing to
 /// enumerate, and no @serverOnly annotation to keep honest.
+/// Read heartbeats live: the default 60-second cache outlives the 30-second online window,
+/// and a heartbeat written by another replica must keep its machine eligible immediately.
+@cache(0)
 @actor
 query registration myWorkersWithStatus {
   filter   ownerUserId==actor.userId
@@ -341,6 +344,8 @@ query registration myWorkersWithStatus {
 
 /// Every machine in the cluster, for a cluster owner; optionally narrowed to one owner. Backs
 /// /fleet/machines' operator view, which adds an owner column.
+/// Shared inference uses this same read, so heartbeat eligibility must not use cached status.
+@cache(0)
 @actor
 query registration allWorkersWithStatus {
   args {

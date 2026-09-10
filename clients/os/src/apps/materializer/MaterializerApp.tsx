@@ -248,7 +248,7 @@ export function MaterializerApp({
             // THE FILE OPENS IN FILES, which is where a file lives. This
             // app never grows a file tree of its own -- that is the seam
             // agreed with the Files-places epic, and it runs one way.
-            os?.actions.openApp("files", "browse", { artifactId: open.outputFileId });
+            os?.actions.openApp("files", "browse", { fileId: open.outputFileId });
             break;
           case "openGoal":
             os?.actions.openApp(GOAL_APP_ID, GOAL_APP_SECTION, goalIntent(open.goalId));

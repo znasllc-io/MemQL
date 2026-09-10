@@ -256,6 +256,8 @@ mutate generatedOutput updateGeneratedOutputContent {
 @actor
 mutate file createLibraryFile {
   args {
+    producedByRunId string
+    producedByStepKey string
     fileId    string!
     name      string!
     mimeType  string!
@@ -275,7 +277,7 @@ mutate file createLibraryFile {
     uploadedFromPath        string
   }
   insert {
-    accept { name, mimeType, size, sha256, blobUrl, source, summary, folderId, uploadedFromWorkerId, uploadedFromWorkerName, uploadedFromPath }
+    accept { producedByRunId, producedByStepKey, name, mimeType, size, sha256, blobUrl, source, summary, folderId, uploadedFromWorkerId, uploadedFromWorkerName, uploadedFromPath }
     stamp {
       id: args.fileId
       ownerUserId: actor.userId

@@ -402,9 +402,16 @@ query file libraryFileByUploadedFrom {
 /// file-level read behind the Artifacts page's upload and training surfaces --
 /// the artifact index is what the list renders, and this is what answers questions the index does
 /// not carry (analysis status, embedding coverage, which domains a file was trained into).
+/// Optional run and status filters also provide an immediate owned file receipt for work turns.
+@cache(0)
 @actor
 query file libraryFilesForOwner {
-  filter  ownerUserId==actor.userId
+  args {
+    runId string
+    stepKey string
+    status string
+  }
+  filter  ownerUserId==actor.userId && when(args.runId) { producedByRunId==args.runId } && when(args.stepKey) { producedByStepKey==args.stepKey } && when(args.status) { status==args.status }
   // Pagination (5.3 / epic #1964): bounded first page + keyset cursor over
   // (createdAt, id) instead of a full-table pull. Literal page size -- the
   // struct-query paginate directive only accepts an integer literal.

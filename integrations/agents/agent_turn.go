@@ -48,8 +48,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/znasllc-io/memql/component/auth"
 	memorynodes "github.com/znasllc-io/memql/component/database/memory-nodes"
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
+	langparser "github.com/znasllc-io/memql/component/language/parser"
+	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/common"
 	"github.com/znasllc-io/memql/core/id"
 )
 
@@ -100,6 +104,14 @@ func (i *Integration) handleRunAgentTurn(ctx context.Context, args map[string]an
 	if agentId == "" || prompt == "" {
 		return nil, fmt.Errorf("runAgentTurn: needs an agentId and a prompt")
 	}
+	requireFile, _ := args["requireFile"].(bool)
+	if requireFile {
+		run, ok := common.RunFromContext(ctx)
+		ac, _ := auth.AccessFromContext(ctx)
+		if !ok || run.RunId == "" || run.GoalId == "" || run.OwnerUserId == "" || strings.TrimSpace(run.StepKey) == "" || ac == nil || memql.BareShortId(ac.UserId) != memql.BareShortId(run.OwnerUserId) || i.engine == nil {
+			return nil, fmt.Errorf("runAgentTurn: a file receipt requires its owned work run, executing step, and engine")
+		}
+	}
 
 	runner := i.agentTurnRunner()
 	if runner == nil {
@@ -123,11 +135,19 @@ func (i *Integration) handleRunAgentTurn(ctx context.Context, args map[string]an
 		return nil, fmt.Errorf("runAgentTurn: %w", err)
 	}
 
-	payload, err := json.Marshal(map[string]any{
+	envelope := map[string]any{
 		"agentId":   agentId,
 		"requestId": requestId,
 		"reply":     reply,
-	})
+	}
+	if requireFile {
+		fileId, err := i.workFileReceipt(ctx)
+		if err != nil {
+			return nil, err
+		}
+		envelope["outputFileId"] = fileId
+	}
+	payload, err := json.Marshal(envelope)
 	if err != nil {
 		return nil, fmt.Errorf("runAgentTurn: marshal envelope: %w", err)
 	}
@@ -139,6 +159,37 @@ func (i *Integration) handleRunAgentTurn(ctx context.Context, args map[string]an
 		CreatedBy: systemActorId,
 		Payload:   payload,
 	}}, nil
+}
+
+// A known file-producing template requires a durable file, not just the
+// model's confirmation. The file row is synchronous; its Library index is
+// promoted asynchronously on another replica and cannot serve as this receipt.
+func (i *Integration) workFileReceipt(ctx context.Context) (string, error) {
+	run, _ := common.RunFromContext(ctx)
+	receiptRunId := run.RunId
+	if run.Mode == common.RunModeReplay {
+		// Strict replay serves the same step's completed source effect. It
+		// cannot reattribute a file or borrow one from a different goal.
+		if run.SourceRunId == "" || run.SourceGoalId == "" || memql.BareShortId(run.SourceGoalId) != memql.BareShortId(run.GoalId) {
+			return "", fmt.Errorf("runAgentTurn: a replay file receipt requires its source run in the same goal")
+		}
+		receiptRunId = run.SourceRunId
+	}
+	res, err := i.engine.Execute(ctx, "query libraryFilesForOwner(runId: "+langparser.QuoteString(receiptRunId)+", stepKey: "+langparser.QuoteString(run.StepKey)+", status: \"ready\")")
+	if err != nil {
+		return "", fmt.Errorf("runAgentTurn: checking the saved file: %w", err)
+	}
+	for _, row := range memql.MaterializeRows(res) {
+		if asString(row["status"]) == "ready" && asString(row["blobUrl"]) != "" &&
+			memql.BareShortId(asString(row["ownerUserId"])) == memql.BareShortId(run.OwnerUserId) &&
+			memql.BareShortId(asString(row["producedByRunId"])) == memql.BareShortId(receiptRunId) &&
+			asString(row["producedByStepKey"]) == run.StepKey {
+			if fileId := memql.BareShortId(asString(row["id"])); fileId != "" {
+				return fileId, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("runAgentTurn: the turn finished without saving a ready Library file for this work run and step")
 }
 
 // turnSeam is embedded on Integration; kept here beside its only users.

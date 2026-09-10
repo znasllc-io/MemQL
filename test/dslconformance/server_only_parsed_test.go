@@ -920,6 +920,10 @@ func TestServerOnlyParsedSetMatchesTheTree(t *testing.T) {
 		{Path: "compose/mutations.memql", Name: "createComposition"}:      true,
 		{Path: "compose/mutations.memql", Name: "updateCompositionState"}: true,
 		{Path: "compose/mutations.memql", Name: "recordComposeRecipeRun"}: true,
+		// Recovery consumes the engine-validated request and captured source
+		// payloads. Owning the input via actor.userId does not authorize a
+		// browser to replace that execution authority after acceptance.
+		{Path: "compose/mutations.memql", Name: "createCompositionInput"}: true,
 		// The file-version supersede pair (epic memql#4806, design D10) --
 		// the same asset as the session pair above, one concept along.
 		// actor-scoping is again fully in place and again not the question:

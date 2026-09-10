@@ -132,18 +132,23 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 	prep.routerReq.Tags = []string{airoute.TagBackground}
 	prep.routerReq.Modality = airoute.ModalityTools
 
-	provider, resolved, err := r.router.ResolveWithTools(prep.routerReq)
+	selection, err := r.router.ResolveFor(ctx, prep.routerReq)
 	if err != nil {
 		return nil, fmt.Errorf("router: resolve with-tools (background lane): %w", err)
 	}
+	provider, ok := selection.Client.(common.ToolCallingChatAIProvider)
+	if !ok {
+		return nil, fmt.Errorf("router: background tools resolved to %T", selection.Client)
+	}
+	resolved := selection.Resolution
 	r.logger.Info("agentReply: router picked provider",
 		"lane", "background",
 		"tier", "cheap",
 		"provider", resolved.ProviderName,
 		"vendor", resolved.Vendor,
 		"model", resolved.Model,
-		"policy", resolved.PolicyName,
-		"chain", resolved.Chain,
+		"policy", resolved.Decision.Policy,
+		"considered", resolved.Decision.Considered,
 		"explicitHint", prep.routerReq.ExplicitProvider,
 		"operatorEnabled", prep.operatorEnabled,
 		"requestId", prep.routerReq.RequestId,
@@ -157,7 +162,7 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 	// strong tier even if the agent pinned a cheap provider. A resolution
 	// failure (no escalation provider available) just disables escalation --
 	// the cheap tier still runs to completion.
-	escalationProvider := r.resolveBackgroundEscalation(prep.routerReq, resolved.ProviderName)
+	escalationProvider := r.resolveBackgroundEscalation(ctx, prep.routerReq, resolved.ProviderName)
 
 	// Mirror the acting-agent role + id (self-resolved in prepareTurn) onto
 	// the ctx that drives the tool loop, so ExecuteTool's agent-only gate
@@ -181,19 +186,25 @@ func (r *Replier) handleBackground(ctx context.Context, msg *memqlv1.AgentGenera
 // would resolve to the same provider as the cheap tier (no point swapping).
 // cheapProviderName is the already-resolved cheap-tier provider name, used
 // to skip a no-op escalation.
-func (r *Replier) resolveBackgroundEscalation(baseReq router.ResolveRequest, cheapProviderName string) common.ToolCallingChatAIProvider {
+func (r *Replier) resolveBackgroundEscalation(ctx context.Context, baseReq router.ResolveRequest, cheapProviderName string) common.ToolCallingChatAIProvider {
 	escReq := baseReq
 	escReq.ExplicitProvider = "" // escalation always goes through the rules
 	// The escalation tag is what the shipped `backgroundEscalation` rule keys
 	// on, and that rule RAISES THE LEVEL rather than naming a stronger model
 	// -- which is the whole reason the escalation survives a fleet change.
 	escReq.Tags = []string{airoute.TagBackgroundEscalation}
-	provider, resolved, err := r.router.ResolveWithTools(escReq)
+	selection, err := r.router.ResolveFor(ctx, escReq)
 	if err != nil {
 		r.logger.Warn("agentReply: background escalation tier unavailable; staying on cheap tier",
 			"error", err, "requestId", baseReq.RequestId)
 		return nil
 	}
+	provider, ok := selection.Client.(common.ToolCallingChatAIProvider)
+	if !ok {
+		r.logger.Warn("agentReply: background escalation resolved an incompatible provider", "providerType", fmt.Sprintf("%T", selection.Client))
+		return nil
+	}
+	resolved := selection.Resolution
 	if resolved.ProviderName == cheapProviderName {
 		// Escalation resolved to the same provider as the cheap tier (e.g.
 		// the cheap providers are all unavailable and both chains fell
@@ -204,7 +215,7 @@ func (r *Replier) resolveBackgroundEscalation(baseReq router.ResolveRequest, che
 		"tier", "escalation",
 		"provider", resolved.ProviderName,
 		"model", resolved.Model,
-		"chain", resolved.Chain,
+		"considered", resolved.Decision.Considered,
 		"requestId", baseReq.RequestId,
 	)
 	return provider

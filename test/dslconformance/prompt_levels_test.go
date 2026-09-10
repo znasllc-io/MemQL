@@ -72,6 +72,10 @@ var promptLevels = map[string]string{
 	// invoked it again -- which is the same band as agentReply, not the
 	// reasoning band, because it chooses among options rather than authoring.
 	"plannerAgent": "strong",
+	// workAgentReply: executes one owned work step with tools and reports its
+	// result. The agent chooses actions and writes a user-facing reply; it does
+	// not emit executable DSL, so the agent reply band is sufficient.
+	"workAgentReply": "strong",
 	// consolidateMemory: distils at most ONE durable belief from a clustered
 	// set of episodic rows. A short bounded answer over material already
 	// narrowed by similarity, which is the fast band's shape exactly.

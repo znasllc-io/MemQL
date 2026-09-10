@@ -221,7 +221,7 @@ func (e *ParallelExecutor) Execute(ctx context.Context, step *automations.Step, 
 			childResults = append(childResults, res.result)
 			if res.err == nil {
 				// Got a successful result
-				branchResults = append(branchResults, res.result.Result)
+				branchResults = append(branchResults, automations.UnwrapStepResult(res.result.Result))
 				result.Children = childResults
 				result.Status = "success"
 				result.Result = branchResults
@@ -265,7 +265,7 @@ func (e *ParallelExecutor) Execute(ctx context.Context, step *automations.Step, 
 			if res, ok := resultsMap[i]; ok {
 				childResults = append(childResults, res.result)
 				if res.result != nil {
-					branchResults = append(branchResults, res.result.Result)
+					branchResults = append(branchResults, automations.UnwrapStepResult(res.result.Result))
 				}
 			}
 		}

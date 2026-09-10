@@ -52,6 +52,9 @@ func (a *App) transportAgent() {
 	// uploader + container so the agent can additionally hand them to the
 	// workbench / worker integrations below.
 	uploader, blobContainer := a.resolveBlobStore()
+	// Materializer automation steps execute here, with this node's own
+	// registered integration, AI router and shared Library blob container.
+	a.wireComposeIntegration(uploader, blobContainer)
 
 	// memql#733/#801: hand the workbench integration the Azure Blob uploader so a
 	// successful LOCAL fs_write uploads its bytes to v1:common:attachment

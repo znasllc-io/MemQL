@@ -16,6 +16,7 @@ type countingCompileEngine struct {
 	queries   []string
 	aiCalls   []string
 	catalogue []map[string]any
+	triage    any
 }
 
 func (e *countingCompileEngine) Execute(_ context.Context, q string) (any, error) {
@@ -42,11 +43,17 @@ func (e *countingCompileEngine) Execute(_ context.Context, q string) (any, error
 		}
 		return out, nil
 	}
+	if strings.Contains(q, "assistantAgentForUser") {
+		return []map[string]any{{"id": "v1:agents:agent:assistant", "ownerUserId": "u1"}}, nil
+	}
 	return []map[string]any{}, nil
 }
 
 func (e *countingCompileEngine) InvokeAI(_ context.Context, templateId string, _ map[string]any) (any, error) {
 	e.aiCalls = append(e.aiCalls, templateId)
+	if templateId == "goalComplexityTriage" && e.triage != nil {
+		return e.triage, nil
+	}
 	return map[string]any{}, nil
 }
 

@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/znasllc-io/memql/component/auth"
 	memqlv1 "github.com/znasllc-io/memql/component/grpc/gen"
+	"github.com/znasllc-io/memql/component/memql"
+	"github.com/znasllc-io/memql/core/common"
 )
 
 // agent_turn_test.go -- runAgentTurn (memql#5048).
@@ -138,4 +141,100 @@ func TestRunAgentTurnIsRegistered(t *testing.T) {
 		}
 	}
 	t.Fatal("runAgentTurn is not in Capabilities(); the DSL builtin would resolve to nothing")
+}
+
+type receiptEngine struct {
+	memql.IntegrationEngineAccess
+	rows  []map[string]any
+	err   error
+	query string
+	owner string
+}
+
+func (e *receiptEngine) Execute(ctx context.Context, query string) (*memql.ExecuteResult, error) {
+	e.query = query
+	ac, _ := auth.AccessFromContext(ctx)
+	if ac != nil {
+		e.owner = ac.UserId
+	}
+	return memql.NewResultWithOutput(e.rows), e.err
+}
+
+func TestRunAgentTurnRequiresAnOwnedReadyFileOnlyWhenRequested(t *testing.T) {
+	ctx := auth.ContextWithUserActor(context.Background(), "owner")
+	ctx = common.ContextWithRun(ctx, common.RunContext{RunId: "run", GoalId: "goal", OwnerUserId: "owner", StepKey: "assemble"})
+	for _, tc := range []struct {
+		name    string
+		row     map[string]any
+		failure bool
+	}{
+		{name: "plain success is insufficient", failure: true},
+		{name: "ready owned output", row: map[string]any{"id": "v1:library:file:file", "ownerUserId": "v1:identity:user:owner", "producedByRunId": "v1:work:run:run", "producedByStepKey": "assemble", "status": "ready", "blobUrl": "https://files/output"}},
+		{name: "earlier branch file", row: map[string]any{"id": "file", "ownerUserId": "owner", "producedByRunId": "run", "producedByStepKey": "sections.one", "status": "ready", "blobUrl": "https://files/output"}, failure: true},
+		{name: "missing step receipt", row: map[string]any{"id": "file", "ownerUserId": "owner", "producedByRunId": "run", "status": "ready", "blobUrl": "https://files/output"}, failure: true},
+		{name: "different run", row: map[string]any{"id": "file", "ownerUserId": "owner", "producedByRunId": "other", "status": "ready", "blobUrl": "https://files/output"}, failure: true},
+		{name: "different owner", row: map[string]any{"id": "file", "ownerUserId": "other", "producedByRunId": "run", "status": "ready", "blobUrl": "https://files/output"}, failure: true},
+		{name: "not ready", row: map[string]any{"id": "file", "ownerUserId": "owner", "producedByRunId": "run", "status": "processing", "blobUrl": "https://files/output"}, failure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := &receiptEngine{}
+			if tc.row != nil {
+				engine.rows = []map[string]any{tc.row}
+			}
+			i := &Integration{engine: engine}
+			i.SetAgentTurnRunner(&fakeTurnRunner{reply: "Done"})
+			nodes, err := i.handleRunAgentTurn(ctx, map[string]any{"agentId": "agent", "prompt": "Save a file", "requireFile": true}, 0)
+			if tc.failure {
+				if err == nil {
+					t.Fatal("accepted a completion without an owned ready file")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(nodes[0].Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["outputFileId"] != "file" || engine.owner != "owner" || !strings.Contains(engine.query, "libraryFilesForOwner") {
+				t.Fatalf("missing owned file receipt: %v query=%s owner=%s", payload, engine.query, engine.owner)
+			}
+		})
+	}
+}
+
+func TestRunAgentTurnFileReceiptRequiresAStepBeforeStarting(t *testing.T) {
+	ctx := auth.ContextWithUserActor(context.Background(), "owner")
+	ctx = common.ContextWithRun(ctx, common.RunContext{RunId: "run", GoalId: "goal", OwnerUserId: "owner"})
+	engine := &receiptEngine{rows: []map[string]any{{"id": "file", "ownerUserId": "owner", "producedByRunId": "run", "status": "ready", "blobUrl": "https://files/output"}}}
+	i := &Integration{engine: engine}
+	runner := &fakeTurnRunner{reply: "Done"}
+	i.SetAgentTurnRunner(runner)
+	if _, err := i.handleRunAgentTurn(ctx, map[string]any{"agentId": "agent", "prompt": "save", "requireFile": true}, 0); err == nil || len(runner.saw) != 0 {
+		t.Fatalf("missing step dispatched a file turn: err=%v calls=%d", err, len(runner.saw))
+	}
+}
+
+func TestRunAgentTurnReplayFileReceiptUsesSameGoalAndStep(t *testing.T) {
+	for _, tc := range []struct {
+		name, sourceGoal, producedStep string
+		wantError                      bool
+	}{
+		{name: "same source effect", sourceGoal: "v1:work:goal:goal", producedStep: "assemble"},
+		{name: "foreign source goal", sourceGoal: "other", producedStep: "assemble", wantError: true},
+		{name: "earlier source branch", sourceGoal: "goal", producedStep: "sections.partial", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := auth.ContextWithUserActor(context.Background(), "owner")
+			ctx = common.ContextWithRun(ctx, common.RunContext{RunId: "replay", GoalId: "goal", OwnerUserId: "owner", StepKey: "assemble", Mode: common.RunModeReplay, SourceRunId: "v1:work:run:source", SourceGoalId: tc.sourceGoal})
+			engine := &receiptEngine{rows: []map[string]any{{"id": "file", "ownerUserId": "owner", "producedByRunId": "source", "producedByStepKey": tc.producedStep, "status": "ready", "blobUrl": "https://files/output"}}}
+			i := &Integration{engine: engine}
+			i.SetAgentTurnRunner(&fakeTurnRunner{reply: "Done"})
+			_, err := i.handleRunAgentTurn(ctx, map[string]any{"agentId": "agent", "prompt": "save", "requireFile": true}, 0)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("replay receipt err=%v, wantError=%v", err, tc.wantError)
+			}
+		})
+	}
 }

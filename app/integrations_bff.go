@@ -12,5 +12,11 @@ package app
 // BFF's concepts.
 func (a *App) integrationsBFF() {
 	a.integrationsCore()
+	// createGoal on the bff has no local Compiler (planner-tagged only).
+	// The run graph event is the handoff; without this flag createGoal
+	// refuses with "no compile surface" rather than accepting a stranded run.
+	if work := a.lookupWorkIntegration(); work != nil {
+		work.EnableCompileViaEvent()
+	}
 	a.Logger.Info("BFF integration providers registered")
 }

@@ -173,12 +173,13 @@ func (j *workJournal) adoptRun(ctx context.Context, automation *Automation, exec
 		return
 	}
 	j.call(ctx, "updateWorkRun", map[string]any{
-		"runId":               exec.ID,
-		"status":              "running",
-		"templateFingerprint": automation.DefinitionFingerprint(fingerprintEngine),
-		"triggeredBy":         exec.TriggeredBy,
-		"nodeId":              j.nodeId,
-		"heartbeatAt":         rfc3339(exec.StartedAt),
-		"initialChainHead":    exec.InitialChainHead,
+		"runId":                 exec.ID,
+		"status":                "running",
+		"templateFingerprint":   automation.DefinitionFingerprint(fingerprintEngine),
+		"triggeredBy":           exec.TriggeredBy,
+		"nodeId":                j.nodeId,
+		"heartbeatAt":           rfc3339(exec.StartedAt),
+		"initialChainHead":      exec.InitialChainHead,
+		"callerSuppliedPayload": exec.CallerSuppliedPayload,
 	})
 }

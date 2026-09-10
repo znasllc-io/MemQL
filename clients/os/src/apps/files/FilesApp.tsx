@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Concepts, newShortId, type Row } from "@znasllc-io/memql-sdk-core/client";
 
 import { useAuthSource } from "../../auth/context";
@@ -174,12 +174,43 @@ export function FilesApp({
     return { membership, shortcuts, deskIndexByArtifactId, desksWithItems: desksWithItems.size };
   }, [osState.shell.desks, osState.surfaces]);
 
+  // The whole content population, unfiltered -- what "empty" and the rail's
+  // counts are honestly about.
+  const content = useMemo(
+    () =>
+      artifacts.snapshot.rows
+        .map(artifactFromRow)
+        .filter((r) => r.id !== "" && isContentKind(r.kind)),
+    [artifacts.snapshot],
+  );
+
+  // A generated output names its backing file, whose artifact may arrive
+  // after the composition becomes ready. Keep that intent until the retained
+  // index feed can resolve it; no extra subscription or per-file read.
+  const handledIntent = useRef("");
   // The open intent (epic memql#4842, #4845): "show this place, this folder".
   // Consumed by id, so acting on a stale render can never eat a newer
   // instruction; an unrecognized payload is consumed and ignored rather than
   // left standing to re-fire on every render.
   useEffect(() => {
-    if (!intent) return;
+    if (!intent || intent.id === handledIntent.current) return;
+    const fileId = intent.payload.fileId;
+    if (typeof fileId === "string" && fileId !== "") {
+      const artifact = content.find((row) => row.kind === "file" && row.sourceConceptRef === fileId);
+      if (!artifact) return;
+      const place = artifact.archived ? "bin" : "library";
+      setFilter((f) => ({
+        ...DEFAULT_FILTER,
+        sortAscending: f.sortAscending,
+        place,
+        folderId: artifact.folderId,
+      }));
+      setExpanded((e) => ({ ...e, [place]: true }));
+      setSelectedId(artifact.id);
+      handledIntent.current = intent.id;
+      consumeIntent?.(intent.id);
+      return;
+    }
     const place = intent.payload.place;
     const folderId = intent.payload.folderId;
     if (isFilesPlace(place)) {
@@ -195,18 +226,9 @@ export function FilesApp({
       setExpanded((e) => ({ ...e, [place]: true }));
       setSelectedId("");
     }
+    handledIntent.current = intent.id;
     consumeIntent?.(intent.id);
-  }, [intent, consumeIntent]);
-
-  // The whole content population, unfiltered -- what "empty" and the rail's
-  // counts are honestly about.
-  const content = useMemo(
-    () =>
-      artifacts.snapshot.rows
-        .map(artifactFromRow)
-        .filter((r) => r.id !== "" && isContentKind(r.kind)),
-    [artifacts.snapshot],
-  );
+  }, [intent, consumeIntent, content]);
 
   // WHICH OF THE CALLER'S FILES CAME OUT OF THE MATERIALIZER (epic
   // memql#4981, #4983). Folded from the composition feed against the artifact

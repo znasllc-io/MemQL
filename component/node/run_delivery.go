@@ -125,11 +125,12 @@ const (
 var runLifecycleKey = RoutingKey{Kind: "run", ID: "lifecycle"}
 
 // NewRunDelivery builds the run-delivery router over the given substrate.
-// runsSteps gates the consumer (Subscribe + re-publish) side: only the
-// replicas that EXECUTE runs consume run lifecycle events off their local bus,
-// so only they subscribe and fan the durable stream back. Every node runs the
-// producer (Publish) side -- a run row is written by whichever node opened it
-// (the executing replica, on compile) and by whichever one is executing it. Returns nil when the substrate or local bus is absent
+// runsSteps gates the consumer (Subscribe + re-publish) side: replicas that
+// EXECUTE runs (agent) or COMPILE them (planner) consume run lifecycle events
+// off their local bus, so only they subscribe and fan the durable stream back.
+// Every node runs the producer (Publish) side -- a run row is written by
+// whichever node opened it (often the bff) and by whichever one is compiling
+// or executing it. Returns nil when the substrate or local bus is absent
 // (single-node / non-mesh binaries) so the caller can skip wiring it without a
 // nil-guard at every call site.
 func NewRunDelivery(identity *Identity, substrate DeliverySubstrate, localBus *events.Bus, runsSteps bool, logger *slog.Logger) *RunDelivery {
