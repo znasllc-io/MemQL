@@ -49,6 +49,9 @@ func compileDB(t *testing.T) (*bun.DB, *Integration, []*Integration, *compilePro
 	}
 	eng := dispatchDBEngine(t, db)
 	bff.engine = eng
+	// BFF intake has no local Compiler; event-forward is the honest handoff
+	// (memql#5268 fold). Without this, createGoal refuses with no compile surface.
+	bff.EnableCompileViaEvent()
 	probe := &compileProbe{called: make(chan compileObservation, 20), finished: make(chan error, 20)}
 	planners := []*Integration{New(eng, testLogger()), New(eng, testLogger())}
 	for _, planner := range planners {
@@ -101,8 +104,8 @@ func TestCompileDB_BFFRunEventCrossesToOnePlannerReplica(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply := decodeReply(t, nodes)
-	if reply["compileDispatched"] != false {
-		t.Fatal("BFF falsely reported a local compile dispatch")
+	if reply["compileDispatched"] != true {
+		t.Fatal("BFF with event-forward must report compileDispatched; the run graph event is the handoff")
 	}
 	got := awaitCompile(t, probe)
 	if got.request.RunId != reply["runId"] || got.request.GoalId != reply["goalId"] || got.request.Statement != "reconcile the invoices" || got.request.Input["month"] != "September" {

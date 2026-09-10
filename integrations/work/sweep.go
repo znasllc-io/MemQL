@@ -303,9 +303,16 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 				"component", "work.sweep", "run", runId, "err", err)
 			continue
 		}
-		i.log().Info("work: closed a stale run",
-			"component", "work.sweep", "run", runId,
-			"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"))
+		if neverReachedCompile(run) {
+			i.log().Info("work: closed a run that never reached a compile surface",
+				"component", "work.sweep", "run", runId,
+				"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"),
+				"status", status, "automationName", rowString(run, "automationName"))
+		} else {
+			i.log().Info("work: closed a run whose node stopped answering",
+				"component", "work.sweep", "run", runId,
+				"lastHeartbeat", last.UTC().Format(time.RFC3339), "node", rowString(run, "nodeId"))
+		}
 		res.Abandoned++
 	}
 	return res, nil
@@ -323,8 +330,12 @@ func (i *Integration) redispatchStale(ctx context.Context, run map[string]any, r
 	// Only a run that HAS an automation to execute can be handed back. A run
 	// at `running` with no template is the compile-failed shape, and
 	// dispatching it would claim a run the seam then refuses -- burning a
-	// lease and delaying the close by one pass for nothing.
-	if rowString(run, "automationName") == "" {
+	// lease and delaying the close by one pass for nothing. The compile
+	// sentinel (`work.compile`) is the same shape: it names no template, and
+	// handing it to the executor would claim a run that then fails for
+	// "automation not runnable".
+	name := rowString(run, "automationName")
+	if name == "" || name == compilingAutomationName {
 		return false
 	}
 	if !i.dispatchRun(ctx, DispatchRequest{RunId: runId, OwnerUserId: owner, GoalId: rowString(run, "goalId"), Status: rowString(run, "status"), Recovery: true}) {
@@ -372,12 +383,21 @@ func lastHeartbeat(run map[string]any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// abandonedMessage says the three things a person needs and nothing the sweep
-// cannot know. It does NOT say the run failed: the cluster lost the node, and
-// whether the work was about to succeed is not something this can see.
+// abandonedMessage says what the sweep can actually know. It does NOT say the
+// run failed: whether the work was about to succeed is not something this can
+// see, and an append-only row cannot be corrected.
+//
+// Two shapes share the abandoned status and must NOT share a sentence:
+//
+//   - A run that was executing and whose node went silent -- "lost the node".
+//   - A run that never left `compiling` / still carries the work.compile
+//     sentinel -- compile never ran. Saying the node was lost sends the reader
+//     at infrastructure for a goal the bff accepted with no compile surface.
 func abandonedMessage(run map[string]any, last time.Time) string {
-	if rowString(run, "status") == runStatusCompiling && rowString(run, "heartbeatAt") == "" {
-		return "No planner claimed this run for compilation. Check that planner replicas are available and their compile subscriber can reach the graph and claim store."
+	if neverReachedCompile(run) {
+		return fmt.Sprintf(
+			"this run never reached a compile surface; it was still compiling (no planner compiled it) when the sweep closed it at %s. Re-create the goal once a planner is available, or resume only after compile can run.",
+			last.UTC().Format(time.RFC3339))
 	}
 	where := ""
 	if node := rowString(run, "nodeId"); node != "" {
@@ -386,6 +406,15 @@ func abandonedMessage(run map[string]any, last time.Time) string {
 	return fmt.Sprintf(
 		"this cluster lost the node that was running this%s; it was last heard from at %s. Completed steps are in the journal, so a resume serves them rather than running them again.",
 		where, last.UTC().Format(time.RFC3339))
+}
+
+// neverReachedCompile reports a run that was abandoned before any template was
+// chosen: still in `compiling`, or still carrying the compile sentinel name.
+func neverReachedCompile(run map[string]any) bool {
+	if rowString(run, "status") == runStatusCompiling {
+		return true
+	}
+	return rowString(run, "automationName") == compilingAutomationName
 }
 
 // ---------------------------------------------------------------------------

@@ -126,17 +126,62 @@ func TestLastHeartbeatFallsBackAndRefusesToGuess(t *testing.T) {
 // can see, and an append-only row cannot be corrected.
 func TestAbandonedMessageDoesNotClaimTheRunFailed(t *testing.T) {
 	last := time.Date(2026, 9, 5, 11, 0, 0, 0, time.UTC)
-	msg := abandonedMessage(map[string]any{"nodeId": "agent-7"}, last)
+	msg := abandonedMessage(map[string]any{"nodeId": "agent-7", "status": runStatusRunning, "automationName": "work.invoice"}, last)
 	if !strings.Contains(msg, "agent-7") {
 		t.Errorf("the message does not name the node: %q", msg)
 	}
 	if !strings.Contains(msg, last.Format(time.RFC3339)) {
 		t.Errorf("the message does not say when the run was last heard from: %q", msg)
 	}
+	if !strings.Contains(msg, "lost the node") {
+		t.Errorf("an executing run's abandon message should name node loss: %q", msg)
+	}
 	for _, banned := range []string{"failed", "error", "crashed"} {
 		if strings.Contains(strings.ToLower(msg), banned) {
 			t.Errorf("the message claims %q, which the sweep cannot know: %q", banned, msg)
 		}
+	}
+}
+
+// TestAbandonedMessageForNeverCompiledRun is the bff-nil-compiler symptom:
+// the sweep must NOT claim the (still-alive) bff node was lost.
+func TestAbandonedMessageForNeverCompiledRun(t *testing.T) {
+	last := time.Date(2026, 9, 5, 11, 0, 0, 0, time.UTC)
+	msg := abandonedMessage(map[string]any{
+		"nodeId": "bff-1", "status": runStatusCompiling,
+		"automationName": compilingAutomationName,
+	}, last)
+	if strings.Contains(msg, "lost the node") {
+		t.Errorf("never-compiled abandon claimed node loss: %q", msg)
+	}
+	if !strings.Contains(msg, "never reached a compile surface") {
+		t.Errorf("message = %q, want it to name the missing compile surface", msg)
+	}
+	if strings.Contains(msg, "bff-1") && strings.Contains(msg, "lost") {
+		t.Errorf("message still points at the bff as lost: %q", msg)
+	}
+}
+
+// TestRedispatchSkipsCompileSentinel: work.compile is not an executable
+// automation; handing it to the dispatcher burns a claim for nothing.
+func TestRedispatchSkipsCompileSentinel(t *testing.T) {
+	i, _ := newTestIntegration(t)
+	d, c := &capturingDispatcher{}, &stubClaimer{grant: true}
+	i.SetDispatcher(d)
+	i.SetRunClaimer(c)
+	run := map[string]any{
+		"id": "v1:work:run:r-compiling", "ownerUserId": "u-bob",
+		"status": runStatusCompiling, "automationName": compilingAutomationName,
+		"goalId": "g1",
+	}
+	if i.redispatchStale(context.Background(), run, "v1:work:run:r-compiling", "u-bob") {
+		t.Fatal("redispatched a compile-sentinel run")
+	}
+	if got := d.seen(); len(got) != 0 {
+		t.Errorf("dispatched %+v", got)
+	}
+	if len(c.keys) != 0 {
+		t.Errorf("claimed %v", c.keys)
 	}
 }
 

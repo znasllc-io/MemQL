@@ -86,6 +86,9 @@ func actorCtx(userId string) context.Context {
 func TestCreateGoal_DB_WritesARowTheOwnerCanReadAndAStrangerCannot(t *testing.T) {
 	eng := openWorkTestEngine(t)
 	i := New(eng, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// createGoal refuses without a compile surface (memql#5268 fold). These
+	// tests prove row landing / owned-tier authz, not compile itself.
+	i.SetCompiler(&recordingCompiler{done: make(chan CompileRequest, 8)})
 
 	owner := "dbtest-work-owner-" + time.Now().UTC().Format("20060102150405.000000000")
 	stranger := owner + "-stranger"
@@ -155,6 +158,9 @@ func queryGoals(t *testing.T, eng *memqlengine.MemQLEngine, userId string) []map
 func TestCreateGoal_DB_OpensARunTheOwnerCanRead(t *testing.T) {
 	eng := openWorkTestEngine(t)
 	i := New(eng, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// createGoal refuses without a compile surface (memql#5268 fold). These
+	// tests prove row landing / owned-tier authz, not compile itself.
+	i.SetCompiler(&recordingCompiler{done: make(chan CompileRequest, 8)})
 
 	owner := "dbtest-work-run-" + time.Now().UTC().Format("20060102150405.000000000")
 	statement := "Draft the board note for " + owner
@@ -238,6 +244,9 @@ func digString(m map[string]any, key string) string {
 func TestCancelGoal_DB_BorrowsAuthorityFromARowDerivedOwner(t *testing.T) {
 	eng := openWorkTestEngine(t)
 	i := New(eng, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// createGoal refuses without a compile surface (memql#5268 fold). These
+	// tests prove row landing / owned-tier authz, not compile itself.
+	i.SetCompiler(&recordingCompiler{done: make(chan CompileRequest, 8)})
 
 	owner := "dbtest-work-cancel-" + time.Now().UTC().Format("20060102150405.000000000")
 	statement := "Reconcile the ledger for " + owner

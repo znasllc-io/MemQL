@@ -18,12 +18,40 @@ import (
 const compileClaimName = "work.run.compile"
 const compileHeartbeatInterval = DefaultAbandonedAfterSeconds * time.Second / 4
 
-// dispatchCompile reports an actual local claim, never the mere presence of
-// a remote planner. All model-call context is reconstructed from stored rows;
-// an event carries only the run id and the owner needed for scoped reads.
+// dispatchCompile hands the run to a compile surface and reports whether one
+// took it.
+//
+// # Local compiler
+//
+// When this replica has a Compiler (planner), claim the run and compile on a
+// detached goroutine. All model-call context is reconstructed from stored
+// rows; an event carries only the run id and the owner needed for scoped reads.
+//
+// # Event forward (bff)
+//
+// When this replica has no Compiler but EnableCompileViaEvent was set, the
+// run row's own graph event IS the handoff: a planner's HandleRunEvent picks
+// up `compiling` the way an agent's HandleRunEvent picks up `running`.
+// Returning true here is what stops createGoal from implying the work is
+// stranded.
+//
+// # Neither
+//
+// hasCompileSurface refused before the writes. Reaching here with neither is
+// a programmer error; we still return false rather than inventing a plan.
 func (i *Integration) dispatchCompile(ctx context.Context, hint CompileRequest) bool {
+	if hint.RunId == "" || hint.OwnerUserId == "" {
+		return false
+	}
 	c := i.compilerRef()
-	if c == nil || hint.RunId == "" || hint.OwnerUserId == "" {
+	if c == nil {
+		if i.compileViaEventEnabled() {
+			i.log().Info("work: compile handed to the cluster via the run graph event",
+				"component", "work.goal", "goal", hint.GoalId, "run", hint.RunId, "node", selfNodeId())
+			return true
+		}
+		i.log().Error("work: dispatchCompile reached with no compile surface; the caller should have refused before writing the run",
+			"component", "work.goal", "goal", hint.GoalId, "run", hint.RunId)
 		return false
 	}
 	base := ownerActor(context.WithoutCancel(ctx), hint.OwnerUserId)

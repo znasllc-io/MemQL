@@ -185,6 +185,11 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 	if name := rowString(source, "automationName"); name != "" && name != compilingAutomationName {
 		status = runStatusRunning
 	}
+	// A derived run that still needs compile must refuse loudly when this
+	// replica can neither compile nor forward -- same door as createGoal.
+	if status == runStatusCompiling && !i.hasCompileSurface() {
+		return "", errNoCompileSurface
+	}
 	seed := runSeed{
 		RunId:  runId,
 		GoalId: goalId,
@@ -217,16 +222,13 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 		return runId, nil
 	}
 
-	if dispatched := i.dispatchCompile(ctx, CompileRequest{
+	_ = i.dispatchCompile(ctx, CompileRequest{
 		GoalId:      goalId,
 		RunId:       runId,
 		OwnerUserId: owner,
 		Statement:   rowString(source, "automationName"),
 		Input:       rowMap(source, "input"),
-	}); !dispatched {
-		i.log().Info("work: a derived run is waiting for a compile surface",
-			"component", "work.fork", "run", runId, "mode", d.Mode, "from", d.ForkedFromRunId)
-	}
+	})
 	return runId, nil
 }
 

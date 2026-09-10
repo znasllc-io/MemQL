@@ -81,6 +81,9 @@ func (i *Integration) handleCreateGoal(ctx context.Context, args map[string]any,
 	if err := validRequestedVia(requestedVia); err != nil {
 		return nil, err
 	}
+	if !i.hasCompileSurface() {
+		return nil, errNoCompileSurface
+	}
 
 	st := i.store()
 	now := i.clock().UTC()
