@@ -177,6 +177,9 @@ type derivation struct {
 // of the package makes -- the value comes off a row this caller already read
 // under their own actor.
 func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d derivation) (string, error) {
+	if !i.hasCompileSurface() {
+		return "", errNoCompileSurface
+	}
 	owner := rowString(source, "ownerUserId")
 	goalId := rowString(source, "goalId")
 	runId := newRowId(runConcept)
@@ -239,16 +242,13 @@ func (i *Integration) deriveRun(ctx context.Context, source map[string]any, d de
 		OwnerUserId:   owner,
 	})
 
-	if dispatched := i.dispatchCompile(ctx, CompileRequest{
+	_ = i.dispatchCompile(ctx, CompileRequest{
 		GoalId:      goalId,
 		RunId:       runId,
 		OwnerUserId: owner,
 		Statement:   rowString(source, "automationName"),
 		Input:       rowMap(source, "input"),
-	}); !dispatched {
-		i.log().Info("work: a derived run is waiting for a compile surface",
-			"component", "work.fork", "run", runId, "mode", d.Mode, "from", d.ForkedFromRunId)
-	}
+	})
 	return runId, nil
 }
 

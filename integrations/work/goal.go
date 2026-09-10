@@ -83,6 +83,10 @@ func (i *Integration) handleCreateGoal(ctx context.Context, args map[string]any,
 		return nil, err
 	}
 
+	if !i.hasCompileSurface() {
+		return nil, errNoCompileSurface
+	}
+
 	st := i.store()
 	now := i.clock().UTC()
 	goalId := newRowId(goalConcept)
@@ -162,41 +166,44 @@ func (i *Integration) handleCreateGoal(ctx context.Context, args map[string]any,
 	}), nil
 }
 
-// dispatchCompile hands the run to the compile surface on a DETACHED
-// goroutine, and reports whether there was one to hand it to.
+// dispatchCompile hands the run to a compile surface and reports whether one
+// took it.
 //
-// # The budget scope is stamped HERE, not inside compile
+// # Local compiler
 //
+// When this replica has a Compiler (planner), startCompile claims the run and
+// runs compile on a DETACHED goroutine. The budget scope is stamped there --
 // memql.ContextWithBudgetScope is what makes the per-run and per-goal ceilings
 // reachable by the LLM guard at the provider chokepoint (ai_guard.go). Compile
 // is the FIRST thing that can reach a model on this goal's behalf, so a scope
 // applied later would leave exactly the calls made before a template exists
 // uncounted -- and those are the calls a runaway compile would make.
 //
-// # The context is deliberately NOT the caller's
+// # Event forward (bff)
 //
-// The caller's context dies when the builtin returns, and compile outlives it
-// by design (the attachment handler's runAnalysisAsync pattern). So the
-// detached work gets a background context carrying the borrowed actor and the
-// budget scope, and nothing else.
+// When this replica has no Compiler but EnableCompileViaEvent was set, the
+// run row's own graph event IS the handoff: a planner's HandleCompileEvent
+// picks up `compiling` the way an agent's HandleRunEvent picks up `running`.
+// Returning true here is what stops createGoal from implying the work is
+// stranded, and what stops the abandoned sweep from later claiming the node
+// was lost.
 //
-// # A nil compiler is an ANSWER, and the run stays in `compiling`
+// # Neither
 //
-// A node with no compile surface reports compileDispatched:false and says so
-// in the log. The run is then the sweep's: it has a startedAt and no
-// heartbeat, so the abandoned pass closes it with a sentence naming the node.
-// Inventing a plan here would be worse in every direction.
+// hasCompileSurface refused before the writes. Reaching here with neither is
+// a programmer error; we still return false rather than inventing a plan.
 func (i *Integration) dispatchCompile(ctx context.Context, req CompileRequest) bool {
-	c := i.compilerRef()
-	if c == nil {
-		i.log().Warn("work: a goal was accepted on a node with no compile surface; the run stays in compiling until the abandoned sweep closes it",
-			"component", "work.goal", "goal", req.GoalId, "run", req.RunId)
-		return false
+	if i.compilerRef() != nil {
+		return i.startCompile(ctx, req)
 	}
-	base := ownerActor(context.WithoutCancel(ctx), req.OwnerUserId)
-	base = memql.ContextWithBudgetScope(base, compileBudgetScopes(req)...)
-	go c.Compile(base, req)
-	return true
+	if i.compileViaEventEnabled() {
+		i.log().Info("work: compile handed to the cluster via the run graph event",
+			"component", "work.goal", "goal", req.GoalId, "run", req.RunId, "node", selfNodeId())
+		return true
+	}
+	i.log().Error("work: dispatchCompile reached with no compile surface; the caller should have refused before writing the run",
+		"component", "work.goal", "goal", req.GoalId, "run", req.RunId)
+	return false
 }
 
 // compileBudgetScopes names the two ceilings a compile spends against.

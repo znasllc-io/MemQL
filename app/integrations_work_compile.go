@@ -18,11 +18,13 @@ import (
 //
 // integrations/work declares `Compiler` as a seam and integrations/planner
 // implements it, and until this call is made NOTHING JOINS THEM: createGoal
-// opens the goal and its first run, finds no compiler, and returns
-// compileDispatched:false, leaving the run in `compiling` forever. From
-// outside that is indistinguishable from a goal that was accepted and then
-// ignored -- and the wait-and-abandon sweep deliberately does not touch a run
-// in `compiling`, so nothing else would move it either.
+// opens the goal and its first run. Without this wiring a planner never
+// installs a Compiler and never subscribes HandleCompileEvent, so a goal
+// accepted on the bff (event-forward path) also never compiles. createGoal
+// refuses when neither a local compiler nor EnableCompileViaEvent is set;
+// with the event path enabled but no planner subscriber, the abandoned sweep
+// closes the run with a "never reached a compile surface" sentence rather
+// than claiming the bff node was lost.
 //
 // It runs on the PLANNER node only, which is what section H of the design
 // record says: "The planner node keeps compile, the reactive loop and the
@@ -58,7 +60,26 @@ func (a *App) wireWorkCompiler() {
 		return
 	}
 	work.SetCompiler(compiler)
-	a.Logger.Info("work compile wired to the planner's authoring pipeline", "component", "work")
+	// The claimer is what stops two planner replicas from compiling one run
+	// twice when both see the graph event. Same guard the agent uses for
+	// execution; installed here because the agent wire is tagged out of this
+	// binary.
+	if a.clusterGuard != nil {
+		work.SetRunClaimer(a.clusterGuard)
+	}
+	// created AND updated: a run is normally created in `compiling` on the
+	// bff, and the create event is the handoff. Subscribing to update as well
+	// covers a run rewritten back into compiling (rare) and matches the agent
+	// dispatcher's posture for the same topics.
+	for _, topic := range []string{
+		"graph.node.created.v1:work:run",
+		"graph.node.updated.v1:work:run",
+	} {
+		a.eventBus.Subscribe(topic, work.HandleCompileEvent,
+			events.WithSubscriberName("work:run-compile"))
+	}
+	a.Logger.Info("work compile wired to the planner's authoring pipeline; this node compiles runs opened anywhere in the cluster",
+		"component", "work")
 
 	// The OTHER direction, wired in the same breath (memql#5000): the
 	// reactive loop opens a work GOAL for a due responsibility now, instead
