@@ -230,6 +230,11 @@ func (s *nodeService) Stream(stream nodev1.NodeService_StreamServer) error {
 		"peer_version", hello.Version,
 	)
 
+	// Serialize every outbound Send on this stream. Heartbeats and forward
+	// replies share the stream; concurrent Send is undefined in gRPC and
+	// presents in prod as context.Canceled mesh flaps under Ask load.
+	out := serializeStream(stream)
+
 	// Register the peer. This is a direct inbound stream, so the peer is
 	// monitored for liveness: this node's checkLiveness will trip
 	// degraded/offline if heartbeats stop arriving.
@@ -259,7 +264,7 @@ func (s *nodeService) Stream(stream nodev1.NodeService_StreamServer) error {
 			},
 		},
 	}
-	if err := stream.Send(welcome); err != nil {
+	if err := out.Send(welcome); err != nil {
 		// NodeWelcome failed before the peer was fully integrated. This is
 		// the only case where immediate Remove is correct: the handshake
 		// never completed, so other peers don't know about this one yet.
@@ -270,14 +275,11 @@ func (s *nodeService) Stream(stream nodev1.NodeService_StreamServer) error {
 	// Announce the new peer to existing peers via PeerIntroduction
 	s.broadcastPeerIntroduction([]*nodev1.PeerInfo{peerInfo}, false)
 
-	// Per-stream heartbeat: the client sends heartbeats to us via its
-	// peerConnection.heartbeatLoop, but there's no equivalent outbound
-	// ticker on the server side. Without one, the client's PeerManager
-	// sees a silent server and degrades it to OFFLINE. Fire a stop
-	// channel so the goroutine exits when this handler returns.
+	// Per-stream heartbeat: keeps the child's read-liveness watchdog fed
+	// (memql#1388). Must share out's Send mutex with every forward reply.
 	stopHB := make(chan struct{})
 	defer close(stopHB)
-	go s.serverHeartbeatLoop(stream, stopHB)
+	go s.serverHeartbeatLoop(out, stopHB)
 
 	// Enter bidirectional message loop.
 	//
@@ -324,7 +326,7 @@ func (s *nodeService) Stream(stream nodev1.NodeService_StreamServer) error {
 			return err
 		}
 
-		s.handleMessage(peerId, msg, stream)
+		s.handleMessage(peerId, msg, out)
 	}
 }
 

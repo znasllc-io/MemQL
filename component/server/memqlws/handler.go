@@ -34,7 +34,7 @@ const (
 	defaultMaxPending                = 64
 	defaultMaxLocalErrors            = 256
 	defaultMaxMessageBytes     int64 = 5 * 1024 * 1024
-	defaultPingInterval              = 30 * time.Second
+	defaultPingInterval              = 15 * time.Second
 	defaultOverloadLogInterval       = 1 * time.Second
 	defaultLocalErrorInterval        = 50 * time.Millisecond
 )
@@ -289,6 +289,9 @@ type session struct {
 	writeLimit   time.Duration
 	pingInterval time.Duration
 
+	trafficMu   sync.Mutex
+	lastTraffic time.Time
+
 	activeMu sync.Mutex
 	active   map[string]struct{}
 
@@ -392,6 +395,7 @@ func (s *session) readLoop() error {
 		if msgType != websocket.MessageBinary && msgType != websocket.MessageText {
 			continue
 		}
+		s.noteTraffic()
 		if int64(len(data)) > s.maxBytes {
 			return fmt.Errorf("client message exceeded %d bytes", s.maxBytes)
 		}
@@ -460,7 +464,30 @@ func (s *session) writeLoop() error {
 func (s *session) writeMessage(payload []byte) error {
 	ctx, cancel := context.WithTimeout(s.ctx, s.writeLimit)
 	defer cancel()
-	return s.conn.Write(ctx, websocket.MessageText, payload)
+	err := s.conn.Write(ctx, websocket.MessageText, payload)
+	if err == nil {
+		s.noteTraffic()
+	}
+	return err
+}
+
+func (s *session) noteTraffic() {
+	if s == nil {
+		return
+	}
+	s.trafficMu.Lock()
+	s.lastTraffic = time.Now()
+	s.trafficMu.Unlock()
+}
+
+func (s *session) recentTraffic(within time.Duration) bool {
+	if s == nil || within <= 0 {
+		return false
+	}
+	s.trafficMu.Lock()
+	last := s.lastTraffic
+	s.trafficMu.Unlock()
+	return !last.IsZero() && time.Since(last) <= within
 }
 
 func (s *session) forwardClientMessage(msg *memqlv1.MemqlClientMessage) error {
@@ -765,11 +792,19 @@ func (s *session) localErrorLoop() {
 	}
 }
 
-// pingLoop sends periodic WebSocket pings to keep the connection alive.
-// This prevents Koyeb's edge/load-balancer from closing idle connections.
+// pingLoop sends periodic WebSocket pings to keep the connection alive
+// through idle proxies and LBs. Cadence is defaultPingInterval (15s): long
+// enough not to chatter, short enough that a healthy Ask session stays under
+// typical 30–60s idle cuts.
+//
+// A single missed pong does not kill the session when application frames
+// arrived recently -- prod aks saw "ping failed… wait for pong: context
+// deadline exceeded" right after a successful Ask answer when a transient
+// control-frame stall coincided with heavy payload traffic. Two consecutive
+// misses (or one miss with a quiet socket) still end the session so a truly
+// half-dead connection reconnects.
 func (s *session) pingLoop() error {
 	if s.pingInterval <= 0 {
-		// Ping disabled, block until context is done
 		<-s.ctx.Done()
 		return s.ctx.Err()
 	}
@@ -777,6 +812,7 @@ func (s *session) pingLoop() error {
 	ticker := time.NewTicker(s.pingInterval)
 	defer ticker.Stop()
 
+	misses := 0
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -785,9 +821,19 @@ func (s *session) pingLoop() error {
 			ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 			err := s.conn.Ping(ctx)
 			cancel()
-			if err != nil {
-				return fmt.Errorf("ping failed: %w", err)
+			if err == nil {
+				misses = 0
+				continue
 			}
+			misses++
+			if misses == 1 && s.recentTraffic(s.pingInterval*2) {
+				s.logDebug("websocket ping miss tolerated; recent application traffic",
+					"error", err,
+					"misses", misses,
+				)
+				continue
+			}
+			return fmt.Errorf("ping failed: %w", err)
 		}
 	}
 }

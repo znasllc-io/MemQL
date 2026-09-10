@@ -17,6 +17,7 @@ import type { OsAppManifest } from "../system/registry";
 import type { AppId } from "../system/windows";
 import { useSession } from "./access";
 import { useConnectionStatus } from "./connection";
+import { connectionDotTone } from "../ask/useAskReadiness";
 import { ContextMenu, type MenuEntry } from "./ContextMenu";
 import { Mark } from "./Mark";
 import { useOs, type OsNotice } from "./state";
@@ -289,8 +290,9 @@ export function Dock({
   onSignOut: () => void;
 }) {
   const { state, actions, registry, actorRole, ladderLoaded, notice } = useOs();
-  const { openAsk } = useAsk();
+  const { openAsk, availability } = useAsk();
   const connection = useConnectionStatus();
+  const connectionTone = connectionDotTone(connection, availability);
   const [menu, setMenu] = useState<{ x: number; y: number; appId: AppId } | null>(null);
 
   // `ladderLoaded` in the deps for the launcher's reason (memql#4857):
@@ -523,9 +525,17 @@ export function Dock({
         </button>
         <span
           className="os-dot os-connection-dot"
-          data-os-dot={connection === "connected" ? "reachable" : connection === "reconnecting" ? "unreachable" : "off"}
+          data-os-dot={connectionTone}
           role="img"
-          aria-label={`Cluster connection: ${connection}`}
+          aria-label={
+            connectionTone === "reachable"
+              ? "Cluster ready for Ask"
+              : connectionTone === "unreachable"
+                ? connection === "reconnecting"
+                  ? "Reconnecting to the cluster"
+                  : "Connected, but Ask has no usable inference yet"
+                : "Not connected to the cluster"
+          }
         />
         <Clock />
         <AvatarMenu onSignOut={onSignOut} />
