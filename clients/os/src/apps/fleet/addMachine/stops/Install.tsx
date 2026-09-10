@@ -71,6 +71,11 @@ export function InstallStop({
 
       <Subhead>Run this on {INSTALL_PLATFORM_LABEL[draft.platform]}</Subhead>
       <CopyField value={command} label="the install command" id="fleet-add-command" />
+      <Caption>
+        Adds this cluster as one home under ~/.memql/workers.yaml. If the machine
+        already serves another cluster, that home stays; one LaunchAgent (or Linux
+        systemd unit) covers every home.
+      </Caption>
 
       {clusterUrl === "" ? (
         <Caption>

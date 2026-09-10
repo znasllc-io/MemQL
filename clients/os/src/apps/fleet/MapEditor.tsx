@@ -14,7 +14,7 @@ import { chipsFromMap, parseLabelChip, type LabelMap } from "./labels";
 // and behave differently.
 //
 // `key=value` is the chip form throughout, which is what
-// docs/public/operate/workers-runbook.md's worker.yaml already shows, so
+// docs/public/operate/workers-runbook.md's workers.yaml already shows, so
 // there is one spelling to learn rather than two.
 
 export function MapEditor({
