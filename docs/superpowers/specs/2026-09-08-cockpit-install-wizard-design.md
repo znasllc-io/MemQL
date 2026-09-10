@@ -203,12 +203,12 @@ answer is its own PR and ships in the release D15 cuts.
 ### D12 -- Uninstall is one line too
 
 `scripts/install/uninstall-{mac,linux}.sh` in the cockpit repository stop and remove the
-service, remove the binary and its symlink, and remove `worker.yaml` (legacy single-home mirror); `workers.yaml` cleanup is a cockpit uninstall follow-up — until then prefer `memql worker unpair` or remove it by hand;
+service, remove the binary and its symlink, and remove `workers.yaml` (the token registry) plus the legacy `worker.yaml` mirror;
 `--purge` removes the state directory, `policy.yaml` and the logs as well; `--user-local`
 removes from `~/.memql/bin` instead of `/usr/local/bin`. The OS composes the one-liner
 in three places: the machine page's **Remove this machine** (revoke, then the line), the
 wizard's revoke question (a person who already ran the install has a worker retrying with
-a dead token), and the runbook.
+a dead token), and the runbook. Paste-safe curl one-liners live in the workers runbook Uninstall section.
 
 ### D13 -- Local models from the OS: the second command, then the pull
 
