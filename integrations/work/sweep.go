@@ -160,7 +160,11 @@ func (i *Integration) SweepWaiting(ctx context.Context, olderThan time.Duration)
 		if status == runStatusCompiling {
 			// Events can be lost while planners are unavailable. Compilation
 			// uses the same durable claim for this recovery and eager delivery.
-			if i.dispatchCompile(writeCtx, CompileRequest{RunId: runId, OwnerUserId: owner}) {
+			// Only a LOCAL compiler can recover here: EnableCompileViaEvent makes
+			// createGoal honest on a BFF, but dispatchCompile then returns true
+			// without claiming — counting that as Redispatched would skip the
+			// abandon path forever (memql#5262 fold of #5268).
+			if i.compilerRef() != nil && i.dispatchCompile(writeCtx, CompileRequest{RunId: runId, OwnerUserId: owner}) {
 				res.Redispatched++
 				continue
 			}
